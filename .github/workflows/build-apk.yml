@@ -41,6 +41,7 @@ jobs:
           mkdir android-build
           base64 -d android/android-app-source.b64 > /tmp/android-app-source.zip
           unzip -q /tmp/android-app-source.zip -d android-build
+          sed -i 's/@Override protected void onWindowFocusChanged/@Override public void onWindowFocusChanged/' android-build/app/src/main/java/vn/blinkredleo/app/MainActivity.java
 
       - name: Build signed release APK
         working-directory: android-build
