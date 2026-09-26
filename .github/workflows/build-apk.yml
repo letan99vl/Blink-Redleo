@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-apk.yml'
-      - 'android/android-app-source.zip'
+      - 'android/android-app-source.b64'
 
 permissions:
   contents: read
@@ -39,7 +39,8 @@ jobs:
         run: |
           rm -rf android-build
           mkdir android-build
-          unzip -q android/android-app-source.zip -d android-build
+          base64 -d android/android-app-source.b64 > /tmp/android-app-source.zip
+          unzip -q /tmp/android-app-source.zip -d android-build
 
       - name: Build signed release APK
         working-directory: android-build
