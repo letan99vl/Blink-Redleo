@@ -707,9 +707,9 @@
     bottom:0!important;
   }
   body.mapEditing #mapWrap{
-    min-height:0!important;
-    height:0!important;
-    flex:1 1 0!important;
+    min-height:120px!important;
+    height:auto!important;
+    flex:1 1 auto!important;
     overflow:auto!important;
     -webkit-overflow-scrolling:touch!important;
   }
@@ -734,6 +734,67 @@
     body.mapEditing #mapTable{margin-bottom:60px!important}
   }
 
+  /* ===== v11.2 FINAL INJ VE HEIGHT FIX ===== */
+  body.mapEditing #mapEditorScreen.active{
+    display:flex!important;
+    flex-direction:column!important;
+    inset:0!important;
+    height:100dvh!important;
+    max-height:100dvh!important;
+    min-height:0!important;
+    overflow:hidden!important;
+    padding-bottom:0!important;
+    box-sizing:border-box!important;
+  }
+  body.mapEditing #mapEditorScreen > .screenHeader,
+  body.mapEditing #mapEditorScreen > .editToolbar,
+  body.mapEditing #mapEditorScreen > .editorInfo,
+  body.mapEditing #mapEditorScreen > .editorTabs,
+  body.mapEditing #mapEditorScreen > .editorStepBar,
+  body.mapEditing #mapEditorScreen > .editorFooter{
+    flex:0 0 auto!important;
+  }
+  body.mapEditing #mapEditorScreen #mapWrap{
+    display:block!important;
+    position:relative!important;
+    flex:1 1 auto!important;
+    height:auto!important;
+    min-height:120px!important;
+    max-height:none!important;
+    width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:auto!important;
+    padding-bottom:18px!important;
+    margin:0!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  body.mapEditing #mapEditorScreen #mapTable{
+    display:table!important;
+    height:auto!important;
+    min-height:0!important;
+    width:max-content!important;
+    min-width:1650px!important;
+    margin:0 0 48px 0!important;
+    table-layout:fixed!important;
+  }
+  body.mapEditing #mapEditorScreen #mapTable tbody{display:table-row-group!important;height:auto!important}
+  body.mapEditing #mapEditorScreen #mapTable tr{display:table-row!important;height:auto!important}
+  body.mapEditing #mapEditorScreen #mapTable th,
+  body.mapEditing #mapEditorScreen #mapTable td{
+    display:table-cell!important;
+    height:42px!important;
+    min-height:42px!important;
+  }
+  @media (orientation:landscape){
+    body.mapEditing #mapEditorScreen #mapWrap{min-height:90px!important;padding-bottom:10px!important}
+    body.mapEditing #mapEditorScreen #mapTable{margin-bottom:32px!important}
+    body.mapEditing #mapEditorScreen #mapTable th,
+    body.mapEditing #mapEditorScreen #mapTable td{
+      height:34px!important;
+      min-height:34px!important;
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -743,7 +804,7 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE · WEB v11</div></div>
+      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE · WEB v11.2</div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
     <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
