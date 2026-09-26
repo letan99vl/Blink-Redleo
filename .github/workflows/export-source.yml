@@ -1,0 +1,22 @@
+name: Export Blink Source Snapshot
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-source.yml'
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blink-source-snapshot
+          path: |
+            index.html
+            android
+            .github/workflows
+          if-no-files-found: error
