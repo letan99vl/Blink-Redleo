@@ -1,4 +1,4 @@
-name: Apply Blink Web v11.1
+name: Apply Blink Web v11.2
 
 on:
   workflow_dispatch:
@@ -17,12 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply map viewport patch
         run: python3 tools/patch_v11_1.py
+          python3 tools/patch_v11_2.py
       - name: Commit web update
         run: |
           if ! git diff --quiet -- index.html; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add index.html
-            git commit -m "Apply Blink web v11.1 map viewport fixes"
+            git commit -m "Apply Blink web v11.2 INJ VE map height fix"
             git push
           fi
