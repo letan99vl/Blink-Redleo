@@ -28,7 +28,7 @@
   .badge.ok{background:#143b27;color:#7ff0a4}
   .badge.bad{background:#49222a;color:#ff98a3}
   button{border:0;border-radius:6px;padding:8px 11px;background:#28516f;color:#fff;font-weight:700;cursor:pointer}
-  button:hover{filter:brightness(1.1)}
+  button:hover{opacity:.94}
   button.primary{background:var(--accent)}
   button.good{background:#178c48}
   button.danger{background:#a93d49}
@@ -157,9 +157,9 @@
   #uiTestBanner .pulse{width:7px;height:7px;border-radius:50%;background:#ff9f0a;box-shadow:0 0 0 0 #ff9f0a66;animation:pulseDemo 1.6s infinite;}
   @keyframes pulseDemo{70%{box-shadow:0 0 0 6px #ff9f0a00}100%{box-shadow:0 0 0 0 #ff9f0a00}}
 
-  #portraitGate{display:none;position:fixed;inset:0;z-index:999999;background:#06101a;color:white;align-items:center;justify-content:center;text-align:center;padding:28px;font-weight:900;font-size:24px;}
-  #portraitGate small{display:block;font-weight:600;font-size:14px;color:#96aec2;margin-top:10px;line-height:1.4;}
-  @media (orientation:portrait) and (max-width:700px){#portraitGate{display:flex}.app{filter:blur(8px);pointer-events:none}}
+  #portraitGate{display:none!important;}
+  #portraitGate small{display:none!important;}
+  
 
   @media(max-width:950px) and (orientation:landscape){
     .app{gap:4px;padding-top:max(4px,env(safe-area-inset-top));padding-bottom:max(4px,env(safe-area-inset-bottom));}
@@ -183,7 +183,6 @@
 
   /* ===== iPhone PORTRAIT + BLE TEST v2 override ===== */
   #portraitGate{display:none!important}
-  .app{filter:none!important;pointer-events:auto!important}
   body{overflow:hidden}
   .app{
     height:100dvh;
