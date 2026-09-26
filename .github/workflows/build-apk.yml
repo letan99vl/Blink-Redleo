@@ -1,0 +1,60 @@
+name: Build BLINK REDLEO APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - 'android/android-app-source.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Extract Android source
+        run: |
+          rm -rf android-build
+          mkdir android-build
+          unzip -q android/android-app-source.zip -d android-build
+
+      - name: Build signed release APK
+        working-directory: android-build
+        run: gradle --no-daemon assembleRelease
+
+      - name: Prepare APK
+        run: |
+          cp android-build/app/build/outputs/apk/release/app-release.apk BLINK-REDLEO.apk
+          sha256sum BLINK-REDLEO.apk | tee BLINK-REDLEO.apk.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLINK-REDLEO-APK
+          path: |
+            BLINK-REDLEO.apk
+            BLINK-REDLEO.apk.sha256
+          if-no-files-found: error
