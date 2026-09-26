@@ -1,0 +1,1941 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>AFR AUTO TUNE · iPhone UI TEST</title>
+<meta name="theme-color" content="#07111d" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AFR Auto Tune" />
+<style>
+  :root{--bg:#0c1420;--panel:#121f2e;--panel2:#17283a;--line:#2b91d4;--head:#337eaf;--text:#edf6ff;--muted:#91a9bc;--ok:#21c55d;--warn:#f3b53f;--danger:#f45b69;--accent:#0b92de;--cell:#f8fbfe;--cellText:#111820}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif}
+  body{overflow:hidden}
+  button,input,select,textarea{font:inherit}
+  .app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr auto;gap:6px;padding:6px}
+  .topbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--panel);padding:7px;border:1px solid #22364a;border-radius:8px}
+  .topgroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .afrGroupStart{margin-left:18px}
+  .toolbarSep{width:1px;height:28px;background:#355067;margin:0 2px 0 6px;border-radius:1px}
+  .brand{font-weight:800;letter-spacing:.4px;margin-right:8px;white-space:nowrap}
+  .status{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  .badge{padding:5px 9px;border-radius:999px;background:#20354a;color:var(--muted);font-size:12px;font-weight:700}
+  .badge.ok{background:#143b27;color:#7ff0a4}
+  .badge.bad{background:#49222a;color:#ff98a3}
+  button{border:0;border-radius:6px;padding:8px 11px;background:#28516f;color:#fff;font-weight:700;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  button.primary{background:var(--accent)}
+  button.good{background:#178c48}
+  button.danger{background:#a93d49}
+  button.ghost{background:#23374a}
+  .tabs{display:flex;gap:6px;overflow-x:auto;background:var(--panel);padding:5px;border:1px solid #22364a;border-radius:8px}
+  .tab{white-space:nowrap;background:#22384d;color:#bcd0df;padding:7px 10px}
+  .tab.active{background:var(--accent);color:#fff}
+  .controlbar{display:grid;gap:6px;background:var(--panel);border:1px solid #22364a;border-radius:8px;padding:6px;min-width:0}
+  .liveStrip{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:5px}
+  .livebox{background:var(--panel2);border:1px solid #294159;border-radius:6px;padding:5px 7px;min-width:0}
+  .livebox .k{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+  .livebox .v{font-size:24px;font-weight:900;line-height:1.1;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .toolrow{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .toolrow button,.toolrow select{padding:6px 9px}
+  .toolrow select{background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:6px;font-weight:700}
+  .settings{border:1px solid #294159;border-radius:6px;background:#101d2a;padding:4px 7px}
+  .settings summary{cursor:pointer;color:#bfe4ff;font-size:12px;font-weight:800;white-space:nowrap}
+  .settingsGrid{display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));gap:5px;margin-top:6px;min-width:min(1100px,90vw)}
+  .field{margin:0}
+  .field label{display:block;color:#afc1cf;font-size:10px;margin-bottom:2px;white-space:nowrap}
+  .field input,.field select,.field textarea{width:100%;background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:5px;padding:5px 6px}
+  .hint{font-size:11px;line-height:1.35;color:#8098ab;margin-top:4px}
+  .threePanel{display:grid;grid-template-columns:auto auto auto 1fr;gap:6px;align-items:center;background:#0f2435;border:1px solid #2d6e98;border-radius:7px;padding:6px}
+  .threePanel[hidden]{display:none}
+  .threeStatus{min-width:0;color:#d7ecff;font-size:12px;line-height:1.35}
+  .threeStatus b{color:#fff}
+  .mapwrap{min-width:0;min-height:0;overflow:auto;background:#eaf3f9;border:1px solid #2e719f;border-radius:8px;display:flex}
+  table{border-collapse:separate;border-spacing:0;min-width:1400px;width:100%;height:100%;min-height:100%;table-layout:fixed;background:#fff;color:#111;align-self:stretch}
+  th,td{border-right:1px solid #84c8f3;border-bottom:1px solid #84c8f3;height:29px;min-width:0;text-align:center;padding:0 2px;font-size:clamp(11px,.72vw,15px);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+  th{position:sticky;top:0;z-index:4;background:var(--head);color:#fff;font-weight:600}
+  th.corner{left:0;z-index:6;width:70px;min-width:70px}
+  td.rowhead{position:sticky;left:0;z-index:3;background:var(--head);color:#fff;width:70px;min-width:70px;font-weight:600}
+  td.rowhead.idle{background:#20b93e}
+  table,th,td{-webkit-user-select:none;user-select:none}
+  td.mapcell{background:var(--cell);color:var(--cellText);cursor:cell;outline:none}
+  td.mapcell:hover{background:#e0f2ff}
+  td.mapcell.current{box-shadow:inset 0 0 0 3px #007ad0;background:#d5f1ff}
+  td.mapcell.selected{background:#087dce!important;color:#fff!important;box-shadow:inset 0 0 0 1px #005b99}
+  td.mapcell.good{background:#dcf8e5}
+  td.mapcell.warn{background:#fff1c9}
+  td.mapcell.bad{background:#ffd7da}
+  td.mapcell.afr-red{background:#e54855;color:#fff;font-weight:800}
+  td.mapcell.afr-green{background:#21a65a;color:#fff;font-weight:800}
+  td.mapcell.afr-orange{background:#f39a21;color:#111;font-weight:800}
+  td.mapcell[contenteditable="true"]{-webkit-user-select:text;user-select:text;cursor:text}
+  td.mapcell[contenteditable="true"]:focus{background:#fff8c8!important;color:#111!important;box-shadow:inset 0 0 0 2px #dc9d00}
+  .footer{display:flex;gap:8px;align-items:center;background:var(--panel);padding:6px 9px;border:1px solid #22364a;border-radius:8px;color:var(--muted);font-size:12px;overflow:auto;white-space:nowrap}
+  .ecuNotice{position:fixed;top:14px;left:50%;transform:translate(-50%,-18px);z-index:99999;min-width:min(560px,92vw);max-width:92vw;padding:14px 18px;border-radius:10px;border:2px solid #4f6475;background:#102130;color:#fff;box-shadow:0 18px 50px #0009;opacity:0;pointer-events:none;transition:.16s ease;display:flex;gap:12px;align-items:flex-start}
+  .ecuNotice.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  .ecuNotice.success{background:#123a24;border-color:#28c86b}
+  .ecuNotice.error{background:#4a1d24;border-color:#ff6473}
+  .ecuNotice.info{background:#12314a;border-color:#38a6ee}
+  .ecuNotice .icon{font-size:26px;line-height:1;font-weight:900}
+  .ecuNotice .ntitle{font-size:16px;font-weight:900;letter-spacing:.2px}
+  .ecuNotice .ndetail{font-size:12px;line-height:1.45;margin-top:3px;color:#dcecff;white-space:pre-line}
+  .ecuNotice .nclose{margin-left:auto;background:#ffffff18;border:1px solid #ffffff32;padding:3px 8px;border-radius:5px;font-size:14px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#647484;display:inline-block;margin-right:5px}.dot.on{background:#23d36b}
+  dialog{border:1px solid #34526c;border-radius:10px;background:#102030;color:#fff;min-width:min(640px,92vw);max-width:92vw;box-shadow:0 30px 80px #0008}
+  dialog::backdrop{background:#0009}
+  textarea.pastebox{height:260px;font-family:Consolas,monospace;font-size:12px}
+  .dlgBtns{display:flex;justify-content:flex-end;gap:7px;margin-top:8px}
+  .muted{color:var(--muted)}
+  .historyList{max-height:55vh;overflow:auto;border:1px solid #294159;border-radius:7px}
+  .historyRow{padding:9px;border-bottom:1px solid #294159;font-size:12px;line-height:1.45}
+  .historyRow:last-child{border-bottom:0}
+  @media(max-width:1100px){.liveStrip{grid-template-columns:repeat(3,1fr)}.settingsGrid{grid-template-columns:repeat(4,1fr)}.threePanel{grid-template-columns:1fr 1fr}.threeStatus{grid-column:1/-1}}
+  @media(max-width:700px){.liveStrip{grid-template-columns:repeat(2,1fr)}.settingsGrid{grid-template-columns:repeat(2,1fr)}table{min-width:1400px}}
+
+  /* ===== iPhone landscape UI TEST skin ===== */
+  :root{
+    --ios-bg:#07111d;--ios-card:#0d1c2b;--ios-card2:#12263a;--ios-line:#26445f;
+    --ios-blue:#0a84ff;--ios-green:#30d158;--ios-red:#ff453a;--ios-orange:#ff9f0a;
+  }
+  html{background:var(--ios-bg);-webkit-text-size-adjust:100%;}
+  body{background:var(--ios-bg);overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}
+  button,select,input,summary{touch-action:manipulation;}
+  .app{
+    height:100dvh;
+    padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
+    gap:5px;
+    grid-template-rows:auto auto auto minmax(0,1fr) auto;
+  }
+  .topbar{padding:6px 8px;border-radius:12px;background:rgba(13,28,43,.96);gap:6px;min-height:46px;}
+  .brand{font-size:14px;letter-spacing:.2px;margin-right:4px;}
+  .topgroup{gap:5px;}
+  .topgroup label{display:none;}
+  .topbar button,.topbar select{height:34px;padding:0 10px;border-radius:9px;font-size:12px;}
+  #connectEcuBtn{background:var(--ios-blue);min-width:142px;}
+  #disconnectEcuBtn{background:#28394a;}
+  #ecuNativePort,#refreshNativePortsBtn,#connectAfrBtn,#disconnectAfrBtn,.toolbarSep{display:none!important;}
+  .status{gap:5px;}
+  .badge{padding:5px 8px;font-size:10px;}
+  #afrBadge{display:none;}
+
+  .tabs{padding:4px;gap:4px;border-radius:11px;overflow:visible;display:grid;grid-template-columns:repeat(4,1fr);}
+  .tab{min-width:0;padding:7px 4px;border-radius:8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;}
+  .tab.active{background:var(--ios-blue);}
+
+  .controlbar{padding:5px;border-radius:11px;gap:5px;}
+  .liveStrip{grid-template-columns:repeat(6,minmax(76px,1fr));gap:4px;}
+  .livebox{padding:4px 6px;border-radius:9px;min-height:46px;display:flex;flex-direction:column;justify-content:center;}
+  .livebox .k{font-size:9px;}
+  .livebox .v{font-size:18px;margin-top:1px;}
+  .toolrow{gap:4px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:1px;scrollbar-width:none;}
+  .toolrow::-webkit-scrollbar{display:none;}
+  .toolrow button,.toolrow select{flex:0 0 auto;height:32px;padding:0 9px;border-radius:8px;font-size:10px;}
+  .settings{flex:0 0 auto;padding:0 7px;min-height:32px;display:flex;align-items:center;}
+  .settings summary{font-size:10px;line-height:30px;}
+  .settings[open]{position:fixed;z-index:9000;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom));display:block;padding:10px;background:#0c1b2a;border:1px solid #355b7a;box-shadow:0 20px 70px #000c;border-radius:16px;max-height:78dvh;overflow:auto;}
+  .settings[open] summary{font-size:13px;line-height:28px;}
+  .settingsGrid{grid-template-columns:repeat(4,minmax(115px,1fr));min-width:0;gap:7px;}
+  .field label{font-size:9px}.field input,.field select{height:34px;font-size:13px;}
+  .threePanel{padding:5px;border-radius:10px;grid-template-columns:auto auto auto 1fr;gap:5px;}
+  .threePanel button{height:32px;padding:0 9px;font-size:10px;}
+  .threeStatus{font-size:10px;line-height:1.25;}
+
+  .mapwrap{border-radius:11px;border-color:#1f76ad;background:#dfeaf2;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+  table{min-width:1220px;}
+  th,td{height:31px;font-size:12px;}
+  th.corner,td.rowhead{width:58px;min-width:58px;}
+  td.mapcell{touch-action:pan-x pan-y;}
+  td.mapcell.current{box-shadow:inset 0 0 0 3px #00a7ff;}
+  .footer{padding:4px 8px;border-radius:10px;font-size:9px;min-height:24px;}
+
+  #uiTestBanner{display:flex;align-items:center;gap:6px;padding:3px 7px;border-radius:999px;background:#20384d;color:#aedaFF;font-size:9px;font-weight:800;white-space:nowrap;}
+  #uiTestBanner .pulse{width:7px;height:7px;border-radius:50%;background:#ff9f0a;box-shadow:0 0 0 0 #ff9f0a66;animation:pulseDemo 1.6s infinite;}
+  @keyframes pulseDemo{70%{box-shadow:0 0 0 6px #ff9f0a00}100%{box-shadow:0 0 0 0 #ff9f0a00}}
+
+  #portraitGate{display:none;position:fixed;inset:0;z-index:999999;background:#06101a;color:white;align-items:center;justify-content:center;text-align:center;padding:28px;font-weight:900;font-size:24px;}
+  #portraitGate small{display:block;font-weight:600;font-size:14px;color:#96aec2;margin-top:10px;line-height:1.4;}
+  @media (orientation:portrait) and (max-width:700px){#portraitGate{display:flex}.app{filter:blur(8px);pointer-events:none}}
+
+  @media(max-width:950px) and (orientation:landscape){
+    .app{gap:4px;padding-top:max(4px,env(safe-area-inset-top));padding-bottom:max(4px,env(safe-area-inset-bottom));}
+    .topbar{min-height:40px;padding:4px 6px;}
+    .brand{font-size:12px;}
+    .topbar button,.topbar select{height:30px;font-size:10px;padding:0 7px;}
+    #connectEcuBtn{min-width:122px;}
+    .badge{font-size:9px;padding:4px 6px;}
+    .tab{padding:5px 3px;font-size:9px;}
+    .controlbar{padding:4px;}
+    .livebox{min-height:38px;padding:3px 5px;}
+    .livebox .k{font-size:8px}.livebox .v{font-size:15px;}
+    .toolrow button,.toolrow select{height:28px;font-size:9px;padding:0 7px;}
+    .settings{min-height:28px}.settings summary{line-height:26px;font-size:9px;}
+    .threePanel{padding:4px}.threePanel button{height:28px;font-size:9px}.threeStatus{font-size:9px;}
+    table{min-width:1120px;}th,td{height:28px;font-size:11px;}
+    .footer{min-height:20px;font-size:8px;padding:3px 6px;}
+  }
+
+</style>
+</head>
+<body>
+<div id="portraitGate"><div>XOAY IPHONE NẰM NGANG<small>Bản UI TEST được tối ưu cho landscape để bảng MAP rộng và dễ thao tác.</small></div></div>
+<div id="ecuNotice" class="ecuNotice" role="status" aria-live="polite"><div class="icon" id="ecuNoticeIcon">✓</div><div style="flex:1;min-width:0"><div class="ntitle" id="ecuNoticeTitle"></div><div class="ndetail" id="ecuNoticeDetail"></div></div><button class="nclose" id="ecuNoticeClose" type="button">✕</button></div>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">AFR AUTO TUNE · iOS</div><div id="uiTestBanner"><span class="pulse"></span>UI TEST · DEMO</div>
+    <div class="topgroup">
+      <label style="font-size:12px;font-weight:800;color:#bfe4ff">MAP ECU</label>
+      <select id="mapSelect" style="width:86px;background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:6px;padding:6px"><option value="1">No.1</option><option value="2">No.2</option><option value="3">No.3</option><option value="4">No.4</option></select>
+      <select id="ecuNativePort" style="width:92px;background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:6px;padding:6px"><option value="">ECU COM</option></select>
+      <button id="refreshNativePortsBtn" class="ghost">↻ COM</button>
+      <button id="connectEcuBtn" class="primary">KẾT NỐI ESP32 BLE</button>
+      <button id="disconnectEcuBtn" class="ghost">NGẮT</button>
+      <span class="toolbarSep" aria-hidden="true"></span>
+      <button id="connectAfrBtn" class="primary afrGroupStart">Kết nối AFR</button>
+      <button id="disconnectAfrBtn" class="ghost">Ngắt AFR</button>
+    </div>
+    <div class="status"><span id="ecuBadge" class="badge bad">BLE: OFF</span><span id="afrBadge" class="badge bad">AFR: OFF</span><span id="recordBadge" class="badge">GHI AFR: OFF</span></div>
+  </div>
+  <div class="tabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MONG MUỐN</button><button class="tab" data-tab="inject">THỜI GIAN PHUN ECU</button><button class="tab" data-tab="corrected">MAP PHUN ĐÃ BÙ</button></div>
+  <div class="controlbar">
+    <div class="liveStrip">
+      <div class="livebox"><div class="k">AFR</div><div class="v" id="afrLive">--</div></div><div class="livebox"><div class="k">TPS</div><div class="v" id="tpsLive">--%</div></div><div class="livebox"><div class="k">RPM</div><div class="v" id="rpmLive">0</div></div><div class="livebox"><div class="k">Ô HIỆN TẠI</div><div class="v" id="cellLive">--</div></div><div class="livebox"><div class="k">TPS VOLT ECU</div><div class="v" id="tpsVLive">-- V</div></div><div class="livebox"><div class="k">AFR VOLT ESP32</div><div class="v" id="afrVLive">-- V</div></div>
+    </div>
+    <div class="toolrow">
+      <button id="readMapBtn" class="good">ĐỌC MAP</button><button id="writeMapBtn" class="danger">GHI MAP</button><button id="applyCorrectedBtn" class="danger">GHI MAP ĐÃ BÙ</button><button id="recordBtn" class="good">GHI AFR</button><button id="clearMeasured" class="danger">XÓA AFR</button>
+      <select id="tuneMode"><option value="normal">MODE THƯỜNG</option><option value="three">MODE CHẠY 3 LƯỢT</option></select><button id="threeHistoryBtn" class="ghost">LỊCH SỬ</button>
+      <details class="settings"><summary>CÀI ĐẶT / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:6px"><button id="learnMin">Lấy TPS Min</button><button id="learnMax">Lấy TPS Max</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · REDLEO 0x77</button></div><div class="hint" id="studyTpsInfo">TPS Study ECU: chưa chạy. Min/Max thủ công vẫn dùng được làm dự phòng.</div><div class="hint" id="ecuDiag">ECU RAW: chưa có dữ liệu</div></details>
+    </div>
+    <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu. Lượt 1 và 2 tạo MAP cho lượt kế tiếp; kết thúc lượt 3 sẽ tính FINAL, ghi + verify ECU rồi mới hoàn tất. AFR chạm sàn không được dùng làm điểm phản ứng chính xác.</div></div>
+  </div>
+  <main class="mapwrap"><table id="mapTable"></table></main>
+  <div class="footer"><span><span id="rxDot" class="dot"></span>RX Serial</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span>AFR: 0–2.8V → 10–20</span><span>iPhone UI TEST · BLE sẽ nối ở bước kế tiếp</span><span id="saveInfo">Auto save: ON</span></div>
+</div>
+<dialog id="threeHistoryDialog"><h3>Lịch sử MODE CHẠY 3 LƯỢT</h3><div class="muted" style="font-size:12px;margin-bottom:8px">Mỗi phiên lưu toàn bộ PW, AFR và số mẫu của cả 3 lượt trong bộ nhớ trình duyệt.</div><div id="threeHistoryList" class="historyList"></div><div class="dlgBtns"><button id="downloadThreeRunBtn" class="primary">Tải JSON phiên mới nhất</button><button id="closeThreeHistoryBtn">Đóng</button></div></dialog>
+
+<script>
+'use strict';
+const RPMS = Array.from({length:30},(_,i)=>(i+1)*500);
+const TPS_ROWS = [100,90,80,70,60,50,40,30,20,14,8,5,2,'IDLE'];
+const R=TPS_ROWS.length,C=RPMS.length;
+
+const state={
+  tab:'measured',
+  mode:'normal',
+  activeMap:1,
+  mapBanks:Array.from({length:4},()=>({
+    measured:blankMatrix(null),
+    counts:blankMatrix(0),
+    target:blankMatrix(13.2),
+    inject:blankMatrix(0)
+  })),
+  ecuPort:null, ecuReader:null, ecuKeepReading:false, ecuBuf:[],
+  ecuPhase:'idle', ecuId:1, ecuConnected:false, ecuNative:true, ecuHandshakeTry:0, ecuHandshakeTimer:null, ecuRxCount:0, ecuLastTx:[], ecuWriteSentAt:0,
+  ecuReadCurrentQueued:false, ecuReadCurrentMapNo:1,
+  ecuReadAllQueued:false,
+  ecuTpsStudyQueued:false, ecuTpsStudyToken:0,
+  ecuWriteQueued:false, ecuWriteFrames:null, ecuWriteStep:0, ecuVerifyAfterWrite:false,
+  ecuWriteSnapshot:null, ecuWriteMapNo:1,
+  afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
+  live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
+  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:350,afrDelayMs:0,limitPct:100,threeRunLimitPct:30,afrFloor:10.05},
+  recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0,
+  threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
+  threeRunHistory:[],
+  selection:{active:false,anchorR:0,anchorC:0,focusR:0,focusC:0,dragging:false},
+  editingCell:null
+};
+
+function blankMatrix(v){return Array.from({length:R},()=>Array.from({length:C},()=>v));}
+function $ (id){return document.getElementById(id)}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function num(v,def=0){const n=Number(v);return Number.isFinite(n)?n:def}
+function fmt(v,d=1){return Number.isFinite(v)?Number(v).toFixed(d):'--'}
+
+for(const k of ['measured','counts','target','inject']){
+  Object.defineProperty(state,k,{
+    configurable:true,
+    get(){return state.mapBanks[state.activeMap-1][k]},
+    set(v){state.mapBanks[state.activeMap-1][k]=v}
+  });
+}
+
+function selectMapBank(n,autoRead=true){
+  n=clamp(Math.round(Number(n)||1),1,4);
+  if(state.threeRun.active && n!==state.threeRun.mapNo){alert('MODE CHẠY 3 LƯỢT đang khóa MAP No.'+state.threeRun.mapNo+'. Hãy kết thúc hoặc hủy phiên trước.');$('mapSelect').value=String(state.activeMap);return;}
+  if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){
+    alert('Đang ghi ECU, chưa thể chuyển MAP.');
+    $('mapSelect').value=String(state.activeMap);
+    return;
+  }
+  state.activeMap=n;
+  $('mapSelect').value=String(n);
+  state.lastCellKey='';
+  state.cellEnteredAt=performance.now();
+  state.selection.active=false;
+  render();
+  updateLive();
+  saveSoon();
+
+  if(autoRead&&state.ecuConnected&&state.ecuPhase==='live'){
+    queueReadCurrentMap(n);
+  }
+}
+
+function mapBasePage(mapNo=state.activeMap){
+  return 0x10 + clamp(Math.round(mapNo),1,4)*2;
+}
+
+
+function load(){
+  try{
+    const s=JSON.parse(localStorage.getItem('afrAutoTuneDirectV5')||'null');
+    if(s){
+      if(s.cal)Object.assign(state.cal,s.cal);
+      if(s.mode==='normal'||s.mode==='three')state.mode=s.mode;
+      if(Array.isArray(s.threeRunHistory))state.threeRunHistory=s.threeRunHistory.slice(0,12);
+      try{const h=JSON.parse(localStorage.getItem('afrAutoTune3RunHistoryV1')||'null');if(Array.isArray(h))state.threeRunHistory=h.slice(0,12);}catch(_e){}
+      if(s.threeRun&&typeof s.threeRun==='object'){Object.assign(state.threeRun,s.threeRun);if(!Array.isArray(state.threeRun.runs)||state.threeRun.runs.length!==3)state.threeRun.runs=[null,null,null];state.threeRun.cancelRequested=!!state.threeRun.cancelRequested;if(state.threeRun.active&&state.threeRun.phase==='recording')state.threeRun.phase='paused';}
+      if(Array.isArray(s.mapBanks)&&s.mapBanks.length===4){
+        for(let i=0;i<4;i++){
+          const b=s.mapBanks[i]||{};
+          for(const k of ['measured','counts','target','inject']){
+            if(validMatrix(b[k]))state.mapBanks[i][k]=b[k];
+          }
+        }
+      }
+      state.activeMap=clamp(Math.round(Number(s.activeMap)||1),1,4);
+      return;
+    }
+
+    // Import old single-map save into MAP No.1.
+    const old=JSON.parse(localStorage.getItem('afrMapPcV1')||'null');
+    if(old){
+      if(old.cal)Object.assign(state.cal,old.cal);
+      for(const k of ['measured','counts','target','inject']){
+        if(validMatrix(old[k]))state.mapBanks[0][k]=old[k];
+      }
+    }
+  }catch(e){}
+}
+function validMatrix(m){return Array.isArray(m)&&m.length===R&&m.every(row=>Array.isArray(row)&&row.length===C)}
+let saveTimer;
+function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(save,250)}
+function save(){
+  localStorage.setItem('afrAutoTuneDirectV5',JSON.stringify({
+    cal:state.cal,
+    mode:state.mode,
+    activeMap:state.activeMap,
+    mapBanks:state.mapBanks,
+    threeRun:state.threeRun
+  }));
+  $('saveInfo').textContent='Đã lưu MAP No.'+state.activeMap+' · '+new Date().toLocaleTimeString();
+}
+function saveThreeRunHistory(){localStorage.setItem('afrAutoTune3RunHistoryV1',JSON.stringify(state.threeRunHistory.slice(0,12)));}
+function syncControls(){
+  $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
+  $('settleMs').value=state.cal.settleMs; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('afrFloor').value=state.cal.afrFloor; $('tuneMode').value=state.mode;
+}
+function pullControls(){
+  state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
+  state.cal.settleMs=Math.max(0,num($('settleMs').value,350)); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); state.cal.afrFloor=clamp(num($('afrFloor').value,10.05),9.5,11); saveSoon();
+}
+
+function matrixFor(tab){
+  if(tab==='measured') return state.measured;
+  if(tab==='target') return state.target;
+  if(tab==='inject') return state.inject;
+  return correctedMatrix();
+}
+function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
+  const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100;
+  for(let r=0;r<R;r++) for(let c=0;c<C;c++){
+    const base=num(baseMap[r][c],0),meas=num(afrMap[r][c],0),tgt=num(targetMap[r][c],0);
+    if(base<=0){out[r][c]=null;continue;} if(meas<=0||tgt<=0){out[r][c]=base;continue;}
+    let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,65535/500);
+  }
+  return out;
+}
+function correctedMatrix(){return correctedFrom(state.inject,state.measured,state.target,state.cal.limitPct);}
+
+function displayValue(tab,r,c){
+  const data=matrixFor(tab),v=data[r][c];
+  if(tab==='measured') return v==null?'0':fmt(Number(v),2);
+  if(tab==='target') return fmt(Number(v),1);
+  if(tab==='inject') return fmt(Number(v),2);
+  return v==null?'--':fmt(Number(v),2);
+}
+
+function render(){
+  const table=$('mapTable'), data=matrixFor(state.tab);
+  let html='<thead><tr><th class="corner">TPS</th>'+RPMS.map(x=>`<th>${x}</th>`).join('')+'</tr></thead><tbody>';
+  for(let r=0;r<R;r++){
+    const rh=TPS_ROWS[r], idle=r===R-1?' idle':'';
+    html+=`<tr><td class="rowhead${idle}">${rh==='IDLE'?'IDLE':rh+'%'}</td>`;
+    for(let c=0;c<C;c++){
+      const v=data[r][c],txt=displayValue(state.tab,r,c);
+      let cls='mapcell';
+      if(state.tab==='measured'&&v!=null){
+        const afr=Number(v);
+        if(Number.isFinite(afr)){
+          if(afr<12.5) cls+=' afr-red';
+          else if(afr<=14) cls+=' afr-green';
+          else cls+=' afr-orange';
+        }
+      }
+      if(state.tab==='corrected'&&v!=null){const base=num(state.inject[r][c],0); const change=base>0?(v/base-1)*100:0; cls+=Math.abs(change)>20?' bad':Math.abs(change)>10?' warn':' good';}
+      html+=`<td class="${cls}" data-r="${r}" data-c="${c}">${txt}</td>`;
+    }
+    html+='</tr>';
+  }
+  html+='</tbody>'; table.innerHTML=html;
+  table.querySelectorAll('td.mapcell').forEach(td=>{
+    td.addEventListener('mousedown',e=>startCellSelection(e,td));
+    td.addEventListener('mouseenter',()=>dragCellSelection(td));
+    td.addEventListener('dblclick',e=>{e.preventDefault();beginEdit(td)});
+  });
+  highlightCurrent();
+  highlightSelection();
+}
+function selectCellText(td){const range=document.createRange();range.selectNodeContents(td);const s=window.getSelection();s.removeAllRanges();s.addRange(range)}
+function commitCell(td){
+  const r=+td.dataset.r,c=+td.dataset.c,v=num(String(td.textContent).replace(',','.'),0);
+  if(state.tab==='target') state.target[r][c]=v; else if(state.tab==='inject') state.inject[r][c]=v; saveSoon();
+}
+function isEditableTab(){return !state.threeRun.active&&(state.tab==='target'||state.tab==='inject')}
+function beginEdit(td){
+  if(!isEditableTab())return;
+  if(state.editingCell&&state.editingCell!==td)state.editingCell.blur();
+  state.editingCell=td;
+  td.setAttribute('contenteditable','true');
+  td.focus();
+  selectCellText(td);
+  td.onkeydown=e=>{
+    if(e.key==='Enter'){e.preventDefault();const r=+td.dataset.r,c=+td.dataset.c;td.blur();setSelection(r,c,false);moveSelection(1,0,false);}
+    else if(e.key==='Escape'){e.preventDefault();td.textContent=displayValue(state.tab,+td.dataset.r,+td.dataset.c);td.blur();}
+  };
+  td.onpaste=null;
+  td.onblur=()=>{
+    commitCell(td);
+    td.removeAttribute('contenteditable');
+    td.onkeydown=null;td.onpaste=null;td.onblur=null;
+    state.editingCell=null;
+    setSelection(+td.dataset.r,+td.dataset.c,false);
+  };
+}
+function startCellSelection(e,td){
+  if(e.button!==0||td.isContentEditable)return;
+  e.preventDefault();
+  const nativeSel=window.getSelection();if(nativeSel)nativeSel.removeAllRanges();
+  if(document.activeElement&&document.activeElement!==document.body&&document.activeElement.blur)document.activeElement.blur();
+  const r=+td.dataset.r,c=+td.dataset.c;
+  resetQuickType();
+  setSelection(r,c,e.shiftKey&&state.selection.active);
+  state.selection.dragging=true;
+}
+function dragCellSelection(td){
+  if(!state.selection.dragging||td.isContentEditable)return;
+  state.selection.focusR=+td.dataset.r;state.selection.focusC=+td.dataset.c;
+  highlightSelection();
+}
+function setSelection(r,c,extend=false){
+  r=clamp(r,0,R-1);c=clamp(c,0,C-1);
+  if(!extend||!state.selection.active){state.selection.anchorR=r;state.selection.anchorC=c;}
+  state.selection.focusR=r;state.selection.focusC=c;state.selection.active=true;
+  highlightSelection();
+}
+function selectionBounds(){
+  const s=state.selection;
+  return {r0:Math.min(s.anchorR,s.focusR),r1:Math.max(s.anchorR,s.focusR),c0:Math.min(s.anchorC,s.focusC),c1:Math.max(s.anchorC,s.focusC)};
+}
+function highlightSelection(){
+  document.querySelectorAll('td.mapcell.selected').forEach(x=>x.classList.remove('selected'));
+  if(!state.selection.active){$('selectionInfo').textContent='Chưa chọn ô';return;}
+  const b=selectionBounds();
+  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++){const td=document.querySelector(`td.mapcell[data-r="${r}"][data-c="${c}"]`);if(td)td.classList.add('selected');}
+  const rows=b.r1-b.r0+1,cols=b.c1-b.c0+1;
+  $('selectionInfo').textContent=`Đã chọn ${rows} × ${cols} = ${rows*cols} ô`;
+}
+function moveSelection(dr,dc,extend=false){
+  if(!state.selection.active){setSelection(0,0,false);return;}
+  setSelection(state.selection.focusR+dr,state.selection.focusC+dc,extend);
+  const td=document.querySelector(`td.mapcell[data-r="${state.selection.focusR}"][data-c="${state.selection.focusC}"]`);
+  if(td)td.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+function clearSelectedCells(){
+  if(!isEditableTab()||!state.selection.active)return;
+  const dst=state.tab==='target'?state.target:state.inject,b=selectionBounds();
+  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)dst[r][c]=0;
+  render();saveSoon();
+}
+
+let quickTypeBuffer='', quickTypeTimer=null;
+function resetQuickType(){quickTypeBuffer='';if(quickTypeTimer){clearTimeout(quickTypeTimer);quickTypeTimer=null;}}
+function applyQuickTypeKey(key){
+  if(!isEditableTab()||!state.selection.active)return false;
+  const decimal=(key==='.'||key===',');
+  if(!/^\d$/.test(key)&&!decimal)return false;
+  if(quickTypeTimer)clearTimeout(quickTypeTimer);
+  if(decimal){
+    if(quickTypeBuffer.includes('.'))return true;
+    quickTypeBuffer=quickTypeBuffer?quickTypeBuffer+'.':'0.';
+  }else{
+    quickTypeBuffer+=key;
+  }
+  const v=Number(quickTypeBuffer);
+  if(Number.isFinite(v)){
+    const dst=state.tab==='target'?state.target:state.inject,b=selectionBounds();
+    for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)dst[r][c]=v;
+    render();saveSoon();
+    $('selectionInfo').textContent=`Đã nhập ${quickTypeBuffer} cho ${(b.r1-b.r0+1)*(b.c1-b.c0+1)} ô`;
+  }
+  quickTypeTimer=setTimeout(resetQuickType,1200);
+  return true;
+}
+function flashSave(msg){$('saveInfo').textContent=msg;setTimeout(()=>{$('saveInfo').textContent='Auto save: ON'},1800)}
+let ecuNoticeTimer=null;
+function hideEcuNotice(){clearTimeout(ecuNoticeTimer);ecuNoticeTimer=null;const n=$('ecuNotice');if(n)n.className='ecuNotice';}
+function showEcuNotice(kind,title,detail='',holdMs){
+  const n=$('ecuNotice');if(!n)return;clearTimeout(ecuNoticeTimer);
+  const k=kind==='error'?'error':kind==='info'?'info':'success';
+  $('ecuNoticeIcon').textContent=k==='success'?'✓':k==='error'?'✕':'i';
+  $('ecuNoticeTitle').textContent=title;$('ecuNoticeDetail').textContent=detail||'';n.className='ecuNotice show '+k;
+  const ms=holdMs==null?(k==='error'?7000:3200):holdMs;if(ms>0)ecuNoticeTimer=setTimeout(hideEcuNotice,ms);
+}
+$('ecuNoticeClose').onclick=hideEcuNotice;
+
+function nearestCol(rpm){return clamp(Math.round(rpm/500)-1,0,C-1)}
+function nearestRow(tps,rpm){
+  if(rpm<350 || tps<1) return R-1;
+  let best=0,dist=1e9;
+  for(let r=0;r<R-1;r++){const d=Math.abs(tps-Number(TPS_ROWS[r]));if(d<dist){dist=d;best=r;}}
+  return best;
+}
+function currentCell(){const rpm=state.live.rpm,tps=state.live.tps;if(rpm<250)return {r:R-1,c:0,key:'idle'};const r=nearestRow(tps,rpm),c=nearestCol(rpm);return {r,c,key:r+':'+c};}
+function highlightCurrent(){
+  document.querySelectorAll('td.current').forEach(x=>x.classList.remove('current'));
+  const cur=currentCell();const td=document.querySelector(`td[data-r="${cur.r}"][data-c="${cur.c}"]`);if(td)td.classList.add('current');
+}
+
+
+function checksum8(a,n){
+  let s=0;
+  for(let i=0;i<n;i++)s=(s+a[i])&255;
+  return s;
+}
+function validReplyFrame(f){
+  if(!f||f.length<3)return false;
+  if(((f[0]+f[f.length-1])&255)!==255)return false;
+  return checksum8(f,f.length-2)===f[f.length-2];
+}
+function req5(cmd,arg){
+  const s=(cmd+arg)&255;
+  return new Uint8Array([cmd,arg,(255-s)&255,s,5]);
+}
+const REQ_ONLINE=req5(0x5A,0x5A);
+// REDLEO original: command 0x69 byte2 is the ACTIVE MAP number (1..4),
+// not ECU_ID. The ECU uses this byte to select which map is actually running.
+function reqLive(){return req5(0x69,clamp(Math.round(state.activeMap)||1,1,4)&255)}
+const REQ_READ_ALL=req5(0xAB,0xAB);
+
+
+const ECU_BRIDGE='http://127.0.0.1:8765';
+
+async function bridgeJson(path,body=null){
+  const opt=body==null?{}:{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  };
+  const r=await fetch(ECU_BRIDGE+path,opt);
+  const j=await r.json().catch(()=>({ok:false,error:'JSON response error'}));
+  if(!r.ok||!j.ok)throw new Error(j.error||('Bridge HTTP '+r.status));
+  return j;
+}
+
+async function refreshNativePorts(){
+  try{
+    const j=await bridgeJson('/ports');
+    const s=$('ecuNativePort');
+    const prev=s.value;
+    s.innerHTML='<option value="">ECU COM</option>';
+    for(const p of j.ports||[]){
+      const o=document.createElement('option');
+      o.value=p;o.textContent=p;s.appendChild(o);
+    }
+    if(prev&&(j.ports||[]).includes(prev))s.value=prev;
+    else if((j.ports||[]).includes('COM12'))s.value='COM12';
+    else if((j.ports||[]).length===1)s.value=j.ports[0];
+    $('ecuDiag').textContent='Native Bridge: ON · chọn COM cáp ECU';
+  }catch(e){
+    $('ecuDiag').textContent='Native Bridge: OFF · chạy START_BRIDGE.cmd';
+  }
+}
+
+function bridgeExpectForPhase(){
+  if(state.ecuPhase==='online')return 'online';
+  if(state.ecuPhase==='live')return 'live';
+  if(state.ecuPhase==='readcurrent')return 'readcurrent';
+  if(state.ecuPhase==='readall')return 'readall';
+  if(state.ecuPhase==='tpsstudy')return 'tpsstudy';
+  if(state.ecuPhase==='write1'||state.ecuPhase==='write2')return 'ack';
+  return 'generic';
+}
+
+async function ecuWrite(bytes){
+  const arr=Array.from(bytes);
+  state.ecuLastTx=arr.slice();
+  state.ecuWriteSentAt=performance.now();
+  const expect=bridgeExpectForPhase();
+  const j=await bridgeJson('/exchange',{tx:arr,expect});
+  const rx=(j.rx||[]).map(x=>Number(x)&255);
+  state.ecuRxCount+=rx.length;
+  for(const b of rx)state.ecuBuf.push(b);
+  $('ecuDiag').textContent=
+    'NATIVE '+expect.toUpperCase()+' · RX '+rx.length+'B · tổng '+state.ecuRxCount+'B: '+
+    frameHex(rx,28)+(rx.length>28?' ...':'');
+}
+async function sendOnlineRequest(){
+  state.ecuPhase='online';
+  await ecuWrite(REQ_ONLINE);
+}
+async function sendLiveRequest(){
+  state.ecuPhase='live';
+  await new Promise(r=>setTimeout(r,18));
+  await ecuWrite(reqLive());
+}
+async function sendReadAllRequest(){
+  state.ecuPhase='readall';
+  $('ecuBadge').textContent='ECU: ĐANG ĐỌC MAP';
+  $('ecuBadge').className='badge';
+  await ecuWrite(REQ_READ_ALL);
+}
+
+function processOnlineFrame(f){
+  if(!f||f.length<9||f[0]!==0x5A||!validReplyFrame(f)){
+    throw new Error('Handshake ECU không hợp lệ');
+  }
+
+  // REDLEO proRxOnLine() explicitly accepts:
+  // - 9-byte shortcut mode
+  // - normal full frame, and has a special 41-byte password branch.
+  // Do NOT force 37 bytes.
+  clearTimeout(state.ecuHandshakeTimer);
+  state.ecuHandshakeTimer=null;
+
+  if(f.length===9){
+    state.ecuId=1;
+    state.ecuConnected=true;
+    $('ecuBadge').textContent='ECU: ON · HANDSHAKE 9B';
+    $('ecuBadge').className='badge ok';
+    return;
+  }
+
+  if(f.length<37){
+    throw new Error('Handshake full quá ngắn: '+f.length+'B');
+  }
+
+  // REDLEO original proRxOnLine(): byte 33 is current active-map index
+  // (0=No.1, 1=No.2, 2=No.3, 3=No.4); byte 34 is ECU_ID.
+  const ecuMapIndex=Number(f[33]);
+  if(ecuMapIndex>=0 && ecuMapIndex<=3){
+    const ecuMapNo=ecuMapIndex+1;
+    // During a paused/active 3-run session keep the locked map, otherwise
+    // follow the ECU exactly like REDLEO does on connect.
+    if(!state.threeRun.active || state.threeRun.mapNo===ecuMapNo){
+      state.activeMap=ecuMapNo;
+      $('mapSelect').value=String(ecuMapNo);
+      state.lastCellKey='';
+      state.cellEnteredAt=performance.now();
+      state.selection.active=false;
+      render();
+      updateLive();
+      saveSoon();
+    }
+  }
+  state.ecuId=f[34]||1;
+  state.ecuConnected=true;
+  $('ecuBadge').textContent='ECU: ON · MAP No.'+state.activeMap+' · ID '+state.ecuId+' · '+f.length+'B';
+  $('ecuBadge').className='badge ok';
+}
+function processLiveFrame(f){
+  if(f.length!==53||!validReplyFrame(f))throw new Error('Live frame ECU không hợp lệ');
+  if(f[0]===0xA1){
+    const rawTps=(f[1]*4)+(f[47]&3);
+    state.live.tpsV=rawTps*5/1024;
+    const den=state.cal.tpsMax-state.cal.tpsMin;
+    state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
+    state.live.rpm=((f[6]<<8)|f[7])>>>0;
+    updateLive();
+    highlightCurrent();
+  }
+}
+
+function reqReadCurrent(mapNo=state.activeMap){
+  return req5(0x9A,mapBasePage(mapNo));
+}
+
+async function sendReadCurrentRequest(mapNo=state.activeMap){
+  state.ecuReadCurrentMapNo=clamp(Math.round(mapNo),1,4);
+  state.ecuPhase='readcurrent';
+  const page=mapBasePage(state.ecuReadCurrentMapNo);
+  $('ecuBadge').textContent='ECU: ĐỌC MAP No.'+state.ecuReadCurrentMapNo+' · 9A '+page.toString(16).toUpperCase();
+  $('ecuBadge').className='badge';
+  $('ecuDiag').textContent='READ MAP TX: '+frameHex(reqReadCurrent(state.ecuReadCurrentMapNo),16);
+  await ecuWrite(reqReadCurrent(state.ecuReadCurrentMapNo));
+}
+
+function parseReadCurrentFuelMap(f,mapNo=state.ecuReadCurrentMapNo){
+  const page=mapBasePage(mapNo);
+  if(!f||f.length<843||f[0]!==page||!validReplyFrame(f)){
+    throw new Error('Read Current MAP No.'+mapNo+' không hợp lệ · RX '+(f?f.length:0)+'B');
+  }
+
+  // REDLEO UartToPc() starts at byte1 and consumes exactly 420 uint16
+  // values for the visible INJ VE grid on firmware 9.20.
+  // Any valid trailing bytes before checksum are ignored here just as
+  // unrelated invisible grids are ignored by REDLEO.
+  const out=blankMatrix(0);
+  let p=1;
+  for(let wireRow=0;wireRow<R;wireRow++){
+    const uiRow=(R-1)-wireRow;
+    for(let c=0;c<C;c++){
+      const raw=(f[p]<<8)|f[p+1];
+      p+=2;
+      out[uiRow][c]=raw/500;
+    }
+  }
+
+  state.mapBanks[mapNo-1].inject=out;
+  if(state.activeMap===mapNo && (state.tab==='inject'||state.tab==='corrected'))render();
+  renderThreeRunUi();
+  saveSoon();
+  flashSave('Đã đọc MAP ECU No.'+mapNo);
+}
+
+async function queueReadCurrentMap(mapNo=state.activeMap){
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  mapNo=clamp(Math.round(mapNo),1,4);
+  if(state.ecuPhase!=='live'){
+    return alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
+  }
+  state.ecuReadCurrentQueued=true;
+  state.ecuReadCurrentMapNo=mapNo;
+  $('ecuBadge').textContent='ECU: CHỜ ĐỌC MAP No.'+mapNo;
+  $('ecuBadge').className='badge';
+}
+
+function parseReadAllFuelMap(f){
+  if(f.length!==9767||f[0]!==0xAB||!validReplyFrame(f))throw new Error('Read All frame không hợp lệ');
+
+  // REDLEO 9.12 / ECU_MODE=1:
+  // - No.1 fuel / Oil_Time1 starts at byte 1094.
+  // - 420 cells = 14 TPS rows × 30 RPM columns, uint16 big-endian.
+  // - Serialized TPS rows are bottom-to-top relative to the REDLEO grid:
+  //     packet row 0  -> IDLE
+  //     packet row 13 -> 100%
+  // - Verified against REDLEO display in the fake-ECU test:
+  //     raw 2000 -> 4.0 ms
+  //     raw 3300 -> 6.6 ms
+  //   therefore the visible conversion for this mode is raw / 500.
+  const out=blankMatrix(0);
+  const off=1094;
+  for(let wireRow=0;wireRow<R;wireRow++){
+    const uiRow=(R-1)-wireRow;
+    for(let c=0;c<C;c++){
+      const i=off+(wireRow*C+c)*2;
+      const raw=(f[i]<<8)|f[i+1];
+      out[uiRow][c]=raw/500;
+    }
+  }
+  state.inject=out;
+
+  // Dgv_Option row0/1 carries TPS min/max in the fake/read-all format.
+  if(f[92]||f[93]){
+    state.cal.tpsMin=f[92]*20/1024;
+    state.cal.tpsMax=f[93]*20/1024;
+    syncControls();
+  }
+
+  saveSoon();
+  if(state.tab==='inject'||state.tab==='corrected')render();
+  flashSave('Đã đọc MAP PHUN ECU · chuẩn REDLEO');
+}
+
+function buildFuelWriteFrame(page, uiRows){
+  // REDLEO Send Current for INJ VE No.1:
+  //   CD 12 = lower half: IDLE -> 30%
+  //   CD 13 = upper half: 40% -> 100%
+  // Each packet contains 7 rows x 30 cols x uint16 BE = 420 data bytes.
+  // REDLEO conversion verified from EXE: raw = visible_ms * 500.
+  const a=[0xCD,page];
+  for(const r of uiRows){
+    for(let c=0;c<C;c++){
+      let ms=num(state.inject[r][c],0);
+
+      // REDLEO fuel PW is serialized as uint16 big-endian.
+      // Verified scale in this ECU lane: raw / 500 = milliseconds.
+      // Therefore the protocol range is:
+      //   0 .. 65535 raw = 0 .. 131.070 ms
+      // Older Auto Tune builds incorrectly clamped at 16.000 ms (raw 8000).
+      ms=clamp(ms,0,65535/500);
+
+      const raw=clamp(Math.round(ms*500),0,65535);
+      a.push((raw>>8)&255,raw&255);
+    }
+  }
+  const s=checksum8(a,a.length);
+  const finalLen=(a.length+3)&255; // data + complement + sum + length byte
+  a.push((255-s)&255,s,finalLen);
+  return new Uint8Array(a);
+}
+
+function prepareFuelWriteFrames(mapNo=state.activeMap){
+  // Each MAP uses a pair:
+  // No.1 = CD12/CD13, No.2 = CD14/CD15,
+  // No.3 = CD16/CD17, No.4 = CD18/CD19.
+  const lower=[13,12,11,10,9,8,7];
+  const upper=[6,5,4,3,2,1,0];
+  const base=mapBasePage(mapNo);
+  return [
+    buildFuelWriteFrame(base,lower),
+    buildFuelWriteFrame(base+1,upper)
+  ];
+}
+
+function cloneMatrix(m){return m.map(row=>row.map(v=>v==null?null:Number(v)));}
+
+async function startFuelWrite(opts={}){
+  const skipConfirm=!!opts.skipConfirm;
+  if(!state.ecuConnected){alert('Hãy kết nối ECU trước.');return false;}
+  if(state.ecuPhase!=='live'){alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');return false;}
+
+  let min=Infinity,max=-Infinity;
+  for(const row of state.inject)for(const v0 of row){
+    const v=num(v0,0); if(v<min)min=v;if(v>max)max=v;
+  }
+  if(!Number.isFinite(min)||!Number.isFinite(max))return alert('MAP ECU không hợp lệ.');
+
+  const protocolMaxMs=65535/500;
+  if(max>protocolMaxMs+0.0001){
+    return alert(
+      'MAP có giá trị '+max.toFixed(3)+' ms vượt giới hạn protocol '+protocolMaxMs.toFixed(3)+' ms.'
+    );
+  }
+
+  if(!skipConfirm){
+    const ok=confirm(
+      'GHI MAP PHUN No.'+state.activeMap+' VÀO ECU?\n\n'+
+      '420 ô · '+min.toFixed(2)+'–'+max.toFixed(2)+' ms\n'+
+      'Tool sẽ ghi đúng cặp CD của MAP No.'+state.activeMap+', sau đó tự đọc lại để VERIFY.\n\n'+
+      'Chỉ tiếp tục khi điện nguồn ECU ổn định.'
+    );
+    if(!ok)return false;
+  }
+
+  state.ecuWriteMapNo=state.activeMap;
+  state.ecuWriteFrames=prepareFuelWriteFrames(state.ecuWriteMapNo);
+  state.ecuWriteStep=0;
+  state.ecuWriteSnapshot=cloneMatrix(state.inject);
+  $('mapSelect').disabled=true;
+  state.ecuWriteQueued=true;
+  state.ecuVerifyAfterWrite=true;
+  $('ecuBadge').textContent='ECU: CHỜ GHI MAP';
+  $('ecuBadge').className='badge';
+  return true;
+}
+
+async function sendFuelWriteFrame(step){
+  if(!state.ecuWriteFrames||!state.ecuWriteFrames[step])throw new Error('Write frame missing');
+  const base=mapBasePage(state.ecuWriteMapNo);
+  const page=step===0?base:base+1;
+  state.ecuWriteStep=step;
+  state.ecuPhase=step===0?'write1':'write2';
+  $('ecuBadge').textContent=(step===0?'ECU: GHI 1/2 · MAP No.':'ECU: GHI 2/2 · MAP No.')+state.ecuWriteMapNo;
+  $('ecuBadge').className='badge';
+  await ecuWrite(state.ecuWriteFrames[step]);
+}
+
+function validateWriteAck(f,page){
+  return f.length>=2 && f[f.length-2]===0xCD && f[f.length-1]===page;
+}
+
+function compareFuelMaps(a,b,tol=.006){
+  let bad=0,maxErr=0,first=null;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const x=num(a[r][c],0),y=num(b[r][c],0),e=Math.abs(x-y);
+    if(e>tol){bad++;if(!first)first={r,c,x,y,e};}
+    if(e>maxErr)maxErr=e;
+  }
+  return {bad,maxErr,first};
+}
+
+async function writeCurrentFuelMap(){
+  if(state.threeRun.active)return alert('MODE CHẠY 3 LƯỢT đang hoạt động. Hãy dùng nút KẾT THÚC LƯỢT.');
+  await startFuelWrite();
+}
+
+async function applyCorrectedAndWrite(){
+  if(state.threeRun.active)return alert('MODE CHẠY 3 LƯỢT đang hoạt động. Hãy dùng nút KẾT THÚC LƯỢT.');
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  const corrected=correctedMatrix();
+  const next=blankMatrix(0);
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const base=num(state.inject[r][c],0);
+    next[r][c]=corrected[r][c]==null?base:num(corrected[r][c],base);
+  }
+  const changed=[];
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    if(Math.abs(num(next[r][c],0)-num(state.inject[r][c],0))>.0001)changed.push([r,c]);
+  }
+  if(!changed.length)return alert('Chưa có ô AFR đo nào làm thay đổi map.');
+
+  const ok=confirm(
+    'ĐƯA MAP PHUN ĐÃ BÙ → MAP ECU No.'+state.activeMap+' VÀ GHI LUÔN?\\n\\n'+
+    'Ô có AFR đo: dùng giá trị đã bù.\\n'+
+    'Ô chưa đo: GIỮ NGUYÊN map ECU hiện tại.\\n'+
+    'Số ô thay đổi: '+changed.length+' / 420.\\n\\n'+
+    'Sau khi ghi tool sẽ tự Read All để VERIFY.'
+  );
+  if(!ok)return;
+
+  state.inject=next;
+  saveSoon();
+  if(state.tab==='inject'||state.tab==='corrected')render();
+  await startFuelWrite();
+}
+
+
+function setRecording(on){
+  state.recording=!!on;
+  state.lastCellKey='';
+  state.cellEnteredAt=performance.now();
+  $('recordBtn').textContent=state.recording?'Dừng ghi AFR':'Bắt đầu ghi AFR';
+  $('recordBtn').className=state.recording?'danger':'good';
+  $('recordBadge').textContent='GHI AFR: '+(state.recording?'ON':'OFF');
+  $('recordBadge').className='badge '+(state.recording?'ok':'');
+}
+function afrRunStats(run){
+  if(!run)return {cells:0,samples:0,avg:NaN,min:NaN,max:NaN};
+  let cells=0,samples=0,sum=0,min=Infinity,max=-Infinity;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const n=num(run.counts[r][c],0),a=Number(run.afr[r][c]);
+    if(n<=0||!Number.isFinite(a))continue;
+    cells++;samples+=n;sum+=a*n;if(a<min)min=a;if(a>max)max=a;
+  }
+  return {cells,samples,avg:samples?sum/samples:NaN,min:cells?min:NaN,max:cells?max:NaN};
+}
+function matrixToWritable(base,proposal){
+  const out=blankMatrix(0);
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const b=num(base[r][c],0),v=proposal[r][c];
+    out[r][c]=v==null?b:clamp(num(v,b),0,65535/500);
+  }
+  return out;
+}
+function adaptiveThirdMap(run1,run2,targetMap){
+  const out=cloneMatrix(run2.pw),floor=state.cal.afrFloor,lim=state.cal.threeRunLimitPct/100;
+  const stats={response2Point:0,fallbackRun2:0,ignoredRun1Floor:0,ignoredRun2Floor:0,noData:0,noResponse:0,limited:0};
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const p1=num(run1.pw[r][c],0),p2=num(run2.pw[r][c],0),a1=Number(run1.afr[r][c]),a2=Number(run2.afr[r][c]),t=num(targetMap[r][c],0);
+    const n1=num(run1.counts[r][c],0),n2=num(run2.counts[r][c],0);
+    if(p2<=0||t<=0||n2<=0||!Number.isFinite(a2)){stats.noData++;continue;}
+    if(a2<=floor){stats.ignoredRun2Floor++;continue;}
+    if(Math.abs(a2-t)<=0.03)continue;
+    let predicted=NaN;
+    const run1Usable=n1>0&&Number.isFinite(a1)&&a1>floor&&p1>0;
+    if(run1Usable){
+      const dP=Math.log(p2/p1),dA=Math.log(a2/a1),k=Math.abs(dP)>0.002?(-dA/dP):NaN;
+      if(Number.isFinite(k)&&k>=0.20&&k<=3.00){predicted=p2*Math.pow(a2/t,1/k);stats.response2Point++;}
+      else{predicted=p2*(a2/t);stats.noResponse++;stats.fallbackRun2++;}
+    }else{
+      if(n1>0&&Number.isFinite(a1)&&a1<=floor)stats.ignoredRun1Floor++;
+      predicted=p2*(a2/t);stats.fallbackRun2++;
+    }
+    const lo=Math.max(0,p2*(1-lim)),hi=p2*(1+lim),limited=clamp(predicted,lo,hi);
+    if(Math.abs(limited-predicted)>0.000001)stats.limited++;
+    out[r][c]=clamp(limited,0,65535/500);
+  }
+  return {map:out,stats};
+}
+
+function adaptiveFinalMap(run2,run3,targetMap){
+  // FINAL correction after pass 3. Use the newest response (run2 -> run3)
+  // when both AFR points are trustworthy. If run2 was saturated at the AFR
+  // floor but run3 is valid, fall back to the normal AFR ratio from run3.
+  // If run3 is still at/below the AFR floor, keep PW unchanged because the
+  // true richness is unknown.
+  const out=cloneMatrix(run3.pw),floor=state.cal.afrFloor,lim=state.cal.threeRunLimitPct/100;
+  const stats={response2Point:0,fallbackRun3:0,ignoredRun2Floor:0,ignoredRun3Floor:0,noData:0,noResponse:0,limited:0,alreadyOnTarget:0};
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const p2=num(run2.pw[r][c],0),p3=num(run3.pw[r][c],0),a2=Number(run2.afr[r][c]),a3=Number(run3.afr[r][c]),t=num(targetMap[r][c],0);
+    const n2=num(run2.counts[r][c],0),n3=num(run3.counts[r][c],0);
+    if(p3<=0||t<=0||n3<=0||!Number.isFinite(a3)){stats.noData++;continue;}
+    if(a3<=floor){stats.ignoredRun3Floor++;continue;}
+    if(Math.abs(a3-t)<=0.03){stats.alreadyOnTarget++;continue;}
+    let predicted=NaN;
+    const run2Usable=n2>0&&Number.isFinite(a2)&&a2>floor&&p2>0;
+    if(run2Usable){
+      const dP=Math.log(p3/p2),dA=Math.log(a3/a2),k=Math.abs(dP)>0.002?(-dA/dP):NaN;
+      if(Number.isFinite(k)&&k>=0.20&&k<=3.00){predicted=p3*Math.pow(a3/t,1/k);stats.response2Point++;}
+      else{predicted=p3*(a3/t);stats.noResponse++;stats.fallbackRun3++;}
+    }else{
+      if(n2>0&&Number.isFinite(a2)&&a2<=floor)stats.ignoredRun2Floor++;
+      predicted=p3*(a3/t);stats.fallbackRun3++;
+    }
+    const lo=Math.max(0,p3*(1-lim)),hi=p3*(1+lim),limited=clamp(predicted,lo,hi);
+    if(Math.abs(limited-predicted)>0.000001)stats.limited++;
+    out[r][c]=clamp(limited,0,65535/500);
+  }
+  return {map:out,stats};
+}
+function completeThreeRunSession(){
+  const tr=state.threeRun;if(!tr.active)return;
+  const session={
+    id:'run3-'+Date.now(),mapNo:tr.mapNo,startedAt:tr.startedAt,completedAt:new Date().toISOString(),
+    target:cloneMatrix(tr.target),runs:tr.runs,lastAdaptiveStats:tr.lastAdaptiveStats,
+    finalAdaptiveStats:tr.finalAdaptiveStats,finalPw:tr.finalPw?cloneMatrix(tr.finalPw):cloneMatrix(state.inject)
+  };
+  state.threeRunHistory.unshift(session);state.threeRunHistory=state.threeRunHistory.slice(0,12);saveThreeRunHistory();
+  tr.active=false;tr.phase='complete';tr.runPw=null;tr.pendingNextPass=0;tr.cancelRequested=false;
+  $('mapSelect').disabled=false;renderThreeRunUi();renderThreeRunHistory();save();
+  showEcuNotice('success','HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo,'Đã chỉnh MAP đủ 3 lần. FINAL MAP đã ghi + VERIFY 420/420 ô và lưu PW + AFR + số mẫu của cả 3 lượt.',6500);
+  alert('HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo+'\n\nĐã chỉnh MAP đủ 3 lần.\nLần cuối sau LƯỢT 3 đã được ghi + VERIFY ECU.\nĐã lưu PW + AFR + số mẫu của cả 3 lượt vào lịch sử.');
+}
+function threeRunStatusText(){
+  const tr=state.threeRun;
+  if(!tr.active){const last=state.threeRunHistory[0];return last?'<b>Mode chạy 3 lượt:</b> sẵn sàng · phiên gần nhất MAP No.'+last.mapNo+' hoàn tất '+new Date(last.completedAt).toLocaleString():'<b>Mode chạy 3 lượt:</b> chưa bắt đầu. 3 lượt chạy = 3 lần chỉnh MAP; kết thúc lượt 3 sẽ ghi FINAL và verify ECU.';}
+  const phase=tr.cancelRequested?'ĐANG HỦY · CHỜ GHI ECU XONG':tr.phase==='recording'?'ĐANG GHI AFR':tr.phase==='paused'?'TẠM DỪNG':tr.phase==='writing'?'ĐANG GHI + VERIFY ECU':tr.phase==='error'?'LỖI / CHỜ XỬ LÝ':tr.phase.toUpperCase();
+  let extra='';
+  if(tr.phase==='writing'&&tr.pendingNextPass===4&&tr.finalAdaptiveStats){const x=tr.finalAdaptiveStats;extra=' · FINAL: 2 điểm '+x.response2Point+' ô · fallback L3 '+x.fallbackRun3+' · AFR3 sàn giữ nguyên '+x.ignoredRun3Floor;}
+  else if(tr.lastAdaptiveStats){const x=tr.lastAdaptiveStats;extra=' · L2→L3: 2 điểm '+x.response2Point+' ô · bỏ AFR1≤'+state.cal.afrFloor.toFixed(2)+': '+x.ignoredRun1Floor+' · fallback lượt 2: '+x.fallbackRun2+' · AFR2 sàn giữ nguyên: '+x.ignoredRun2Floor;}
+  return '<b>MAP No.'+tr.mapNo+' · LƯỢT '+tr.pass+'/3 · '+phase+'</b>'+extra;
+}
+function renderThreeRunUi(){
+  const isThree=state.mode==='three';$('threeRunPanel').hidden=!isThree;$('recordBtn').style.display=isThree?'none':'';$('clearMeasured').style.display=isThree?'none':'';
+  $('applyCorrectedBtn').disabled=state.threeRun.active;$('writeMapBtn').disabled=state.threeRun.active;$('readMapBtn').disabled=state.threeRun.active;$('mapSelect').disabled=state.threeRun.active||(state.ecuPhase==='write1'||state.ecuPhase==='write2');
+  $('threeRunStartBtn').disabled=state.threeRun.active;$('threeRunCancelBtn').disabled=!state.threeRun.active;$('threeRunCancelBtn').textContent=state.threeRun.cancelRequested?'ĐANG HỦY...':'HỦY PHIÊN';$('threeRunStepBtn').disabled=!state.threeRun.active||state.threeRun.phase==='writing'||state.threeRun.phase==='error'||state.threeRun.cancelRequested;
+  if(state.threeRun.active){if(state.threeRun.phase==='paused')$('threeRunStepBtn').textContent='TIẾP TỤC GHI LƯỢT '+state.threeRun.pass;else if(state.threeRun.pass<3)$('threeRunStepBtn').textContent='KẾT THÚC LƯỢT '+state.threeRun.pass+' → TÍNH + GHI ECU';else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT 3 → TÍNH + GHI FINAL';}else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT';
+  $('threeRunStatus').innerHTML=threeRunStatusText();
+}
+function setTuneMode(mode){
+  if(mode!=='normal'&&mode!=='three')mode='normal';
+  if(state.threeRun.active&&mode!=='three'){alert('Phiên 3 lượt đang chạy. Hãy kết thúc hoặc hủy phiên trước.');$('tuneMode').value='three';return;}
+  if(state.recording)setRecording(false);state.mode=mode;$('tuneMode').value=mode;renderThreeRunUi();saveSoon();
+}
+function beginThreeRunPass(pass,keepMeasured=false){
+  const tr=state.threeRun;tr.pass=pass;tr.phase='recording';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);
+  if(!keepMeasured){state.measured=blankMatrix(null);state.counts=blankMatrix(0);}setRecording(true);state.selection.active=false;setTab('measured');renderThreeRunUi();saveSoon();
+}
+async function startThreeRunSession(){
+  if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!state.afrPort||!state.afrKeepReading)return alert('Hãy kết nối AFR ESP32 trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
+  let maxPw=0;for(const row of state.inject)for(const v of row)maxPw=Math.max(maxPw,num(v,0));if(maxPw<=0)return alert('Chưa có MAP phun ECU. Hãy bấm Đọc MAP ECU trước.');
+  const ok=confirm('BẮT ĐẦU MODE CHẠY 3 LƯỢT trên MAP No.'+state.activeMap+'?\n\nLượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi + VERIFY ECU lần 3.\n\nChỉ sau khi FINAL VERIFY thành công phiên mới hoàn tất. Trong lúc chạy, MAP và chỉnh tay sẽ bị khóa.');if(!ok)return;
+  state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:null,runPw:null,target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};beginThreeRunPass(1,false);
+}
+function captureThreeRun(pass){
+  const tr=state.threeRun,run={pass,startedAt:tr.runStartedAt,endedAt:new Date().toISOString(),pw:cloneMatrix(tr.runPw||state.inject),afr:cloneMatrix(state.measured),counts:cloneMatrix(state.counts)};run.summary=afrRunStats(run);tr.runs[pass-1]=run;return run;
+}
+async function finishThreeRunPass(){
+  const tr=state.threeRun;if(!tr.active)return;
+  if(tr.phase==='paused'){if(!state.ecuConnected||!state.afrPort)return alert('Kết nối lại ECU và AFR trước khi tiếp tục.');tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;}
+  if(tr.phase!=='recording')return;setRecording(false);const pass=tr.pass,run=captureThreeRun(pass);
+  if(run.summary.cells<1){setRecording(true);tr.phase='recording';return alert('Lượt '+pass+' chưa có ô AFR hợp lệ nào. Hãy chạy xe và ghi dữ liệu trước.');}
+  if(pass===3){
+    const finalAdaptive=adaptiveFinalMap(tr.runs[1],run,tr.target);
+    const finalMap=finalAdaptive.map;
+    tr.finalAdaptiveStats=finalAdaptive.stats;
+    tr.finalPw=cloneMatrix(finalMap);
+    run.nextPw=cloneMatrix(finalMap);
+    run.finalAdaptiveStats=finalAdaptive.stats;
+    state.inject=cloneMatrix(finalMap);
+    tr.phase='writing';
+    tr.pendingNextPass=4; // sentinel: verify xong thì hoàn tất, KHÔNG có lượt 4
+    if(state.tab==='inject'||state.tab==='corrected')render();
+    renderThreeRunUi();saveSoon();
+    flashSave('Lượt 3 → FINAL: đang tính phản ứng L2→L3 và ghi MAP lần 3 vào ECU...');
+    const started=await startFuelWrite({skipConfirm:true});
+    if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
+    return;
+  }
+  let nextMap,detail='';
+  if(pass===1){const proposal=correctedFrom(run.pw,run.afr,tr.target,state.cal.limitPct);nextMap=matrixToWritable(run.pw,proposal);run.nextPw=cloneMatrix(nextMap);detail='Lượt 1 → 2: bù AFR theo công thức chuẩn.';}
+  else{const adaptive=adaptiveThirdMap(tr.runs[0],run,tr.target);nextMap=adaptive.map;tr.lastAdaptiveStats=adaptive.stats;run.nextPw=cloneMatrix(nextMap);run.adaptiveStats=adaptive.stats;detail='Lượt 2 → 3: học phản ứng PW/AFR hai lượt; AFR1 chạm sàn không tham gia mô hình.';}
+  state.inject=cloneMatrix(nextMap);tr.phase='writing';tr.pendingNextPass=pass+1;if(state.tab==='inject'||state.tab==='corrected')render();renderThreeRunUi();saveSoon();flashSave(detail+' Đang ghi ECU...');
+  const started=await startFuelWrite({skipConfirm:true});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
+}
+function resetThreeRunCancelled(msg='ĐÃ HỦY PHIÊN 3 LƯỢT'){
+  setRecording(false);
+  state.threeRun={active:false,mapNo:state.activeMap,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};
+  $('mapSelect').disabled=false;
+  renderThreeRunUi();saveSoon();flashSave(msg);
+}
+function onFuelWriteVerified(mapNo){
+  const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
+  if(tr.cancelRequested){resetThreeRunCancelled('VERIFY OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
+  if(!tr.pendingNextPass)return;
+  const next=tr.pendingNextPass;tr.pendingNextPass=0;
+  if(next===4){completeThreeRunSession();return;}
+  if(!state.afrPort||!state.afrKeepReading){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('VERIFY OK · kết nối lại AFR để chạy LƯỢT '+next);return;}
+  beginThreeRunPass(next,false);flashSave('VERIFY OK · tự bắt đầu LƯỢT '+next+'/3');
+}
+function onFuelWriteVerifyFailed(mapNo,cmp){
+  const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
+  if(tr.cancelRequested){resetThreeRunCancelled('GHI/VERIFY LỖI · PHIÊN 3 LƯỢT ĐÃ HỦY');return;}
+  tr.phase='error';tr.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();
+}
+function cancelThreeRun(){
+  const tr=state.threeRun;if(!tr.active)return;
+
+  // Chỉ không được cắt ngang khi một trong hai frame CD đang thực sự truyền.
+  const writeInProgress=(state.ecuPhase==='write1'||state.ecuPhase==='write2');
+  const writeQueued=!!state.ecuWriteQueued;
+
+  if(writeInProgress){
+    if(tr.cancelRequested)return;
+    if(!confirm('ECU đang GHI MAP. Hủy phiên ngay sau khi ghi/verify hiện tại hoàn tất?\n\nApp sẽ không cắt ngang frame đang ghi để tránh MAP bị ghi dở. Sau đó sẽ dừng, KHÔNG chạy lượt tiếp theo.'))return;
+    setRecording(false);tr.cancelRequested=true;renderThreeRunUi();saveSoon();flashSave('ĐÃ YÊU CẦU HỦY · chờ ghi/verify ECU xong...');return;
+  }
+
+  if(!confirm('Hủy phiên MODE CHẠY 3 LƯỢT hiện tại? Dữ liệu phiên chưa hoàn tất sẽ không đưa vào lịch sử.'))return;
+  setRecording(false);
+
+  // Nếu mới xếp hàng ghi mà chưa truyền frame CD nào: hủy luôn lệnh ghi.
+  if(writeQueued){
+    state.ecuWriteQueued=false;state.ecuWriteFrames=null;state.ecuVerifyAfterWrite=false;state.ecuWriteSnapshot=null;
+    if(tr.runPw)state.inject=cloneMatrix(tr.runPw);
+    if(state.tab==='inject'||state.tab==='corrected')render();
+  }
+
+  // Nếu đã ghi xong và chỉ đang read-back VERIFY thì có thể hủy phiên ngay;
+  // việc đọc/verify còn lại được phép hoàn tất độc lập, không khởi động lượt kế tiếp.
+  resetThreeRunCancelled();
+}
+function renderThreeRunHistory(){
+  const box=$('threeHistoryList');if(!state.threeRunHistory.length){box.innerHTML='<div class="historyRow muted">Chưa có phiên 3 lượt hoàn tất.</div>';return;}
+  box.innerHTML=state.threeRunHistory.map((x,i)=>{const rs=(x.runs||[]).map(r=>afrRunStats(r)),fs=z=>z&&z.cells?`${z.cells} ô · AFR TB ${fmt(z.avg,2)} · ${z.samples} mẫu`:'không dữ liệu',a=x.lastAdaptiveStats||{},f=x.finalAdaptiveStats||{};return `<div class="historyRow"><b>#${i+1} · MAP No.${x.mapNo}</b> · ${new Date(x.completedAt).toLocaleString()}<br>L1: ${fs(rs[0])}<br>L2: ${fs(rs[1])}<br>L3: ${fs(rs[2])}<br><span class="muted">L2→L3: 2 điểm ${a.response2Point||0} ô · fallback L2 ${a.fallbackRun2||0} · AFR2 sàn giữ nguyên ${a.ignoredRun2Floor||0}<br>FINAL sau L3: 2 điểm ${f.response2Point||0} ô · fallback L3 ${f.fallbackRun3||0} · AFR3 sàn giữ nguyên ${f.ignoredRun3Floor||0} · giới hạn bước ${f.limited||0}</span></div>`;}).join('');
+}
+function openThreeRunHistory(){renderThreeRunHistory();$('threeHistoryDialog').showModal();}
+function downloadLatestThreeRun(){const x=state.threeRunHistory[0];if(!x)return alert('Chưa có phiên 3 lượt hoàn tất.');const blob=new Blob([JSON.stringify(x,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='AFR_3RUN_MAP'+x.mapNo+'_'+String(x.completedAt).replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+
+
+const REQ_TPS_STUDY=req5(0x77,0x77); // 77 77 11 EE 05
+
+async function sendTpsStudyRequest(){
+  state.ecuTpsStudyQueued=false;
+  state.ecuPhase='tpsstudy';
+  state.ecuTpsStudyToken++;
+  const token=state.ecuTpsStudyToken;
+
+  $('ecuBadge').textContent='ECU: TPS STUDY 0x77...';
+  $('ecuBadge').className='badge';
+  $('studyTpsInfo').textContent='Đang chờ ECU trả calibration TPS...';
+
+  await ecuWrite(REQ_TPS_STUDY);
+
+  // Không khóa vĩnh viễn nếu ECU không trả lời.
+  setTimeout(async()=>{
+    if(state.ecuPhase==='tpsstudy' && state.ecuTpsStudyToken===token){
+      state.ecuTpsStudyToken++;
+      state.ecuPhase='live';
+      $('studyTpsInfo').textContent='TPS Study timeout · giữ calibration hiện tại.';
+      $('ecuBadge').textContent='ECU: TPS STUDY TIMEOUT';
+      $('ecuBadge').className='badge bad';
+      showEcuNotice('error','TPS STUDY THẤT BẠI','ECU không trả dữ liệu calibration TPS trong thời gian chờ. Giữ nguyên TPS Min/Max hiện tại.');
+      try{await sendLiveRequest()}catch(e){}
+    }
+  },30000);
+}
+
+function extractTpsStudyFrame(){
+  // REDLEO CheckData() cho 0x77:
+  // - first byte = 0x77
+  // - first + last = 0xFF => last = 0x88
+  // - penultimate = checksum8(all bytes before checksum/tail)
+  //
+  // Độ dài response không nên hard-code 512 cho ECU thật.
+  // Dgv_Option/TPS min-max nằm đủ sâu nên chỉ xét candidate >= 100 byte.
+
+  while(state.ecuBuf.length && state.ecuBuf[0]!==0x77){
+    state.ecuBuf.shift();
+  }
+  if(state.ecuBuf.length<100)return null;
+
+  for(let n=100;n<=state.ecuBuf.length;n++){
+    if(state.ecuBuf[n-1]!==0x88)continue;
+    const sum=checksum8(state.ecuBuf,n-2);
+    if(sum!==state.ecuBuf[n-2])continue;
+    return state.ecuBuf.splice(0,n);
+  }
+  return null;
+}
+
+function parseTpsStudyFrame(f){
+  if(!f || f.length<100 || f[0]!==0x77 || !validReplyFrame(f)){
+    throw new Error('TPS Study frame 0x77 không hợp lệ');
+  }
+  if(f.length<=93)throw new Error('TPS Study frame quá ngắn để có Dgv_Option');
+
+  // REDLEO fw>=9: sau các voltage grids + AutoClutch block,
+  // Dgv_Option bắt đầu tại byte 92.
+  // row0/row1 = TPS Min/Max.
+  const minRaw=f[92];
+  const maxRaw=f[93];
+  const minV=minRaw*20/1024;
+  const maxV=maxRaw*20/1024;
+
+  if(!Number.isFinite(minV)||!Number.isFinite(maxV)||maxV<=minV+0.10){
+    throw new Error(
+      'TPS calibration ECU không hợp lệ: raw '+minRaw+' → '+maxRaw+
+      ' ('+minV.toFixed(3)+'V → '+maxV.toFixed(3)+'V)'
+    );
+  }
+
+  state.cal.tpsMin=minV;
+  state.cal.tpsMax=maxV;
+  syncControls();
+  saveSoon();
+
+  $('studyTpsInfo').textContent=
+    'TPS Study OK · '+minV.toFixed(3)+' V → '+maxV.toFixed(3)+' V';
+  $('ecuBadge').textContent='ECU: TPS STUDY OK';
+  $('ecuBadge').className='badge ok';
+  showEcuNotice('success','TPS STUDY THÀNH CÔNG','TPS Min '+minV.toFixed(3)+' V  →  TPS Max '+maxV.toFixed(3)+' V');
+
+  // Nếu vừa nhận live voltage, cập nhật % ngay theo calibration mới.
+  if(Number.isFinite(state.live.tpsV)){
+    const den=maxV-minV;
+    state.live.tps=clamp((state.live.tpsV-minV)/den*100,0,100);
+    updateLive();
+    highlightCurrent();
+  }
+}
+
+async function queueTpsStudy(){
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
+
+  const ok=confirm(
+    'CHẠY TPS STUDY GIỐNG REDLEO?\\n\\n'+
+    'Tool sẽ gửi lệnh 0x77 và đọc calibration TPS Min/Max từ ECU.\\n'+
+    'Sau khi hoàn tất sẽ tự quay lại Live.'
+  );
+  if(!ok)return;
+
+  state.ecuTpsStudyQueued=true;
+  $('studyTpsInfo').textContent='Đã xếp hàng TPS Study · chờ frame Live hiện tại kết thúc...';
+  $('ecuBadge').textContent='ECU: CHỜ TPS STUDY';
+  $('ecuBadge').className='badge';
+}
+
+
+
+function frameHex(a,max=32){
+  return Array.from(a).slice(0,max).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+}
+
+function dropLeadingNoiseUntil(starts){
+  while(state.ecuBuf.length && !starts.includes(state.ecuBuf[0])){
+    state.ecuBuf.shift();
+  }
+}
+
+function extractFixedValidFrame(starts,lengths){
+  if(!Array.isArray(starts))starts=[starts];
+  if(!Array.isArray(lengths))lengths=[lengths];
+
+  // Scan across the whole RX buffer instead of assuming byte0 is frame start.
+  // This automatically skips echoed TX bytes and random stale bytes.
+  for(let i=0;i<state.ecuBuf.length;i++){
+    if(!starts.includes(state.ecuBuf[i]))continue;
+
+    for(const n of lengths){
+      if(state.ecuBuf.length-i<n)continue;
+      const f=state.ecuBuf.slice(i,i+n);
+      if(validReplyFrame(f)){
+        state.ecuBuf.splice(0,i+n);
+        return f;
+      }
+    }
+  }
+
+  // Prevent unbounded growth but keep enough tail for the largest candidate.
+  const keep=Math.max(...lengths)+16;
+  if(state.ecuBuf.length>keep*2){
+    state.ecuBuf.splice(0,state.ecuBuf.length-keep);
+  }
+  return null;
+}
+
+function extractOnlineFrame(){
+  // REDLEO full online frame can be 37B or 41B; code also accepts 9B shortcut.
+  // Scan any 5A start and validate by checksum + complement tail.
+  const lens=[9,37,41];
+
+  for(let i=0;i<state.ecuBuf.length;i++){
+    if(state.ecuBuf[i]!==0x5A)continue;
+    for(const n of lens){
+      if(state.ecuBuf.length-i<n)continue;
+      const f=state.ecuBuf.slice(i,i+n);
+      if(validReplyFrame(f)){
+        state.ecuBuf.splice(0,i+n);
+        return f;
+      }
+    }
+
+    // Future-proof: REDLEO's parser is not strictly hardcoded to 37 except the
+    // special 41B password branch. Accept any sane valid 0x5A frame >=35B.
+    const max=Math.min(state.ecuBuf.length-i,80);
+    for(let n=35;n<=max;n++){
+      if(state.ecuBuf[i+n-1]!==0xA5)continue;
+      const f=state.ecuBuf.slice(i,i+n);
+      if(validReplyFrame(f)){
+        state.ecuBuf.splice(0,i+n);
+        return f;
+      }
+    }
+  }
+
+  if(state.ecuBuf.length>160){
+    state.ecuBuf.splice(0,state.ecuBuf.length-80);
+  }
+  return null;
+}
+
+
+function extractCurrentPageFrame(page){
+  // REDLEO CurState 0x9A does NOT require a fixed packet length.
+  // It validates:
+  //   response[0] == ComandEven(page)
+  //   checksum
+  //   first + last == 0xFF
+  // Then UartToPc() consumes only the bytes required by the visible grid.
+  //
+  // Fuel map FW >= 9.1 needs at least:
+  //   1 page byte + 420*2 map bytes + checksum + tail = 843 bytes.
+  // Accept a longer valid frame too.
+
+  const minLen=843;
+  const tail=(255-page)&255;
+
+  for(let i=0;i<state.ecuBuf.length;i++){
+    if(state.ecuBuf[i]!==page)continue;
+
+    for(let end=i+minLen-1;end<state.ecuBuf.length;end++){
+      if(state.ecuBuf[end]!==tail)continue;
+      const f=state.ecuBuf.slice(i,end+1);
+      if(validReplyFrame(f)){
+        state.ecuBuf.splice(0,end+1);
+        return f;
+      }
+    }
+  }
+  return null;
+}
+
+function extractTpsStudyFrameRobust(){
+  // Search every 0x77 start, so echoed "77 77 11 EE 05" cannot pin the parser.
+  for(let i=0;i<state.ecuBuf.length;i++){
+    if(state.ecuBuf[i]!==0x77)continue;
+    const max=Math.min(state.ecuBuf.length-i,12000);
+    for(let n=100;n<=max;n++){
+      if(state.ecuBuf[i+n-1]!==0x88)continue;
+      const f=state.ecuBuf.slice(i,i+n);
+      if(validReplyFrame(f)){
+        state.ecuBuf.splice(0,i+n);
+        return f;
+      }
+    }
+  }
+  if(state.ecuBuf.length>14000){
+    state.ecuBuf.splice(0,state.ecuBuf.length-12000);
+  }
+  return null;
+}
+
+function extractWriteAck(page){
+  // ACK is CD <page>. But an echoed write frame also starts CD <page>.
+  // If we have enough bytes to prove a full TX echo, strip it first.
+  const tx=state.ecuLastTx||[];
+
+  if(tx.length>2 && state.ecuBuf.length>=tx.length){
+    let same=true;
+    for(let i=0;i<tx.length;i++){
+      if(state.ecuBuf[i]!==tx[i]){same=false;break;}
+    }
+    if(same){
+      state.ecuBuf.splice(0,tx.length);
+    }
+  }
+
+  for(let i=0;i+1<state.ecuBuf.length;i++){
+    if(state.ecuBuf[i]===0xCD && state.ecuBuf[i+1]===page){
+      // If this might only be the first 2 bytes of a long echoed TX, wait a
+      // short moment before accepting it as ACK.
+      if(i===0 && tx.length>2 && state.ecuBuf.length<tx.length &&
+         performance.now()-state.ecuWriteSentAt<25){
+        setTimeout(()=>serviceEcuFrames().catch(console.warn),30);
+        return null;
+      }
+      state.ecuBuf.splice(0,i+2);
+      return [0xCD,page];
+    }
+  }
+
+  if(state.ecuBuf.length>1024){
+    state.ecuBuf.splice(0,state.ecuBuf.length-512);
+  }
+  return null;
+}
+
+async function serviceEcuFrames(){
+  while(true){
+    let f=null;
+
+    if(state.ecuPhase==='online'){
+      f=extractOnlineFrame();
+      if(!f)return;
+      processOnlineFrame(f);
+      await sendLiveRequest();
+      continue;
+    }
+
+    if(state.ecuPhase==='live'){
+      // Real cable may echo the 5-byte 0x69 request. Look for a valid A1/A2
+      // 53-byte reply anywhere in the buffer.
+      f=extractFixedValidFrame([0xA1,0xA2],53);
+      if(!f)return;
+
+      processLiveFrame(f);
+
+      if(state.ecuTpsStudyQueued){
+        await sendTpsStudyRequest();
+      }
+      else if(state.ecuWriteQueued){
+        state.ecuWriteQueued=false;
+        await sendFuelWriteFrame(0);
+      }
+      else if(state.ecuReadCurrentQueued){
+        state.ecuReadCurrentQueued=false;
+        await sendReadCurrentRequest(state.ecuReadCurrentMapNo);
+      }
+      else if(state.ecuReadAllQueued){
+        state.ecuReadAllQueued=false;
+        await sendReadAllRequest();
+      }
+      else{
+        await sendLiveRequest();
+      }
+      continue;
+    }
+
+    if(state.ecuPhase==='tpsstudy'){
+      f=extractTpsStudyFrameRobust();
+      if(!f)return;
+
+      try{
+        parseTpsStudyFrame(f);
+      }catch(e){
+        $('studyTpsInfo').textContent='TPS Study lỗi: '+e.message;
+        $('ecuBadge').textContent='ECU: TPS STUDY ERROR';
+        $('ecuBadge').className='badge bad';
+        showEcuNotice('error','TPS STUDY THẤT BẠI',e.message);
+        state.ecuTpsStudyToken++;
+        await sendLiveRequest();
+        throw e;
+      }
+
+      state.ecuTpsStudyToken++;
+      await sendLiveRequest();
+      continue;
+    }
+
+    if(state.ecuPhase==='readcurrent'){
+      const page=mapBasePage(state.ecuReadCurrentMapNo);
+      f=extractCurrentPageFrame(page);
+
+      if(!f){
+        // Native bridge already completed the serial exchange; no more bytes
+        // will arrive asynchronously. Show the raw result instead of hanging.
+        if(state.ecuNative){
+          const n=state.ecuBuf.length;
+          const raw=frameHex(state.ecuBuf,48);
+          $('ecuBadge').textContent='MAP RX '+n+'B · KHÔNG HỢP LỆ';
+          $('ecuBadge').className='badge bad';
+          $('ecuDiag').textContent='READ MAP FAIL · RX '+n+'B: '+raw+(n>48?' ...':'');
+          showEcuNotice('error','ĐỌC MAP No.'+state.ecuReadCurrentMapNo+' THẤT BẠI',n===0?'ECU không trả dữ liệu MAP. Kiểm tra nguồn ECU, cáp và COM.':'ECU trả '+n+' byte nhưng frame MAP không hợp lệ.');
+          if(state.ecuWriteSnapshot&&state.ecuReadCurrentMapNo===state.ecuWriteMapNo){const failedMap=state.ecuWriteMapNo;state.ecuWriteSnapshot=null;state.ecuVerifyAfterWrite=false;$('mapSelect').disabled=state.threeRun.active;onFuelWriteVerifyFailed(failedMap,{bad:420,first:null});}
+          state.ecuBuf=[];
+          await sendLiveRequest();
+        }
+        return;
+      }
+
+      $('ecuDiag').textContent=
+        'READ MAP OK · page 0x'+page.toString(16).toUpperCase()+
+        ' · RX '+f.length+'B · head: '+frameHex(f,20);
+
+      const mapNo=state.ecuReadCurrentMapNo;
+      const beforeVerify=(state.ecuWriteSnapshot&&mapNo===state.ecuWriteMapNo)?state.ecuWriteSnapshot:null;
+
+      try{parseReadCurrentFuelMap(f,mapNo);}catch(e){
+        $('ecuBadge').textContent='MAP No.'+mapNo+': ĐỌC LỖI';$('ecuBadge').className='badge bad';
+        showEcuNotice('error','ĐỌC MAP No.'+mapNo+' THẤT BẠI',e.message);
+        if(beforeVerify){state.ecuWriteSnapshot=null;$('mapSelect').disabled=state.threeRun.active;onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});}
+        await sendLiveRequest();continue;
+      }
+
+      if(beforeVerify){
+        const cmp=compareFuelMaps(beforeVerify,state.mapBanks[mapNo-1].inject);
+        state.ecuWriteSnapshot=null;
+        $('mapSelect').disabled=false;
+
+        if(cmp.bad===0){
+          $('ecuBadge').textContent='MAP No.'+mapNo+': WRITE + VERIFY OK';
+          $('ecuBadge').className='badge ok';
+          flashSave('MAP No.'+mapNo+' WRITE + VERIFY OK · 420/420 ô');
+          showEcuNotice('success','GHI MAP No.'+mapNo+' THÀNH CÔNG','Đã ghi ECU và đọc VERIFY đúng 420/420 ô.');
+          onFuelWriteVerified(mapNo);
+        }else{
+          onFuelWriteVerifyFailed(mapNo,cmp);
+          $('ecuBadge').textContent='MAP No.'+mapNo+': VERIFY LỆCH '+cmp.bad+' Ô';
+          $('ecuBadge').className='badge bad';
+          const q=cmp.first;
+          showEcuNotice('error','GHI MAP No.'+mapNo+' THẤT BẠI · VERIFY LỆCH','Lệch '+cmp.bad+'/420 ô.\nÔ đầu: TPS '+TPS_ROWS[q.r]+' / RPM '+RPMS[q.c]+'\nGửi: '+q.x.toFixed(3)+' ms · Đọc lại: '+q.y.toFixed(3)+' ms',0);
+        }
+      }else{
+        $('ecuBadge').textContent='ECU: ON · MAP No.'+mapNo+' OK';
+        $('ecuBadge').className='badge ok';
+        showEcuNotice('success','ĐỌC MAP No.'+mapNo+' THÀNH CÔNG','Đã nhận và giải mã đủ 420/420 ô thời gian phun từ ECU.');
+      }
+      await sendLiveRequest();
+      continue;
+    }
+
+    if(state.ecuPhase==='readall'){
+      // REDLEO CheckData accepts 8087 or 9767 bytes.
+      f=extractFixedValidFrame(0xAB,[8087,9767]);
+      if(!f)return;
+
+      if(f.length!==9767){
+        $('ecuBadge').textContent='ECU: READ ALL '+f.length+'B · CHƯA DECODE MAP';
+        $('ecuBadge').className='badge bad';
+        showEcuNotice('error','ĐỌC ECU THẤT BẠI','Nhận '+f.length+' byte nhưng định dạng này chưa đủ điều kiện giải mã MAP.');
+        await sendLiveRequest();
+        continue;
+      }
+
+      parseReadAllFuelMap(f);
+      $('ecuBadge').textContent='ECU: ON · READ ALL OK';
+      $('ecuBadge').className='badge ok';
+      showEcuNotice('success','ĐỌC ECU THÀNH CÔNG','Đã nhận dữ liệu ECU và giải mã MAP phun theo chuẩn REDLEO.');
+      await sendLiveRequest();
+      continue;
+    }
+
+    if(state.ecuPhase==='write1'){
+      const base=mapBasePage(state.ecuWriteMapNo);
+      f=extractWriteAck(base);
+      if(!f){if(state.ecuNative){const mapNo=state.ecuWriteMapNo;$('ecuBadge').textContent='MAP No.'+mapNo+': GHI 1/2 KHÔNG ACK';$('ecuBadge').className='badge bad';showEcuNotice('error','GHI MAP No.'+mapNo+' THẤT BẠI','ECU không xác nhận frame ghi 1/2 (CD 0x'+base.toString(16).toUpperCase()+').',0);state.ecuWriteFrames=null;state.ecuWriteSnapshot=null;state.ecuVerifyAfterWrite=false;$('mapSelect').disabled=state.threeRun.active;onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});await sendLiveRequest();}return;}
+      await sendFuelWriteFrame(1);
+      continue;
+    }
+
+    if(state.ecuPhase==='write2'){
+      const base=mapBasePage(state.ecuWriteMapNo);
+      f=extractWriteAck(base+1);
+      if(!f){if(state.ecuNative){const mapNo=state.ecuWriteMapNo,page=base+1;$('ecuBadge').textContent='MAP No.'+mapNo+': GHI 2/2 KHÔNG ACK';$('ecuBadge').className='badge bad';showEcuNotice('error','GHI MAP No.'+mapNo+' THẤT BẠI','ECU không xác nhận frame ghi 2/2 (CD 0x'+page.toString(16).toUpperCase()+').',0);state.ecuWriteFrames=null;state.ecuWriteSnapshot=null;state.ecuVerifyAfterWrite=false;$('mapSelect').disabled=state.threeRun.active;onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});await sendLiveRequest();}return;}
+
+      $('ecuBadge').textContent='ECU: GHI OK · VERIFY MAP No.'+state.ecuWriteMapNo;
+      $('ecuBadge').className='badge ok';
+
+      if(state.ecuVerifyAfterWrite){
+        state.ecuVerifyAfterWrite=false;
+        await sendReadCurrentRequest(state.ecuWriteMapNo);
+      }else{
+        $('mapSelect').disabled=false;
+        await sendLiveRequest();
+      }
+      continue;
+    }
+
+    return;
+  }
+}
+async function connectEcu(){
+  try{
+    if(!$('ecuNativePort').value)await refreshNativePorts();
+    const selected=$('ecuNativePort').value;
+    if(!selected)return alert('Chọn COM của cáp ECU trước.');
+
+    await bridgeJson('/open',{port:selected});
+
+    state.ecuNative=true;
+    state.ecuPort={native:true};
+    state.ecuKeepReading=true;
+    state.ecuBuf=[];
+    state.ecuConnected=false;
+    state.ecuHandshakeTry=0;
+    state.ecuRxCount=0;
+
+    $('connectEcuBtn').disabled=true;
+    $('ecuNativePort').disabled=true;
+    $('refreshNativePortsBtn').disabled=true;
+    $('ecuBadge').textContent='ECU NATIVE: '+selected+' · 38400 8E2 RTS ON';
+    $('ecuBadge').className='badge';
+
+    await beginRealEcuHandshake();
+  }catch(e){
+    $('connectEcuBtn').disabled=false;
+    $('ecuNativePort').disabled=false;
+    $('refreshNativePortsBtn').disabled=false;
+    alert(
+      'Không kết nối Native ECU: '+e.message+
+      '\n\n1. Chạy START_BRIDGE.cmd trước.'+
+      '\n2. Đóng REDLEO và tool DIAG.'+
+      '\n3. Chọn đúng COM FT232 của ECU.'
+    );
+  }
+}
+async function beginRealEcuHandshake(){
+  if(!state.ecuPort||!state.ecuKeepReading)return;
+
+  clearTimeout(state.ecuHandshakeTimer);
+  state.ecuBuf=[];
+  state.ecuPhase='online';
+  state.ecuHandshakeTry++;
+
+  $('ecuBadge').textContent='ECU: HANDSHAKE 5A · LẦN '+state.ecuHandshakeTry;
+  $('ecuBadge').className='badge';
+
+  await ecuWrite(REQ_ONLINE);
+  await serviceEcuFrames();
+
+  // Native bridge returns complete request/response exchanges.
+  state.ecuHandshakeTimer=setTimeout(async()=>{
+    if(!state.ecuKeepReading || state.ecuConnected || state.ecuPhase!=='online')return;
+
+    if(state.ecuHandshakeTry<5){
+      try{
+        await beginRealEcuHandshake();
+      }catch(e){
+        console.warn(e);
+      }
+    }else{
+      $('ecuBadge').textContent='ECU: KHÔNG TRẢ LỜI 5A';
+      $('ecuBadge').className='badge bad';
+      showEcuNotice('error','KẾT NỐI ECU THẤT BẠI','ECU không trả lời handshake 0x5A sau 5 lần.',0);
+      alert(
+        'ECU thật không trả lời handshake sau 5 lần.\n\n'+
+        'Auto Tune đang dùng đúng 38400 8E2 và đã bật RTS như REDLEO.\n'+
+        'Hãy kiểm tra:\n'+
+        '1. REDLEO phải đóng hoàn toàn.\n'+
+        '2. Chọn đúng COM FT232 của cáp ECU.\n'+
+        '3. ECU đang cấp nguồn/khóa điện ON.\n'+
+        '4. Nếu REDLEO vẫn kết nối được, chụp cả dòng ECU RAW trong Auto Tune.\n'+
+        'Dòng đó cho biết cáp có echo / ECU có trả byte hay không.'
+      );
+    }
+  },900);
+}
+async function ecuReadLoop(){
+  try{
+    while(state.ecuPort&&state.ecuPort.readable&&state.ecuKeepReading){
+      state.ecuReader=state.ecuPort.readable.getReader();
+      try{
+        while(state.ecuKeepReading){
+          const {value,done}=await state.ecuReader.read();
+          if(done)break;
+          if(!value)continue;
+          state.ecuRxCount+=value.length;
+          const rx=Array.from(value);
+          for(const b of rx)state.ecuBuf.push(b);
+
+          const hx=frameHex(rx,32);
+          $('ecuDiag').textContent='RX tổng '+state.ecuRxCount+'B · chunk '+rx.length+'B: '+hx+(rx.length>32?' ...':'');
+
+          await serviceEcuFrames();
+        }
+      }finally{state.ecuReader.releaseLock();state.ecuReader=null;}
+    }
+  }catch(e){
+    console.warn('ECU serial',e);
+    $('ecuBadge').textContent='ECU: ERROR'; $('ecuBadge').className='badge bad';
+  }finally{
+    if(state.ecuKeepReading)await disconnectEcu();
+  }
+}
+async function disconnectEcu(){
+  if(state.threeRun.active&&state.threeRun.phase==='recording'){state.threeRun.phase='paused';setRecording(false);renderThreeRunUi();saveSoon();}
+  else if(state.threeRun.active&&state.threeRun.phase==='writing'){state.threeRun.phase='error';state.threeRun.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();}
+  state.ecuKeepReading=false;
+  clearTimeout(state.ecuHandshakeTimer);
+  state.ecuHandshakeTimer=null;
+  try{await bridgeJson('/close',{});}catch(e){}
+
+  state.ecuPort=null;
+  state.ecuPhase='idle';
+  state.ecuConnected=false;
+  state.ecuBuf=[];
+  state.ecuRxCount=0;
+  state.ecuWriteQueued=false;
+  state.ecuWriteFrames=null;
+  state.ecuWriteSnapshot=null;
+  state.ecuReadCurrentQueued=false;
+  state.ecuTpsStudyQueued=false;
+  state.ecuTpsStudyToken++;
+
+  $('mapSelect').disabled=state.threeRun.active;
+  $('ecuNativePort').disabled=false;
+  $('refreshNativePortsBtn').disabled=false;
+  $('ecuBadge').textContent='ECU: OFF';
+  $('ecuBadge').className='badge bad';
+  $('connectEcuBtn').disabled=false;
+}
+async function queueReadAll(){
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  if(state.ecuPhase==='live'){
+    state.ecuReadAllQueued=true;
+    $('ecuBadge').textContent='ECU: CHỜ ĐỌC MAP';
+    $('ecuBadge').className='badge';
+  }
+}
+
+function processAfrPacket(p){
+  let ok=false;
+  if(Number.isFinite(+p.afrV)){
+    state.live.afrV=+p.afrV;
+    state.live.afr=10+clamp(state.live.afrV,0,2.8)*(10/2.8);
+    ok=true;
+  }else if(Number.isFinite(+p.afr)){
+    state.live.afr=+p.afr; ok=true;
+  }
+  if(!ok)return;
+  state.totalSamples++;
+  const now=performance.now();
+  state.afrHistory.push({t:now,v:state.live.afr});
+  while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
+  updateLive();
+  if(state.recording)recordSample(now);
+  highlightCurrent();
+  $('rxDot').classList.add('on');
+  clearTimeout(window.rxTimer);
+  window.rxTimer=setTimeout(()=>$('rxDot').classList.remove('on'),200);
+}
+function delayedAfr(now){
+  const targetT=now-state.cal.afrDelayMs; let best=null;
+  for(const x of state.afrHistory){if(x.t<=targetT)best=x;else break;}
+  return best?best.v:state.live.afr;
+}
+function recordSample(now){
+  if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
+  const cur=currentCell();
+  if(cur.key!==state.lastCellKey){state.lastCellKey=cur.key;state.cellEnteredAt=now;return;}
+  if(now-state.cellEnteredAt<state.cal.settleMs)return;
+  const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<9||afr>22)return;
+  const r=cur.r,c=cur.c,n=state.counts[r][c]||0,old=state.measured[r][c];
+  state.measured[r][c]=old==null?afr:(old*n+afr)/(n+1); state.counts[r][c]=n+1;
+  if(state.tab==='measured'){
+    const td=document.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+    if(td){
+      td.textContent=fmt(state.measured[r][c],2);
+      td.classList.remove('afr-red','afr-green','afr-orange');
+      const a=Number(state.measured[r][c]);
+      if(Number.isFinite(a))td.classList.add(a<12.5?'afr-red':a<=14?'afr-green':'afr-orange');
+    }
+  }
+  saveSoon();
+}
+function updateLive(){
+  $('afrLive').textContent=fmt(state.live.afr,2);
+  $('tpsLive').textContent=fmt(state.live.tps,1)+'%';
+  $('rpmLive').textContent=Math.round(state.live.rpm);
+  $('tpsVLive').textContent=fmt(state.live.tpsV,3)+' V';
+  $('afrVLive').textContent=fmt(state.live.afrV,3)+' V';
+  const cur=currentCell(); $('cellLive').textContent=(TPS_ROWS[cur.r]==='IDLE'?'IDLE':TPS_ROWS[cur.r]+'%')+' / '+RPMS[cur.c];
+  $('sampleInfo').textContent=state.totalSamples.toLocaleString()+' mẫu AFR'+(state.threeRun.active?' · lượt '+state.threeRun.pass+'/3':'');
+}
+
+async function connectAfr(){
+  if(!('serial' in navigator)){alert('Web Serial không được hỗ trợ. Dùng Chrome hoặc Edge trên PC.');return;}
+  try{
+    const port=await navigator.serial.requestPort();
+    await port.open({baudRate:115200,dataBits:8,stopBits:1,parity:'none',flowControl:'none'});
+    state.afrPort=port; state.afrKeepReading=true; state.afrRxBuf='';
+    $('afrBadge').textContent='AFR: ON'; $('afrBadge').className='badge ok';
+    $('connectAfrBtn').disabled=true;
+    afrReadLoop();
+  }catch(e){if(e.name!=='NotFoundError')alert('Không mở được AFR COM: '+e.message)}
+}
+async function afrReadLoop(){
+  const decoder=new TextDecoder();
+  try{
+    while(state.afrPort&&state.afrPort.readable&&state.afrKeepReading){
+      state.afrReader=state.afrPort.readable.getReader();
+      try{
+        while(state.afrKeepReading){
+          const {value,done}=await state.afrReader.read(); if(done)break; if(!value)continue;
+          state.afrRxBuf+=decoder.decode(value,{stream:true});
+          let i;
+          while((i=state.afrRxBuf.indexOf('\n'))>=0){
+            const line=state.afrRxBuf.slice(0,i).trim(); state.afrRxBuf=state.afrRxBuf.slice(i+1);
+            if(!line)continue;
+            if(line.startsWith('{')){
+              try{processAfrPacket(JSON.parse(line))}catch(e){}
+            }else{
+              const v=Number(line.replace(',','.')); if(Number.isFinite(v))processAfrPacket({afrV:v});
+            }
+          }
+        }
+      }finally{state.afrReader.releaseLock();state.afrReader=null;}
+    }
+  }catch(e){console.warn(e)}finally{if(state.afrKeepReading)await disconnectAfr();}
+}
+async function disconnectAfr(){
+  if(state.threeRun.active&&state.threeRun.phase==='recording'){state.threeRun.phase='paused';setRecording(false);renderThreeRunUi();saveSoon();}
+  state.afrKeepReading=false;
+  try{if(state.afrReader)await state.afrReader.cancel()}catch(e){}
+  try{if(state.afrPort)await state.afrPort.close()}catch(e){}
+  state.afrPort=null;
+  $('afrBadge').textContent='AFR: OFF'; $('afrBadge').className='badge bad';
+  $('connectAfrBtn').disabled=false;
+}
+
+function setTab(tab){resetQuickType();state.tab=tab;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));render();}
+function toggleRecord(){if(state.threeRun.active)return;setRecording(!state.recording);}
+
+load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);render();updateLive();renderThreeRunUi();renderThreeRunHistory();
+
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+$('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
+$('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
+$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;syncControls();saveSoon();};
+$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;syncControls();saveSoon();};
+['tpsMin','tpsMax','settleMs','afrDelayMs','limitPct','threeRunLimitPct','afrFloor'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
+$('clearMeasured').onclick=()=>{if(state.threeRun.active)return;if(confirm('Xóa toàn bộ AFR đã đo?')){state.measured=blankMatrix(null);state.counts=blankMatrix(0);render();saveSoon();}};
+
+function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
+window.addEventListener('mouseup',()=>{state.selection.dragging=false});
+document.addEventListener('keydown',e=>{
+  if(state.editingCell||formHasFocus())return;
+  if(applyQuickTypeKey(e.key)){e.preventDefault();return;}
+  if(e.key==='Escape'){resetQuickType();return;}
+  if(e.key==='ArrowUp'){resetQuickType();e.preventDefault();moveSelection(-1,0,e.shiftKey);return;}
+  if(e.key==='ArrowDown'){resetQuickType();e.preventDefault();moveSelection(1,0,e.shiftKey);return;}
+  if(e.key==='ArrowLeft'){resetQuickType();e.preventDefault();moveSelection(0,-1,e.shiftKey);return;}
+  if(e.key==='ArrowRight'){resetQuickType();e.preventDefault();moveSelection(0,1,e.shiftKey);return;}
+  if(e.key==='Enter'&&state.selection.active&&isEditableTab()){resetQuickType();e.preventDefault();const td=document.querySelector(`td.mapcell[data-r="${state.selection.focusR}"][data-c="${state.selection.focusC}"]`);if(td)beginEdit(td);return;}
+  if((e.key==='Delete'||e.key==='Backspace')&&state.selection.active&&isEditableTab()){resetQuickType();e.preventDefault();clearSelectedCells();}
+});
+window.addEventListener('beforeunload',save);
+</script>
+
+<script>
+/* ===== iPhone UI-only demo layer. No ESP32 is required in this build. ===== */
+(function(){
+  'use strict';
+  let demoTimer=null, demoT=0;
+  const originalRender=render;
+
+  // Make touch selection reliable on iOS without changing desktop behavior.
+  render=function(){
+    originalRender();
+    document.querySelectorAll('td.mapcell').forEach(td=>{
+      td.addEventListener('pointerdown',e=>{
+        if(e.pointerType!=='touch' || td.isContentEditable)return;
+        const r=+td.dataset.r,c=+td.dataset.c;
+        setSelection(r,c,false);
+      },{passive:true});
+    });
+  };
+  render();
+
+  function demoFillMap(){
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      const tps=(r===R-1?0:Number(TPS_ROWS[r]));
+      const rpm=RPMS[c];
+      const base=1.55 + tps*0.027 + rpm/15000*2.35;
+      state.inject[r][c]=Math.max(.85,Math.min(8.8,base));
+      state.target[r][c]= tps>=80?12.8:tps>=40?13.0:tps>=14?13.3:13.7;
+    }
+    if(state.tab==='inject'||state.tab==='target'||state.tab==='corrected')render();
+    saveSoon();
+  }
+
+  function tickDemo(){
+    demoT+=0.115;
+    const sweep=(Math.sin(demoT*.53)+1)/2;
+    const sweep2=(Math.sin(demoT*.21+.9)+1)/2;
+    state.live.rpm=Math.round(1100+sweep*9800);
+    state.live.tps=Math.max(0,Math.min(100,4+sweep2*91));
+    state.live.tpsV=state.cal.tpsMin+(state.cal.tpsMax-state.cal.tpsMin)*state.live.tps/100;
+    const target=state.live.tps>75?12.85:state.live.tps>35?13.15:13.65;
+    state.live.afr=target+Math.sin(demoT*1.7)*.34+Math.sin(demoT*.37)*.16;
+    state.live.afrV=Math.max(0,Math.min(2.8,(state.live.afr-10)*(2.8/10)));
+    state.totalSamples++;
+    updateLive();highlightCurrent();
+    $('rxDot').classList.add('on');
+    if(state.recording)recordSample(performance.now());
+  }
+
+  function startDemo(){
+    if(demoTimer)return;
+    state.ecuConnected=true;state.ecuPhase='live';
+    $('ecuBadge').textContent='BLE: DEMO CONNECTED';$('ecuBadge').className='badge ok';
+    $('connectEcuBtn').disabled=true;
+    demoFillMap();
+    demoTimer=setInterval(tickDemo,120);
+    showEcuNotice('success','ESP32 BLE · UI DEMO','Đang chạy dữ liệu giả lập để kiểm tra giao diện iPhone. Chưa giao tiếp phần cứng.');
+  }
+  function stopDemo(){
+    if(demoTimer){clearInterval(demoTimer);demoTimer=null;}
+    state.ecuConnected=false;state.ecuPhase='idle';
+    $('ecuBadge').textContent='BLE: OFF';$('ecuBadge').className='badge bad';
+    $('connectEcuBtn').disabled=false;
+    state.live={afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0};updateLive();highlightCurrent();
+  }
+
+  function demoRead(){demoFillMap();showEcuNotice('success','ĐỌC MAP · DEMO','Đã nạp 420 ô MAP giả lập để kiểm tra giao diện.');}
+  function demoWrite(){showEcuNotice('info','GHI MAP · UI TEST','Bản này chỉ kiểm tra giao diện. BLE thật và firmware ESP32 sẽ nối ở bước kế tiếp.');}
+  function demoStudy(){state.cal.tpsMin=.48;state.cal.tpsMax=4.47;syncControls();showEcuNotice('success','TPS STUDY · DEMO','Giả lập TPS Min 0.480 V → TPS Max 4.470 V.');}
+
+  function demoStart3(){
+    if(state.threeRun.active)return;
+    state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:new Date().toISOString(),runPw:cloneMatrix(state.inject),target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};
+    state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(true);setTab('measured');renderThreeRunUi();
+    showEcuNotice('info','MODE 3 LƯỢT · DEMO','Đang giả lập LƯỢT 1/3. Chạy vài giây rồi bấm KẾT THÚC LƯỢT.');
+  }
+  function demoNext3(){
+    if(!state.threeRun.active)return;
+    const p=state.threeRun.pass;
+    if(p<3){state.threeRun.pass=p+1;state.measured=blankMatrix(null);state.counts=blankMatrix(0);state.threeRun.phase='recording';setRecording(true);renderThreeRunUi();showEcuNotice('success','DEMO · LƯỢT '+p+' XONG','Đã chuyển sang LƯỢT '+(p+1)+'/3.');}
+    else{setRecording(false);state.threeRun.active=false;state.threeRun.phase='complete';renderThreeRunUi();showEcuNotice('success','DEMO 3 LƯỢT HOÀN TẤT','Giao diện luồng 3 lượt hoạt động. Chưa ghi ECU thật.',5000);}
+  }
+  function demoCancel3(){setRecording(false);state.threeRun.active=false;state.threeRun.phase='idle';renderThreeRunUi();showEcuNotice('info','ĐÃ HỦY DEMO','Phiên 3 lượt demo đã dừng.');}
+
+  // Replace hardware actions for UI testing.
+  $('connectEcuBtn').onclick=startDemo;
+  $('disconnectEcuBtn').onclick=stopDemo;
+  $('readMapBtn').onclick=demoRead;
+  $('writeMapBtn').onclick=demoWrite;
+  $('applyCorrectedBtn').onclick=demoWrite;
+  $('studyTpsBtn').onclick=demoStudy;
+  $('threeRunStartBtn').onclick=demoStart3;
+  $('threeRunStepBtn').onclick=demoNext3;
+  $('threeRunCancelBtn').onclick=demoCancel3;
+  $('connectAfrBtn').onclick=()=>{};
+  $('disconnectAfrBtn').onclick=()=>{};
+
+  // Avoid the PC bridge status wording in UI-test mode.
+  $('ecuDiag').textContent='UI TEST: chưa kết nối ESP32 thật.';
+  $('studyTpsInfo').textContent='TPS Study sẽ chạy trên ESP32 ở bản BLE thật.';
+
+  // Auto-fill data but do not auto-connect; user tests the BLE button interaction.
+  demoFillMap();
+})();
+</script>
+
+</body>
+</html>
