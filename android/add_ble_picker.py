@@ -33,7 +33,7 @@ if 'private void ensureBluetoothAdapter()' not in s:
     s = s.replace(helper_marker, helper_code + helper_marker)
 
 old_connect = '''        String saved = prefs.getString("deviceAddress", null);\n        if (saved != null) {\n            try {\n                connecting = true;\n                connectDevice(bluetoothAdapter.getRemoteDevice(saved));\n                return;\n            } catch (Exception ignored) { }\n        }\n        if (!auto) startScan();\n'''
-new_connect = '''        String saved = prefs.getString("deviceAddress", null);\n        if (auto) {\n            if (saved != null) {\n                try {\n                    connecting = true;\n                    connectDevice(bluetoothAdapter.getRemoteDevice(saved));\n                } catch (Exception ignored) {\n                    connecting = false;\n                }\n            }\n            return;\n        }\n\n        // Manual connect always shows a device picker.\n        startDevicePickerScan();\n'''
+new_connect = '''        // v11: never auto-connect a previously used BLE device.\n        // Every manual press must show the picker again.\n        if (auto) {\n            try { prefs.edit().remove("deviceAddress").apply(); } catch (Exception ignored) { }\n            return;\n        }\n\n        try { prefs.edit().remove("deviceAddress").apply(); } catch (Exception ignored) { }\n        startDevicePickerScan();\n'''
 if old_connect not in s:
     raise SystemExit('BLE picker patch: connect block not found')
 s = s.replace(old_connect, new_connect)
@@ -179,4 +179,14 @@ picker_code = r'''    @SuppressLint("MissingPermission")
 '''
 
 s = s[:start] + picker_code + s[end:]
+p.write_text(s, encoding='utf-8')
+
+
+# Disable all native saved-device reconnect paths and persistence.
+s = s.replace('            main.postDelayed(this::tryAutoReconnect, 400);', '            // v11: manual BLE selection only; no auto reconnect after page load.')
+s = s.replace('                if (!userDisconnect) main.postDelayed(MainActivity.this::tryAutoReconnect, 1800);', '                // v11: do not auto reconnect after BLE disconnect.')
+s = s.replace('        main.postDelayed(this::tryAutoReconnect, 700);', '        // v11: do not auto reconnect when app resumes.')
+s = s.replace('            try { prefs.edit().putString("deviceAddress", bg.getDevice().getAddress()).apply(); } catch (Exception ignored) { }',
+              '            try { prefs.edit().remove("deviceAddress").apply(); } catch (Exception ignored) { }')
+s = s.replace('            return prefs.contains("deviceAddress");', '            return false;')
 p.write_text(s, encoding='utf-8')
