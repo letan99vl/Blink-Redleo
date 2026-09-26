@@ -699,6 +699,41 @@
     #mapWrap{padding-bottom:60px!important}
   }
 
+  /* ===== v11.1 MAP EDITOR USES FULL VIEWPORT ===== */
+  body.mapEditing .bottomNav{display:none!important}
+  body.mapEditing #mapEditorScreen,
+  body.mapEditing #redleoEditorScreen{
+    inset:0!important;
+    bottom:0!important;
+  }
+  body.mapEditing #mapWrap{
+    min-height:0!important;
+    height:0!important;
+    flex:1 1 0!important;
+    overflow:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  body.mapEditing #mapTable{
+    height:auto!important;
+    min-height:0!important;
+    margin-bottom:84px!important;
+  }
+  body.mapEditing #mapTable tbody{height:auto!important}
+  body.mapEditing #mapTable tr{height:auto!important}
+  body.mapEditing #mapTable th,
+  body.mapEditing #mapTable td{
+    height:42px!important;
+    min-height:42px!important;
+  }
+  @media (orientation:landscape){
+    body.mapEditing #mapTable th,
+    body.mapEditing #mapTable td{
+      height:34px!important;
+      min-height:34px!important;
+    }
+    body.mapEditing #mapTable{margin-bottom:60px!important}
+  }
+
 </style>
 </head>
 <body>
@@ -1163,7 +1198,6 @@ if(mapFollowWrap){
   mapFollowWrap.addEventListener('pointerdown',()=>pauseMapAutoFollow(8000),{passive:true});
   mapFollowWrap.addEventListener('touchstart',()=>pauseMapAutoFollow(8000),{passive:true});
   mapFollowWrap.addEventListener('wheel',()=>pauseMapAutoFollow(8000),{passive:true});
-  mapFollowWrap.addEventListener('scroll',()=>pauseMapAutoFollow(5000),{passive:true});
 }
 
 
@@ -2725,7 +2759,7 @@ function keyFor(f,bank){return f.id+':'+(f.banked?bank:0)}
 function initMatrix(f){return Array.from({length:f.rows},()=>Array.from({length:f.cols},()=>0))}
 function featureData(f,bank=state.activeMap){const k=keyFor(f,bank);if(!featureStore[k])featureStore[k]=initMatrix(f);return featureStore[k]}
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
-function showScreen(name){Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
+function showScreen(name){document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
 function syncBanks(){document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;document.getElementById('redBankSelect').value=String(state.activeMap)}
 function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor')}
 function openFeature(id){const f=F[id];if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor')}
