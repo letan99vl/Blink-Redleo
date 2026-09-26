@@ -41,7 +41,85 @@ jobs:
           mkdir android-build
           base64 -d android/android-app-source.b64 > /tmp/android-app-source.zip
           unzip -q /tmp/android-app-source.zip -d android-build
-          sed -i 's/@Override protected void onWindowFocusChanged/@Override public void onWindowFocusChanged/' android-build/app/src/main/java/vn/blinkredleo/app/MainActivity.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android-build/app/src/main/java/vn/blinkredleo/app/MainActivity.java')
+          s=p.read_text()
+          s=s.replace('import android.webkit.WebViewClient;\nimport android.widget.Toast;',
+                      'import android.webkit.WebViewClient;\nimport android.webkit.RenderProcessGoneDetail;\nimport android.graphics.Color;\nimport android.widget.TextView;\nimport android.widget.Toast;')
+          start=s.index('    @Override\n    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})\n    protected void onCreate(Bundle savedInstanceState) {')
+          end=s.index('\n    private void injectNativeBridge()', start)
+          new='''    @Override
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        try {
+            prefs = getSharedPreferences("blink", MODE_PRIVATE);
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+            webView = new WebView(this);
+            setContentView(webView);
+
+            WebSettings ws = webView.getSettings();
+            ws.setJavaScriptEnabled(true);
+            ws.setDomStorageEnabled(true);
+            ws.setAllowFileAccess(false);
+            ws.setAllowContentAccess(false);
+            ws.setMediaPlaybackRequiresUserGesture(false);
+            ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+            try { ws.setUserAgentString(ws.getUserAgentString() + " BLINK-REDLEO-ANDROID/1.1-SAFE"); } catch (Throwable ignored) {}
+
+            webView.addJavascriptInterface(new BleJsBridge(), "AndroidBLE");
+            webView.setWebViewClient(new WebViewClient() {
+                @Override public void onPageFinished(WebView view, String url) {
+                    try { injectNativeBridge(); } catch (Throwable t) { showFatal("BLE bridge", t); }
+                }
+                @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                    showFatal("WebView renderer", new RuntimeException("renderer stopped; didCrash=" + detail.didCrash()));
+                    return true;
+                }
+            });
+
+            try { enterImmersive(); } catch (Throwable ignored) {}
+            webView.loadUrl(START_URL);
+        } catch (Throwable t) {
+            showFatal("Khoi dong ung dung", t);
+        }
+    }
+
+    private void ensureBluetoothAdapter() {
+        if (bluetoothAdapter != null) return;
+        try {
+            BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+            bluetoothAdapter = bm != null ? bm.getAdapter() : null;
+        } catch (Throwable ignored) {
+            bluetoothAdapter = null;
+        }
+    }
+
+    private void showFatal(String where, Throwable t) {
+        try {
+            bridgeReady = false;
+            String msg = "BLINK REDLEO - SAFE START\\n\\n" + where + " gap loi.\\n\\n" +
+                    (t == null ? "Khong ro nguyen nhan" : t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage())) +
+                    "\\n\\nChup man hinh nay gui lai de sua chinh xac.";
+            TextView tv = new TextView(this);
+            tv.setText(msg);
+            tv.setTextColor(Color.WHITE);
+            tv.setBackgroundColor(Color.BLACK);
+            tv.setTextSize(18f);
+            tv.setPadding(36, 60, 36, 36);
+            setContentView(tv);
+        } catch (Throwable ignored) {}
+    }
+'''
+          s=s[:start]+new+s[end:]
+          s=s.replace('    @Override protected void onWindowFocusChanged(boolean hasFocus) {',
+                      '    @Override public void onWindowFocusChanged(boolean hasFocus) {')
+          s=s.replace('    private void ensurePermissionsThenConnect(boolean auto) {\n        if (bluetoothAdapter == null) {',
+                      '    private void ensurePermissionsThenConnect(boolean auto) {\n        ensureBluetoothAdapter();\n        if (bluetoothAdapter == null) {')
+          p.write_text(s)
+          PY
 
       - name: Build signed release APK
         working-directory: android-build
