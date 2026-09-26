@@ -50,6 +50,7 @@ jobs:
           sed -i 's/        BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);/        BluetoothManager bm = null;/' "$SRC"
           sed -i 's/        bluetoothAdapter = bm != null ? bm.getAdapter() : null;/        bluetoothAdapter = null;/' "$SRC"
           sed -i '/    private void ensurePermissionsThenConnect(boolean auto) {/a\        if (bluetoothAdapter == null) { try { BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE); bluetoothAdapter = bm != null ? bm.getAdapter() : null; } catch (Throwable ignored) {} }' "$SRC"
+          python3 android/add_ble_picker.py "$SRC"
 
       - name: Build signed release APK
         working-directory: android-build
