@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'tools/redleo_real_protocol.js.gz.b64'
+      - 'tools/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino.gz.b64'
       - '.github/workflows/apply-real-protocol.yml'
 
 permissions:
@@ -22,12 +23,16 @@ jobs:
           test -s redleo_real_protocol.js
           node --check redleo_real_protocol.js
           wc -c redleo_real_protocol.js
+          mkdir -p firmware
+          base64 -d tools/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino.gz.b64 | gzip -d > firmware/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino
+          test -s firmware/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino
+          wc -c firmware/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino
       - name: Commit protocol layer
         run: |
-          if ! git diff --quiet -- redleo_real_protocol.js; then
+          if ! git diff --quiet -- redleo_real_protocol.js firmware/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add redleo_real_protocol.js
+            git add redleo_real_protocol.js firmware/ESP32S3_BLINK_TL_REDLEO_REAL_BRIDGE.ino
             git commit -m "Install real REDLEO ECU protocol layer"
             git push
           fi
