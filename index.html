@@ -676,6 +676,29 @@
     .ecuNotice .ndetail{font-size:10px!important}
   }
 
+  /* ===== v11 MAP FULL SCROLL + CONNECT FEEDBACK + ROTATE TOGGLE ===== */
+  #mapWrap{
+    overflow-x:auto!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    touch-action:pan-x pan-y!important;
+    scroll-behavior:auto!important;
+    padding-bottom:82px!important;
+  }
+  #connectEcuBtn.connectAck{
+    animation:blinkConnectAck .52s ease 0s 2;
+    box-shadow:0 0 0 2px rgba(255,255,255,.92) inset,0 0 28px rgba(29,215,95,.85)!important;
+  }
+  @keyframes blinkConnectAck{
+    0%,100%{transform:scale(1);filter:brightness(1)}
+    50%{transform:scale(.97);filter:brightness(1.65)}
+  }
+  #rotateLandscapeBtn.rotateAck{animation:blinkRotateAck .45s ease 0s 2}
+  @keyframes blinkRotateAck{0%,100%{filter:brightness(1)}50%{filter:brightness(1.75)}}
+  @media (orientation:landscape){
+    #mapWrap{padding-bottom:60px!important}
+  }
+
 </style>
 </head>
 <body>
@@ -685,10 +708,10 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE · WEB v10</div></div>
+      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE · WEB v11</div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
-    <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ESP32 BLE</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
+    <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
     <div class="gaugeZone">
       <div id="rpmGauge" class="rpmGauge">
         <div class="gaugeTicks"><span class="t0">0</span><span class="t25">2.5</span><span class="t5">5</span><span class="t75">7.5</span><span class="t10">10</span><span class="t125">12.5</span><span class="t15">15</span></div>
@@ -1137,9 +1160,10 @@ function highlightCurrent(){
 }
 const mapFollowWrap=document.getElementById('mapWrap');
 if(mapFollowWrap){
-  mapFollowWrap.addEventListener('pointerdown',()=>pauseMapAutoFollow(2600),{passive:true});
-  mapFollowWrap.addEventListener('touchstart',()=>pauseMapAutoFollow(2600),{passive:true});
-  mapFollowWrap.addEventListener('wheel',()=>pauseMapAutoFollow(2600),{passive:true});
+  mapFollowWrap.addEventListener('pointerdown',()=>pauseMapAutoFollow(8000),{passive:true});
+  mapFollowWrap.addEventListener('touchstart',()=>pauseMapAutoFollow(8000),{passive:true});
+  mapFollowWrap.addEventListener('wheel',()=>pauseMapAutoFollow(8000),{passive:true});
+  mapFollowWrap.addEventListener('scroll',()=>pauseMapAutoFollow(5000),{passive:true});
 }
 
 
@@ -2572,9 +2596,20 @@ window.addEventListener('beforeunload',save);
   }
 
   async function connectBle(){
+    const connectBtn=$('connectEcuBtn');
+    if(connectBtn){
+      connectBtn.classList.remove('connectAck');
+      void connectBtn.offsetWidth;
+      connectBtn.classList.add('connectAck');
+      connectBtn.textContent='✓ ĐÃ NHẬN · ĐANG QUÉT...';
+      setTimeout(()=>{
+        connectBtn.classList.remove('connectAck');
+        if(!state.ecuConnected)connectBtn.textContent='KẾT NỐI BLINK';
+      },900);
+    }
     try{
       if(!navigator.bluetooth)throw new Error('Trình duyệt này không có Web Bluetooth. Hãy mở URL HTTPS bằng Bluefy.');
-      $('ecuBadge').textContent='BLE: ĐANG CHỌN ESP32...';$('ecuBadge').className='badge';
+      $('ecuBadge').textContent='BLE: ĐANG CHỌN BLINK...';$('ecuBadge').className='badge';
       device=await navigator.bluetooth.requestDevice({
         filters:[{namePrefix:'BLINK-REDLEO'}],
         optionalServices:[BLE.SERVICE]
@@ -2589,8 +2624,8 @@ window.addEventListener('beforeunload',save);
       await mapChar.startNotifications();mapChar.addEventListener('characteristicvaluechanged',parseMap);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
       window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkWriteCommand=writeCommand;
-      setBleUi(true,device.name||'ESP32-S3');
-      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ESP32-S3');
+      setBleUi(true,device.name||'BLINK');
+      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'BLINK');
       $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
       await writeCommand('PING');
@@ -2604,7 +2639,7 @@ window.addEventListener('beforeunload',save);
   function onDisconnected(){
     liveChar=commandChar=mapChar=statusChar=service=server=null;
     setBleUi(false);
-    showEcuNotice('error','ESP32-S3 ĐÃ NGẮT BLE','Bấm KẾT NỐI ESP32 BLE để kết nối lại.');
+    showEcuNotice('error','BLINK ĐÃ NGẮT BLE','Bấm KẾT NỐI BLINK để kết nối lại.');
   }
 
   async function disconnectBle(){
@@ -2795,45 +2830,54 @@ document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1)
 async function requestLandscape(){
   const screenEl=document.getElementById('mapEditorScreen');
   const btn=document.getElementById('rotateLandscapeBtn');
+  const isLandscape=matchMedia('(orientation: landscape)').matches;
+  const target=isLandscape?'portrait':'landscape';
   const nativeAndroid=!!(window.AndroidBLE&&typeof window.AndroidBLE.setOrientation==='function') || /BLINK-REDLEO-ANDROID/i.test(navigator.userAgent||'');
+
+  if(btn){
+    btn.classList.remove('rotateAck');
+    void btn.offsetWidth;
+    btn.classList.add('rotateAck');
+    btn.textContent=target==='landscape'?'↻ ĐANG XOAY NGANG...':'↻ ĐANG XOAY DỌC...';
+  }
+
   try{
     if(nativeAndroid){
-      try{window.AndroidBLE&&window.AndroidBLE.setOrientation('landscape')}catch(_e){}
-      screenEl?.classList.add('landscapeRequested');
-      if(btn){
-        const old=btn.textContent;
-        btn.textContent='✓ ĐANG XOAY';
-        setTimeout(()=>{btn.textContent=old},1100);
-      }
-      setTimeout(()=>{highlightCurrent();},450);
+      try{window.AndroidBLE&&window.AndroidBLE.setOrientation(target)}catch(_e){}
+      screenEl?.classList.toggle('landscapeRequested',target==='landscape');
+      setTimeout(()=>{syncRotateButton();highlightCurrent();},420);
       return;
     }
 
-    // Fullscreen first: some browsers only allow orientation lock while fullscreen.
-    if(!document.fullscreenElement){
+    if(!document.fullscreenElement && target==='landscape'){
       const root=document.documentElement;
       const req=root.requestFullscreen||root.webkitRequestFullscreen;
       if(req){try{await req.call(root)}catch(_e){}}
     }
     let locked=false;
     if(screen.orientation&&typeof screen.orientation.lock==='function'){
-      try{await screen.orientation.lock('landscape');locked=true}catch(_e){}
+      try{await screen.orientation.lock(target);locked=true}catch(_e){}
     }
-    if(!locked && typeof window.orientation!=='undefined'){
-      locked=(Math.abs(Number(window.orientation))===90);
-    }
-    screenEl?.classList.toggle('landscapeRequested',true);
-    if(locked || matchMedia('(orientation: landscape)').matches){
-      showEcuNotice('success','ĐÃ CHUYỂN NGANG','Màn hình MAP đang ở chế độ ngang.',1800);
-    }else{
-      showEcuNotice('info','XOAY NGANG','Trình duyệt iOS không cho website tự ép xoay. Hãy xoay iPhone ngang; giao diện sẽ tự chuyển sang layout ngang.',4200);
+    screenEl?.classList.toggle('landscapeRequested',target==='landscape');
+    if(!locked){
+      showEcuNotice('info',target==='landscape'?'XOAY NGANG':'XOAY DỌC','Trình duyệt này không cho website ép hướng. Hãy xoay điện thoại bằng tay.',3200);
     }
   }catch(e){
-    showEcuNotice('info','XOAY NGANG','Không thể khóa hướng tự động trên trình duyệt này. Hãy xoay điện thoại ngang.',3500);
+    showEcuNotice('info','XOAY MÀN HÌNH','Không thể khóa hướng tự động trên trình duyệt này.',3000);
+  }finally{
+    setTimeout(syncRotateButton,500);
   }
 }
+function syncRotateButton(){
+  const btn=document.getElementById('rotateLandscapeBtn');
+  if(!btn)return;
+  btn.classList.remove('rotateAck');
+  const land=matchMedia('(orientation: landscape)').matches;
+  btn.textContent=land?'↻ XOAY DỌC':'↻ XOAY NGANG';
+}
 document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
-window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);highlightCurrent();},260)});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);syncRotateButton();highlightCurrent();},260)});
+syncRotateButton();
 updateMapControls();
 })();
 </script>
