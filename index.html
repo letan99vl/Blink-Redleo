@@ -526,6 +526,156 @@
     #mapEditorScreen .editorInfo{grid-template-columns:1fr 1fr}
   }
 
+  /* ===== v9 ANDROID LANDSCAPE FULL WIDTH + MAP AUTO FOLLOW ===== */
+  @media (orientation:landscape){
+    .screen{
+      max-width:none!important;
+      width:auto!important;
+      left:0!important;
+      right:0!important;
+      transform:none!important;
+      inset:0 0 56px 0!important;
+    }
+    .bottomNav{
+      max-width:none!important;
+      width:auto!important;
+      left:0!important;
+      right:0!important;
+      transform:none!important;
+      height:56px!important;
+      padding:3px max(8px,env(safe-area-inset-right)) max(3px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))!important;
+    }
+    .navBtn{font-size:8px!important}
+    .navBtn .ico{font-size:17px!important;line-height:17px!important;margin-bottom:1px!important}
+
+    #mapEditorScreen{
+      max-width:none!important;
+      width:auto!important;
+      left:0!important;
+      right:0!important;
+      transform:none!important;
+      padding-top:max(5px,env(safe-area-inset-top))!important;
+    }
+    #mapEditorScreen .screenHeader{
+      min-height:34px!important;
+      margin-bottom:4px!important;
+      padding:0 8px!important;
+    }
+    #mapEditorScreen .screenHeader .backBtn{
+      width:34px!important;height:34px!important;border-radius:10px!important;font-size:21px!important;
+    }
+    #mapEditorScreen .screenTitle{font-size:18px!important;line-height:1!important}
+    #mapEditorScreen .screenSub{font-size:9px!important;margin-top:3px!important}
+    #mapEditorScreen .miniStatus{font-size:9px!important;padding:5px 8px!important}
+
+    #mapEditorScreen .editToolbar{
+      grid-template-columns:repeat(5,minmax(0,1fr))!important;
+      gap:4px!important;
+      padding:0 8px 4px!important;
+    }
+    #mapEditorScreen .editToolbar button{
+      height:30px!important;
+      min-height:30px!important;
+      padding:0 5px!important;
+      border-radius:8px!important;
+      font-size:8px!important;
+    }
+    #mapEditorScreen .editToolbar #applyCorrectedBtn{
+      grid-column:auto!important;
+      height:30px!important;
+    }
+    #mapEditorScreen .editorInfo{
+      grid-template-columns:1fr 1fr!important;
+      gap:4px!important;
+      padding:0 8px 4px!important;
+    }
+    #mapEditorScreen .editorInfo .livebox{
+      min-height:36px!important;
+      padding:3px 7px!important;
+      border-radius:8px!important;
+    }
+    #mapEditorScreen .editorInfo .livebox .k{font-size:8px!important}
+    #mapEditorScreen .editorInfo .livebox .v{font-size:15px!important;margin-top:1px!important}
+
+    #mapEditorScreen .editorTabs{
+      margin:0 8px 4px!important;
+      padding:3px!important;
+      gap:3px!important;
+      border-radius:9px!important;
+    }
+    #mapEditorScreen .editorTabs .tab{
+      min-height:28px!important;
+      height:28px!important;
+      font-size:8px!important;
+      padding:2px 3px!important;
+      border-radius:7px!important;
+    }
+    #mapEditorScreen .editorStepBar{
+      min-height:31px!important;
+      gap:4px!important;
+      padding:0 8px 4px!important;
+      font-size:9px!important;
+    }
+    #mapEditorScreen .editorStepBar .stepChip{
+      min-width:38px!important;
+      min-height:28px!important;
+      height:28px!important;
+      padding:0 7px!important;
+      border-radius:8px!important;
+      font-size:9px!important;
+    }
+    #mapEditorScreen .editorStepBar .nudgeInline{
+      min-width:42px!important;
+      font-size:18px!important;
+    }
+    #mapEditorScreen .editorStepBar .scanChip{min-width:88px!important}
+
+    #mapEditorScreen .mapwrap{
+      width:100%!important;
+      max-width:none!important;
+      flex:1 1 auto!important;
+    }
+    #mapEditorScreen #mapTable{
+      min-width:1650px!important;
+      width:max-content!important;
+    }
+    #mapEditorScreen .mapwrap th,
+    #mapEditorScreen .mapwrap td{
+      height:34px!important;
+      min-width:52px!important;
+      font-size:11px!important;
+    }
+    #mapEditorScreen .mapwrap th.corner,
+    #mapEditorScreen .mapwrap td.rowhead{
+      min-width:64px!important;
+      width:64px!important;
+      position:sticky!important;
+      left:0!important;
+      z-index:6!important;
+    }
+    #mapEditorScreen .mapwrap thead th{
+      position:sticky!important;
+      top:0!important;
+      z-index:5!important;
+    }
+    #mapEditorScreen .mapwrap thead th.corner{z-index:8!important}
+    #mapEditorScreen .editorFooter{
+      min-height:21px!important;
+      padding:3px 8px!important;
+      font-size:8px!important;
+    }
+
+    .ecuNotice{
+      top:max(5px,env(safe-area-inset-top))!important;
+      max-width:min(760px,calc(100vw - 18px))!important;
+      padding:8px 11px!important;
+      border-radius:10px!important;
+    }
+    .ecuNotice .icon{font-size:20px!important}
+    .ecuNotice .ntitle{font-size:13px!important}
+    .ecuNotice .ndetail{font-size:10px!important}
+  }
+
 </style>
 </head>
 <body>
@@ -944,9 +1094,52 @@ function nearestRow(tps,rpm){
   return best;
 }
 function currentCell(){const rpm=state.live.rpm,tps=state.live.tps;if(rpm<250)return {r:R-1,c:0,key:'idle'};const r=nearestRow(tps,rpm),c=nearestCol(rpm);return {r,c,key:r+':'+c};}
+let mapAutoFollowPauseUntil=0;
+let mapAutoFollowLastKey='';
+function pauseMapAutoFollow(ms=2200){mapAutoFollowPauseUntil=performance.now()+ms;}
+function autoFollowCurrentCell(td,cur){
+  const wrap=document.getElementById('mapWrap');
+  const screenEl=document.getElementById('mapEditorScreen');
+  if(!td||!wrap||!screenEl||!screenEl.classList.contains('active'))return;
+  if(document.activeElement&&document.activeElement.isContentEditable)return;
+  if(performance.now()<mapAutoFollowPauseUntil)return;
+  if(cur.key===mapAutoFollowLastKey)return;
+  mapAutoFollowLastKey=cur.key;
+
+  const wr=wrap.getBoundingClientRect();
+  const tr=td.getBoundingClientRect();
+  if(wr.width<40||wr.height<40)return;
+
+  const leftSafe=wr.left+Math.min(120,wr.width*.18);
+  const rightSafe=wr.right-Math.min(190,wr.width*.28);
+  const topSafe=wr.top+Math.min(72,wr.height*.18);
+  const bottomSafe=wr.bottom-Math.min(90,wr.height*.24);
+  let dx=0,dy=0;
+
+  if(tr.right>rightSafe) dx=tr.left-(wr.left+wr.width*.58);
+  else if(tr.left<leftSafe) dx=tr.left-(wr.left+wr.width*.22);
+
+  if(tr.bottom>bottomSafe) dy=tr.top-(wr.top+wr.height*.55);
+  else if(tr.top<topSafe) dy=tr.top-(wr.top+wr.height*.25);
+
+  if(Math.abs(dx)>2||Math.abs(dy)>2){
+    wrap.scrollBy({left:dx,top:dy,behavior:'auto'});
+  }
+}
 function highlightCurrent(){
   document.querySelectorAll('td.current').forEach(x=>x.classList.remove('current'));
-  const cur=currentCell();const td=document.querySelector(`td[data-r="${cur.r}"][data-c="${cur.c}"]`);if(td)td.classList.add('current');
+  const cur=currentCell();
+  const td=document.querySelector(`#mapTable td[data-r="${cur.r}"][data-c="${cur.c}"]`);
+  if(td){
+    td.classList.add('current');
+    autoFollowCurrentCell(td,cur);
+  }
+}
+const mapFollowWrap=document.getElementById('mapWrap');
+if(mapFollowWrap){
+  mapFollowWrap.addEventListener('pointerdown',()=>pauseMapAutoFollow(2600),{passive:true});
+  mapFollowWrap.addEventListener('touchstart',()=>pauseMapAutoFollow(2600),{passive:true});
+  mapFollowWrap.addEventListener('wheel',()=>pauseMapAutoFollow(2600),{passive:true});
 }
 
 
@@ -2601,7 +2794,21 @@ scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$(
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
 async function requestLandscape(){
   const screenEl=document.getElementById('mapEditorScreen');
+  const btn=document.getElementById('rotateLandscapeBtn');
+  const nativeAndroid=!!(window.AndroidBLE&&typeof window.AndroidBLE.setOrientation==='function') || /BLINK-REDLEO-ANDROID/i.test(navigator.userAgent||'');
   try{
+    if(nativeAndroid){
+      try{window.AndroidBLE&&window.AndroidBLE.setOrientation('landscape')}catch(_e){}
+      screenEl?.classList.add('landscapeRequested');
+      if(btn){
+        const old=btn.textContent;
+        btn.textContent='✓ ĐANG XOAY';
+        setTimeout(()=>{btn.textContent=old},1100);
+      }
+      setTimeout(()=>{highlightCurrent();},450);
+      return;
+    }
+
     // Fullscreen first: some browsers only allow orientation lock while fullscreen.
     if(!document.fullscreenElement){
       const root=document.documentElement;
@@ -2613,21 +2820,20 @@ async function requestLandscape(){
       try{await screen.orientation.lock('landscape');locked=true}catch(_e){}
     }
     if(!locked && typeof window.orientation!=='undefined'){
-      // iOS exposes orientation state, but does not expose a standards-based force-rotate API.
       locked=(Math.abs(Number(window.orientation))===90);
     }
     screenEl?.classList.toggle('landscapeRequested',true);
     if(locked || matchMedia('(orientation: landscape)').matches){
-      showEcuNotice('success','ĐÃ CHUYỂN NGANG','Màn hình MAP đang ở chế độ ngang.',2500);
+      showEcuNotice('success','ĐÃ CHUYỂN NGANG','Màn hình MAP đang ở chế độ ngang.',1800);
     }else{
-      showEcuNotice('info','XOAY NGANG','Bluefy/iOS không cho website tự ép xoay trong phiên này. Hãy xoay iPhone ngang; giao diện sẽ tự chuyển sang layout ngang. Có thể bật Full-screen Mode của Bluefy để rộng hơn.',6500);
+      showEcuNotice('info','XOAY NGANG','Trình duyệt iOS không cho website tự ép xoay. Hãy xoay iPhone ngang; giao diện sẽ tự chuyển sang layout ngang.',4200);
     }
   }catch(e){
-    showEcuNotice('info','XOAY NGANG','Không thể khóa hướng tự động trên trình duyệt này. Hãy xoay iPhone ngang; giao diện sẽ tự thích nghi.',5500);
+    showEcuNotice('info','XOAY NGANG','Không thể khóa hướng tự động trên trình duyệt này. Hãy xoay điện thoại ngang.',3500);
   }
 }
 document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
-window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land)},180)});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);highlightCurrent();},260)});
 updateMapControls();
 })();
 </script>
