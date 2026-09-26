@@ -510,6 +510,22 @@
   #redScanToggle.active{background:#d61d31!important;color:#fff!important;border-color:#ff6573!important}
   @media(max-width:600px){.mapNudgeControls{right:8px;bottom:45px}.mapNudgeControls button{width:52px;height:52px;border-radius:15px;font-size:29px}.editorStepBar{padding-right:8px}}
 
+
+  /* ===== v8 INJ VE inline +/- + landscape request ===== */
+  .editToolbar{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .editToolbar #applyCorrectedBtn{grid-column:1/-1}
+  #rotateLandscapeBtn{background:linear-gradient(180deg,#17171d,#111116)!important;border:1px solid #6f2932!important;color:#ffd0d5!important}
+  .editorStepBar .nudgeInline{min-width:50px!important;font-size:22px!important;font-weight:950!important;padding:0!important}
+  .editorStepBar #mapPlusBtn{background:#0a3b1f!important;border-color:#20d86a!important;color:#78ffa8!important;box-shadow:0 0 14px rgba(32,216,106,.18)}
+  .editorStepBar #mapMinusBtn{background:#4b0c14!important;border-color:#ff3047!important;color:#ff9ca7!important;box-shadow:0 0 14px rgba(255,48,71,.18)}
+  .editorStepBar .controlDivider{width:1px;height:26px;background:#3b2429;flex:0 0 1px;margin:0 2px}
+  #mapEditorScreen.landscapeRequested .screenHeader{border-bottom-color:#ff2d3f}
+  @media(orientation:landscape){
+    .editToolbar{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+    .editToolbar #applyCorrectedBtn{grid-column:auto}
+    #mapEditorScreen .editorInfo{grid-template-columns:1fr 1fr}
+  }
+
 </style>
 </head>
 <body>
@@ -563,12 +579,12 @@
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
-    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span style="margin-left:auto">Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button></div>
+    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
-    <div class="mapNudgeControls" aria-label="Tăng giảm vùng đã chọn"><button id="mapPlusBtn" type="button">＋</button><button id="mapMinusBtn" type="button">−</button></div>
+    
     <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span></div>
   </section>
 
@@ -2583,6 +2599,35 @@ document.querySelectorAll('[data-mapstep]').forEach(b=>b.addEventListener('click
 document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click',()=>{mapMode=b.dataset.mapmode;updateMapControls()}));
 scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF'});
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
+async function requestLandscape(){
+  const screenEl=document.getElementById('mapEditorScreen');
+  try{
+    // Fullscreen first: some browsers only allow orientation lock while fullscreen.
+    if(!document.fullscreenElement){
+      const root=document.documentElement;
+      const req=root.requestFullscreen||root.webkitRequestFullscreen;
+      if(req){try{await req.call(root)}catch(_e){}}
+    }
+    let locked=false;
+    if(screen.orientation&&typeof screen.orientation.lock==='function'){
+      try{await screen.orientation.lock('landscape');locked=true}catch(_e){}
+    }
+    if(!locked && typeof window.orientation!=='undefined'){
+      // iOS exposes orientation state, but does not expose a standards-based force-rotate API.
+      locked=(Math.abs(Number(window.orientation))===90);
+    }
+    screenEl?.classList.toggle('landscapeRequested',true);
+    if(locked || matchMedia('(orientation: landscape)').matches){
+      showEcuNotice('success','ĐÃ CHUYỂN NGANG','Màn hình MAP đang ở chế độ ngang.',2500);
+    }else{
+      showEcuNotice('info','XOAY NGANG','Bluefy/iOS không cho website tự ép xoay trong phiên này. Hãy xoay iPhone ngang; giao diện sẽ tự chuyển sang layout ngang. Có thể bật Full-screen Mode của Bluefy để rộng hơn.',6500);
+    }
+  }catch(e){
+    showEcuNotice('info','XOAY NGANG','Không thể khóa hướng tự động trên trình duyệt này. Hãy xoay iPhone ngang; giao diện sẽ tự thích nghi.',5500);
+  }
+}
+document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land)},180)});
 updateMapControls();
 })();
 </script>
