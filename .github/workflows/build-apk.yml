@@ -51,6 +51,10 @@ jobs:
           sed -i 's/        bluetoothAdapter = bm != null ? bm.getAdapter() : null;/        bluetoothAdapter = null;/' "$SRC"
           sed -i '/    private void ensurePermissionsThenConnect(boolean auto) {/a\        if (bluetoothAdapter == null) { try { BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE); bluetoothAdapter = bm != null ? bm.getAdapter() : null; } catch (Throwable ignored) {} }' "$SRC"
           python3 android/add_ble_picker.py "$SRC"
+          sed -i 's#https://letan99vl.github.io/Blink-Redleo/?android=1#https://letan99vl.github.io/Blink-Redleo/?android=1\&v=10#' "$SRC"
+          sed -i 's/WebSettings.LOAD_DEFAULT/WebSettings.LOAD_NO_CACHE/' "$SRC"
+          sed -i 's/BLINK-REDLEO-ANDROID\/1.1/BLINK-REDLEO-ANDROID\/1.2-v10/' "$SRC"
+          sed -i '/s.setCacheMode(WebSettings.LOAD_NO_CACHE);/a\            try { webView.clearCache(true); webView.clearHistory(); } catch (Throwable ignored) {}' "$SRC"
 
       - name: Build signed release APK
         working-directory: android-build
@@ -64,7 +68,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-APK-SAFE
+          name: BLINK-REDLEO-APK-v10
           path: |
             BLINK-REDLEO.apk
             BLINK-REDLEO.apk.sha256
