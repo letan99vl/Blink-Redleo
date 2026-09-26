@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-<title>AFR AUTO TUNE · iPhone PORTRAIT BLE TEST</title>
+<title>BLINK REDLEO · MULTI SCREEN v5</title>
 <meta name="theme-color" content="#07111d" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -250,43 +250,322 @@
     table{min-width:1200px}
   }
 
+
+
+  /* ===== BLINK RED / BLACK SKIN v4 ===== */
+  :root{
+    --bg:#050507;
+    --panel:#0d0d11;
+    --panel2:#14141a;
+    --line:#ff2d2d;
+    --head:#19191f;
+    --text:#f8f8fb;
+    --muted:#a7abb4;
+    --ok:#1dd75f;
+    --warn:#ffb020;
+    --danger:#ff4a57;
+    --accent:#ff2d2d;
+    --cell:#ffe0ea;
+    --cellText:#12090c;
+    --ios-bg:#050507;
+    --ios-card:#0d0d11;
+    --ios-card2:#14141a;
+    --ios-line:#472026;
+    --ios-blue:#ff2d2d;
+    --ios-green:#1dd75f;
+    --ios-red:#ff3b30;
+    --ios-orange:#ff9f0a;
+  }
+  html,body{background:
+      radial-gradient(circle at 18% 12%, rgba(255,45,45,.18), transparent 28%),
+      radial-gradient(circle at 85% 18%, rgba(255,45,45,.12), transparent 22%),
+      radial-gradient(circle at 50% 120%, rgba(140,0,0,.20), transparent 30%),
+      linear-gradient(180deg,#070708 0%, #040405 45%, #0a0a0d 100%);
+      color:var(--text);
+  }
+  body::before{
+    content:'';
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      linear-gradient(140deg, transparent 0 38%, rgba(255,45,45,.06) 45%, transparent 52%),
+      linear-gradient(160deg, transparent 0 65%, rgba(255,45,45,.05) 72%, transparent 79%);
+    mix-blend-mode:screen;
+  }
+  .app{position:relative; z-index:1;}
+  .topbar,.tabs,.controlbar,.footer,.settings[open],dialog,.threePanel{
+    background:linear-gradient(180deg, rgba(18,18,22,.96), rgba(10,10,13,.96));
+    border:1px solid rgba(255,58,58,.28)!important;
+    box-shadow:0 0 0 1px rgba(255,58,58,.08) inset, 0 10px 28px rgba(0,0,0,.35);
+  }
+  .brand{
+    color:#fff;
+    font-weight:900;
+    letter-spacing:.6px;
+    text-shadow:0 0 16px rgba(255,45,45,.25);
+  }
+  #uiTestBanner{
+    background:rgba(120,10,10,.22)!important;
+    color:#ffd2d2!important;
+    border:1px solid rgba(255,58,58,.28);
+  }
+  #uiTestBanner .pulse{background:#ff3b30!important}
+  .badge{background:#191920;color:#d7d9de;border:1px solid rgba(255,58,58,.22)}
+  .badge.ok{background:rgba(15,62,28,.9);color:#90ffb1;border-color:rgba(29,215,95,.35)}
+  .badge.bad{background:rgba(76,17,24,.95);color:#ffb0b8;border-color:rgba(255,74,87,.35)}
+  button{
+    background:linear-gradient(180deg,#2a0f14,#1b0b0f);
+    border:1px solid rgba(255,58,58,.35);
+    box-shadow:0 0 0 1px rgba(255,58,58,.08) inset;
+  }
+  button.primary,#connectEcuBtn,.tab.active{
+    background:linear-gradient(180deg,#ff4b4b,#cc1616)!important;
+    color:#fff;
+    border:1px solid rgba(255,90,90,.55);
+    box-shadow:0 0 18px rgba(255,45,45,.22), inset 0 0 0 1px rgba(255,255,255,.08);
+  }
+  button.good{background:linear-gradient(180deg,#1ea94e,#0d742f)!important;border-color:rgba(29,215,95,.35)}
+  button.danger{background:linear-gradient(180deg,#ff4a57,#ac1d2c)!important;border-color:rgba(255,74,87,.35)}
+  button.ghost,#disconnectEcuBtn,#fullscreenBtn,.tab{background:linear-gradient(180deg,#17171d,#111116)!important;color:#d2d6dd;border:1px solid rgba(255,58,58,.16)}
+  .tab{box-shadow:inset 0 0 0 1px rgba(255,58,58,.06)}
+  .livebox,.settings,.historyList,.historyRow{background:linear-gradient(180deg, rgba(22,22,28,.95), rgba(13,13,18,.98));border-color:rgba(255,58,58,.18)!important}
+  .livebox .k,.field label,.hint,.muted{color:#9ea4af!important}
+  .livebox .v{color:#fff;text-shadow:0 0 10px rgba(255,45,45,.12)}
+  .toolrow select,.field input,.field select,.field textarea{background:#09090c;border:1px solid rgba(255,58,58,.22);color:#fff}
+  .settings summary{color:#ffd2d2}
+  .threeStatus{color:#dedee4}
+  .mapwrap{
+    background:#09090c!important;
+    border-color:rgba(255,58,58,.36)!important;
+    box-shadow:0 0 0 1px rgba(255,58,58,.08) inset;
+  }
+  table{background:#070708!important}
+  th{
+    background:linear-gradient(180deg,#1c1c24,#111116)!important;
+    color:#fff!important;
+    border-right:1px solid rgba(255,58,58,.20)!important;
+    border-bottom:1px solid rgba(255,58,58,.28)!important;
+  }
+  th.corner, td.rowhead{
+    background:linear-gradient(180deg,#14141a,#0d0d11)!important;
+    color:#eef0f4!important;
+  }
+  td.rowhead.idle{background:linear-gradient(180deg,#0d8d39,#0b6128)!important}
+  td,td.mapcell{
+    border-right:1px solid rgba(82,16,24,.50)!important;
+    border-bottom:1px solid rgba(82,16,24,.50)!important;
+  }
+  td.mapcell{
+    background:#ffdce5!important;
+    color:#14090d!important;
+  }
+  td.mapcell:hover{background:#ffc8d6!important}
+  td.mapcell.current{box-shadow:inset 0 0 0 3px #ff2d2d!important;background:#ffb3c5!important}
+  td.mapcell.selected{background:#ff2d2d!important;color:#fff!important;box-shadow:inset 0 0 0 1px #8f0000!important}
+  td.mapcell.good{background:#d8ffd7!important;color:#08220d!important}
+  td.mapcell.warn{background:#ffe2a8!important;color:#2d1800!important}
+  td.mapcell.bad{background:#ffbbc4!important;color:#2c060b!important}
+  td.mapcell.afr-red{background:#db1f33!important;color:#fff!important}
+  td.mapcell.afr-green{background:#1ea94e!important;color:#fff!important}
+  td.mapcell.afr-orange{background:#ff9f0a!important;color:#1a1002!important}
+  td.mapcell[contenteditable="true"]:focus{background:#fff0a8!important;box-shadow:inset 0 0 0 2px #ff9f0a!important}
+  .footer{color:#a9afb7}
+  .ecuNotice{background:#14141a;border-color:#ff3b30;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .ecuNotice.success{background:#102617;border-color:#1dd75f}
+  .ecuNotice.error{background:#381116;border-color:#ff4a57}
+  .ecuNotice.info{background:#1f1212;border-color:#ff3b30}
+  .nclose{background:#ffffff10!important;border:1px solid rgba(255,255,255,.14)!important}
+  .dot{background:#59444a}.dot.on{background:#1dd75f}
+  .field input:focus,.field select:focus,.field textarea:focus,.toolrow select:focus{outline:none;box-shadow:0 0 0 2px rgba(255,45,45,.22)}
+
+
+
+  /* ===== BLINK REDLEO MULTI-SCREEN RED/BLACK v5 ===== */
+  html,body{height:100%;overflow:hidden;background:#050506;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Arial,sans-serif}
+  body{margin:0;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  button,select,input{font-family:inherit}
+  .app{display:block!important;height:100dvh!important;padding:0!important;background:
+      radial-gradient(circle at 72% -5%,rgba(255,34,34,.16),transparent 29%),
+      radial-gradient(circle at -10% 36%,rgba(126,0,0,.15),transparent 28%),
+      linear-gradient(180deg,#050506,#09090c 55%,#040405)!important;overflow:hidden;position:relative}
+  .app::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.42;background:
+      linear-gradient(145deg,transparent 0 30%,rgba(255,34,34,.05) 30.3% 31%,transparent 31.2% 70%,rgba(255,34,34,.04) 70.3% 71%,transparent 71.2%),
+      radial-gradient(circle at 58% 23%,rgba(255,255,255,.025),transparent 24%)}
+  .screen{position:absolute;inset:0 0 68px 0;overflow:hidden;display:none;z-index:2;padding:max(16px,env(safe-area-inset-top)) 18px 14px}
+  .screen.active{display:flex;flex-direction:column}
+  .scrollScreen{overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:28px}
+  .screenHeader{display:flex;align-items:center;gap:10px;min-height:44px;margin-bottom:12px;flex:0 0 auto}
+  .screenHeader .backBtn{width:42px;height:42px;border-radius:13px;padding:0;font-size:25px;background:#111116;border:1px solid #3a181d;color:#ff3b30}
+  .screenTitleWrap{min-width:0;flex:1}
+  .screenTitle{font-size:28px;line-height:1;font-weight:900;letter-spacing:-.7px}
+  .screenSub{font-size:12px;color:#8e939d;margin-top:6px}
+  .miniStatus{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:900;letter-spacing:.7px;color:#ff7e85;background:#1a0d10;border:1px solid #501820;border-radius:999px;padding:8px 11px;white-space:nowrap}
+  .miniStatus .lamp{width:8px;height:8px;border-radius:50%;background:#ff453a;box-shadow:0 0 12px #ff453a}
+  .miniStatus.on{color:#9affb4;background:#0d1a11;border-color:#164a27}.miniStatus.on .lamp{background:#30d158;box-shadow:0 0 12px #30d158}
+
+  /* dashboard */
+  .dashTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .logoLockup{font-size:21px;font-weight:950;font-style:italic;letter-spacing:-.8px;color:#fff}
+  .logoLockup b{color:#ff2d2d}.logoSub{font-size:9px;letter-spacing:2.6px;color:#777e89;margin-top:2px}
+  .mapChip{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid #3a1b20;background:#0d0d11;border-radius:12px}
+  .mapChip span{font-size:10px;color:#7f858f;font-weight:800}.mapChip select{border:0!important;background:transparent!important;color:#fff!important;font-size:13px;font-weight:900;padding:0!important;width:auto!important;height:auto!important}
+  .dashConnect{display:grid;grid-template-columns:1fr auto auto;gap:7px;margin:8px 0 8px}
+  #connectEcuBtn,#disconnectEcuBtn,#fullscreenBtn{height:38px!important;border-radius:12px!important;font-size:11px!important}
+  #connectEcuBtn{background:linear-gradient(180deg,#ff3b30,#c41119)!important;border:1px solid #ff5d54!important;box-shadow:0 0 18px rgba(255,45,45,.18)!important}
+  #disconnectEcuBtn,#fullscreenBtn{background:#111116!important;border:1px solid #302026!important;color:#d9dce2!important}
+  #ecuBadge{display:none}
+  .gaugeZone{display:flex;justify-content:center;align-items:center;flex:0 0 auto;padding:2px 0 3px}
+  .rpmGauge{--rpm-angle:0deg;position:relative;width:min(76vw,340px);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(from 225deg,#ff2d2d 0 var(--rpm-angle),#222228 var(--rpm-angle) 270deg,transparent 270deg 360deg);box-shadow:0 0 38px rgba(255,30,30,.12)}
+  .rpmGauge::before{content:"";position:absolute;width:88%;height:88%;border-radius:50%;background:radial-gradient(circle at 50% 42%,#15151a,#050506 70%);border:1px solid #2a171b;box-shadow:inset 0 0 34px #000}
+  .rpmGauge::after{content:"";position:absolute;width:72%;height:72%;border-radius:50%;border:1px solid rgba(255,45,45,.12)}
+  .gaugeTicks{position:absolute;inset:0;z-index:3;color:#8d929c;font-size:13px;font-weight:800}
+  .gaugeTicks span{position:absolute;transform:translate(-50%,-50%)}
+  .gaugeTicks .t0{left:18%;top:74%}.gaugeTicks .t25{left:13%;top:48%}.gaugeTicks .t5{left:25%;top:24%}.gaugeTicks .t75{left:50%;top:14%}.gaugeTicks .t10{left:75%;top:24%}.gaugeTicks .t125{left:87%;top:48%}.gaugeTicks .t15{left:82%;top:74%}
+  .gaugeCenter{position:relative;z-index:4;text-align:center;margin-top:4px}
+  .gaugeLabel{font-size:11px;letter-spacing:3px;color:#a6abb5;font-weight:800}
+  #rpmLive{font-size:72px!important;line-height:.92;font-weight:950;color:#fff;text-shadow:0 0 20px rgba(255,45,45,.18)}
+  .rpmUnit{font-size:16px;color:#ff4a4a;font-weight:900;margin-top:5px}
+  .dashStatusRow{display:flex;justify-content:center;gap:8px;margin:-8px 0 8px;z-index:5}
+  .statePill{border:1px solid #30171c;background:#0d0d10;color:#979ca5;border-radius:999px;padding:7px 11px;font-size:10px;font-weight:800}
+  .statePill.red{color:#fff;border-color:#8b1d27;background:#2b0b10}
+  .liveHero{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .heroCard{position:relative;background:linear-gradient(150deg,#15151a,#0d0d11);border:1px solid #4b1a21;border-radius:17px;padding:12px 13px;min-height:94px;overflow:hidden}
+  .heroCard::after{content:"";position:absolute;width:84px;height:84px;border-radius:50%;right:-22px;bottom:-34px;background:rgba(255,45,45,.07)}
+  .heroCard.tps{border-color:#294f31;background:linear-gradient(150deg,#0f1d12,#0b0d0c)}
+  .heroCard .cardK{font-size:10px;letter-spacing:1.7px;color:#999ea8;font-weight:800}.heroCard .cardV{font-size:39px;font-weight:950;margin-top:5px}.heroCard .cardV small{font-size:15px;color:#a5aab2}.heroCard .cardFoot{font-size:10px;color:#707680;margin-top:3px}
+  .heroCard.afr .cardV{color:#fff}.heroCard.tps .cardV{color:#f7f7f8}
+  .miniGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px}
+  .miniCard{background:#0d0d11;border:1px solid #32161b;border-radius:14px;padding:9px 8px;text-align:center;min-height:64px}.miniCard .k{font-size:8px;letter-spacing:1.1px;color:#777d87;font-weight:800}.miniCard .v{font-size:18px;font-weight:900;margin-top:6px;color:#fff}
+  .wideGrid{display:grid;grid-template-columns:1fr 1.45fr;gap:7px;margin-bottom:10px}.wideCard{background:#0d0d11;border:1px solid #32161b;border-radius:14px;padding:10px 11px}.wideCard .k{font-size:9px;color:#7e838d;font-weight:800}.wideCard .v{font-size:21px;font-weight:900;margin-top:5px}
+  .dashActions{display:grid;grid-template-columns:.62fr 1.38fr;gap:8px;margin-top:auto}.dashActions button{height:50px;border-radius:16px;font-size:12px;font-weight:900;letter-spacing:.8px}.raceBtn{background:#111116!important;border:1px solid #413036!important;color:#d7d9df!important}.autoBtn{background:#09090c!important;border:1px solid #ff3b30!important;color:#fff!important;box-shadow:0 0 18px rgba(255,45,45,.12)}
+
+  /* map menu */
+  .mapBankBar{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;border:1px solid #32171c;background:#0d0d11;border-radius:16px;padding:4px;margin-bottom:14px;flex:0 0 auto}
+  .mapBankBtn{height:46px;border-radius:12px;background:transparent!important;border:0!important;color:#8c919b!important;font-size:13px;font-weight:900;box-shadow:none!important}.mapBankBtn.active{background:linear-gradient(180deg,#3a1117,#1e0b0f)!important;color:#fff!important;border:1px solid #a5212c!important;box-shadow:0 0 14px rgba(255,45,45,.12)!important}
+  .menuGrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.menuCard{min-height:154px;border-radius:20px;border:1px solid #5a1820;background:linear-gradient(155deg,#171116,#0b0b0e 70%);padding:17px;position:relative;overflow:hidden;text-align:left;box-shadow:inset 0 0 0 1px rgba(255,45,45,.04)}
+  .menuCard::after{content:"";position:absolute;width:110px;height:110px;border-radius:50%;right:-42px;bottom:-48px;background:rgba(255,45,45,.07)}
+  .menuIcon{width:52px;height:52px;border-radius:16px;border:1px solid #ff3b30;display:grid;place-items:center;font-size:24px;color:#ff4545;background:#1f0c10;box-shadow:0 0 16px rgba(255,45,45,.12)}
+  .menuCard h3{font-size:18px;margin:24px 0 4px}.menuCard p{font-size:11px;color:#858a94;margin:0}.menuCode{position:absolute;left:17px;bottom:12px;font-size:8px;letter-spacing:1px;color:#56363b}.menuArrow{position:absolute;right:14px;bottom:14px;font-size:22px;color:#ff3b30}
+  .sectionLabel{font-size:11px;letter-spacing:3px;color:#7b808a;font-weight:900;margin:20px 0 10px}
+
+  /* map editor */
+  #mapEditorScreen{padding-left:0;padding-right:0;padding-bottom:0}
+  #mapEditorScreen .screenHeader{padding:0 14px;margin-bottom:8px}
+  .editToolbar{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:0 0 auto}.editToolbar button{height:38px;border-radius:11px;font-size:10px}.editToolbar #applyCorrectedBtn{grid-column:1/-1;height:40px}
+  .editorInfo{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto}.editorInfo .livebox{min-height:52px;background:#0d0d11;border:1px solid #31171c;border-radius:12px}
+  .editorTabs{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:4px!important;margin:0 12px 8px!important;padding:4px!important;background:#0d0d11!important;border:1px solid #33171c!important;border-radius:13px!important;overflow:visible!important}.editorTabs .tab{font-size:9px!important;min-height:37px!important;white-space:normal!important;padding:4px!important}
+  .editorStepBar{display:flex;align-items:center;gap:6px;padding:0 12px 8px;color:#8d929b;font-size:10px;flex:0 0 auto}.stepChip{padding:7px 11px;border:1px solid #332027;background:#101014;border-radius:10px;font-weight:800}.stepChip.on{border-color:#a51c28;color:#fff;background:#2a0b10}
+  .mapwrap{margin:0!important;border-radius:0!important;border-left:0!important;border-right:0!important;border-bottom:0!important;flex:1!important;min-height:0!important;background:#070708!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important}
+  #mapTable{min-width:1650px!important;height:auto!important;min-height:100%!important}.mapwrap th,.mapwrap td{height:42px!important;font-size:12px!important}.mapwrap th{background:#121217!important}.mapwrap td.rowhead{background:#0e0e12!important;color:#aeb2bb!important}.mapwrap td.mapcell{background:#f6b6c3!important}.mapwrap td.mapcell:nth-child(3n){background:#f3a9b8!important}.mapwrap td.mapcell.current{background:#ff8ca3!important;box-shadow:inset 0 0 0 3px #ff2d2d!important}.mapwrap td.mapcell.selected{background:#da1d31!important;color:#fff!important}
+  .editorFooter{display:flex;gap:9px;align-items:center;overflow-x:auto;padding:6px 10px 8px;background:#08080b;border-top:1px solid #2c1419;font-size:8px;color:#7d828c;flex:0 0 auto}.editorFooter span{white-space:nowrap}
+
+  /* auto tune */
+  .tuneHero{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.tuneLive{background:#0d0d11;border:1px solid #381820;border-radius:16px;padding:12px}.tuneLive .k{font-size:9px;letter-spacing:1.2px;color:#858a93}.tuneLive .v{font-size:30px;font-weight:950;margin-top:6px}.tuneModeRow{display:grid;grid-template-columns:1fr auto;gap:7px;margin-bottom:9px}.tuneModeRow select{height:42px;border-radius:12px;background:#0d0d11!important;border:1px solid #381820!important;color:#fff!important;padding:0 11px}.tuneModeRow button{height:42px;border-radius:12px}
+  #threeRunPanel{display:grid;grid-template-columns:1fr 1fr!important;gap:8px!important;background:linear-gradient(155deg,#141014,#09090c)!important;border:1px solid #4c171f!important;border-radius:18px!important;padding:12px!important}.threePanel[hidden]{display:none!important}#threeRunPanel button{height:46px!important;border-radius:13px!important}.threeStatus{grid-column:1/-1!important;font-size:11px!important;line-height:1.45!important;background:#0a0a0d;border:1px solid #281318;border-radius:12px;padding:10px;color:#c5c8cf!important}.threeStatus b{color:#fff!important}
+  .recordActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0}.recordActions button{height:44px;border-radius:13px}.tuneNote{font-size:10px;color:#7c828b;line-height:1.5;background:#0d0d11;border:1px solid #2d151a;border-radius:13px;padding:11px;margin-top:8px}
+
+  /* settings */
+  .settingsTiles{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:16px}.settingTile{min-height:142px;border:1px solid #541820;border-radius:19px;background:linear-gradient(155deg,#171116,#0c0c10);padding:16px;position:relative}.settingTile .menuIcon{width:48px;height:48px}.settingTile h3{margin:18px 0 3px;font-size:17px}.settingTile p{margin:0;font-size:11px;color:#858a94}.settingTile .tiny{position:absolute;bottom:10px;left:16px;font-size:8px;color:#57373b;letter-spacing:1px}
+  .settings{display:block!important;position:static!important;min-height:0!important;width:100%!important;padding:12px!important;background:#0d0d11!important;border:1px solid #40171d!important;border-radius:17px!important;box-shadow:none!important;max-height:none!important;overflow:visible!important}.settings summary{font-size:13px!important;line-height:28px!important;color:#fff!important}.settingsGrid{grid-template-columns:1fr 1fr!important;gap:8px!important;min-width:0!important}.field label{font-size:9px!important;color:#8c919b!important}.field input{height:40px!important;border-radius:11px!important;background:#09090c!important;border:1px solid #35171d!important}.settings .toolrow{display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important;overflow:visible!important}.settings .toolrow button{width:100%!important;height:40px!important;border-radius:11px!important}.settings #studyTpsBtn{grid-column:1/-1}.hint{font-size:9px!important;line-height:1.4!important}
+
+  /* persistent nav */
+  .bottomNav{position:absolute;left:0;right:0;bottom:0;height:68px;padding:6px max(10px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:grid;grid-template-columns:repeat(4,1fr);gap:5px;background:rgba(7,7,9,.96);border-top:1px solid #2d151a;z-index:50}.navBtn{border:0!important;background:transparent!important;box-shadow:none!important;color:#6f747e!important;border-radius:12px!important;padding:3px!important;font-size:9px!important;font-weight:800!important}.navBtn .ico{display:block;font-size:20px;line-height:20px;margin-bottom:3px}.navBtn.active{color:#ff4545!important;background:#170b0e!important}
+
+  .compatHidden{display:none!important}
+  #threeHistoryDialog{border:1px solid #531820!important;background:#0c0c10!important;border-radius:18px!important}
+  #threeHistoryDialog h3{margin-top:0}
+  @media(min-width:700px){.screen{max-width:620px;left:50%;right:auto;width:620px;transform:translateX(-50%)}.bottomNav{max-width:620px;left:50%;right:auto;width:620px;transform:translateX(-50%);border-left:1px solid #2d151a;border-right:1px solid #2d151a}.menuGrid,.settingsTiles{gap:13px}}
+
 </style>
 </head>
 <body>
 <div id="portraitGate" aria-hidden="true"></div>
 <div id="ecuNotice" class="ecuNotice" role="status" aria-live="polite"><div class="icon" id="ecuNoticeIcon">✓</div><div style="flex:1;min-width:0"><div class="ntitle" id="ecuNoticeTitle"></div><div class="ndetail" id="ecuNoticeDetail"></div></div><button class="nclose" id="ecuNoticeClose" type="button">✕</button></div>
 <div class="app">
-  <div class="topbar">
-    <div class="brand">AFR AUTO TUNE · iOS BLE</div><div id="uiTestBanner"><span class="pulse"></span>PORTRAIT · BLE TEST</div>
-    <div class="topgroup">
-      <label style="font-size:12px;font-weight:800;color:#bfe4ff">MAP ECU</label>
-      <select id="mapSelect" style="width:86px;background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:6px;padding:6px"><option value="1">No.1</option><option value="2">No.2</option><option value="3">No.3</option><option value="4">No.4</option></select>
-      <select id="ecuNativePort" style="width:92px;background:#0d1823;color:#fff;border:1px solid #39526a;border-radius:6px;padding:6px"><option value="">ECU COM</option></select>
-      <button id="refreshNativePortsBtn" class="ghost">↻ COM</button>
-      <button id="connectEcuBtn" class="primary">KẾT NỐI ESP32 BLE</button>
-      <button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶ FULL</button>
-      <span class="toolbarSep" aria-hidden="true"></span>
-      <button id="connectAfrBtn" class="primary afrGroupStart">Kết nối AFR</button>
-      <button id="disconnectAfrBtn" class="ghost">Ngắt AFR</button>
+
+  <section id="dashboardScreen" class="screen active scrollScreen">
+    <div class="dashTop">
+      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE</div></div>
+      <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
-    <div class="status"><span id="ecuBadge" class="badge bad">BLE: OFF</span><span id="afrBadge" class="badge bad">AFR: OFF</span><span id="recordBadge" class="badge">GHI AFR: OFF</span></div>
+    <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ESP32 BLE</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
+    <div class="gaugeZone">
+      <div id="rpmGauge" class="rpmGauge">
+        <div class="gaugeTicks"><span class="t0">0</span><span class="t25">2.5</span><span class="t5">5</span><span class="t75">7.5</span><span class="t10">10</span><span class="t125">12.5</span><span class="t15">15</span></div>
+        <div class="gaugeCenter"><div class="gaugeLabel">TỐC ĐỘ ĐỘNG CƠ</div><div id="rpmLive">0</div><div class="rpmUnit">RPM</div></div>
+      </div>
+    </div>
+    <div class="dashStatusRow"><div class="statePill">ECU</div><div class="statePill red" id="dashBleState">● OFF</div><div class="statePill" id="dashMapState">MAP NO.1</div></div>
+    <div class="liveHero">
+      <div class="heroCard tps"><div class="cardK">BƯỚM GA (TPS)</div><div class="cardV" id="tpsLive">--%</div><div class="cardFoot">Vị trí bướm ga</div></div>
+      <div class="heroCard afr"><div class="cardK">TỶ LỆ A/F</div><div class="cardV" id="afrLive">--</div><div class="cardFoot">AFR realtime</div></div>
+    </div>
+    <div class="miniGrid">
+      <div class="miniCard"><div class="k">TPS VOLT</div><div class="v" id="tpsVLive">-- V</div></div>
+      <div class="miniCard"><div class="k">AFR VOLT</div><div class="v" id="afrVLive">-- V</div></div>
+      <div class="miniCard"><div class="k">Ô HIỆN TẠI</div><div class="v" id="cellLive">--</div></div>
+    </div>
+    <div class="wideGrid"><div class="wideCard"><div class="k">GÓC ĐÁNH LỬA</div><div class="v">0.0°</div></div><div class="wideCard"><div class="k">THỜI GIAN PHUN</div><div class="v" id="dashPw">0.00 ms</div></div></div>
+    <div class="dashActions"><button class="raceBtn" type="button" data-nav="maps">▰ BẢN ĐỒ</button><button class="autoBtn" type="button" data-nav="tune">✦ CHỨC NĂNG AUTO TUNE</button></div>
+  </section>
+
+  <section id="mapsScreen" class="screen scrollScreen">
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Bản Đồ Căn Chỉnh</div><div class="screenSub">Chỉnh sửa thông số cho MAP</div></div><div id="mapBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="mapBankBar"><button class="mapBankBtn active" data-mapbank="1">NO.1</button><button class="mapBankBtn" data-mapbank="2">NO.2</button><button class="mapBankBtn" data-mapbank="3">NO.3</button><button class="mapBankBtn" data-mapbank="4">NO.4</button></div>
+    <div class="menuGrid">
+      <button class="menuCard" data-open-tab="inject"><div class="menuIcon">◉</div><h3>Lượng phun</h3><p>Thời gian phun ECU</p><span class="menuCode">MAP_01</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" data-open-tab="target"><div class="menuIcon">◎</div><h3>AFR mục tiêu</h3><p>Tỷ lệ xăng gió mong muốn</p><span class="menuCode">MAP_02</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" data-open-tab="measured"><div class="menuIcon">⌁</div><h3>AFR đo</h3><p>Dữ liệu AFR đã ghi</p><span class="menuCode">MAP_03</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" data-open-tab="corrected"><div class="menuIcon">⚡</div><h3>MAP đã bù</h3><p>Kết quả bù Auto Tune</p><span class="menuCode">MAP_04</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" data-nav="tune"><div class="menuIcon">✦</div><h3>Auto Tune</h3><p>Chạy quy trình 3 lượt</p><span class="menuCode">SYS_05</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" data-nav="settings"><div class="menuIcon">⚙</div><h3>Thiết lập TPS</h3><p>Calibration và giới hạn</p><span class="menuCode">SYS_06</span><span class="menuArrow">›</span></button>
+    </div>
+    <div class="sectionLabel">BÙ TRỪ / DỮ LIỆU</div>
+    <div class="menuGrid">
+      <button class="menuCard" data-open-tab="measured"><div class="menuIcon">◒</div><h3>Ghi dữ liệu AFR</h3><p>Ghi và xem mẫu theo ô</p><span class="menuCode">DATA_01</span><span class="menuArrow">›</span></button>
+      <button class="menuCard" id="openHistoryCard"><div class="menuIcon">▦</div><h3>Lịch sử 3 lượt</h3><p>Xem phiên Auto Tune</p><span class="menuCode">DATA_02</span><span class="menuArrow">›</span></button>
+    </div>
+  </section>
+
+  <section id="mapEditorScreen" class="screen">
+    <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Lượng phun</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div></div>
+    <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
+    <div class="editorStepBar"><span>Bước:</span><span class="stepChip">1</span><span class="stepChip on">0.1</span><span class="stepChip">0.01</span><span style="margin-left:auto">Chế độ:</span><span class="stepChip on">Unit</span><span class="stepChip">%</span></div>
+    <main class="mapwrap"><table id="mapTable"></table></main>
+    <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span></div>
+  </section>
+
+  <section id="tuneScreen" class="screen scrollScreen">
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Auto Tune</div><div class="screenSub">Ghi AFR · học phản ứng · bù MAP</div></div><div id="tuneBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="tuneHero"><div class="tuneLive"><div class="k">AFR</div><div class="v" data-mirror="afr">--</div></div><div class="tuneLive"><div class="k">RPM</div><div class="v" data-mirror="rpm">0</div></div><div class="tuneLive"><div class="k">TPS</div><div class="v" data-mirror="tps">--%</div></div><div class="tuneLive"><div class="k">Ô HIỆN TẠI</div><div class="v" data-mirror="cell">--</div></div></div>
+    <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option><option value="three">MODE CHẠY 3 LƯỢT</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
+    <div class="recordActions"><button id="clearMeasured" class="danger">XÓA AFR ĐO</button><button id="openMapFromTune" class="ghost">XEM MAP</button></div>
+    <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu.</div></div>
+    <div class="tuneNote">Lượt 1 đo AFR và tạo MAP kế tiếp. Lượt 2 học phản ứng PW/AFR. Lượt 3 tạo FINAL MAP. Firmware BLE test hiện chỉ mô phỏng phần ECU; khi nối ECU thật, luồng giao diện này được giữ nguyên.</div>
+    <div id="recordBadge" class="badge" style="margin-top:9px;text-align:center">GHI AFR: OFF</div>
+  </section>
+
+  <section id="settingsScreen" class="screen scrollScreen">
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Thiết Lập</div><div class="screenSub">Hệ thống · BLE · TPS · Auto Tune</div></div><div id="settingsBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="settingsTiles">
+      <div class="settingTile"><div class="menuIcon">⚙</div><h3>Tùy Chọn</h3><p>Thông số hệ thống</p><span class="tiny">SYS_01</span></div>
+      <div class="settingTile"><div class="menuIcon">⌁</div><h3>Điện áp</h3><p>TPS / AFR sensor</p><span class="tiny">SYS_02</span></div>
+      <button class="settingTile" id="studyTpsTile"><div class="menuIcon">◎</div><h3>Học TPS</h3><p>Calibration bướm ga</p><span class="tiny">SYS_03</span></button>
+      <div class="settingTile"><div class="menuIcon">◉</div><h3>ESP32 BLE</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
+    </div>
+    <details class="settings" open><summary>THÔNG SỐ AUTO TUNE / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">LẤY TPS MIN</button><button id="learnMax">LẤY TPS MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · BLE</button></div><div class="hint" id="studyTpsInfo">Chưa chạy TPS Study.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ESP32-S3.</div></details>
+  </section>
+
+  <nav class="bottomNav"><button class="navBtn active" data-nav="dashboard"><span class="ico">◉</span>TRANG CHỦ</button><button class="navBtn" data-nav="maps"><span class="ico">▦</span>BẢN ĐỒ</button><button class="navBtn" data-nav="tune"><span class="ico">✦</span>AUTO TUNE</button><button class="navBtn" data-nav="settings"><span class="ico">⚙</span>THIẾT LẬP</button></nav>
+
+  <div class="compatHidden">
+    <span id="ecuBadge" class="badge bad">BLE: OFF</span><span id="afrBadge" class="badge bad">AFR: OFF</span>
+    <select id="ecuNativePort"><option value="">ECU COM</option></select><button id="refreshNativePortsBtn">COM</button>
+    <button id="connectAfrBtn">AFR</button><button id="disconnectAfrBtn">AFR OFF</button>
   </div>
-  <div class="tabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MONG MUỐN</button><button class="tab" data-tab="inject">THỜI GIAN PHUN ECU</button><button class="tab" data-tab="corrected">MAP PHUN ĐÃ BÙ</button></div>
-  <div class="controlbar">
-    <div class="liveStrip">
-      <div class="livebox"><div class="k">AFR</div><div class="v" id="afrLive">--</div></div><div class="livebox"><div class="k">TPS</div><div class="v" id="tpsLive">--%</div></div><div class="livebox"><div class="k">RPM</div><div class="v" id="rpmLive">0</div></div><div class="livebox"><div class="k">Ô HIỆN TẠI</div><div class="v" id="cellLive">--</div></div><div class="livebox"><div class="k">TPS VOLT ECU</div><div class="v" id="tpsVLive">-- V</div></div><div class="livebox"><div class="k">AFR VOLT ESP32</div><div class="v" id="afrVLive">-- V</div></div>
-    </div>
-    <div class="toolrow">
-      <button id="readMapBtn" class="good">ĐỌC MAP</button><button id="writeMapBtn" class="danger">GHI MAP</button><button id="applyCorrectedBtn" class="danger">GHI MAP ĐÃ BÙ</button><button id="recordBtn" class="good">GHI AFR</button><button id="clearMeasured" class="danger">XÓA AFR</button>
-      <select id="tuneMode"><option value="normal">MODE THƯỜNG</option><option value="three">MODE CHẠY 3 LƯỢT</option></select><button id="threeHistoryBtn" class="ghost">LỊCH SỬ</button>
-      <details class="settings"><summary>CÀI ĐẶT / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:6px"><button id="learnMin">Lấy TPS Min</button><button id="learnMax">Lấy TPS Max</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · REDLEO 0x77</button></div><div class="hint" id="studyTpsInfo">TPS Study ECU: chưa chạy. Min/Max thủ công vẫn dùng được làm dự phòng.</div><div class="hint" id="ecuDiag">ECU RAW: chưa có dữ liệu</div></details>
-    </div>
-    <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu. Lượt 1 và 2 tạo MAP cho lượt kế tiếp; kết thúc lượt 3 sẽ tính FINAL, ghi + verify ECU rồi mới hoàn tất. AFR chạm sàn không được dùng làm điểm phản ứng chính xác.</div></div>
-  </div>
-  <main class="mapwrap"><table id="mapTable"></table></main>
-  <div class="footer"><span><span id="rxDot" class="dot"></span>RX Serial</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span>AFR: 0–2.8V → 10–20</span><span>iPhone PORTRAIT · Web BLE TEST</span><span id="saveInfo">Auto save: ON</span></div>
 </div>
-<dialog id="threeHistoryDialog"><h3>Lịch sử MODE CHẠY 3 LƯỢT</h3><div class="muted" style="font-size:12px;margin-bottom:8px">Mỗi phiên lưu toàn bộ PW, AFR và số mẫu của cả 3 lượt trong bộ nhớ trình duyệt.</div><div id="threeHistoryList" class="historyList"></div><div class="dlgBtns"><button id="downloadThreeRunBtn" class="primary">Tải JSON phiên mới nhất</button><button id="closeThreeHistoryBtn">Đóng</button></div></dialog>
+<dialog id="threeHistoryDialog"><h3>Lịch sử MODE CHẠY 3 LƯỢT</h3><div class="muted" style="font-size:12px;margin-bottom:8px">Mỗi phiên lưu PW, AFR và số mẫu của 3 lượt.</div><div id="threeHistoryList" class="historyList"></div><div class="dlgBtns"><button id="downloadThreeRunBtn" class="primary">TẢI JSON</button><button id="closeThreeHistoryBtn">ĐÓNG</button></div></dialog>
 
 <script>
 'use strict';
@@ -2107,6 +2386,58 @@ window.addEventListener('beforeunload',save);
   $('studyTpsInfo').textContent='Nạp firmware ESP32-S3 BLE TEST rồi mở trang này bằng Bluefy qua HTTPS.';
   $('recordBadge').textContent='GHI AFR: OFF';
   window.addEventListener('pagehide',()=>{try{if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();}catch(_e){}});
+})();
+</script>
+
+
+<script>
+/* ===== BLINK REDLEO multi-screen UI controller v5 ===== */
+(function(){
+  'use strict';
+  const screens={dashboard:'dashboardScreen',maps:'mapsScreen',editor:'mapEditorScreen',tune:'tuneScreen',settings:'settingsScreen'};
+  let lastMain='dashboard';
+  function showScreen(name){
+    if(name!=='editor')lastMain=name;
+    Object.entries(screens).forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.classList.toggle('active',k===name);});
+    document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name || (name==='editor'&&b.dataset.nav==='maps')));
+    if(name==='editor') setTimeout(()=>{try{render();highlightCurrent();}catch(_e){}},0);
+  }
+  function syncBankButtons(){
+    document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));
+    const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;
+    const sub=document.getElementById('editorSub');if(sub)sub.textContent='MAP NO.'+state.activeMap+' · TPS × RPM';
+  }
+  function openEditor(tab){
+    const names={measured:'AFR đo',target:'AFR mục tiêu',inject:'Lượng phun',corrected:'MAP phun đã bù'};
+    const title=document.getElementById('editorTitle');if(title)title.textContent=names[tab]||'Bản đồ';
+    try{setTab(tab);}catch(_e){}
+    syncBankButtons();showScreen('editor');
+  }
+  document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click',()=>showScreen(el.dataset.nav)));
+  document.querySelectorAll('[data-open-tab]').forEach(el=>el.addEventListener('click',()=>openEditor(el.dataset.openTab)));
+  document.querySelectorAll('.mapBankBtn').forEach(el=>el.addEventListener('click',()=>{try{selectMapBank(Number(el.dataset.mapbank),true);}catch(_e){}syncBankButtons();}));
+  document.getElementById('editorBackBtn')?.addEventListener('click',()=>showScreen('maps'));
+  document.getElementById('openMapFromTune')?.addEventListener('click',()=>openEditor('measured'));
+  document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());
+  document.getElementById('studyTpsTile')?.addEventListener('click',()=>document.getElementById('studyTpsBtn')?.click());
+
+  function syncMirrors(){
+    const map={rpm:document.getElementById('rpmLive')?.textContent||'0',tps:document.getElementById('tpsLive')?.textContent||'--%',afr:document.getElementById('afrLive')?.textContent||'--',cell:document.getElementById('cellLive')?.textContent||'--'};
+    document.querySelectorAll('[data-mirror]').forEach(el=>{const v=map[el.dataset.mirror];if(v!=null)el.textContent=v;});
+    const rpm=Math.max(0,Math.min(15000,Number((map.rpm||'0').replace(/[^0-9.]/g,''))||0));
+    const gauge=document.getElementById('rpmGauge');if(gauge)gauge.style.setProperty('--rpm-angle',(rpm/15000*270)+'deg');
+    const bleOn=!!state.ecuConnected;
+    ['mapBleStatus','editorBleStatus','tuneBleStatus','settingsBleStatus'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.classList.toggle('on',bleOn);const s=el.querySelector('span:last-child');if(s)s.textContent=bleOn?'ON':'OFF';});
+    const db=document.getElementById('dashBleState');if(db){db.textContent=bleOn?'● ON':'● OFF';db.style.color=bleOn?'#86ffa7':'';}
+    syncBankButtons();
+    try{
+      const cur=currentCell(),pw=state.inject?.[cur.r]?.[cur.c];
+      const d=document.getElementById('dashPw');if(d)d.textContent=Number.isFinite(Number(pw))?Number(pw).toFixed(2)+' ms':'0.00 ms';
+    }catch(_e){}
+  }
+  setInterval(syncMirrors,120);
+  syncMirrors();
+  showScreen('dashboard');
 })();
 </script>
 
