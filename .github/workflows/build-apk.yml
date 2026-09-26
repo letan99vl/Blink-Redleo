@@ -7,9 +7,10 @@ on:
     paths:
       - '.github/workflows/build-apk.yml'
       - 'android/android-app-source.b64'
+      - 'tools/patch_v11.py'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -17,6 +18,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Apply web v11 patch
+        run: |
+          python3 tools/patch_v11.py
+          if ! git diff --quiet -- index.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html
+            git commit -m "Apply Blink web v11 fixes"
+            git push
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -51,9 +63,9 @@ jobs:
           sed -i 's/        bluetoothAdapter = bm != null ? bm.getAdapter() : null;/        bluetoothAdapter = null;/' "$SRC"
           sed -i '/    private void ensurePermissionsThenConnect(boolean auto) {/a\        if (bluetoothAdapter == null) { try { BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE); bluetoothAdapter = bm != null ? bm.getAdapter() : null; } catch (Throwable ignored) {} }' "$SRC"
           python3 android/add_ble_picker.py "$SRC"
-          sed -i 's#https://letan99vl.github.io/Blink-Redleo/?android=1#https://letan99vl.github.io/Blink-Redleo/?android=1\&v=10#' "$SRC"
+          sed -i 's#https://letan99vl.github.io/Blink-Redleo/?android=1#https://letan99vl.github.io/Blink-Redleo/?android=1\&v=11#' "$SRC"
           sed -i 's/WebSettings.LOAD_DEFAULT/WebSettings.LOAD_NO_CACHE/' "$SRC"
-          sed -i 's/BLINK-REDLEO-ANDROID\/1.1/BLINK-REDLEO-ANDROID\/1.2-v10/' "$SRC"
+          sed -i 's/BLINK-REDLEO-ANDROID\/1.1/BLINK-REDLEO-ANDROID\/1.3-v11/' "$SRC"
           sed -i '/s.setCacheMode(WebSettings.LOAD_NO_CACHE);/a\            try { webView.clearCache(true); webView.clearHistory(); } catch (Throwable ignored) {}' "$SRC"
 
       - name: Build signed release APK
@@ -68,7 +80,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-APK-v10
+          name: BLINK-REDLEO-APK-v11
           path: |
             BLINK-REDLEO.apk
             BLINK-REDLEO.apk.sha256
