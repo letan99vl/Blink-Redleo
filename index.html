@@ -6,11 +6,11 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-<title>BLINK REDLEO · MULTI SCREEN v5</title>
+<title>BLINK TL · P.b v1.2</title>
 <meta name="theme-color" content="#07111d" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="AFR Auto Tune" />
+<meta name="apple-mobile-web-app-title" content="Blink TL" />
 <style>
   :root{--bg:#0c1420;--panel:#121f2e;--panel2:#17283a;--line:#2b91d4;--head:#337eaf;--text:#edf6ff;--muted:#91a9bc;--ok:#21c55d;--warn:#f3b53f;--danger:#f45b69;--accent:#0b92de;--cell:#f8fbfe;--cellText:#111820}
   *{box-sizing:border-box}
@@ -804,10 +804,10 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> REDLEO</div><div class="logoSub">ECU PERFORMANCE · WEB v11.2</div></div>
+      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · P.b v1.2</div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
-    <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
+    <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ECU BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
     <div class="gaugeZone">
       <div id="rpmGauge" class="rpmGauge">
         <div class="gaugeTicks"><span class="t0">0</span><span class="t25">2.5</span><span class="t5">5</span><span class="t75">7.5</span><span class="t10">10</span><span class="t125">12.5</span><span class="t15">15</span></div>
@@ -899,9 +899,9 @@
       <div class="settingTile"><div class="menuIcon">⚙</div><h3>Tùy Chọn</h3><p>Thông số hệ thống</p><span class="tiny">SYS_01</span></div>
       <div class="settingTile"><div class="menuIcon">⌁</div><h3>Điện áp</h3><p>TPS / AFR của Blink</p><span class="tiny">SYS_02</span></div>
       <button class="settingTile" id="studyTpsTile"><div class="menuIcon">◎</div><h3>Học TPS</h3><p>Calibration bướm ga</p><span class="tiny">SYS_03</span></button>
-      <div class="settingTile"><div class="menuIcon">◉</div><h3>ESP32 BLE</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
+      <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
     </div>
-    <details class="settings" open><summary>THÔNG SỐ AUTO TUNE / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">LẤY TPS MIN</button><button id="learnMax">LẤY TPS MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · BLE</button></div><div class="hint" id="studyTpsInfo">Chưa chạy TPS Study.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ESP32-S3.</div></details>
+    <details class="settings" open><summary>THÔNG SỐ AUTO TUNE / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">LẤY TPS MIN</button><button id="learnMax">LẤY TPS MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · BLE</button></div><div class="hint" id="studyTpsInfo">Chưa chạy TPS Study.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink.</div></details>
   </section>
 
   <nav class="bottomNav"><button class="navBtn active" data-nav="dashboard"><span class="ico">◉</span>TRANG CHỦ</button><button class="navBtn" data-nav="maps"><span class="ico">▦</span>BẢN ĐỒ</button><button class="navBtn" data-nav="tune"><span class="ico">✦</span>AUTO TUNE</button><button class="navBtn" data-nav="ecu"><span class="ico">◆</span>ECU</button><button class="navBtn" data-nav="settings"><span class="ico">⚙</span>THIẾT LẬP</button></nav>
@@ -1773,7 +1773,7 @@ function beginThreeRunPass(pass,keepMeasured=false){
 }
 async function startThreeRunSession(){
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!state.afrPort||!state.afrKeepReading)return alert('Hãy kết nối AFR ESP32 trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!state.afrPort||!state.afrKeepReading)return alert('Hãy kết nối AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
   let maxPw=0;for(const row of state.inject)for(const v of row)maxPw=Math.max(maxPw,num(v,0));if(maxPw<=0)return alert('Chưa có MAP phun ECU. Hãy bấm Đọc MAP ECU trước.');
   const ok=confirm('BẮT ĐẦU MODE CHẠY 3 LƯỢT trên MAP No.'+state.activeMap+'?\n\nLượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi + VERIFY ECU lần 3.\n\nChỉ sau khi FINAL VERIFY thành công phiên mới hoàn tất. Trong lúc chạy, MAP và chỉnh tay sẽ bị khóa.');if(!ok)return;
   state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:null,runPw:null,target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};beginThreeRunPass(1,false);
@@ -2678,15 +2678,15 @@ window.addEventListener('beforeunload',save);
     $('ecuDiag').textContent='BLE STATUS: '+text;if(typeof window.onBlinkStatus==='function')window.onBlinkStatus(text);
     if(text.startsWith('MAP_DONE')){
       mapRx.active=false;saveSoon();
-      showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ESP32-S3.');
+      showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
     }else if(text==='PONG'){
-      showEcuNotice('success','ESP32-S3 BLE OK','Kết nối và truyền lệnh hai chiều hoạt động.');
+      showEcuNotice('success','ECU Blink BLE OK','Kết nối và truyền lệnh hai chiều hoạt động.');
     }else if(text.startsWith('TPS_OK')){
       showEcuNotice('success','TPS STUDY TEST',text);
     }else if(text.startsWith('ERR')){
-      showEcuNotice('error','ESP32 BLE ERROR',text,0);
+      showEcuNotice('error','ECU Blink BLE ERROR',text,0);
     }else{
-      flashSave('ESP32: '+text);
+      flashSave('ECU Blink: '+text);
     }
   }
 
@@ -2699,12 +2699,12 @@ window.addEventListener('beforeunload',save);
       connectBtn.textContent='✓ ĐÃ NHẬN · ĐANG QUÉT...';
       setTimeout(()=>{
         connectBtn.classList.remove('connectAck');
-        if(!state.ecuConnected)connectBtn.textContent='KẾT NỐI BLINK';
+        if(!state.ecuConnected)connectBtn.textContent='KẾT NỐI ECU BLINK';
       },900);
     }
     try{
       if(!navigator.bluetooth)throw new Error('Trình duyệt này không có Web Bluetooth. Hãy mở URL HTTPS bằng Bluefy.');
-      $('ecuBadge').textContent='BLE: ĐANG CHỌN BLINK...';$('ecuBadge').className='badge';
+      $('ecuBadge').textContent='BLE: ĐANG CHỌN ECU BLINK...';$('ecuBadge').className='badge';
       device=await navigator.bluetooth.requestDevice({
         filters:[{namePrefix:'BLINK-REDLEO'}],
         optionalServices:[BLE.SERVICE]
@@ -2719,8 +2719,8 @@ window.addEventListener('beforeunload',save);
       await mapChar.startNotifications();mapChar.addEventListener('characteristicvaluechanged',parseMap);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
       window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkWriteCommand=writeCommand;
-      setBleUi(true,device.name||'BLINK');
-      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'BLINK');
+      setBleUi(true,device.name||'ECU Blink');
+      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
       $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
       await writeCommand('PING');
@@ -2734,7 +2734,7 @@ window.addEventListener('beforeunload',save);
   function onDisconnected(){
     liveChar=commandChar=mapChar=statusChar=service=server=null;
     setBleUi(false);
-    showEcuNotice('error','BLINK ĐÃ NGẮT BLE','Bấm KẾT NỐI BLINK để kết nối lại.');
+    showEcuNotice('error','ECU Blink ĐÃ NGẮT BLE','Bấm KẾT NỐI ECU BLINK để kết nối lại.');
   }
 
   async function disconnectBle(){
@@ -2744,7 +2744,7 @@ window.addEventListener('beforeunload',save);
 
   async function readMapBle(){
     try{
-      if(!state.ecuConnected)return showEcuNotice('error','CHƯA KẾT NỐI BLE','Kết nối ESP32-S3 trước.');
+      if(!state.ecuConnected)return showEcuNotice('error','CHƯA KẾT NỐI BLE','Kết nối ECU Blink trước.');
       mapRx={active:true,mapNo:state.activeMap,packets:0,cells:0};
       state.inject=blankMatrix(0);if(state.tab==='inject'||state.tab==='corrected')render();
       await writeCommand('READ_MAP:'+state.activeMap);
@@ -2798,8 +2798,8 @@ window.addEventListener('beforeunload',save);
   $('connectAfrBtn').onclick=()=>{};$('disconnectAfrBtn').onclick=()=>{};
 
   $('disconnectEcuBtn').disabled=true;
-  $('ecuDiag').textContent='BLE TEST: chờ ESP32-S3 BLINK-REDLEO.';
-  $('studyTpsInfo').textContent='Nạp firmware ESP32-S3 BLE TEST rồi mở trang này bằng Bluefy qua HTTPS.';
+  $('ecuDiag').textContent='BLE TEST: chờ ECU Blink BLINK-REDLEO.';
+  $('studyTpsInfo').textContent='Nạp firmware ECU Blink BLE TEST rồi mở trang này bằng Bluefy qua HTTPS.';
   $('recordBadge').textContent='GHI AFR: OFF';
   window.addEventListener('pagehide',()=>{try{if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();}catch(_e){}});
 })();
@@ -2850,9 +2850,9 @@ function renderFeature(){
 }
 function bump(delta){if(!currentFeature)return;const d=featureData(currentFeature,state.activeMap),b=redBounds();for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)d[r][c]=Number((Number(d[r][c]||0)+delta).toFixed(4));saveFeatureStore();renderFeature()}
 function smoothCurrent(){if(!currentFeature)return;const d=featureData(currentFeature,state.activeMap),copy=d.map(r=>r.slice());for(let r=0;r<currentFeature.rows;r++)for(let c=0;c<currentFeature.cols;c++){let s=0,n=0;for(let rr=Math.max(0,r-1);rr<=Math.min(currentFeature.rows-1,r+1);rr++)for(let cc=Math.max(0,c-1);cc<=Math.min(currentFeature.cols-1,c+1);cc++){s+=Number(copy[rr][cc]||0);n++}d[r][c]=Number((s/n).toFixed(3))}saveFeatureStore();renderFeature();showEcuNotice('info','ĐÃ LÀM MƯỢT','Đã làm mượt bảng cục bộ. Chỉ ghi ECU khi bạn bấm GHI ECU.') }
-async function cmd(s){if(typeof window.blinkWriteCommand!=='function')throw new Error('Chưa kết nối ESP32 BLE');return window.blinkWriteCommand(s)}
-async function readFeature(){if(!currentFeature)return;document.getElementById('redIoStatus').textContent='Đang yêu cầu ESP32...';try{await cmd('RDF:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0))}catch(e){showEcuNotice('error','ĐỌC MAP',e.message,0)}}
-async function writeFeature(){if(!currentFeature)return;const ch=window.blinkMapChar;if(!ch){showEcuNotice('error','GHI MAP','Chưa kết nối ESP32 BLE',0);return}const d=featureData(currentFeature,state.activeMap);try{await cmd('WRF_BEGIN:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));for(let r=0;r<currentFeature.rows;r++)for(let c=0;c<currentFeature.cols;c+=3){const count=Math.min(3,currentFeature.cols-c),buf=new ArrayBuffer(6+count*4),v=new DataView(buf);v.setUint8(0,0xC2);v.setUint8(1,currentFeature.n);v.setUint8(2,currentFeature.banked?state.activeMap:0);v.setUint8(3,r);v.setUint8(4,c);v.setUint8(5,count);for(let i=0;i<count;i++)v.setFloat32(6+i*4,Number(d[r][c+i]||0),true);const bytes=new Uint8Array(buf);if(ch.writeValueWithoutResponse)await ch.writeValueWithoutResponse(bytes);else await ch.writeValue(bytes)}await cmd('WRF_END:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));document.getElementById('redIoStatus').textContent='Đã gửi bảng qua BLE';}catch(e){showEcuNotice('error','GHI MAP BLE',e.message,0)}}
+async function cmd(s){if(typeof window.blinkWriteCommand!=='function')throw new Error('Chưa kết nối ECU Blink');return window.blinkWriteCommand(s)}
+async function readFeature(){if(!currentFeature)return;document.getElementById('redIoStatus').textContent='Đang yêu cầu ECU Blink...';try{await cmd('RDF:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0))}catch(e){showEcuNotice('error','ĐỌC MAP',e.message,0)}}
+async function writeFeature(){if(!currentFeature)return;const ch=window.blinkMapChar;if(!ch){showEcuNotice('error','GHI MAP','Chưa kết nối ECU Blink',0);return}const d=featureData(currentFeature,state.activeMap);try{await cmd('WRF_BEGIN:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));for(let r=0;r<currentFeature.rows;r++)for(let c=0;c<currentFeature.cols;c+=3){const count=Math.min(3,currentFeature.cols-c),buf=new ArrayBuffer(6+count*4),v=new DataView(buf);v.setUint8(0,0xC2);v.setUint8(1,currentFeature.n);v.setUint8(2,currentFeature.banked?state.activeMap:0);v.setUint8(3,r);v.setUint8(4,c);v.setUint8(5,count);for(let i=0;i<count;i++)v.setFloat32(6+i*4,Number(d[r][c+i]||0),true);const bytes=new Uint8Array(buf);if(ch.writeValueWithoutResponse)await ch.writeValueWithoutResponse(bytes);else await ch.writeValue(bytes)}await cmd('WRF_END:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));document.getElementById('redIoStatus').textContent='Đã gửi bảng qua BLE';}catch(e){showEcuNotice('error','GHI MAP BLE',e.message,0)}}
 window.onBlinkFeaturePacket=function(v){if(v.byteLength<10)return;const n=v.getUint8(1),bank=v.getUint8(2),r=v.getUint8(3),c0=v.getUint8(4),count=v.getUint8(5),f=REDLEO_FEATURES.find(x=>x.n===n);if(!f||r>=f.rows||c0>=f.cols)return;const d=featureData(f,bank||state.activeMap);for(let i=0;i<count&&c0+i<f.cols&&10+i*4<=v.byteLength;i++)d[r][c0+i]=v.getFloat32(6+i*4,true);saveFeatureStore();if(currentFeature?.id===f.id)renderFeature();document.getElementById('redIoStatus').textContent='RX '+f.title+' · hàng '+(r+1)};
 window.onBlinkStatus=function(text){if(text.startsWith('FEATURE_DONE')){document.getElementById('redIoStatus').textContent='Đọc bảng hoàn tất';showEcuNotice('success','ĐỌC BẢNG THÀNH CÔNG',text)}if(text.startsWith('FEATURE_WRITE_OK'))showEcuNotice('success','GHI BẢNG TEST OK',text);if(text.startsWith('ECU_INFO:')){const vals=text.substring(9).split('|');document.querySelectorAll('[data-ecuinfo]').forEach(el=>el.textContent=vals[+el.dataset.ecuinfo]||'—')}};
 function saveOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>optionStore[e.dataset.ecuopt]=e.value);document.querySelectorAll('[data-ecutoggle]').forEach(e=>optionStore[e.dataset.ecutoggle]=e.checked);localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore))}
