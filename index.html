@@ -1056,7 +1056,7 @@ function selectMapBank(n,autoRead=true){
   saveSoon();
 
   if(autoRead&&state.ecuConnected&&state.ecuPhase==='live'){
-    queueReadCurrentMap(n);
+    setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('bank-change')}catch(_e){}},0);
   }
 }
 
@@ -2921,8 +2921,39 @@ function featureData(f,bank=state.activeMap){const k=keyFor(f,bank);if(!featureS
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
 function showScreen(name){document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
 function syncBanks(){document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;document.getElementById('redBankSelect').value=String(state.activeMap)}
-function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor')}
-function openFeature(id){const f=F[id];if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor')}
+
+let lazyPageReadSeq=0;
+async function autoReadVisibleEcuPage(reason='open'){
+  if(!state.ecuConnected||state.ecuPhase!=='live')return;
+  const api=window.BlinkRealProtocol;
+  if(!api||api.isBusy)return;
+  const active=document.querySelector('.screen.active')?.id||'';
+  const seq=++lazyPageReadSeq;
+  try{
+    if(active==='mapEditorScreen'){
+      // Only the real ECU injection table needs an ECU page read here.
+      // AFR measured/target/corrected tabs are Blink-local data.
+      if(state.tab==='inject')await api.readCurrentFuelBank(state.activeMap,true);
+      return;
+    }
+    if(active==='redleoEditorScreen'&&currentFeature){
+      await api.readFeaturePageReal(currentFeature.id,state.activeMap,true);
+      return;
+    }
+    if(active==='idleLimitScreen'){
+      await api.readIdlePageReal(state.activeMap,true);
+      return;
+    }
+  }catch(e){
+    if(seq!==lazyPageReadSeq)return;
+    try{window.setEcuTaskStatus?.('error','ĐỌC TRANG ECU · LỖI: '+String(e&&e.message||e),6500)}catch(_e){}
+    showEcuNotice('error','ĐỌC TRANG ECU',String(e&&e.message||e),0);
+  }
+}
+window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
+
+function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor');if(tab==='inject'&&!fromTune)setTimeout(()=>autoReadVisibleEcuPage('open-fuel'),0)}
+function openFeature(id){const f=F[id];if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -2936,10 +2967,10 @@ function renderIdleEct(){
   t.querySelectorAll('[data-idlect]').forEach(td=>td.ondblclick=()=>{const i=+td.dataset.idlect,val=prompt('Nhập giá trị STEPPER',d[0][i]);if(val!==null&&Number.isFinite(Number(val))){d[0][i]=Number(val);saveFeatureStore();renderIdleEct()}});
 }
 function openIdleLimit(){
-  syncIdleLimitInputs();renderIdleEct();showScreen('idlelimit');
+  syncIdleLimitInputs();renderIdleEct();showScreen('idlelimit');setTimeout(()=>autoReadVisibleEcuPage('open-idle'),0);
 }
 document.getElementById('idleLimitBack')?.addEventListener('click',()=>showScreen('maps'));
-document.getElementById('idleLimitBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderIdleEct()});
+document.getElementById('idleLimitBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderIdleEct();setTimeout(()=>autoReadVisibleEcuPage('idle-bank'),0)});
 document.querySelectorAll('[data-idleopt]').forEach(e=>e.addEventListener('change',()=>{optionStore[e.dataset.idleopt]=e.value;localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions()}));
 document.getElementById('idleLimitReadBtn')?.addEventListener('click',async()=>{try{await cmd('OPTIONS_READ');const prev=currentFeature;currentFeature=F.ect_idle_motor;await readFeature();currentFeature=prev;showEcuNotice('info','ĐÃ YÊU CẦU ĐỌC','Đọc Idle/Limit + bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','ĐỌC IDLE/LIMIT',e.message,0)}});
 document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>{try{document.querySelectorAll('[data-idleopt]').forEach(e=>optionStore[e.dataset.idleopt]=e.value);localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));await cmd('OPTIONS_WRITE');const prev=currentFeature;currentFeature=F.ect_idle_motor;await writeFeature();currentFeature=prev;showEcuNotice('success','ĐÃ GỬI IDLE/LIMIT','Đã gửi nhóm tùy chọn và bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','GHI IDLE/LIMIT',e.message,0)}});
@@ -2988,7 +3019,7 @@ document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',(
 document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>openFeature(e.dataset.feature)));
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>showScreen('maps'));document.getElementById('redEditorBack')?.addEventListener('click',()=>showScreen('maps'));
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>openOurEditor(e.dataset.autoTab,true)));
-document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature()});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
+document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
 document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redPlus')?.addEventListener('click',()=>bump(redStep));document.getElementById('redMinus')?.addEventListener('click',()=>bump(-redStep));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('active',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
 document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>document.getElementById('backupFile').click());document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
 document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());document.getElementById('studyTpsTile')?.addEventListener('click',()=>document.getElementById('studyTpsBtn')?.click());
