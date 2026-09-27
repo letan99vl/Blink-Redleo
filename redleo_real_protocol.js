@@ -582,6 +582,7 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   const R=parseCurrentFuelFrame(rx,bank);
   syncCurrentFuel(bank,R.matrix,R.frame.length);
   log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length);
+  if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
   return R;
 }
 async function readAll(cmd=0xAB){
@@ -597,6 +598,7 @@ async function readAll(cmd=0xAB){
   }else{
     syncAll(C);
   }
+  taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
   return C;
 }
 
@@ -618,6 +620,7 @@ function assertSafeWriteLayout(){
 }
 async function writePageChecked(pg,payload,requireReadAll=true,retries=0){
   if(requireReadAll)assertSafeWriteLayout();
+  if(requireReadAll)taskUi('loading','ĐANG GHI ECU · PAGE 0x'+pg.toString(16).toUpperCase());
   const tx=pageFrame(pg,payload);
   let lastErr=null;
   for(let attempt=0;attempt<=retries;attempt++){
@@ -725,7 +728,9 @@ async function writeCurrentFuelAndVerify(bank){
     taskUi('loading','ĐANG CHỜ ECU LƯU DỮ LIỆU...');
     await new Promise(r=>setTimeout(r,260));
     taskUi('loading','ĐANG KIỂM TRA LẠI · MAP NO.'+bank);
-    return await readCurrentFuelBankRetry(bank,3);
+    const R=await readCurrentFuelBankRetry(bank,3);
+    taskUi('success','GHI HIỆN TẠI · MAP NO.'+bank+' · OK');
+    return R;
   }finally{
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
       setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},350);
