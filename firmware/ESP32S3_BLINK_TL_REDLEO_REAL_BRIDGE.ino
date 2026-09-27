@@ -46,6 +46,8 @@ static const char *STATUS_UUID  = "afaf0005-7c35-4a6d-9f0e-2ea3117f1000";
 static const uint8_t RAW_TX_MARKER = 0xE1;
 static const uint8_t RAW_RX_MARKER = 0xE2;
 static const size_t RAW_PAYLOAD_PER_PACKET = 12;
+static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
+static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
 static const size_t TX_MAX = 2048;
 static const size_t RX_MAX = 12000;
 
@@ -88,7 +90,15 @@ class ServerCallbacks : public BLEServerCallbacks {
   }
   void onDisconnect(BLEServer *s) override {
     deviceConnected = false;
-    delay(80);
+    // Drop any half-assembled request so a reconnect cannot resume stale bytes.
+    noInterrupts();
+    transactionReady = false;
+    transactionLen = 0;
+    transactionSid = 0;
+    txExpected = 0;
+    txGot = 0;
+    interrupts();
+    delay(120);
     s->getAdvertising()->start();
     Serial.println("BLE advertising restarted");
   }
@@ -239,8 +249,12 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
     memcpy(&pkt[7], data + off, count);
     mapChar->setValue(pkt, 7 + count);
     mapChar->notify();
-    // iOS/Bluefy is much more reliable if notifications are paced instead of burst queued.
-    delay(3);
+    // Pace large ECU frames so the BLE stack / phone does not get flooded.
+    delay(RAW_NOTIFY_DELAY_MS);
+    if ((((off / RAW_PAYLOAD_PER_PACKET) + 1) % RAW_NOTIFY_YIELD_EVERY) == 0) {
+      delay(18);
+      yield();
+    }
   }
 }
 
