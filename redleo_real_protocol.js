@@ -574,8 +574,9 @@ function parseCurrentFuelFrame(a,bank){
   }
   return {frame:f,matrix:out,page:pg};
 }
-async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1)){
+async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=clamp(Math.round(bank),1,4);
+  if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
   const rx=await rawExchange(req5(0x9A,pg),8000);
   const R=parseCurrentFuelFrame(rx,bank);
@@ -584,6 +585,7 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   return R;
 }
 async function readAll(cmd=0xAB){
+  taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
   const rx=await rawExchange(req5(cmd,cmd),16000);
   const C=parseReadAll(rx);
   window.blinkReadAllRaw=C.raw.slice();
@@ -691,6 +693,7 @@ async function writeFuelBank(bank){
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
   for(let h=0;h<2;h++){
+    taskUi('loading','ĐANG GHI MAP NO.'+bank+' · PHẦN '+(h+1)+'/2');
     const payload=[];
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
@@ -701,7 +704,7 @@ async function writeFuelBank(bank){
 async function readCurrentFuelBankRetry(bank,attempts=3){
   let lastErr=null;
   for(let i=0;i<attempts;i++){
-    try{return await readCurrentFuelBank(bank);}
+    try{return await readCurrentFuelBank(bank,false);}
     catch(e){
       lastErr=e;
       if(i+1>=attempts)break;
@@ -715,10 +718,13 @@ async function writeCurrentFuelAndVerify(bank){
   bank=clamp(Math.round(bank),1,4);
   const resumeLive=liveRunning;
   stopLiveLoop();
+  taskUi('loading','ĐANG GHI HIỆN TẠI · MAP NO.'+bank);
   try{
     await writeFuelBank(bank);
     // Let ECU finish its flash/page commit before the 0x9A read-back.
+    taskUi('loading','ĐANG CHỜ ECU LƯU DỮ LIỆU...');
     await new Promise(r=>setTimeout(r,260));
+    taskUi('loading','ĐANG KIỂM TRA LẠI · MAP NO.'+bank);
     return await readCurrentFuelBankRetry(bank,3);
   }finally{
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
@@ -736,6 +742,7 @@ async function writeBankAll(bank){
   await writePageChecked(page(6,bank),idlePayload(bank,false));
 }
 async function sendAllReal(){
+  taskUi('loading','ĐANG GHI TOÀN BỘ ECU...');
   if(!readCache)await readAll();
   await writePageChecked(0x72,encodeRowsByte(readCache.ectInj,encPct));await writePageChecked(0x82,encodeRowsByte(readCache.ectIgn,encEctIgn));await writePageChecked(0x92,encodeRowsByte(readCache.mapInj,encMapInj));await writePageChecked(0xA2,a2Payload());
   for(let b=1;b<=4;b++)await writeBankAll(b);await readAll();notice('success','SEND ALL REAL OK','Đã ghi toàn bộ page hỗ trợ và Read All verify');
@@ -746,8 +753,8 @@ async function copyBankReal(dest){
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
 }
 
-async function restoreReal(){if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
-async function tpsStudyReal(){const rx=await rawExchange(req5(0x77,0x77),38000);if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');const min=rx[92]*20/1024,max=rx[93]*20/1024;if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V')}
+async function restoreReal(){if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;taskUi('loading','ĐANG KHÔI PHỤC ECU...');const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
+async function tpsStudyReal(){taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');const rx=await rawExchange(req5(0x77,0x77),38000);if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');const min=rx[92]*20/1024,max=rx[93]*20/1024;if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V')}
 async function testInjectorReal(){const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));if(!Number.isFinite(s)||s<=1)return;const sec=clamp(Math.round(s),2,30);await rawExchange(req5(0xDC,sec+1),6000);notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200)}
 
 function passwordDigitsToBytes(p){p=(String(p||'')+'FFFF').slice(0,4).toUpperCase();if(!/^[0-9A-F]{4}$/.test(p))throw new Error('Mật khẩu chỉ dùng 0-9/A-F, tối đa 4 ký tự');return Array.from(p,ch=>parseInt(ch,16));}
@@ -760,8 +767,13 @@ function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);r
   'REDLEO ECU 9.1X','ECU Blink','Protocol 38400 8E2','ReadAll '+readCache.raw.length+'B','—','—','9.1+','P.b v1.2'
 ];document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=fields[i]||'—');}
 
-function notice(type,title,detail){if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);else alert(title+'\n'+detail)}
-function protect(fn){return async e=>{if(e){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}try{await fn(e)}catch(x){err(x);notice('error','ECU REAL',x.message||String(x))}}}
+function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
+function notice(type,title,detail){
+  if(type==='success')taskUi('success',title+' · OK');
+  else if(type==='error')taskUi('error',title+' · LỖI',6500);
+  if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);else alert(title+'\n'+detail)
+}
+function protect(fn){return async e=>{if(e){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}try{await fn(e)}catch(x){err(x);taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);notice('error','ECU REAL',x.message||String(x))}}}
 function capture(id,handler){const e=document.getElementById(id);if(e)e.addEventListener('click',protect(handler),true)}
 
 function installUI(){
