@@ -166,38 +166,33 @@ static bool exactPrefix(const uint8_t *a, size_t alen, const uint8_t *b, size_t 
   return true;
 }
 
-// REDLEO desktop 9.1X accepts Read-All/Restore frames at exactly 9767 bytes
-// (8087 bytes on the older one-byte injection-table layout).  Validate the
-// ECU checksum as soon as one of those exact frame lengths has arrived so
-// trailing UART traffic cannot be merged into the Read-All packet.
+// REDLEO reply checksum used by the desktop software.
 static bool validRedleoFrame(const uint8_t *p, size_t n) {
   if (!p || n < 3) return false;
-  if (((uint16_t)p[0] + (uint16_t)p[n - 1]) % 256U != 255U) return false;
+  if ((((uint16_t)p[0] + (uint16_t)p[n - 1]) & 0xFFU) != 0xFFU) return false;
   uint8_t sum = 0;
   for (size_t i = 0; i < n - 2; ++i) sum = (uint8_t)(sum + p[i]);
   return sum == p[n - 2];
 }
 
-static size_t completeReadAllLength(const uint8_t *rx, size_t got, const uint8_t *tx, size_t txLen) {
-  if (!txLen || (tx[0] != 0xAB && tx[0] != 0x8B)) return 0;
-
-  const bool echoed = got >= txLen && exactPrefix(rx, got, tx, txLen);
-  const size_t off = echoed ? txLen : 0;
-
-  // Check the old frame first because it can legitimately finish earlier.
-  const size_t oldEnd = off + 8087;
-  if (got >= oldEnd && validRedleoFrame(rx + off, 8087)) return oldEnd;
-
-  const size_t v91End = off + 9767;
-  if (got >= v91End && validRedleoFrame(rx + off, 9767)) return v91End;
-
-  return 0;
+// Match the proven PC bridge timing: Read Current needs a much longer idle
+// boundary than live polling; Read All also waits longer than the 53-byte live frame.
+static uint32_t idleGapFor(const uint8_t *tx, size_t n) {
+  if (!n) return 140;
+  switch (tx[0]) {
+    case 0x9A: return 650;  // REDLEO Read Current page
+    case 0xAB: return 300;  // Read All
+    case 0x8B: return 300;  // Restore / full-frame response
+    case 0x77: return 150;  // TPS Study
+    default:   return 140;
+  }
 }
 
 static uint32_t firstByteTimeoutFor(const uint8_t *tx, size_t n) {
   if (!n) return 1500;
   switch (tx[0]) {
     case 0xAB: return 5000;  // Read All
+    case 0x9A: return 3000;  // Read Current page
     case 0x77: return 30000; // TPS Study
     case 0xCD: return 3500;  // write page ACK
     case 0x8B: return 5000;  // restore
@@ -208,7 +203,9 @@ static uint32_t firstByteTimeoutFor(const uint8_t *tx, size_t n) {
 static uint32_t totalTimeoutFor(const uint8_t *tx, size_t n) {
   if (!n) return 3000;
   switch (tx[0]) {
-    case 0xAB: return 10000;
+    case 0xAB: return 12000;
+    case 0x9A: return 8000;
+    case 0x8B: return 12000;
     case 0x77: return 35000;
     case 0xCD: return 6000;
     default: return 5000;
@@ -227,6 +224,7 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
   const uint32_t t0 = millis();
   const uint32_t firstTimeout = firstByteTimeoutFor(tx, txLen);
   const uint32_t totalTimeout = totalTimeoutFor(tx, txLen);
+  const uint32_t idleGap = idleGapFor(tx, txLen);
   uint32_t lastRx = 0;
   size_t got = 0;
   bool first = false;
@@ -238,17 +236,11 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
       first = true;
     }
 
-    const size_t complete = completeReadAllLength(rx, got, tx, txLen);
-    if (complete) {
-      got = complete;
-      break;
-    }
-
     if (!first) {
       if ((uint32_t)(millis() - t0) >= firstTimeout) break;
     } else {
-      // REDLEO full packets are continuous at 38400. 140ms idle is a safe frame boundary.
-      if ((uint32_t)(millis() - lastRx) >= 140) break;
+      // Command-specific serial idle boundary, matched to the working PC bridge.
+      if ((uint32_t)(millis() - lastRx) >= idleGap) break;
     }
     delay(1);
   }
@@ -308,7 +300,11 @@ static void processTransaction() {
 
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
   const size_t got = transactUart(txBuf, n, rxBuf, RX_MAX);
-  Serial.printf("ECU RX sid=%u len=%u\n", sid, (unsigned)got);
+  Serial.printf("ECU RX sid=%u len=%u", sid, (unsigned)got);
+  if (got > 0) {
+    Serial.printf(" first=%02X last=%02X valid=%u", rxBuf[0], rxBuf[got - 1], validRedleoFrame(rxBuf, got) ? 1 : 0);
+  }
+  Serial.println();
   sendRawResponse(sid, rxBuf, (uint16_t)got);
 }
 
