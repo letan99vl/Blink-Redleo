@@ -120,6 +120,15 @@ function applyProfileUi(){
     setProfileDisabled(b,!ok,reason);
   });
   document.querySelectorAll('[data-copybank]').forEach(b=>setProfileDisabled(b,!profileCap('fullWrite'),reason));
+
+  // V8 MAIN TUNE intentionally exposes only the four page families proven from
+  // the V8 EXE. Everything else stays visibly locked until its V8 layout is mapped.
+  const v8Main=new Set(['inj_ve','inj_degree','ign_degree','ign_time']);
+  document.querySelectorAll('[data-feature]').forEach(el=>{
+    const id=el.dataset.feature;
+    const blocked=p.family==='v8'&&!v8Main.has(id);
+    setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn trên V8.':'');
+  });
 }
 function setEcuProfile(p){
   ecuProfile=p||ECU_PROFILE_DEFS.UNKNOWN;
@@ -980,6 +989,11 @@ function assertSafeWriteLayout(){
     }
   }
 }
+function hasWriteAck(rx,pg){
+  if(!(rx instanceof Uint8Array))rx=new Uint8Array(rx||[]);
+  for(let i=0;i+1<rx.length;i++)if(rx[i]===0xCD&&rx[i+1]===(pg&255))return true;
+  return false;
+}
 async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=null){
   requireProfile(cap||(requireReadAll?'fullWrite':'fuelWrite'),'Ghi dữ liệu ECU');
   if(requireReadAll)assertSafeWriteLayout();
@@ -989,7 +1003,7 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
   for(let attempt=0;attempt<=retries;attempt++){
     try{
       const rx=await rawExchange(tx,10000);
-      if(rx.length>=2&&rx[0]===0xCD&&rx[1]===pg)return true;
+      if(hasWriteAck(rx,pg))return true;
       throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
     }catch(e){
       lastErr=e;
