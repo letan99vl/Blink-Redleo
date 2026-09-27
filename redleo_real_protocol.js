@@ -300,7 +300,9 @@ function installRawListener(){
     // Count each offset only once; reconnect/retransmit must not make got exceed total.
     if(!p.seen)p.seen=new Set();
     if(!p.seen.has(off)){p.seen.add(off);p.got+=bytes.length;}
-    if((flags&2)||p.got>=p.total){
+    // Do not trust the END flag alone. Large INJ VE streams can lose one BLE
+    // notification on iOS; only resolve after every unique payload offset arrived.
+    if(p.got>=p.total){
       clearTimeout(p.to);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
     }
   });
