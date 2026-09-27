@@ -84,6 +84,17 @@ function profileCap(name){
   }
   return !!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
 }
+function mainFeaturePage(id,bank){
+  bank=normalizeBankForProfile(bank);
+  if(id==='inj_degree')return page(2,bank);
+  if(id==='ign_degree')return page(3,bank);
+  if(id==='ign_time')return page(4,bank);
+  return null;
+}
+function mainFeatureReady(id,bank){
+  const pg=mainFeaturePage(id,bank);
+  return pg!=null&&profileCap('mainWrite')&&pageCache.has(pg);
+}
 function requireProfile(name,action='Thao tác ECU'){
   if(profileCap(name))return true;
   const label=ecuProfile?.label||ECU_PROFILE_DEFS.UNKNOWN.label;
@@ -112,7 +123,9 @@ function applyProfileUi(){
   const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
-  const canRedWrite=mainFeatureIds.has(activeFeatureId)?profileCap('mainWrite'):profileCap('fullWrite');
+  const canRedWrite=mainFeatureIds.has(activeFeatureId)
+    ?mainFeatureReady(activeFeatureId,(typeof state!=='undefined'&&state.activeMap)||1)
+    :profileCap('fullWrite');
   setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite,reason);
   setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
   setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead'),reason);
@@ -906,6 +919,7 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   const data=f.slice(1,-2);
   if(data.length<minData)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' thiếu dữ liệu '+data.length+'B / '+minData+'B');
   pageCache.set(pg,data.slice());
+  try{applyProfileUi();}catch(_e){}
   return {page:pg,frame:f,data,rxLength:rx.length};
 }
 async function readA2SensorPageReal(showUi=true){
@@ -1127,6 +1141,10 @@ async function writeFeatureReal(id){
 
   if(isMain){
     requireProfile('mainWrite','Ghi bảng '+id);
+    const expectedPage=mainFeaturePage(id,bank);
+    if(expectedPage==null||!pageCache.has(expectedPage)){
+      throw new Error('Hãy ĐỌC bảng '+id+' của MAP hiện tại thành công trước khi GHI để tránh ghi dữ liệu trống.');
+    }
     let m,pg,payload,enc;
     switch(id){
       case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encOilAngle;payload=encodeRowsByte(m,enc);break;
@@ -1368,6 +1386,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
