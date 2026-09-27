@@ -1,0 +1,20 @@
+name: Check REDLEO Protocol JS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'redleo_real_protocol.js'
+      - '.github/workflows/check-redleo-protocol.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: node --check redleo_real_protocol.js
