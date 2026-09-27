@@ -19,6 +19,7 @@ let liveRunning=false;
 let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
 let sensorCalCache=null;     // populated by lightweight A2 page read
+let sensorCalIdentity=null;   // prevents calibration from a different ECU being reused
 let pageCache=new Map();     // page-specific lazy reads
 let fuelPagePrimed=new Set();// banks whose large INJ VE page has read successfully this BLE session
 let loginState=false;
@@ -48,11 +49,11 @@ const FEAT={
 const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17};
 
 const ECU_PROFILE_DEFS=Object.freeze({
-  MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
-  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
-  LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
-  LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
-  UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
+  MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
+  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:false}}),
+  LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
 });
 ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
 
@@ -62,12 +63,19 @@ function profileFromHandshake(info){
   const ident=String(info&&info.ident||'').trim().toUpperCase();
   const all=(fw+' '+ident).trim();
   if(/ULTRA/.test(all))return ECU_PROFILE_DEFS.MODERN_V10;
-  let m=fw.match(/(\d{1,2})(?:\.|\b)/);
-  if(!m)m=all.match(/(?:VER(?:SION)?\s*)?(\d{1,2})(?:\.|\b)/);
-  const major=m?Number(m[1]):NaN;
+
+  // Firmware bytes are authoritative. Do not classify from arbitrary model
+  // numbers in ECU ident strings such as 125/150/250.
+  let major=NaN;
+  const fm=fw.match(/(?:V|VER)?\s*(\d{1,2})(?:\.|\b)/);
+  if(fm)major=Number(fm[1]);
+  if(!Number.isFinite(major)){
+    const im=ident.match(/(?:^|\s)(?:V|VER(?:SION)?)\s*(8|9|10)(?:\.|\b)/);
+    if(im)major=Number(im[1]);
+  }
   if(major===10)return ECU_PROFILE_DEFS.MODERN_V10;
   if(major===9)return ECU_PROFILE_DEFS.MODERN_V9;
-  if(major===8||/\bV8\b|VER\s*8/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
+  if(major===8||/\bV8\b|\bVER\s*8\b/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
   return ECU_PROFILE_DEFS.UNKNOWN;
 }
 function profileCap(name){
@@ -103,12 +111,15 @@ function applyProfileUi(){
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   setProfileDisabled(document.getElementById('redWriteBtn'),!(profileCap('mainWrite')||profileCap('fullWrite')),reason);
   setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
-  ['readMapBtn','redReadBtn','idleLimitReadBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('pageRead'),reason));
+  setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead'),reason);
+  setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead'),reason);
+  setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead'),reason);
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>{
     const c=b.dataset.ecucmd;
     let ok=true;
-    if(c==='READ_CURRENT'||c==='OPTIONS_READ')ok=profileCap('pageRead');
+    if(c==='READ_CURRENT')ok=profileCap('fuelRead');
+    else if(c==='OPTIONS_READ')ok=profileCap('optionsRead');
     else if(c==='READ_ALL')ok=profileCap('readAll');
     else if(c==='TPS_TEST')ok=profileCap('tpsStudy');
     else if(c==='LOGIN'||c==='LOGOUT')ok=profileCap('password');
@@ -120,6 +131,12 @@ function applyProfileUi(){
     setProfileDisabled(b,!ok,reason);
   });
   document.querySelectorAll('[data-copybank]').forEach(b=>setProfileDisabled(b,!profileCap('fullWrite'),reason));
+
+  const singleV8=p.family==='v8'&&((handshakeInfo?.ecuMode===1)||(handshakeInfo?.ecuMode===4));
+  document.querySelectorAll('.mapBankBtn').forEach(b=>{
+    const blocked=singleV8&&Number(b.dataset.mapbank)>1;
+    setProfileDisabled(b,blocked,blocked?'ECU Profile: '+p.label+' · ECU_MODE này chỉ có một MAP.':'');
+  });
 
   // V8 MAIN TUNE intentionally exposes only the four page families proven from
   // the V8 EXE. Everything else stays visibly locked until its V8 layout is mapped.
@@ -146,8 +163,16 @@ function r2(v){return Math.round(v*100)/100}
 function checksum8(a,n=a.length){let s=0;for(let i=0;i<n;i++)s=(s+(a[i]&255))&255;return s}
 function req5(cmd,arg){const s=(cmd+arg)&255;return new Uint8Array([cmd,arg,(255-s)&255,s,5])}
 function validFrame(f){return !!f&&f.length>=3&&(((f[0]+f[f.length-1])&255)===255)&&checksum8(f,f.length-2)===f[f.length-2]}
-function pageLow(bank){
+function normalizeBankForProfile(bank){
   bank=clamp(Math.round(bank),1,4);
+  if(ecuProfile&&ecuProfile.family==='v8'){
+    const mode=Number(handshakeInfo&&handshakeInfo.ecuMode)||0;
+    if(mode===1||mode===4)return 1;
+  }
+  return bank;
+}
+function pageLow(bank){
+  bank=normalizeBankForProfile(bank);
   if(ecuProfile&&ecuProfile.family==='v8'){
     const mode=Number(handshakeInfo&&handshakeInfo.ecuMode)||0;
     if(mode===1)return 2; // PC ECU mode: REDLEO V8 forces page low nibble 2.
@@ -278,15 +303,14 @@ function syncHandshakeInfo(info){
   document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=vals[i]||'—');
 
   // V8 mode 1 and mode 4 are single-bank layouts in the original REDLEO app.
-  if(p.family==='v8'){
-    const single=(info.ecuMode===1||info.ecuMode===4);
-    if(single&&typeof state!=='undefined'){
-      state.activeMap=1;
-      ['mapSelect','redBankSelect','idleLimitBankSelect'].forEach(id=>{const el=document.getElementById(id);if(el){el.value='1';[...el.options||[]].forEach(o=>o.disabled=Number(o.value)>1);}});
-    }else{
-      ['mapSelect','redBankSelect','idleLimitBankSelect'].forEach(id=>{const el=document.getElementById(id);if(el){[...el.options||[]].forEach(o=>o.disabled=false);}});
-    }
-  }
+  const singleV8=p.family==='v8'&&(info.ecuMode===1||info.ecuMode===4);
+  if(singleV8&&typeof state!=='undefined')state.activeMap=1;
+  ['mapSelect','redBankSelect','idleLimitBankSelect'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    if(singleV8)el.value='1';
+    [...el.options||[]].forEach(o=>o.disabled=singleV8&&Number(o.value)>1);
+  });
+  applyProfileUi();
   const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+p.short+' · MAP No.'+((typeof state!=='undefined'&&state.activeMap)||info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
   try{syncMirrors();}catch(_e){}
 }
@@ -404,6 +428,14 @@ async function initializeRealSession(){
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
+    const newCalIdentity=[
+      ecuProfile?.key||'UNKNOWN',info.ident||'',info.firmware||'',info.ecuId||1
+    ].join('|');
+    if(sensorCalCache&&sensorCalIdentity!==newCalIdentity){
+      sensorCalCache=null;
+      sensorCalIdentity=null;
+      log('sensor calibration cache cleared: ECU identity changed');
+    }
 
     // Only the verified modern V9/V10 family is allowed to enter the existing
     // live/page/write pipeline. V8 and legacy devices remain connected in SAFE MODE.
@@ -463,8 +495,15 @@ function installRawListener(){
     const v=new DataView(d.buffer,d.byteOffset,d.byteLength);if(v.getUint8(0)!==RAW_RX)return;
     const id=v.getUint8(1),flags=v.getUint8(2),total=v.getUint16(3,true),off=v.getUint16(5,true);
     const p=pending.get(id);if(!p)return;
-    if(flags&1){p.total=total;p.buf=new Uint8Array(total);p.got=0;p.seen=new Set();}
-    if(!p.buf||off+(d.byteLength-7)>p.buf.length)return;
+    if(flags&1){
+      // Firmware may deliberately repeat the first START chunk on long frames.
+      // Initialize once; do not wipe chunks already received if that duplicate
+      // START is delivered late by the browser/BLE stack.
+      if(!p.buf||p.total!==total){
+        p.total=total;p.buf=new Uint8Array(total);p.got=0;p.seen=new Set();
+      }
+    }
+    if(!p.buf||p.total!==total||off+(d.byteLength-7)>p.buf.length)return;
     const bytes=new Uint8Array(d.buffer,d.byteOffset+7,d.byteLength-7);
     p.buf.set(bytes,off);
     // Count each offset only once; reconnect/retransmit must not make got exceed total.
@@ -504,13 +543,21 @@ async function rawExchange(bytes,timeout=12000){
       },timeout);
       pending.set(id,{resolve,reject,to,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
     });
-    for(let off=0;off<total;off+=RAW_CHUNK){
-      if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
-      const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
-      const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
-      pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
-      if(cur.writeValueWithoutResponse)await cur.writeValueWithoutResponse(pkt);else await cur.writeValue(pkt);
-      if(total>48)await new Promise(r=>setTimeout(r,2));
+    try{
+      for(let off=0;off<total;off+=RAW_CHUNK){
+        if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
+        const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
+        const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
+        pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
+        if(cur.writeValueWithoutResponse)await cur.writeValueWithoutResponse(pkt);else await cur.writeValue(pkt);
+        if(total>800)await new Promise(r=>setTimeout(r,6));
+        else if(total>400)await new Promise(r=>setTimeout(r,4));
+        else if(total>48)await new Promise(r=>setTimeout(r,2));
+      }
+    }catch(e){
+      const p=pending.get(id);
+      if(p){clearTimeout(p.to);pending.delete(id);}
+      throw e;
     }
     const rx=await response;
     if(myEpoch!==transportEpoch)throw new Error('BLE transport đã đổi trước khi nhận xong ECU');
@@ -850,10 +897,14 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   return {page:pg,frame:f,data,rxLength:rx.length};
 }
 async function readA2SensorPageReal(showUi=true){
+  requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const R=await readDirectPageReal(0xA2,133,'CẢM BIẾN / OPTIONS',showUi);
   const C=parseA2Data(R.data);
   sensorCalCache=C;
+  sensorCalIdentity=handshakeInfo?[
+    ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
+  ].join('|'):null;
 
   // Keep TPS live calibration aligned with the ECU without requiring Read All.
   if(typeof state!=='undefined'&&C.options){
@@ -880,8 +931,9 @@ async function readA2SensorPageReal(showUi=true){
   return {...R,cache:C};
 }
 async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
+  requireProfile('idleRead','Đọc Idle/Limit');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: Idle/Limit có layout Option riêng, chưa mở ở profile MAIN TUNE.');
-  bank=clamp(Math.round(bank),1,4);
+  bank=normalizeBankForProfile(bank);
   const pg=page(6,bank);
   const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
   let p=0;const idle=[];
@@ -894,7 +946,7 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
   return {...R,idle,motor};
 }
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
-  bank=clamp(Math.round(bank),1,4);
+  bank=normalizeBankForProfile(bank);
   if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error('REDLEO V8: hiện đã mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ map layout V8.');
@@ -925,7 +977,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
 }
 async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   requireProfile('fuelRead','Đọc MAP thời gian phun');
-  bank=clamp(Math.round(bank),1,4);
+  bank=normalizeBankForProfile(bank);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
   const first=!fuelPagePrimed.has(bank);
@@ -937,9 +989,9 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   const rx=await exchangePage9A(
     pg,
     'MAP NO.'+bank,
-    first ? (isV8?3:5) : 3,
+    first ? (isV8?3:4) : 2,
     first ? (isV8?450:900) : 260,
-    first ? (isV8?12000:18000) : 12000
+    18000
   );
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
@@ -952,7 +1004,7 @@ async function readAll(cmd=0xAB){
   if(cmd===0x8B)requireProfile('restore','Khôi phục ECU');
   else requireProfile('readAll','Đọc toàn bộ ECU');
   taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
-  const rx=await rawExchange(req5(cmd,cmd),16000);
+  const rx=await rawExchange(req5(cmd,cmd),35000);
   let C=parseReadAll(rx);
   // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
   // even if its byte length happens to collide with a known modern length.
@@ -962,6 +1014,9 @@ async function readAll(cmd=0xAB){
   window.blinkReadAllRaw=C.raw.slice();
   window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
   if(C.rawOnly){
+    // Never keep a decoded cache from an earlier Read All when the newest
+    // response could only be preserved as RAW.
+    readCache=null;
     const s=document.getElementById('redIoStatus');
     if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':'');
     log('ReadAll raw frame accepted:',C.sourceLength+'B');
@@ -991,7 +1046,12 @@ function assertSafeWriteLayout(){
 }
 function hasWriteAck(rx,pg){
   if(!(rx instanceof Uint8Array))rx=new Uint8Array(rx||[]);
-  for(let i=0;i+1<rx.length;i++)if(rx[i]===0xCD&&rx[i+1]===(pg&255))return true;
+  const want=pg&255;
+  if(rx.length>=2&&rx[rx.length-2]===0xCD&&rx[rx.length-1]===want)return true;
+  // Some bridges prepend a few status/echo bytes. Only inspect the short tail,
+  // never the whole response where arbitrary map data could mimic CD+page.
+  const from=Math.max(0,rx.length-8);
+  for(let i=from;i+1<rx.length;i++)if(rx[i]===0xCD&&rx[i+1]===want)return true;
   return false;
 }
 async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=null){
@@ -1050,7 +1110,7 @@ function matrixFromMaybe(id,fallback){
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
 async function writeFeatureReal(id){
-  const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+  const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
 
   if(ecuProfile&&ecuProfile.family==='v8'){
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -1089,14 +1149,20 @@ async function writeOptionsReal(){requireProfile('fullWrite','Ghi Options');asse
 
 async function writeFuelBank(bank){
   requireProfile('fuelWrite','Ghi MAP thời gian phun');
-  bank=clamp(Math.round(bank),1,4);
+  bank=normalizeBankForProfile(bank);
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
   if(inj.some(r=>r.some(v=>v==null||v===''||!Number.isFinite(Number(v)))))throw new Error('MAP hiện tại đang trống/chưa đọc đủ từ ECU. Hãy chờ ĐỌC HIỆN TẠI báo OK trước khi ghi.');
 
   if(ecuProfile&&ecuProfile.family==='v8'){
+    let badCell=null;
+    outer:for(let r=0;r<14;r++)for(let c=0;c<30;c++){
+      const v=Number(inj[r][c]);
+      if(v<0||v>12.75){badCell={r,c,v};break outer;}
+    }
+    if(badCell)throw new Error('V8 MAP phun vượt giới hạn 0–12.75 ms tại TPS row '+(badCell.r+1)+', RPM col '+(badCell.c+1)+' · '+badCell.v+' ms');
     taskUi('loading','ĐANG GHI V8 MAP NO.'+bank+' · PAGE 0x'+page(1,bank).toString(16).toUpperCase());
-    const payload=encodeRowsByte(inj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255));
+    const payload=encodeRowsByte(inj,v=>Math.round(Math.max(0,Number(v))*20));
     await writePageChecked(page(1,bank),payload,false,1,'fuelWrite');
     return;
   }
@@ -1110,33 +1176,37 @@ async function writeFuelBank(bank){
     if(h===0)await new Promise(r=>setTimeout(r,120));
   }
 }
-async function readCurrentFuelBankRetry(bank,attempts=3){
-  let lastErr=null;
-  for(let i=0;i<attempts;i++){
-    try{return await readCurrentFuelBank(bank,false);}
-    catch(e){
-      lastErr=e;
-      if(i+1>=attempts)break;
-      log('retry READ CURRENT verify',i+1,String(e&&e.message||e));
-      await new Promise(r=>setTimeout(r,300+(i*250)));
-    }
-  }
-  throw lastErr||new Error('VERIFY READ CURRENT thất bại');
+async function readCurrentFuelBankRetry(bank){
+  // readCurrentFuelBank already owns the 0x9A retry loop. Do not multiply it
+  // with another retry layer or a failed verify can block the UI for minutes.
+  return readCurrentFuelBank(bank,false);
 }
 async function writeCurrentFuelAndVerify(bank){
   requireProfile('fuelWrite','Ghi hiện tại MAP thời gian phun');
-  bank=clamp(Math.round(bank),1,4);
+  bank=normalizeBankForProfile(bank);
   const resumeLive=liveRunning;
   stopLiveLoop();
   taskUi('loading','ĐANG GHI HIỆN TẠI · MAP NO.'+bank);
   try{
+    const intended=state.mapBanks[bank-1].inject.map(r=>r.map(Number));
     await writeFuelBank(bank);
     // Let ECU finish its flash/page commit before the 0x9A read-back.
-    taskUi('loading','ĐANG CHỜ ECU LƯU DỮ LIỆU...');
+    taskUi('loading','ECU ĐÃ ACK · ĐANG VERIFY MAP NO.'+bank);
     await new Promise(r=>setTimeout(r,260));
-    taskUi('loading','ĐANG KIỂM TRA LẠI · MAP NO.'+bank);
-    const R=await readCurrentFuelBankRetry(bank,3);
-    taskUi('success','GHI HIỆN TẠI · MAP NO.'+bank+' · OK');
+    let R;
+    try{
+      R=await readCurrentFuelBankRetry(bank);
+    }catch(e){
+      throw new Error('ECU đã ACK ghi MAP nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));
+    }
+    const tol=ecuProfile&&ecuProfile.family==='v8'?0.051:0.003;
+    for(let r=0;r<14;r++)for(let c=0;c<30;c++){
+      const a=intended[r][c],b=Number(R.matrix[r][c]);
+      if(!Number.isFinite(a)||!Number.isFinite(b)||Math.abs(a-b)>tol){
+        throw new Error('VERIFY MAP sai tại TPS row '+(r+1)+', RPM col '+(c+1)+' · ghi '+a+' ms, đọc lại '+b+' ms');
+      }
+    }
+    taskUi('success','GHI + VERIFY · MAP NO.'+bank+' · OK');
     return R;
   }finally{
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
@@ -1230,13 +1300,9 @@ function installUI(){
   document.querySelectorAll('[data-copybank]').forEach(b=>b.addEventListener('click',protect(()=>copyBankReal(b.dataset.copybank)),true));
 
   document.getElementById('idleLimitBankSelect')?.addEventListener('change',()=>setTimeout(()=>{if(readCache)syncIdle(state.activeMap)},0),true);
-  // AFR/O2 + mapped ECU bit toggles auto-write A2 immediately, with rollback by reread on failure.
-  ['#afrControlToggle','#o2SourceSelect','[data-ecutoggle="singleTpsIgn"]','[data-ecutoggle="dontMap"]','[data-ecutoggle="password"]','[data-ecutoggle="tps100Power"]','[data-ecutoggle="autoClutchEnable"]'].forEach(sel=>{
-    const e=document.querySelector(sel);if(!e)return;e.addEventListener('change',()=>{
-      if(!state.ecuConnected||!readCache)return;
-      setTimeout(()=>writeOptionsReal().catch(async x=>{notice('error','OPTION WRITE FAIL',x.message);try{await readAll()}catch(_e){}}),0);
-    },false);
-  });
+  // Options are edit-local only. Never write A2 merely because a control
+  // changed or because Read All synchronized values into the UI.
+  // The ECU is modified only by the explicit GHI TÙY CHỌN action.
 
   // Mark status visibly.
   document.querySelectorAll('.sourceNote').forEach(e=>{if(!e.textContent.includes('ECU REAL'))e.textContent+=' · ECU REAL protocol layer active.';});
@@ -1281,6 +1347,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
