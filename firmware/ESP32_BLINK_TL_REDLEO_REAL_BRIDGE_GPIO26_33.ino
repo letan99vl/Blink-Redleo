@@ -193,7 +193,15 @@ static bool validRedleoFrame(const uint8_t *p, size_t n) {
 // boundary than live polling; Read All also waits longer than the 53-byte live frame.
 static bool isFuelCurrentPage(const uint8_t *tx, size_t n) {
   if (n < 2 || tx[0] != 0x9A) return false;
-  return tx[1] == 0x12 || tx[1] == 0x14 || tx[1] == 0x16 || tx[1] == 0x18;
+  // V8 fuel pages: 0x11..0x14 depending on ECU_MODE/bank.
+  // V9+ fuel pages: 0x12/0x14/0x16/0x18.
+  switch (tx[1]) {
+    case 0x11: case 0x12: case 0x13: case 0x14:
+    case 0x16: case 0x18:
+      return true;
+    default:
+      return false;
+  }
 }
 
 static uint32_t idleGapFor(const uint8_t *tx, size_t n) {
