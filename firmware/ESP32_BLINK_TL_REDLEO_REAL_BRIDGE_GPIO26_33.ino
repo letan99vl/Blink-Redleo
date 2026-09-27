@@ -191,13 +191,18 @@ static bool validRedleoFrame(const uint8_t *p, size_t n) {
 
 // Match the proven PC bridge timing: Read Current needs a much longer idle
 // boundary than live polling; Read All also waits longer than the 53-byte live frame.
+static bool isFuelCurrentPage(const uint8_t *tx, size_t n) {
+  if (n < 2 || tx[0] != 0x9A) return false;
+  return tx[1] == 0x12 || tx[1] == 0x14 || tx[1] == 0x16 || tx[1] == 0x18;
+}
+
 static uint32_t idleGapFor(const uint8_t *tx, size_t n) {
   if (!n) return 140;
   switch (tx[0]) {
-    case 0x9A: return 650;  // REDLEO Read Current page
-    case 0xAB: return 300;  // Read All
-    case 0x8B: return 300;  // Restore / full-frame response
-    case 0x77: return 150;  // TPS Study
+    case 0x9A: return isFuelCurrentPage(tx,n) ? 950 : 650;
+    case 0xAB: return 300;
+    case 0x8B: return 300;
+    case 0x77: return 150;
     default:   return 140;
   }
 }
@@ -205,11 +210,11 @@ static uint32_t idleGapFor(const uint8_t *tx, size_t n) {
 static uint32_t firstByteTimeoutFor(const uint8_t *tx, size_t n) {
   if (!n) return 1500;
   switch (tx[0]) {
-    case 0xAB: return 5000;  // Read All
-    case 0x9A: return 3000;  // Read Current page
-    case 0x77: return 30000; // TPS Study
-    case 0xCD: return 3500;  // write page ACK
-    case 0x8B: return 5000;  // restore
+    case 0xAB: return 5000;
+    case 0x9A: return isFuelCurrentPage(tx,n) ? 7000 : 3000;
+    case 0x77: return 30000;
+    case 0xCD: return 3500;
+    case 0x8B: return 5000;
     default: return 2200;
   }
 }
@@ -218,7 +223,7 @@ static uint32_t totalTimeoutFor(const uint8_t *tx, size_t n) {
   if (!n) return 3000;
   switch (tx[0]) {
     case 0xAB: return 12000;
-    case 0x9A: return 8000;
+    case 0x9A: return isFuelCurrentPage(tx,n) ? 14000 : 8000;
     case 0x8B: return 12000;
     case 0x77: return 35000;
     case 0xCD: return 6000;
