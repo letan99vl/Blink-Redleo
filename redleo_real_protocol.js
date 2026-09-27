@@ -359,11 +359,15 @@ function parseLiveReal(a){
     state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,14);
     state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,6);
     state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,12);
+  }else{
+    state.live.ect=NaN;
+    state.live.iat=NaN;
+    state.live.mapKpa=NaN;
   }
   const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
-  if(Number.isFinite(state.live.ect))put('ectLive',r1(state.live.ect).toFixed(1)+' °C');
-  if(Number.isFinite(state.live.iat))put('iatLive',r1(state.live.iat).toFixed(1)+' °C');
-  if(Number.isFinite(state.live.mapKpa))put('mapKpaLive',r1(state.live.mapKpa).toFixed(1)+' kPa');
+  put('ectLive',Number.isFinite(state.live.ect)?r1(state.live.ect).toFixed(1)+' °C':'--');
+  put('iatLive',Number.isFinite(state.live.iat)?r1(state.live.iat).toFixed(1)+' °C':'--');
+  put('mapKpaLive',Number.isFinite(state.live.mapKpa)?r1(state.live.mapKpa).toFixed(1)+' kPa':'--');
   if(Number.isFinite(state.live.ign))put('ignLive',r1(state.live.ign).toFixed(1)+'°');
   if(Number.isFinite(state.live.batt))put('battLive',r1(state.live.batt).toFixed(1)+' V');
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
