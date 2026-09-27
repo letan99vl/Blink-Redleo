@@ -1130,12 +1130,15 @@ function matrixFor(tab){
   if(tab==='inject') return state.inject;
   return correctedMatrix();
 }
+function fuelProtocolMaxMs(){
+  try{return window.BlinkRealProtocol?.profile?.family==='v8'?12.75:(65535/500)}catch(_e){return 65535/500}
+}
 function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
-  const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100;
+  const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100, maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++) for(let c=0;c<C;c++){
     const base=num(baseMap[r][c],0),meas=num(afrMap[r][c],0),tgt=num(targetMap[r][c],0);
     if(base<=0){out[r][c]=null;continue;} if(meas<=0||tgt<=0){out[r][c]=base;continue;}
-    let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,65535/500);
+    let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,maxMs);
   }
   return out;
 }
@@ -1660,24 +1663,54 @@ async function startFuelWrite(opts={}){
   }
   if(!Number.isFinite(min)||!Number.isFinite(max))return alert('MAP ECU không hợp lệ.');
 
-  const protocolMaxMs=65535/500;
-  if(max>protocolMaxMs+0.0001){
-    return alert(
-      'MAP có giá trị '+max.toFixed(3)+' ms vượt giới hạn protocol '+protocolMaxMs.toFixed(3)+' ms.'
-    );
+  const protocolMaxMs=fuelProtocolMaxMs();
+  if(min<0||max>protocolMaxMs+0.0001){
+    alert('MAP có giá trị '+min.toFixed(3)+'–'+max.toFixed(3)+' ms vượt giới hạn protocol 0–'+protocolMaxMs.toFixed(3)+' ms.');
+    return false;
   }
 
+  const realApi=window.BlinkRealProtocol;
+  const mapNo=realApi&&typeof realApi.normalizeBank==='function'
+    ?realApi.normalizeBank(state.activeMap)
+    :state.activeMap;
+
   if(!skipConfirm){
+    const profile=realApi?.profile?.label||'REDLEO';
     const ok=confirm(
-      'GHI MAP PHUN No.'+state.activeMap+' VÀO ECU?\n\n'+
+      'GHI MAP PHUN No.'+mapNo+' VÀO ECU?\n\n'+
+      profile+'\n'+
       '420 ô · '+min.toFixed(2)+'–'+max.toFixed(2)+' ms\n'+
-      'Tool sẽ ghi đúng cặp CD của MAP No.'+state.activeMap+', sau đó tự đọc lại để VERIFY.\n\n'+
+      'Tool sẽ GHI theo đúng profile ECU, sau đó ĐỌC HIỆN TẠI để VERIFY 420/420 ô.\n\n'+
       'Chỉ tiếp tục khi điện nguồn ECU ổn định.'
     );
     if(!ok)return false;
   }
 
-  state.ecuWriteMapNo=state.activeMap;
+  // Current BLE/REDLEO path: always use the profile-aware protocol writer.
+  // This is essential for V8, whose fuel map is one U8 page rather than the
+  // two U16 half-pages used by V9+.
+  if(realApi&&typeof realApi.writeCurrentFuelAndVerify==='function'){
+    state.ecuWriteMapNo=mapNo;
+    state.ecuWriteSnapshot=cloneMatrix(state.inject);
+    $('mapSelect').disabled=true;
+    try{
+      await realApi.writeCurrentFuelAndVerify(mapNo);
+      state.ecuWriteSnapshot=null;
+      $('mapSelect').disabled=state.threeRun.active;
+      onFuelWriteVerified(mapNo);
+      return true;
+    }catch(e){
+      state.ecuWriteSnapshot=null;
+      $('mapSelect').disabled=state.threeRun.active;
+      onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
+      showEcuNotice('error','GHI / VERIFY MAP THẤT BẠI',String(e&&e.message||e),0);
+      return false;
+    }
+  }
+
+  // Legacy desktop/native fallback retained only when the real protocol layer
+  // is unavailable.
+  state.ecuWriteMapNo=mapNo;
   state.ecuWriteFrames=prepareFuelWriteFrames(state.ecuWriteMapNo);
   state.ecuWriteStep=0;
   state.ecuWriteSnapshot=cloneMatrix(state.inject);
@@ -1739,7 +1772,7 @@ async function applyCorrectedAndWrite(){
     'Ô có AFR đo: dùng giá trị đã bù.\\n'+
     'Ô chưa đo: GIỮ NGUYÊN map ECU hiện tại.\\n'+
     'Số ô thay đổi: '+changed.length+' / 420.\\n\\n'+
-    'Sau khi ghi tool sẽ tự Read All để VERIFY.'
+    'Sau khi ghi tool sẽ tự ĐỌC HIỆN TẠI để VERIFY đúng 420/420 ô.'
   );
   if(!ok)return;
 
@@ -1770,10 +1803,10 @@ function afrRunStats(run){
   return {cells,samples,avg:samples?sum/samples:NaN,min:cells?min:NaN,max:cells?max:NaN};
 }
 function matrixToWritable(base,proposal){
-  const out=blankMatrix(0);
+  const out=blankMatrix(0),maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const b=num(base[r][c],0),v=proposal[r][c];
-    out[r][c]=v==null?b:clamp(num(v,b),0,65535/500);
+    out[r][c]=v==null?b:clamp(num(v,b),0,maxMs);
   }
   return out;
 }
@@ -1798,7 +1831,7 @@ function adaptiveThirdMap(run1,run2,targetMap){
     }
     const lo=Math.max(0,p2*(1-lim)),hi=p2*(1+lim),limited=clamp(predicted,lo,hi);
     if(Math.abs(limited-predicted)>0.000001)stats.limited++;
-    out[r][c]=clamp(limited,0,65535/500);
+    out[r][c]=clamp(limited,0,fuelProtocolMaxMs());
   }
   return {map:out,stats};
 }
@@ -1829,7 +1862,7 @@ function adaptiveFinalMap(run2,run3,targetMap){
     }
     const lo=Math.max(0,p3*(1-lim)),hi=p3*(1+lim),limited=clamp(predicted,lo,hi);
     if(Math.abs(limited-predicted)>0.000001)stats.limited++;
-    out[r][c]=clamp(limited,0,65535/500);
+    out[r][c]=clamp(limited,0,fuelProtocolMaxMs());
   }
   return {map:out,stats};
 }
