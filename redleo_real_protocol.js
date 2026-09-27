@@ -48,9 +48,9 @@ const FEAT={
 const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17};
 
 const ECU_PROFILE_DEFS=Object.freeze({
-  MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
-  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
-  LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · SAFE MODE',short:'V8 SAFE',family:'v8',caps:{live:false,pageRead:false,fuelRead:false,readAll:true,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
+  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
+  LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
 });
@@ -101,7 +101,8 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  ['redWriteBtn','idleLimitWriteBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fullWrite'),reason));
+  setProfileDisabled(document.getElementById('redWriteBtn'),!(profileCap('mainWrite')||profileCap('fullWrite')),reason);
+  setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
   ['readMapBtn','redReadBtn','idleLimitReadBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('pageRead'),reason));
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>{
@@ -136,7 +137,16 @@ function r2(v){return Math.round(v*100)/100}
 function checksum8(a,n=a.length){let s=0;for(let i=0;i<n;i++)s=(s+(a[i]&255))&255;return s}
 function req5(cmd,arg){const s=(cmd+arg)&255;return new Uint8Array([cmd,arg,(255-s)&255,s,5])}
 function validFrame(f){return !!f&&f.length>=3&&(((f[0]+f[f.length-1])&255)===255)&&checksum8(f,f.length-2)===f[f.length-2]}
-function pageLow(bank){return [0,2,4,6,8][clamp(Math.round(bank),1,4)]}
+function pageLow(bank){
+  bank=clamp(Math.round(bank),1,4);
+  if(ecuProfile&&ecuProfile.family==='v8'){
+    const mode=Number(handshakeInfo&&handshakeInfo.ecuMode)||0;
+    if(mode===1)return 2; // PC ECU mode: REDLEO V8 forces page low nibble 2.
+    if(mode===4)return 1; // OEM mode: REDLEO V8 forces page low nibble 1.
+    return bank;          // Four/Eight/exFour/exEight: pages 1..4.
+  }
+  return [0,2,4,6,8][bank];
+}
 function page(high,bank){return (high<<4)|pageLow(bank)}
 function u16be(a,i){return ((a[i]<<8)|a[i+1])>>>0}
 function push16be(a,v){v=clamp(Math.round(v),0,65535);a.push((v>>8)&255,v&255)}
@@ -233,6 +243,7 @@ function parseHandshake(a){
     info.firmware=ascii(a,17,4);
     info.date=ascii(a,21,6);
     info.classify=a[27]&15;
+    info.ecuMode=(a[27]>>4)&15;
     info.features=a[28];
     info.sumSignal=a[29];
     info.zeroIgn=(a[30]||0)+1;
@@ -253,9 +264,21 @@ function syncHandshakeInfo(info){
     if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
   }
   const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
-  const vals=[cls,info.ident||p.label,'ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'—',info.date||'—',p.label];
+  const profileText=p.family==='v8'?(p.label+' · ECU_MODE '+(info.ecuMode??'—')):p.label;
+  const vals=[cls,info.ident||p.label,'ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'—',info.date||'—',profileText];
   document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=vals[i]||'—');
-  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+p.short+' · MAP No.'+(info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
+
+  // V8 mode 1 and mode 4 are single-bank layouts in the original REDLEO app.
+  if(p.family==='v8'){
+    const single=(info.ecuMode===1||info.ecuMode===4);
+    if(single&&typeof state!=='undefined'){
+      state.activeMap=1;
+      ['mapSelect','redBankSelect','idleLimitBankSelect'].forEach(id=>{const el=document.getElementById(id);if(el){el.value='1';[...el.options||[]].forEach(o=>o.disabled=Number(o.value)>1);}});
+    }else{
+      ['mapSelect','redBankSelect','idleLimitBankSelect'].forEach(id=>{const el=document.getElementById(id);if(el){[...el.options||[]].forEach(o=>o.disabled=false);}});
+    }
+  }
+  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+p.short+' · MAP No.'+((typeof state!=='undefined'&&state.activeMap)||info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
   try{syncMirrors();}catch(_e){}
 }
 function syncCapabilityFlags(info){
@@ -274,7 +297,7 @@ function parseLiveReal(a){
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
   // Injection table contribution and ignition angle use REDLEO live conversion.
-  state.live.pw=u16be(a,16)/500;
+  state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
   state.live.ign=u16be(a,28)/32-16;
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
@@ -309,6 +332,11 @@ async function handshakeReal(){
     const rx=await rawExchange(req5(0x5A,0x5A),6000);
     const info=parseHandshake(rx);
     info.profile=profileFromHandshake(info);
+    if(info.profile.family==='v8'){
+      // REDLEO V8 byte33 is serial/config related, not the V9 active-map byte.
+      info.activeMap=1;
+      info.ecuId=1;
+    }
     syncHandshakeInfo(info);
     syncCapabilityFlags(info);
     return info;
@@ -331,9 +359,19 @@ async function handshakeReal(){
     throw new Error('Không nhận diện được ECU. 5A: '+String(firstErr&&firstErr.message||firstErr)+' · legacy 69: '+String(e&&e.message||e));
   }
 }
+let v8LiveSlot=0;
 async function liveOnce(){
   if(!cmdChar()||busy||document.hidden)return;
-  try{const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);const rx=await rawExchange(req5(0x69,mapNo),5000);parseLiveReal(rx);}catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
+  try{
+    const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+    let arg=mapNo;
+    if(ecuProfile&&ecuProfile.family==='v8'){
+      v8LiveSlot=(v8LiveSlot+1)%10;
+      arg=((v8LiveSlot&15)<<4)|(pageLow(mapNo)&15);
+    }
+    const rx=await rawExchange(req5(0x69,arg),5000);
+    parseLiveReal(rx);
+  }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
   if(liveRunning)return;liveRunning=true;clearInterval(liveTimer);liveTimer=setInterval(()=>{liveOnce();},180);
@@ -351,6 +389,7 @@ async function initializeRealSession(){
     readCache=null;
     pageCache.clear();
     fuelPagePrimed.clear();
+    v8LiveSlot=0;
 
     if(typeof state!=='undefined')state.ecuPhase='handshake';
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
@@ -395,6 +434,7 @@ function abortRawTransport(reason='BLE disconnected'){
   readCache=null;
   pageCache.clear();
   fuelPagePrimed.clear();
+  v8LiveSlot=0;
   ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
   try{applyProfileUi();}catch(_e){}
   if(typeof state!=='undefined'){
@@ -700,7 +740,21 @@ function syncCurrentFuel(bank,matrix,frameLen){
 function parseCurrentFuelFrame(a,bank){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   bank=clamp(Math.round(bank),1,4);
-  const pg=page(1,bank); // No.1=0x12, No.2=0x14, No.3=0x16, No.4=0x18
+  const pg=page(1,bank);
+
+  if(ecuProfile&&ecuProfile.family==='v8'){
+    const f=findValidCommandFrame(a,pg,423);
+    if(!f)throw new Error('V8 READ CURRENT MAP No.'+bank+' · không tìm thấy frame page 0x'+pg.toString(16).toUpperCase()+' hợp lệ trong RX '+a.length+'B');
+    const out=Array.from({length:14},()=>Array(30).fill(0));
+    let p=1;
+    for(let wireRow=0;wireRow<14;wireRow++){
+      const uiRow=13-wireRow;
+      for(let c=0;c<30;c++)out[uiRow][c]=r2(f[p++]/20);
+    }
+    return {frame:f,matrix:out,page:pg};
+  }
+
+  // V9+ fuel uses uint16 BE cells: No.1=0x12, No.2=0x14, No.3=0x16, No.4=0x18.
   const f=findValidCommandFrame(a,pg,843);
   if(!f)throw new Error('READ CURRENT MAP No.'+bank+' · không tìm thấy frame page 0x'+pg.toString(16).toUpperCase()+' hợp lệ trong RX '+a.length+'B');
   if(f.length<843)throw new Error('READ CURRENT MAP thiếu dữ liệu · '+f.length+'B');
@@ -787,6 +841,7 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   return {page:pg,frame:f,data,rxLength:rx.length};
 }
 async function readA2SensorPageReal(showUi=true){
+  if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const R=await readDirectPageReal(0xA2,133,'CẢM BIẾN / OPTIONS',showUi);
   const C=parseA2Data(R.data);
   sensorCalCache=C;
@@ -816,6 +871,7 @@ async function readA2SensorPageReal(showUi=true){
   return {...R,cache:C};
 }
 async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
+  if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: Idle/Limit có layout Option riêng, chưa mở ở profile MAIN TUNE.');
   bank=clamp(Math.round(bank),1,4);
   const pg=page(6,bank);
   const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
@@ -831,6 +887,9 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=clamp(Math.round(bank),1,4);
   if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
+  if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
+    throw new Error('REDLEO V8: hiện đã mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ map layout V8.');
+  }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
 
   let pg=0,rows=0,cols=0,dec=x=>x,n=0,label=id;
@@ -861,6 +920,7 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
   const first=!fuelPagePrimed.has(bank);
+  const isV8=ecuProfile&&ecuProfile.family==='v8';
 
   // First INJ VE read after a fresh BLE session is measurably slower on this ECU.
   // Give the ECU enough quiet/compute time and keep the browser timeout longer
@@ -868,9 +928,9 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   const rx=await exchangePage9A(
     pg,
     'MAP NO.'+bank,
-    first ? 5 : 3,
-    first ? 900 : 260,
-    first ? 18000 : 12000
+    first ? (isV8?3:5) : 3,
+    first ? (isV8?450:900) : 260,
+    first ? (isV8?12000:18000) : 12000
   );
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
@@ -894,7 +954,7 @@ async function readAll(cmd=0xAB){
   window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
   if(C.rawOnly){
     const s=document.getElementById('redIoStatus');
-    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup';
+    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':'');
     log('ReadAll raw frame accepted:',C.sourceLength+'B');
   }else{
     syncAll(C);
@@ -920,8 +980,8 @@ function assertSafeWriteLayout(){
     }
   }
 }
-async function writePageChecked(pg,payload,requireReadAll=true,retries=0){
-  requireProfile(requireReadAll?'fullWrite':'fuelWrite','Ghi dữ liệu ECU');
+async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=null){
+  requireProfile(cap||(requireReadAll?'fullWrite':'fuelWrite'),'Ghi dữ liệu ECU');
   if(requireReadAll)assertSafeWriteLayout();
   if(requireReadAll)taskUi('loading','ĐANG GHI ECU · PAGE 0x'+pg.toString(16).toUpperCase());
   const tx=pageFrame(pg,payload);
@@ -976,8 +1036,26 @@ function matrixFromMaybe(id,fallback){
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
 async function writeFeatureReal(id){
+  const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+
+  if(ecuProfile&&ecuProfile.family==='v8'){
+    requireProfile('mainWrite','Ghi bảng '+id);
+    let m,pg,payload;
+    switch(id){
+      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
+      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
+      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encOil);break;
+      default:throw new Error('REDLEO V8 MAIN TUNE chưa mở ghi bảng '+id);
+    }
+    await writePageChecked(pg,payload,false,1,'mainWrite');
+    await new Promise(r=>setTimeout(r,220));
+    await readFeaturePageReal(id,bank,true);
+    notice('success','V8 GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
+    return;
+  }
+
   requireProfile('fullWrite','Ghi bảng '+id);
-  if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);let m,pg,payload;
+  if(!readCache)await readAll();let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
     case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
@@ -1001,6 +1079,14 @@ async function writeFuelBank(bank){
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
   if(inj.some(r=>r.some(v=>v==null||v===''||!Number.isFinite(Number(v)))))throw new Error('MAP hiện tại đang trống/chưa đọc đủ từ ECU. Hãy chờ ĐỌC HIỆN TẠI báo OK trước khi ghi.');
+
+  if(ecuProfile&&ecuProfile.family==='v8'){
+    taskUi('loading','ĐANG GHI V8 MAP NO.'+bank+' · PAGE 0x'+page(1,bank).toString(16).toUpperCase());
+    const payload=encodeRowsByte(inj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255));
+    await writePageChecked(page(1,bank),payload,false,1,'fuelWrite');
+    return;
+  }
+
   for(let h=0;h<2;h++){
     taskUi('loading','ĐANG GHI MAP NO.'+bank+' · PHẦN '+(h+1)+'/2');
     const payload=[];
