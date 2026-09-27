@@ -440,12 +440,47 @@ function normalizeReadAll9895(a){
   return best.parsed;
 }
 
+function findCanonicalReadAllFrame(a){
+  if(!(a instanceof Uint8Array))a=new Uint8Array(a);
+  if(a.length<9767)return null;
+  const maxOff=a.length-9767;
+  for(let off=0;off<=maxOff;off++){
+    const first=a[off];
+    if(first!==0xAB&&first!==0x8B)continue;
+    // Fast reject before the full checksum walk.
+    if(((first+a[off+9766])&255)!==255)continue;
+    const frame=a.subarray(off,off+9767);
+    if(validFrame(frame))return {bytes:frame.slice(),offset:off};
+  }
+  return null;
+}
 function parseReadAll(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  if(!(a[0]===0xAB||a[0]===0x8B)||!validFrame(a))throw new Error('Read All/Restore frame checksum không hợp lệ: '+a.length+'B');
-  if(a.length===9767)return parseCanonicalReadAll(a,9767,'9767-native');
-  if(a.length===9895)return normalizeReadAll9895(a);
-  throw new Error('Read All length chưa hỗ trợ: '+a.length+'B (hỗ trợ 9767/9895)');
+  if(a.length===9767){
+    if(!(a[0]===0xAB||a[0]===0x8B)||!validFrame(a))throw new Error('Read All 9767B checksum không hợp lệ');
+    return parseCanonicalReadAll(a,9767,'9767-native');
+  }
+
+  // REDLEO 9.1X desktop validates Read-All at exactly 9767B (8087B on older
+  // one-byte INJ firmware).  If the bridge collected trailing UART bytes,
+  // recover the real 9767B frame instead of treating the tail as ECU data.
+  if(a.length>9767){
+    const hit=findCanonicalReadAllFrame(a);
+    if(hit){
+      const extraBefore=hit.offset,extraAfter=a.length-hit.offset-9767;
+      const C=parseCanonicalReadAll(hit.bytes,a.length,'9767-recovered@'+hit.offset);
+      C.transportRecovery={rawLength:a.length,frameOffset:hit.offset,extraBefore,extraAfter};
+      log('ReadAll recovered canonical frame:',a.length+'B -> 9767B','offset',hit.offset,'tail',extraAfter);
+      return C;
+    }
+  }
+
+  // Keep the earlier 9895 layout experiment only as a last-resort diagnostic
+  // for a genuinely checksummed 9895B ECU frame.  Writes remain guarded.
+  if(a.length===9895&&(a[0]===0xAB||a[0]===0x8B)&&validFrame(a)){
+    return normalizeReadAll9895(a);
+  }
+  throw new Error('Read All không có frame REDLEO 9.1X 9767B hợp lệ bên trong '+a.length+'B');
 }
 function decodeOptions(raw,vEct,bits,startRpm){
   return {
