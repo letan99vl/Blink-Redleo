@@ -440,47 +440,38 @@ function normalizeReadAll9895(a){
   return best.parsed;
 }
 
-function findCanonicalReadAllFrame(a){
+function findValidCommandFrame(a,start,minLen=3){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  if(a.length<9767)return null;
-  const maxOff=a.length-9767;
-  for(let off=0;off<=maxOff;off++){
-    const first=a[off];
-    if(first!==0xAB&&first!==0x8B)continue;
-    // Fast reject before the full checksum walk.
-    if(((first+a[off+9766])&255)!==255)continue;
-    const frame=a.subarray(off,off+9767);
-    if(validFrame(frame))return {bytes:frame.slice(),offset:off};
+  const tail=(255-start)&255;
+  for(let i=0;i<a.length;i++){
+    if(a[i]!==start)continue;
+    for(let end=a.length-1;end>=i+minLen-1;end--){
+      if(a[end]!==tail)continue;
+      const f=a.slice(i,end+1);
+      if(validFrame(f))return f;
+    }
   }
   return null;
 }
 function parseReadAll(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  if(a.length===9767){
-    if(!(a[0]===0xAB||a[0]===0x8B)||!validFrame(a))throw new Error('Read All 9767B checksum không hợp lệ');
-    return parseCanonicalReadAll(a,9767,'9767-native');
-  }
+  const f=findValidCommandFrame(a,0xAB,100)||findValidCommandFrame(a,0x8B,100);
+  if(!f)throw new Error('Read All không tìm thấy frame checksum hợp lệ trong RX '+a.length+'B');
 
-  // REDLEO 9.1X desktop validates Read-All at exactly 9767B (8087B on older
-  // one-byte INJ firmware).  If the bridge collected trailing UART bytes,
-  // recover the real 9767B frame instead of treating the tail as ECU data.
-  if(a.length>9767){
-    const hit=findCanonicalReadAllFrame(a);
-    if(hit){
-      const extraBefore=hit.offset,extraAfter=a.length-hit.offset-9767;
-      const C=parseCanonicalReadAll(hit.bytes,a.length,'9767-recovered@'+hit.offset);
-      C.transportRecovery={rawLength:a.length,frameOffset:hit.offset,extraBefore,extraAfter};
-      log('ReadAll recovered canonical frame:',a.length+'B -> 9767B','offset',hit.offset,'tail',extraAfter);
-      return C;
-    }
-  }
+  // 9767 is the legacy 9.1X layout that is already fully decoded by Blink.
+  if(f.length===9767)return parseCanonicalReadAll(f,9767,'9767-native');
 
-  // Keep the earlier 9895 layout experiment only as a last-resort diagnostic
-  // for a genuinely checksummed 9895B ECU frame.  Writes remain guarded.
-  if(a.length===9895&&(a[0]===0xAB||a[0]===0x8B)&&validFrame(a)){
-    return normalizeReadAll9895(a);
-  }
-  throw new Error('Read All không có frame REDLEO 9.1X 9767B hợp lệ bên trong '+a.length+'B');
+  // Newer / alternate REDLEO builds use different Read-All lengths.
+  // Preserve the exact frame instead of forcing it into the 9767 layout.
+  // Current-map 0x9A reads are used for safe fuel-map decoding on these ECUs.
+  return {
+    raw:f.slice(),
+    sourceLength:f.length,
+    layoutInfo:'raw-'+f.length,
+    rawOnly:true,
+    banks:[],
+    hidden:{}
+  };
 }
 function decodeOptions(raw,vEct,bits,startRpm){
   return {
@@ -552,8 +543,59 @@ function syncAll(C){
   const s=document.getElementById('redIoStatus');if(s)s.textContent='ECU REAL · Read All '+C.sourceLength+'B OK · '+C.layoutInfo;
 }
 
+function syncCurrentFuel(bank,matrix,frameLen){
+  if(typeof state==='undefined')return;
+  bank=clamp(Math.round(bank),1,4);
+  if(state.mapBanks&&state.mapBanks[bank-1])state.mapBanks[bank-1].inject=matrix.map(r=>r.slice());
+  try{
+    if(state.activeMap===bank)render();
+    updateLive();
+    saveSoon();
+  }catch(_e){}
+  const s=document.getElementById('redIoStatus');
+  if(s)s.textContent='ECU REAL · READ CURRENT MAP No.'+bank+' · '+frameLen+'B OK';
+}
+function parseCurrentFuelFrame(a,bank){
+  if(!(a instanceof Uint8Array))a=new Uint8Array(a);
+  bank=clamp(Math.round(bank),1,4);
+  const pg=page(1,bank); // No.1=0x12, No.2=0x14, No.3=0x16, No.4=0x18
+  const f=findValidCommandFrame(a,pg,843);
+  if(!f)throw new Error('READ CURRENT MAP No.'+bank+' · không tìm thấy frame page 0x'+pg.toString(16).toUpperCase()+' hợp lệ trong RX '+a.length+'B');
+  if(f.length<843)throw new Error('READ CURRENT MAP thiếu dữ liệu · '+f.length+'B');
+
+  const out=Array.from({length:14},()=>Array(30).fill(0));
+  let p=1;
+  for(let wireRow=0;wireRow<14;wireRow++){
+    const uiRow=13-wireRow;
+    for(let c=0;c<30;c++){
+      const raw=u16be(f,p);p+=2;
+      out[uiRow][c]=decOilTab(raw);
+    }
+  }
+  return {frame:f,matrix:out,page:pg};
+}
+async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1)){
+  bank=clamp(Math.round(bank),1,4);
+  const pg=page(1,bank);
+  const rx=await rawExchange(req5(0x9A,pg),8000);
+  const R=parseCurrentFuelFrame(rx,bank);
+  syncCurrentFuel(bank,R.matrix,R.frame.length);
+  log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length);
+  return R;
+}
 async function readAll(cmd=0xAB){
-  const rx=await rawExchange(req5(cmd,cmd),cmd===0x8B?15000:15000);const C=parseReadAll(rx);syncAll(C);return C;
+  const rx=await rawExchange(req5(cmd,cmd),16000);
+  const C=parseReadAll(rx);
+  window.blinkReadAllRaw=C.raw.slice();
+  window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
+  if(C.rawOnly){
+    const s=document.getElementById('redIoStatus');
+    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup';
+    log('ReadAll raw frame accepted:',C.sourceLength+'B');
+  }else{
+    syncAll(C);
+  }
+  return C;
 }
 
 // ----- write builders -----
@@ -687,9 +729,9 @@ function installUI(){
   capture('idleLimitReadBtn',async()=>{await readAll();syncIdle(state.activeMap);notice('success','IDLE/LIMIT READ','MAP No.'+state.activeMap)});
   capture('idleLimitWriteBtn',writeIdleReal);
 
-  // Fuel editor real read/write.
-  capture('readMapBtn',async()=>{await readAll();notice('success','MAP PHUN READ REAL','MAP No.'+state.activeMap+' từ ReadAll 0xAB')});
-  capture('writeMapBtn',async()=>{await writeFuelBank(state.activeMap);await readAll();notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' CD pair + verify')});
+  // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
+  capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
+  capture('writeMapBtn',async()=>{await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' CD pair + VERIFY 0x9A · '+R.frame.length+'B')});
   capture('applyCorrectedBtn',async()=>{
     if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];await writeFuelBank(state.activeMap);await readAll();notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify');
   });
@@ -697,7 +739,8 @@ function installUI(){
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>b.addEventListener('click',protect(async()=>{
     const cmd=b.dataset.ecucmd;
-    if(cmd==='READ_ALL'||cmd==='READ_CURRENT'){await readAll();notice('success','READ REAL OK',cmd+' · 9767B');return;}
+    if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
+    if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
     if(cmd==='SEND_ALL'){await sendAllReal();return;}
     if(cmd==='SEND_CURRENT'){await writeBankAll(state.activeMap);await readAll();notice('success','SEND CURRENT REAL OK','MAP No.'+state.activeMap);return;}
     if(cmd==='RESTORE'){await restoreReal();return;}
@@ -763,6 +806,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,readAll,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
