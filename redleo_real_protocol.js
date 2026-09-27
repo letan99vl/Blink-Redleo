@@ -50,7 +50,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
-  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:false}}),
+  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -80,7 +80,7 @@ function profileFromHandshake(info){
 }
 function profileCap(name){
   if(name==='fullWrite'){
-    return !!(ecuProfile&&ecuProfile.family==='modern'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
+    return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
   return !!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
 }
@@ -109,7 +109,11 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  setProfileDisabled(document.getElementById('redWriteBtn'),!(profileCap('mainWrite')||profileCap('fullWrite')),reason);
+  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time']);
+  let activeFeatureId=null;
+  try{activeFeatureId=currentFeatureId();}catch(_e){}
+  const canRedWrite=mainFeatureIds.has(activeFeatureId)?profileCap('mainWrite'):profileCap('fullWrite');
+  setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite,reason);
   setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
   setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead'),reason);
   setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead'),reason);
@@ -270,7 +274,11 @@ function liveVolt10(raw){return Number(raw)*5/1024}
 function ascii(a,start,len){let out='';for(let i=0;i<len&&start+i<a.length;i++){const x=a[start+i];if(!x)break;if(x>=32&&x<=126)out+=String.fromCharCode(x);}return out.trim()}
 function parseHandshake(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  if(a.length<9||a[0]!==0x5A||!validFrame(a))throw new Error('Handshake 0x5A không hợp lệ · '+a.length+'B');
+  if(!(a.length>=9&&a[0]===0x5A&&validFrame(a))){
+    const f=findValidCommandFrame(a,0x5A,9);
+    if(!f)throw new Error('Handshake 0x5A không hợp lệ · '+a.length+'B');
+    a=f;
+  }
   const info={raw:a.slice(),short:a.length===9,activeMap:1,ecuId:1,password:null};
   if(a.length>=35){
     info.ident=ascii(a,1,16);
@@ -437,8 +445,8 @@ async function initializeRealSession(){
       log('sensor calibration cache cleared: ECU identity changed');
     }
 
-    // Only the verified modern V9/V10 family is allowed to enter the existing
-    // live/page/write pipeline. V8 and legacy devices remain connected in SAFE MODE.
+    // Profiles explicitly advertising live support enter the live pipeline.
+    // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
     if(profileCap('live')){
       if(typeof state!=='undefined')state.ecuPhase='live';
       startLiveLoop();
@@ -680,12 +688,16 @@ function normalizeReadAll9895(a){
 function findValidCommandFrame(a,start,minLen=3){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   const tail=(255-start)&255;
+  const prefix=new Uint32Array(a.length+1);
+  for(let i=0;i<a.length;i++)prefix[i+1]=prefix[i]+a[i];
   for(let i=0;i<a.length;i++){
     if(a[i]!==start)continue;
-    for(let end=a.length-1;end>=i+minLen-1;end--){
+    const minEnd=i+minLen-1;
+    for(let end=a.length-1;end>=minEnd;end--){
       if(a[end]!==tail)continue;
-      const f=a.slice(i,end+1);
-      if(validFrame(f))return f;
+      // checksum byte is end-1; checksum covers i..end-2.
+      const sum=(prefix[end-1]-prefix[i])&255;
+      if(sum===a[end-1])return a.slice(i,end+1);
     }
   }
   return null;
@@ -1111,21 +1123,28 @@ function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[
 
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
+  const isMain=['inj_degree','ign_degree','ign_time'].includes(id);
 
-  if(ecuProfile&&ecuProfile.family==='v8'){
+  if(isMain){
     requireProfile('mainWrite','Ghi bảng '+id);
-    let m,pg,payload;
+    let m,pg,payload,enc;
     switch(id){
-      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
-      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
-      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encOil);break;
-      default:throw new Error('REDLEO V8 MAIN TUNE chưa mở ghi bảng '+id);
+      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encOilAngle;payload=encodeRowsByte(m,enc);break;
+      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encIgn;payload=encodeRowsByte(m,enc);break;
+      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encOil;payload=encodeRowsByte(m,enc);break;
     }
     await writePageChecked(pg,payload,false,1,'mainWrite');
     await new Promise(r=>setTimeout(r,220));
-    await readFeaturePageReal(id,bank,true);
-    notice('success','V8 GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
-    return;
+    let R;
+    try{R=await readFeaturePageReal(id,bank,true);}
+    catch(e){throw new Error('ECU đã ACK ghi '+id+' nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
+    const verifyPayload=encodeRowsByte(R.matrix,enc);
+    if(verifyPayload.length!==payload.length)throw new Error('VERIFY '+id+' sai kích thước');
+    for(let i=0;i<payload.length;i++){
+      if(verifyPayload[i]!==payload[i])throw new Error('VERIFY '+id+' không khớp tại byte '+i+' · ghi '+payload[i]+' đọc '+verifyPayload[i]);
+    }
+    notice('success','GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
+    return R;
   }
 
   requireProfile('fullWrite','Ghi bảng '+id);
@@ -1275,7 +1294,7 @@ function installUI(){
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
   capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
-  capture('writeMapBtn',async()=>{const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' · ghi 2 page + VERIFY 0x9A · '+R.frame.length+'B')});
+  capture('writeMapBtn',async()=>{const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY 0x9A · '+R.frame.length+'B')});
   capture('applyCorrectedBtn',async()=>{
     if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify READ CURRENT · '+R.frame.length+'B');
   });
@@ -1303,6 +1322,8 @@ function installUI(){
   // Options are edit-local only. Never write A2 merely because a control
   // changed or because Read All synchronized values into the UI.
   // The ECU is modified only by the explicit GHI TÙY CHỌN action.
+
+  document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>setTimeout(()=>{try{applyProfileUi()}catch(_e){}},0),false));
 
   // Mark status visibly.
   document.querySelectorAll('.sourceNote').forEach(e=>{if(!e.textContent.includes('ECU REAL'))e.textContent+=' · ECU REAL protocol layer active.';});
