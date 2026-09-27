@@ -1058,6 +1058,7 @@ function selectMapBank(n,autoRead=true){
   render();
   updateLive();
   saveSoon();
+  try{window.BlinkRealProtocol?.refreshProfileUi?.();}catch(_e){}
 
   if(autoRead&&state.ecuConnected&&state.ecuPhase==='live'){
     setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('bank-change')}catch(_e){}},0);
@@ -3151,6 +3152,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.0"></script>
+<script src="redleo_real_protocol.js?v=3.1"></script>
 </body>
 </html>
