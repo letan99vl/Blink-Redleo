@@ -614,8 +614,8 @@ function assertSafeWriteLayout(){
     }
   }
 }
-async function writePageChecked(pg,payload){
-  assertSafeWriteLayout();
+async function writePageChecked(pg,payload,requireReadAll=true){
+  if(requireReadAll)assertSafeWriteLayout();
   const tx=pageFrame(pg,payload),rx=await rawExchange(tx,8000);
   if(!(rx.length>=2&&rx[0]===0xCD&&rx[1]===pg))throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
   return true;
@@ -675,8 +675,16 @@ async function writeIdleReal(){assertSafeWriteLayout();if(!readCache)await readA
 async function writeOptionsReal(){assertSafeWriteLayout();if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
 
 async function writeFuelBank(bank){
+  bank=clamp(Math.round(bank),1,4);
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
-  for(let h=0;h<2;h++){const payload=[];for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));await writePageChecked(0x10|low|h,payload);}
+  if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
+  for(let h=0;h<2;h++){
+    const payload=[];
+    for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
+    // Fuel half-pages contain the complete 7x30 payload, so READ ALL is not
+    // required. This enables READ CURRENT -> edit -> WRITE CURRENT directly.
+    await writePageChecked(0x10|low|h,payload,false);
+  }
 }
 async function writeBankAll(bank){
   if(!readCache)await readAll();const b=readCache.banks[bank-1];await writeFuelBank(bank);
@@ -733,7 +741,7 @@ function installUI(){
   capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
   capture('writeMapBtn',async()=>{await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' CD pair + VERIFY 0x9A · '+R.frame.length+'B')});
   capture('applyCorrectedBtn',async()=>{
-    if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];await writeFuelBank(state.activeMap);await readAll();notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify');
+    if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify READ CURRENT · '+R.frame.length+'B');
   });
   capture('studyTpsBtn',tpsStudyReal);
 
@@ -742,7 +750,7 @@ function installUI(){
     if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
     if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
     if(cmd==='SEND_ALL'){await sendAllReal();return;}
-    if(cmd==='SEND_CURRENT'){await writeBankAll(state.activeMap);await readAll();notice('success','SEND CURRENT REAL OK','MAP No.'+state.activeMap);return;}
+    if(cmd==='SEND_CURRENT'){await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
     if(cmd==='RESTORE'){await restoreReal();return;}
     if(cmd==='TPS_TEST'){await tpsStudyReal();return;}
     if(cmd==='TEST_INJ'){await testInjectorReal();return;}
