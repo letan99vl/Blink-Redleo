@@ -1140,7 +1140,7 @@ function displayValue(tab,r,c){
   const data=matrixFor(tab),v=data[r][c];
   if(tab==='measured') return v==null?'0':fmt(Number(v),2);
   if(tab==='target') return fmt(Number(v),1);
-  if(tab==='inject') return fmt(Number(v),2);
+  if(tab==='inject') return v==null?'--':fmt(Number(v),2);
   return v==null?'--':fmt(Number(v),2);
 }
 
@@ -2916,9 +2916,25 @@ let currentFeature=null,redStep=.1,redSel={r0:0,c0:0,r1:0,c1:0},redScanMode=fals
 const featureStore=JSON.parse(localStorage.getItem('blinkRedleoFeatureStoreV6')||'{}');
 const optionStore=JSON.parse(localStorage.getItem('blinkRedleoOptionsV6')||'{}');
 function keyFor(f,bank){return f.id+':'+(f.banked?bank:0)}
-function initMatrix(f){return Array.from({length:f.rows},()=>Array.from({length:f.cols},()=>0))}
+function initMatrix(f){return Array.from({length:f.rows},()=>Array.from({length:f.cols},()=>null))}
 function featureData(f,bank=state.activeMap){const k=keyFor(f,bank);if(!featureStore[k])featureStore[k]=initMatrix(f);return featureStore[k]}
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
+function resetEcuMapUiForNewSession(){
+  // Keep AFR measured/target/local autotune data, but remove all ECU-derived maps.
+  for(let b=0;b<state.mapBanks.length;b++)state.mapBanks[b].inject=blankMatrix(null);
+  for(const k of Object.keys(featureStore))delete featureStore[k];
+  state.selection.active=false;
+  state.lastCellKey='';
+  try{saveFeatureStore();saveSoon();render();}catch(_e){}
+  try{if(currentFeature)renderFeature();}catch(_e){}
+  try{
+    const r=document.getElementById('redIoStatus');
+    if(r)r.textContent='Chưa đọc dữ liệu ECU';
+    const s=document.getElementById('saveInfo');
+    if(s)s.textContent='MAP ECU: CHƯA ĐỌC';
+  }catch(_e){}
+}
+window.resetEcuMapUiForNewSession=resetEcuMapUiForNewSession;
 function showScreen(name){document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
 function syncBanks(){document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;document.getElementById('redBankSelect').value=String(state.activeMap)}
 
@@ -2975,7 +2991,7 @@ document.querySelectorAll('[data-idleopt]').forEach(e=>e.addEventListener('chang
 document.getElementById('idleLimitReadBtn')?.addEventListener('click',async()=>{try{await cmd('OPTIONS_READ');const prev=currentFeature;currentFeature=F.ect_idle_motor;await readFeature();currentFeature=prev;showEcuNotice('info','ĐÃ YÊU CẦU ĐỌC','Đọc Idle/Limit + bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','ĐỌC IDLE/LIMIT',e.message,0)}});
 document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>{try{document.querySelectorAll('[data-idleopt]').forEach(e=>optionStore[e.dataset.idleopt]=e.value);localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));await cmd('OPTIONS_WRITE');const prev=currentFeature;currentFeature=F.ect_idle_motor;await writeFeature();currentFeature=prev;showEcuNotice('success','ĐÃ GỬI IDLE/LIMIT','Đã gửi nhóm tùy chọn và bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','GHI IDLE/LIMIT',e.message,0)}});
 
-function fmtV(v){const n=Number(v);if(!Number.isFinite(n))return '0';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
+function fmtV(v){if(v==null||v==='')return '--';const n=Number(v);if(!Number.isFinite(n))return '--';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
 function redBounds(){return {r0:Math.min(redSel.r0,redSel.r1),r1:Math.max(redSel.r0,redSel.r1),c0:Math.min(redSel.c0,redSel.c1),c1:Math.max(redSel.c0,redSel.c1)}}
 function renderFeature(){
   if(!currentFeature)return;
