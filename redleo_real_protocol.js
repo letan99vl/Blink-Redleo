@@ -12,13 +12,17 @@ const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
 let sid=(Math.random()*220+1)|0;
 let pending=new Map();
-let installed=false;
+let installedChar=null;
 let busy=false;
 let liveTimer=null;
 let liveRunning=false;
 let handshakeInfo=null;
 let readCache=null;
 let loginState=false;
+let transportCmdChar=null;
+let transportMapChar=null;
+let sessionInitPromise=null;
+let transportEpoch=0;
 
 const FEAT={
   'INJ degree':'inj_degree',
@@ -222,46 +226,109 @@ function startLiveLoop(){
 }
 function stopLiveLoop(){liveRunning=false;if(liveTimer){clearInterval(liveTimer);liveTimer=null;}}
 async function initializeRealSession(){
-  installRawListener();installAfrListener();
-  const info=await handshakeReal();
-  try{await readAll();}catch(e){notice('error','READ ALL ECU',e.message||String(e));}
-  startLiveLoop();return info;
+  if(sessionInitPromise)return sessionInitPromise;
+  const epoch=transportEpoch;
+  sessionInitPromise=(async()=>{
+    installRawListener();installAfrListener();
+    if(typeof state!=='undefined')state.ecuPhase='handshake';
+    const info=await handshakeReal();
+    if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
+    if(typeof state!=='undefined')state.ecuPhase='readall';
+    try{await readAll();}catch(e){notice('error','READ ALL ECU',e.message||String(e));}
+    if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc Read All');
+    if(typeof state!=='undefined')state.ecuPhase='live';
+    startLiveLoop();
+    return info;
+  })();
+  try{return await sessionInitPromise;}
+  finally{sessionInitPromise=null;}
 }
 
 // ----- raw BLE transport -----
 function mapChar(){return window.blinkMapChar||null}
 function cmdChar(){return window.blinkCommandChar||null}
+function abortRawTransport(reason='BLE disconnected'){
+  transportEpoch++;
+  stopLiveLoop();
+  for(const [id,p] of pending){
+    try{clearTimeout(p.to);}catch(_e){}
+    try{p.reject(new Error(reason));}catch(_e){}
+  }
+  pending.clear();
+  busy=false;
+  sessionInitPromise=null;
+  handshakeInfo=null;
+  if(typeof state!=='undefined'){
+    state.ecuPhase='idle';
+    // state.ecuConnected is owned by the BLE layer; do not force it true here.
+  }
+  log('raw transport reset:',reason);
+}
+
 function installRawListener(){
-  const ch=mapChar();if(!ch||installed)return;
+  const ch=mapChar();
+  if(!ch)return false;
+  if(installedChar===ch)return true;
+  installedChar=ch;
   ch.addEventListener('characteristicvaluechanged',ev=>{
     const d=ev.target.value;if(!d||d.byteLength<7)return;
     const v=new DataView(d.buffer,d.byteOffset,d.byteLength);if(v.getUint8(0)!==RAW_RX)return;
     const id=v.getUint8(1),flags=v.getUint8(2),total=v.getUint16(3,true),off=v.getUint16(5,true);
     const p=pending.get(id);if(!p)return;
-    if(flags&1){p.total=total;p.buf=new Uint8Array(total);p.got=0;}
+    if(flags&1){p.total=total;p.buf=new Uint8Array(total);p.got=0;p.seen=new Set();}
     if(!p.buf||off+(d.byteLength-7)>p.buf.length)return;
-    const bytes=new Uint8Array(d.buffer,d.byteOffset+7,d.byteLength-7);p.buf.set(bytes,off);p.got+=bytes.length;
-    if((flags&2)||p.got>=p.total){clearTimeout(p.to);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));}
+    const bytes=new Uint8Array(d.buffer,d.byteOffset+7,d.byteLength-7);
+    p.buf.set(bytes,off);
+    // Count each offset only once; reconnect/retransmit must not make got exceed total.
+    if(!p.seen)p.seen=new Set();
+    if(!p.seen.has(off)){p.seen.add(off);p.got+=bytes.length;}
+    if((flags&2)||p.got>=p.total){
+      clearTimeout(p.to);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
+    }
   });
-  installed=true;log('raw listener installed');
+  log('raw listener installed on current BLE characteristic');
+  return true;
 }
+
+async function waitForEcuIdle(maxWait=16000){
+  const t0=performance.now();
+  while(busy){
+    if(!cmdChar()||!mapChar())throw new Error('BLE đã ngắt trong khi chờ ECU');
+    if(performance.now()-t0>maxWait)throw new Error('ECU bận quá lâu; transaction trước chưa hoàn tất');
+    await new Promise(r=>setTimeout(r,40));
+  }
+}
+
 async function rawExchange(bytes,timeout=12000){
-  installRawListener();const ch=cmdChar();if(!ch)throw new Error('Chưa kết nối ECU Blink BLE');
-  if(busy)throw new Error('ECU đang bận, chờ lệnh trước hoàn tất');busy=true;
+  if(!installRawListener())throw new Error('Chưa có BLE MAP characteristic');
+  const ch=cmdChar();if(!ch)throw new Error('Chưa kết nối ECU Blink BLE');
+  await waitForEcuIdle(Math.max(4000,timeout+1500));
+  busy=true;
+  const myEpoch=transportEpoch;
   try{
     const id=(sid=(sid%250)+1),data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),total=data.length;
     const response=new Promise((resolve,reject)=>{
-      const to=setTimeout(()=>{pending.delete(id);reject(new Error('ECU timeout cmd 0x'+data[0].toString(16).toUpperCase()))},timeout);
-      pending.set(id,{resolve,reject,to,total:0,buf:null,got:0});
+      const to=setTimeout(()=>{
+        pending.delete(id);
+        reject(new Error('ECU timeout cmd 0x'+data[0].toString(16).toUpperCase()));
+      },timeout);
+      pending.set(id,{resolve,reject,to,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
     });
     for(let off=0;off<total;off+=RAW_CHUNK){
+      if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
+      const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
       const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
       pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
-      if(ch.writeValueWithoutResponse)await ch.writeValueWithoutResponse(pkt);else await ch.writeValue(pkt);
+      if(cur.writeValueWithoutResponse)await cur.writeValueWithoutResponse(pkt);else await cur.writeValue(pkt);
       if(total>48)await new Promise(r=>setTimeout(r,2));
     }
-    const rx=await response;log('TX',data.length,'0x'+data[0].toString(16),'RX',rx.length);return rx;
-  }finally{busy=false;}
+    const rx=await response;
+    if(myEpoch!==transportEpoch)throw new Error('BLE transport đã đổi trước khi nhận xong ECU');
+    log('TX',data.length,'0x'+data[0].toString(16),'RX',rx.length);
+    return rx;
+  }finally{
+    busy=false;
+  }
 }
 
 // ----- ReadAll layout -----
@@ -625,18 +692,42 @@ function installUI(){
 
 // ReadAll after BLE becomes connected. Poll for exposed chars because connect handler lives in another IIFE.
 function boot(){
-  installUI();let tries=0;const t=setInterval(()=>{
-    tries++;
-    if(mapChar()&&cmdChar()){
-      clearInterval(t);installRawListener();installAfrListener();log('transport ready');
-      // Give the original BLE connect handler time to settle, then negotiate the real ECU.
-      setTimeout(()=>initializeRealSession().then(()=>notice('success','ECU REAL ONLINE','Handshake + Read All + Live polling đã hoạt động')).catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));}),250);
-    }else if(tries>300)clearInterval(t);
-  },200);
-  window.addEventListener('pagehide',stopLiveLoop);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopLiveLoop();else if(cmdChar()&&handshakeInfo)startLiveLoop();});
+  installUI();
+  let lastCmd=null,lastMap=null,settleTimer=null;
+  setInterval(()=>{
+    const cc=cmdChar(),mc=mapChar();
+    const changed=(cc!==lastCmd)||(mc!==lastMap);
+    if(!changed)return;
+    lastCmd=cc;lastMap=mc;
+
+    if(settleTimer){clearTimeout(settleTimer);settleTimer=null;}
+
+    if(!cc||!mc){
+      transportCmdChar=null;transportMapChar=null;installedChar=null;
+      abortRawTransport('BLE disconnected');
+      return;
+    }
+
+    // New BLE characteristic objects = a fresh connection/reconnection.
+    abortRawTransport('BLE transport reconnected');
+    transportCmdChar=cc;transportMapChar=mc;
+    installRawListener();installAfrListener();
+    log('transport ready / reconnect detected');
+    settleTimer=setTimeout(()=>{
+      if(cmdChar()!==cc||mapChar()!==mc)return;
+      initializeRealSession()
+        .then(()=>notice('success','ECU REAL ONLINE','Handshake + Read All + Live polling đã hoạt động'))
+        .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
+    },450);
+  },150);
+
+  window.addEventListener('pagehide',()=>abortRawTransport('pagehide'));
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)stopLiveLoop();
+    else if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();
+  });
 }
 
-window.BlinkRealProtocol={rawExchange,readAll,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,get cache(){return readCache},get handshake(){return handshakeInfo}};
+window.BlinkRealProtocol={rawExchange,readAll,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
