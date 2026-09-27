@@ -20,6 +20,7 @@ let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
 let sensorCalCache=null;     // populated by lightweight A2 page read
 let pageCache=new Map();     // page-specific lazy reads
+let fuelPagePrimed=new Set();// banks whose large INJ VE page has read successfully this BLE session
 let loginState=false;
 let transportCmdChar=null;
 let transportMapChar=null;
@@ -239,6 +240,7 @@ async function initializeRealSession(){
     try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
     readCache=null;
     pageCache.clear();
+    fuelPagePrimed.clear();
 
     if(typeof state!=='undefined')state.ecuPhase='handshake';
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
@@ -276,6 +278,7 @@ function abortRawTransport(reason='BLE disconnected'){
   handshakeInfo=null;
   readCache=null;
   pageCache.clear();
+  fuelPagePrimed.clear();
   if(typeof state!=='undefined'){
     state.ecuPhase='idle';
     // state.ecuConnected is owned by the BLE layer; do not force it true here.
@@ -617,7 +620,7 @@ function parseA2Data(data){
   for(let c=0;c<15;c++)C.external[0][c]=decExtPct(data[118+c]);
   return C;
 }
-async function exchangePage9A(pg,label='PAGE',attempts=3){
+async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000){
   pg&=255;
   const resumeLive=liveRunning;
   stopLiveLoop();
@@ -626,13 +629,13 @@ async function exchangePage9A(pg,label='PAGE',attempts=3){
   try{
     // A live 0x69 may already be in flight when the user taps READ.
     // Wait for it to finish, then give the ECU a quiet gap before 0x9A.
-    await waitForEcuIdle(8000);
-    await new Promise(r=>setTimeout(r,260));
+    await waitForEcuIdle(Math.max(8000,replyTimeout+1500));
+    await new Promise(r=>setTimeout(r,settleMs));
 
     for(let attempt=1;attempt<=attempts;attempt++){
       try{
         taskUi('loading','ĐANG ĐỌC '+label+' · LẦN '+attempt+'/'+attempts);
-        const rx=await rawExchange(req5(0x9A,pg),10000);
+        const rx=await rawExchange(req5(0x9A,pg),replyTimeout);
         return rx;
       }catch(e){
         lastErr=e;
@@ -736,10 +739,22 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   bank=clamp(Math.round(bank),1,4);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
-  const rx=await exchangePage9A(pg,'MAP NO.'+bank,3);
+  const first=!fuelPagePrimed.has(bank);
+
+  // First INJ VE read after a fresh BLE session is measurably slower on this ECU.
+  // Give the ECU enough quiet/compute time and keep the browser timeout longer
+  // than the bridge UART timeout. Once one read succeeds, return to normal timing.
+  const rx=await exchangePage9A(
+    pg,
+    'MAP NO.'+bank,
+    first ? 5 : 3,
+    first ? 900 : 260,
+    first ? 18000 : 12000
+  );
   const R=parseCurrentFuelFrame(rx,bank);
+  fuelPagePrimed.add(bank);
   syncCurrentFuel(bank,R.matrix,R.frame.length);
-  log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length);
+  log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length,'primed',first?'first':'warm');
   if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
   return R;
 }
