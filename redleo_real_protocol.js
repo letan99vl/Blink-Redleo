@@ -1134,6 +1134,7 @@ function installUI(){
 // ReadAll after BLE becomes connected. Poll for exposed chars because connect handler lives in another IIFE.
 function boot(){
   installUI();
+  applyProfileUi();
   let lastCmd=null,lastMap=null,settleTimer=null;
   setInterval(()=>{
     const cc=cmdChar(),mc=mapChar();
