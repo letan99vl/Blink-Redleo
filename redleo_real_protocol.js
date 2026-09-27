@@ -615,10 +615,45 @@ function parseA2Data(data){
   for(let c=0;c<15;c++)C.external[0][c]=decExtPct(data[118+c]);
   return C;
 }
+async function exchangePage9A(pg,label='PAGE',attempts=3){
+  pg&=255;
+  const resumeLive=liveRunning;
+  stopLiveLoop();
+
+  let lastErr=null;
+  try{
+    // A live 0x69 may already be in flight when the user taps READ.
+    // Wait for it to finish, then give the ECU a quiet gap before 0x9A.
+    await waitForEcuIdle(8000);
+    await new Promise(r=>setTimeout(r,260));
+
+    for(let attempt=1;attempt<=attempts;attempt++){
+      try{
+        taskUi('loading','ĐANG ĐỌC '+label+' · LẦN '+attempt+'/'+attempts);
+        const rx=await rawExchange(req5(0x9A,pg),10000);
+        return rx;
+      }catch(e){
+        lastErr=e;
+        log('0x9A retry page 0x'+pg.toString(16).toUpperCase(),attempt+'/'+attempts,String(e&&e.message||e));
+        if(attempt<attempts){
+          taskUi('loading','ECU CHƯA TRẢ LỜI · THỬ LẠI '+(attempt+1)+'/'+attempts);
+          // Let the ECU/parser fully settle before repeating the same read.
+          await new Promise(r=>setTimeout(r,450+(attempt-1)*250));
+        }
+      }
+    }
+    throw lastErr||new Error('ECU không trả lời page 0x'+pg.toString(16).toUpperCase());
+  }finally{
+    if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
+      setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},320);
+    }
+  }
+}
+
 async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   pg&=255;
   if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  const rx=await rawExchange(req5(0x9A,pg),8000);
+  const rx=await exchangePage9A(pg,label,3);
   const f=findValidCommandFrame(rx,pg,minData+3);
   if(!f)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B');
   const data=f.slice(1,-2);
@@ -699,7 +734,7 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   bank=clamp(Math.round(bank),1,4);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
-  const rx=await rawExchange(req5(0x9A,pg),8000);
+  const rx=await exchangePage9A(pg,'MAP NO.'+bank,3);
   const R=parseCurrentFuelFrame(rx,bank);
   syncCurrentFuel(bank,R.matrix,R.frame.length);
   log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length);
@@ -993,6 +1028,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
