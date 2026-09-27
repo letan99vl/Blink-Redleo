@@ -1625,7 +1625,7 @@ function buildFuelWriteFrame(page, uiRows){
       // Therefore the protocol range is:
       //   0 .. 65535 raw = 0 .. 131.070 ms
       // Older Auto Tune builds incorrectly clamped at 16.000 ms (raw 8000).
-      ms=clamp(ms,0,65535/500);
+      ms=clamp(ms,0,fuelProtocolMaxMs());
 
       const raw=clamp(Math.round(ms*500),0,65535);
       a.push((raw>>8)&255,raw&255);
@@ -1692,20 +1692,31 @@ async function startFuelWrite(opts={}){
   if(realApi&&typeof realApi.writeCurrentFuelAndVerify==='function'){
     state.ecuWriteMapNo=mapNo;
     state.ecuWriteSnapshot=cloneMatrix(state.inject);
+    state.ecuWriteQueued=false;
+    state.ecuPhase='write1'; // also blocks MAP switching/cancel until safe completion
     $('mapSelect').disabled=true;
     try{
       await realApi.writeCurrentFuelAndVerify(mapNo);
       state.ecuWriteSnapshot=null;
+      state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
       onFuelWriteVerified(mapNo);
       return true;
     }catch(e){
       state.ecuWriteSnapshot=null;
+      state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
       onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
       showEcuNotice('error','GHI / VERIFY MAP THẤT BẠI',String(e&&e.message||e),0);
       return false;
     }
+  }
+
+  // A BLE REDLEO connection must never fall through to the old hard-coded V9
+  // writer. That fallback is retained only for the separate native/serial path.
+  if(window.blinkCommandChar){
+    showEcuNotice('error','KHÔNG THỂ GHI MAP','Protocol REDLEO REAL chưa sẵn sàng; đã chặn writer cũ để tránh ghi sai ECU.',0);
+    return false;
   }
 
   // Legacy desktop/native fallback retained only when the real protocol layer
@@ -1894,6 +1905,7 @@ function renderThreeRunUi(){
   $('threeRunStartBtn').disabled=state.threeRun.active;$('threeRunCancelBtn').disabled=!state.threeRun.active;$('threeRunCancelBtn').textContent=state.threeRun.cancelRequested?'ĐANG HỦY...':'HỦY PHIÊN';$('threeRunStepBtn').disabled=!state.threeRun.active||state.threeRun.phase==='writing'||state.threeRun.phase==='error'||state.threeRun.cancelRequested;
   if(state.threeRun.active){if(state.threeRun.phase==='paused')$('threeRunStepBtn').textContent='TIẾP TỤC GHI LƯỢT '+state.threeRun.pass;else if(state.threeRun.pass<3)$('threeRunStepBtn').textContent='KẾT THÚC LƯỢT '+state.threeRun.pass+' → TÍNH + GHI ECU';else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT 3 → TÍNH + GHI FINAL';}else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT';
   $('threeRunStatus').innerHTML=threeRunStatusText();
+  setTimeout(()=>{try{window.BlinkRealProtocol?.refreshProfileUi?.()}catch(_e){}},0);
 }
 function setTuneMode(mode){
   if(mode!=='normal'&&mode!=='three')mode='normal';
@@ -3112,7 +3124,7 @@ function adjustMap(sign){
   for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++){
     const old=Number(dst[r][c]??0);let next=old;
     if(mapMode==='percent')next=old*(1+sign*mapStep/100);else next=old+sign*mapStep;
-    if(state.tab==='inject')next=clamp(next,0,65535/500);else next=clamp(next,0,30);
+    if(state.tab==='inject')next=clamp(next,0,fuelProtocolMaxMs());else next=clamp(next,0,30);
     dst[r][c]=Number(next.toFixed(state.tab==='inject'?3:2));
   }
   render();saveSoon();
@@ -3185,6 +3197,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.1"></script>
+<script src="redleo_real_protocol.js?v=3.2"></script>
 </body>
 </html>
