@@ -166,6 +166,33 @@ static bool exactPrefix(const uint8_t *a, size_t alen, const uint8_t *b, size_t 
   return true;
 }
 
+// REDLEO desktop 9.1X accepts Read-All/Restore frames at exactly 9767 bytes
+// (8087 bytes on the older one-byte injection-table layout). Validate the
+// checksum as soon as a complete frame arrives so trailing UART bytes are not
+// merged into the ECU map packet.
+static bool validRedleoFrame(const uint8_t *p, size_t n) {
+  if (!p || n < 3) return false;
+  if (((uint16_t)p[0] + (uint16_t)p[n - 1]) % 256U != 255U) return false;
+  uint8_t sum = 0;
+  for (size_t i = 0; i < n - 2; ++i) sum = (uint8_t)(sum + p[i]);
+  return sum == p[n - 2];
+}
+
+static size_t completeReadAllLength(const uint8_t *rx, size_t got, const uint8_t *tx, size_t txLen) {
+  if (!txLen || (tx[0] != 0xAB && tx[0] != 0x8B)) return 0;
+
+  const bool echoed = got >= txLen && exactPrefix(rx, got, tx, txLen);
+  const size_t off = echoed ? txLen : 0;
+
+  const size_t oldEnd = off + 8087;
+  if (got >= oldEnd && validRedleoFrame(rx + off, 8087)) return oldEnd;
+
+  const size_t v91End = off + 9767;
+  if (got >= v91End && validRedleoFrame(rx + off, 9767)) return v91End;
+
+  return 0;
+}
+
 static uint32_t firstByteTimeoutFor(const uint8_t *tx, size_t n) {
   if (!n) return 1500;
   switch (tx[0]) {
@@ -208,6 +235,12 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
       rx[got++] = (uint8_t)EcuSerial.read();
       lastRx = millis();
       first = true;
+    }
+
+    const size_t complete = completeReadAllLength(rx, got, tx, txLen);
+    if (complete) {
+      got = complete;
+      break;
     }
 
     if (!first) {
