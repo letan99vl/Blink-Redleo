@@ -2947,15 +2947,9 @@ async function autoReadVisibleEcuPage(reason='open'){
   const seq=++lazyPageReadSeq;
   try{
     if(active==='mapEditorScreen'){
-      // INJ VE is the largest current-map reply (~843B). Let navigation and the
-      // previous live transaction settle before the automatic 0x9A read.
-      if(state.tab==='inject'){
-        if(reason==='open-fuel'||reason==='bank-change'||reason==='connect'){
-          await new Promise(r=>setTimeout(r,550));
-          if(seq!==lazyPageReadSeq)return;
-        }
-        await api.readCurrentFuelBank(state.activeMap,true);
-      }
+      // INJ VE / Thời gian phun is MANUAL READ ONLY.
+      // Opening the page, changing MAP bank, or connecting while this page is
+      // visible must NOT send 0x9A. The user explicitly presses ĐỌC HIỆN TẠI.
       return;
     }
     if(active==='redleoEditorScreen'&&currentFeature){
@@ -2974,7 +2968,7 @@ async function autoReadVisibleEcuPage(reason='open'){
 }
 window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
-function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor');if(tab==='inject'&&!fromTune)setTimeout(()=>autoReadVisibleEcuPage('open-fuel'),0)}
+function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor')}
 function openFeature(id){const f=F[id];if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
@@ -3151,6 +3145,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=2.3"></script>
+<script src="redleo_real_protocol.js?v=2.4"></script>
 </body>
 </html>
