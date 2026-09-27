@@ -1040,6 +1040,10 @@ for(const k of ['measured','counts','target','inject']){
 
 function selectMapBank(n,autoRead=true){
   n=clamp(Math.round(Number(n)||1),1,4);
+  try{
+    const api=window.BlinkRealProtocol;
+    if(api&&typeof api.normalizeBank==='function')n=api.normalizeBank(n);
+  }catch(_e){}
   if(state.threeRun.active && n!==state.threeRun.mapNo){alert('MODE CHẠY 3 LƯỢT đang khóa MAP No.'+state.threeRun.mapNo+'. Hãy kết thúc hoặc hủy phiên trước.');$('mapSelect').value=String(state.activeMap);return;}
   if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){
     alert('Đang ghi ECU, chưa thể chuyển MAP.');
@@ -2942,7 +2946,9 @@ let lazyPageReadSeq=0;
 async function autoReadVisibleEcuPage(reason='open'){
   if(!state.ecuConnected||state.ecuPhase!=='live')return;
   const api=window.BlinkRealProtocol;
-  if(!api||api.isBusy)return;
+  if(!api)return;
+  // Do not skip lazy reads just because a live 0x69 is in flight.
+  // Protocol reads serialize themselves and wait for the ECU to become idle.
   const active=document.querySelector('.screen.active')?.id||'';
   const seq=++lazyPageReadSeq;
   try{
@@ -3145,6 +3151,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=2.9"></script>
+<script src="redleo_real_protocol.js?v=3.0"></script>
 </body>
 </html>
