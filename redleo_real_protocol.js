@@ -267,6 +267,7 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  readCache=null;
   sensorCalCache=null;
   pageCache.clear();
   if(typeof state!=='undefined'){
@@ -631,19 +632,21 @@ async function readA2SensorPageReal(showUi=true){
     try{syncControls();}catch(_e){}
   }
 
-  // A2 is one physical page containing these related tables/options.
-  try{syncOptions(C);}catch(_e){}
-  try{
-    emitFeature(N.iat_inj,[C.iatInj]);
-    emitFeature(N.map_idle_motor,[C.mapMotor]);
-    emitFeature(N.external_adjust,C.external);
-    emitFeature(N.auto_clutch,[C.auto]);
-    emitFeature(N.v_ect,[C.vEct]);
-    emitFeature(N.v_iat,[C.vIat]);
-    emitFeature(N.v_map,[C.vMap]);
-  }catch(_e){}
-
-  if(showUi)taskUi('success','CẢM BIẾN / OPTIONS · OK');
+  // On initial connect we only need calibration for live sensors.
+  // When the user actually opens an A2-backed page, also sync that page's UI.
+  if(showUi){
+    try{syncOptions(C);}catch(_e){}
+    try{
+      emitFeature(N.iat_inj,[C.iatInj]);
+      emitFeature(N.map_idle_motor,[C.mapMotor]);
+      emitFeature(N.external_adjust,C.external);
+      emitFeature(N.auto_clutch,[C.auto]);
+      emitFeature(N.v_ect,[C.vEct]);
+      emitFeature(N.v_iat,[C.vIat]);
+      emitFeature(N.v_map,[C.vMap]);
+    }catch(_e){}
+    taskUi('success','CẢM BIẾN / OPTIONS · OK');
+  }
   return {...R,cache:C};
 }
 async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
