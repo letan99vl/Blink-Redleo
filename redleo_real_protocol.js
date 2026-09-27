@@ -17,7 +17,9 @@ let busy=false;
 let liveTimer=null;
 let liveRunning=false;
 let handshakeInfo=null;
-let readCache=null;
+let readCache=null;          // populated only by explicit READ ALL
+let sensorCalCache=null;     // populated by lightweight A2 page read
+let pageCache=new Map();     // page-specific lazy reads
 let loginState=false;
 let transportCmdChar=null;
 let transportMapChar=null;
@@ -189,10 +191,11 @@ function parseLiveReal(a){
   state.live.pw=u16be(a,16)/500;
   state.live.ign=u16be(a,28)/32-16;
   state.live.batt=u16be(a,42)*55/1024;
-  if(readCache){
-    state.live.ect=curveVoltageToAxis(decVolt(a[2]),readCache.vEct,14);
-    state.live.iat=curveVoltageToAxis(decVolt(a[3]),readCache.vIat,6);
-    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),readCache.vMap,12);
+  const liveCal=readCache||sensorCalCache;
+  if(liveCal){
+    state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,14);
+    state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,6);
+    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,12);
   }
   const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
   if(Number.isFinite(state.live.ect))put('ectLive',r1(state.live.ect).toFixed(1)+' °C');
@@ -231,13 +234,19 @@ async function initializeRealSession(){
   sessionInitPromise=(async()=>{
     installRawListener();installAfrListener();
     if(typeof state!=='undefined')state.ecuPhase='handshake';
+    taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
-    if(typeof state!=='undefined')state.ecuPhase='readall';
-    try{await readAll();}catch(e){notice('error','READ ALL ECU',e.message||String(e));}
-    if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc Read All');
+
+    // Do NOT Read All on connect. Only fetch the lightweight A2 sensor /
+    // calibration page needed to decode ECT, IAT, MAP and TPS correctly.
+    if(typeof state!=='undefined')state.ecuPhase='sensor';
+    try{await readA2SensorPageReal(false);}catch(e){log('A2 sensor init skipped:',e.message||String(e));}
+    if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc đọc cấu hình cảm biến');
+
     if(typeof state!=='undefined')state.ecuPhase='live';
     startLiveLoop();
+    taskUi('success','ECU ONLINE · CẢM BIẾN LIVE · OK');
     return info;
   })();
   try{return await sessionInitPromise;}
@@ -258,6 +267,8 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  sensorCalCache=null;
+  pageCache.clear();
   if(typeof state!=='undefined'){
     state.ecuPhase='idle';
     // state.ecuConnected is owned by the BLE layer; do not force it true here.
@@ -574,6 +585,107 @@ function parseCurrentFuelFrame(a,bank){
   }
   return {frame:f,matrix:out,page:pg};
 }
+function parseA2Data(data){
+  if(!(data instanceof Uint8Array))data=new Uint8Array(data);
+  if(data.length<133)throw new Error('Page A2 thiếu dữ liệu · '+data.length+'B / cần 133B');
+  const C={
+    tpsRaw:data.slice(0,14),
+    vAfrRaw:data.slice(14,25),
+    vEct:Array.from(data.slice(25,36),decVolt),
+    vIat:Array.from(data.slice(36,47),decVolt),
+    vMap:Array.from(data.slice(47,58),decVolt),
+    iatInj:Array.from(data.slice(58,69),decOil),
+    mapMotor:Array.from(data.slice(69,80),x=>x),
+    bitfield:data[80],
+    autoStart:decAutoRpm(data[81]),
+    auto:Array.from(data.slice(82,87),x=>x*5),
+    password:Array.from(data.slice(87,91)),
+    optionRaw:Array.from(data.slice(91,103))
+  };
+  C.options=decodeOptions(C.optionRaw,C.vEct,C.bitfield,C.autoStart);
+  C.external=[Array(15).fill(0),Array(15).fill(0)];
+  for(let c=0;c<15;c++)C.external[1][c]=decExtIgn(data[103+c]);
+  for(let c=0;c<15;c++)C.external[0][c]=decExtPct(data[118+c]);
+  return C;
+}
+async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
+  pg&=255;
+  if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
+  const rx=await rawExchange(req5(0x9A,pg),8000);
+  const f=findValidCommandFrame(rx,pg,minData+3);
+  if(!f)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B');
+  const data=f.slice(1,-2);
+  if(data.length<minData)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' thiếu dữ liệu '+data.length+'B / '+minData+'B');
+  pageCache.set(pg,data.slice());
+  return {page:pg,frame:f,data,rxLength:rx.length};
+}
+async function readA2SensorPageReal(showUi=true){
+  const R=await readDirectPageReal(0xA2,133,'CẢM BIẾN / OPTIONS',showUi);
+  const C=parseA2Data(R.data);
+  sensorCalCache=C;
+
+  // Keep TPS live calibration aligned with the ECU without requiring Read All.
+  if(typeof state!=='undefined'&&C.options){
+    if(Number.isFinite(C.options.tpsMinEcu))state.cal.tpsMin=C.options.tpsMinEcu;
+    if(Number.isFinite(C.options.tpsMaxEcu))state.cal.tpsMax=C.options.tpsMaxEcu;
+    try{syncControls();}catch(_e){}
+  }
+
+  // A2 is one physical page containing these related tables/options.
+  try{syncOptions(C);}catch(_e){}
+  try{
+    emitFeature(N.iat_inj,[C.iatInj]);
+    emitFeature(N.map_idle_motor,[C.mapMotor]);
+    emitFeature(N.external_adjust,C.external);
+    emitFeature(N.auto_clutch,[C.auto]);
+    emitFeature(N.v_ect,[C.vEct]);
+    emitFeature(N.v_iat,[C.vIat]);
+    emitFeature(N.v_map,[C.vMap]);
+  }catch(_e){}
+
+  if(showUi)taskUi('success','CẢM BIẾN / OPTIONS · OK');
+  return {...R,cache:C};
+}
+async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
+  bank=clamp(Math.round(bank),1,4);
+  const pg=page(6,bank);
+  const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
+  let p=0;const idle=[];
+  for(let i=0;i<9;i++){idle.push(u16be(R.data,p));p+=2;}
+  const motor=[Array.from(R.data.slice(p,p+12),x=>x*2)];
+  const o={idleCold:idle[0],idleHot:idle[1],maxSpeed:idle[2],returnCold:idle[3],returnHot:idle[4],accelPct:Math.round(idle[5]*50/64),idleSensitivity:idle[6]};
+  for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);
+  emitFeature(N.ect_idle_motor,motor,bank);
+  if(showUi)taskUi('success','IDLE / LIMIT · MAP NO.'+bank+' · OK');
+  return {...R,idle,motor};
+}
+async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
+  bank=clamp(Math.round(bank),1,4);
+  if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
+  if(id==='idle_limit')return readIdlePageReal(bank,showUi);
+
+  let pg=0,rows=0,cols=0,dec=x=>x,n=0,label=id;
+  switch(id){
+    case 'inj_degree':pg=page(2,bank);rows=14;cols=30;dec=decOilAngle;n=N.inj_degree;label='GÓC PHUN';break;
+    case 'ign_degree':pg=page(3,bank);rows=14;cols=30;dec=decIgn;n=N.ign_degree;label='GÓC ĐÁNH LỬA';break;
+    case 'ign_time':pg=page(4,bank);rows=1;cols=30;dec=decOil;n=N.ign_time;label='DWELL BOBIN';break;
+    case 'ect_idle_motor':return readIdlePageReal(bank,showUi);
+    case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
+    case 'ect_ign':pg=0x82;rows=11;cols=30;dec=decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
+    case 'map_inj':pg=0x92;rows=11;cols=30;dec=decMapInj;n=N.map_inj;label='BÙ PHUN MAP';break;
+    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':
+    case 'v_ect':case 'v_iat':case 'v_map':
+      return readA2SensorPageReal(showUi);
+    case 'spare':throw new Error('Spare không dùng trên firmware 9.1X');
+    default:throw new Error('Chưa có page đọc riêng cho '+id);
+  }
+
+  const R=await readDirectPageReal(pg,rows*cols,label+(rows>1&&pg<0x70?' · MAP NO.'+bank:''),showUi);
+  const z=decodeRowsByte(R.data,0,rows,cols,dec);
+  emitFeature(n,z.data,pg<0x70?bank:0);
+  if(showUi)taskUi('success',label+(pg<0x70?' · MAP NO.'+bank:'')+' · OK');
+  return {...R,matrix:z.data};
+}
 async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=clamp(Math.round(bank),1,4);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
@@ -789,9 +901,9 @@ function installUI(){
   ['idleMotor','solenoid','sideStand','startRelay','tpsVoltDisp','tempVoltDisp','injColor','realData','mapVoltDisp'].forEach(k=>{const e=document.querySelector('[data-ecutoggle="'+k+'"]');if(e){e.dataset.localOnly='1';const small=e.parentElement?.querySelector('small');if(small&&!small.textContent.includes('LOCAL'))small.textContent+=' · LOCAL';}});
   const spare=document.querySelector('[data-feature="spare"]');if(spare){spare.disabled=true;spare.title='Firmware 9.1X thay Spare bằng AutoClutch + password block.';}
 
-  capture('redReadBtn',async()=>{await readAll();const id=currentFeatureId();notice('success','ĐỌC ECU REAL OK',(id||currentSource())+' đã cập nhật từ frame 9767B')});
+  capture('redReadBtn',async()=>{const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');await readFeaturePageReal(id,state.activeMap);notice('success','ĐỌC TRANG ECU OK',(id||currentSource())+' · page riêng')});
   capture('redWriteBtn',async()=>{const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');await writeFeatureReal(id)});
-  capture('idleLimitReadBtn',async()=>{await readAll();syncIdle(state.activeMap);notice('success','IDLE/LIMIT READ','MAP No.'+state.activeMap)});
+  capture('idleLimitReadBtn',async()=>{await readIdlePageReal(state.activeMap);notice('success','IDLE/LIMIT READ','MAP No.'+state.activeMap+' · page riêng')});
   capture('idleLimitWriteBtn',writeIdleReal);
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
@@ -811,7 +923,7 @@ function installUI(){
     if(cmd==='RESTORE'){await restoreReal();return;}
     if(cmd==='TPS_TEST'){await tpsStudyReal();return;}
     if(cmd==='TEST_INJ'){await testInjectorReal();return;}
-    if(cmd==='OPTIONS_READ'){await readAll();notice('success','OPTIONS READ REAL','A-page/options đã cập nhật');return;}
+    if(cmd==='OPTIONS_READ'){await readA2SensorPageReal();notice('success','OPTIONS READ REAL','Page A2 đã cập nhật');return;}
     if(cmd==='OPTIONS_WRITE'){await writeOptionsReal();return;}
     if(cmd==='ECU_INFO'){ecuInfoFromCache();return;}
     if(cmd==='LOGIN'){loginReal();return;}
@@ -859,7 +971,7 @@ function boot(){
     settleTimer=setTimeout(()=>{
       if(cmdChar()!==cc||mapChar()!==mc)return;
       initializeRealSession()
-        .then(()=>notice('success','ECU REAL ONLINE','Handshake + Read All + Live polling đã hoạt động'))
+        .then(()=>notice('success','ECU REAL ONLINE','Handshake + cấu hình cảm biến A2 + Live 0x69 đã hoạt động · không Read All'))
         .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
     },450);
   },150);
@@ -871,6 +983,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
