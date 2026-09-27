@@ -265,10 +265,10 @@ async function rawExchange(bytes,timeout=12000){
 }
 
 // ----- ReadAll layout -----
-function parseReadAll(a){
+function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  if(a.length!==READ_ALL_LEN||!(a[0]===0xAB||a[0]===0x8B)||!validFrame(a))throw new Error('Read All/Restore frame không hợp lệ: '+a.length+'B');
-  const C={raw:a.slice(),tpsRaw:a.slice(1,15),vAfrRaw:a.slice(15,26),afRaw:[],banks:[],hidden:{}};
+  if(a.length!==9767)throw new Error('Canonical Read All phải 9767B, got '+a.length);
+  const C={raw:a.slice(),sourceLength,layoutInfo,tpsRaw:a.slice(1,15),vAfrRaw:a.slice(15,26),afRaw:[],banks:[],hidden:{}};
   C.vEct=Array.from(a.slice(26,37),decVolt);C.vIat=Array.from(a.slice(37,48),decVolt);C.vMap=Array.from(a.slice(48,59),decVolt);
   C.iatInj=Array.from(a.slice(59,70),decOil);C.mapMotor=Array.from(a.slice(70,81),x=>x);
   C.bitfield=a[81];C.autoStart=decAutoRpm(a[82]);C.auto=Array.from(a.slice(83,88),x=>x*5);C.password=Array.from(a.slice(88,92));
@@ -289,11 +289,96 @@ function parseReadAll(a){
     C.banks.push(b);C.afRaw.push(b.afRaw);
   }
   C.external=[Array(15).fill(0),Array(15).fill(0)];
-  for(let c=0;c<15;c++)C.external[1][c]=decExtIgn(a[p++]);
-  for(let c=0;c<15;c++)C.external[0][c]=decExtPct(a[p++]);
+  for(let col=0;col<15;col++)C.external[1][col]=decExtIgn(a[p++]);
+  for(let col=0;col<15;col++)C.external[0][col]=decExtPct(a[p++]);
   C.meta=a[p++];
-  if(p!==9765)throw new Error('Layout 9767 lệch offset: checksum expected 9765, got '+p);
+  if(p!==9765)throw new Error('Canonical layout lệch offset: checksum expected 9765, got '+p);
   return C;
+}
+
+function readAllPlausibility(C){
+  let score=0,total=0;
+  // Real injection maps in this ECU family are overwhelmingly below 50 ms.
+  for(const b of C.banks){
+    for(const row of b.inj)for(const v of row){total+=3;if(Number.isFinite(v)&&v>=0&&v<=50)score+=3;}
+    for(const v of b.idle){total+=2;if(Number.isFinite(v)&&v>=0&&v<=20000)score+=2;}
+    for(const row of b.ignTime)for(const v of row){total+=1;if(Number.isFinite(v)&&v>=0&&v<=20)score+=1;}
+  }
+  // TPS calibration should not be inverted after decode.
+  total+=8;
+  if(C.options.tpsMinEcu>=0&&C.options.tpsMinEcu<=5)score+=2;
+  if(C.options.tpsMaxEcu>=0&&C.options.tpsMaxEcu<=5)score+=2;
+  if(C.options.tpsMaxEcu>C.options.tpsMinEcu+0.05)score+=4;
+  return total?score/total:0;
+}
+
+function canonicalFromContiguousExtension(a,cut,len=128,label='extra128'){
+  const bodyEnd=a.length-2;
+  if(cut<1||cut+len>bodyEnd)return null;
+  const body=new Uint8Array(9765);
+  const before=a.subarray(0,cut),after=a.subarray(cut+len,bodyEnd);
+  if(before.length+after.length!==9765)return null;
+  body.set(before,0);body.set(after,before.length);
+  const out=new Uint8Array(9767);out.set(body,0);
+  const s=checksum8(body);out[9765]=s;out[9766]=(255-out[0])&255;
+  return {bytes:out,label:label+'@'+cut,extra:[cut,cut+len]};
+}
+
+function canonicalFromPerBank32(a,rel){
+  const bodyEnd=a.length-2;
+  const outBody=new Uint8Array(9765);
+  // Prefix through MAP Comp INJ is identical.
+  outBody.set(a.subarray(0,1094),0);
+  let src=1094,dst=1094;
+  const OLD_BANK=2160,NEW_BANK=2192,EXTRA=32;
+  for(let bank=0;bank<4;bank++){
+    const bankStart=src;
+    outBody.set(a.subarray(bankStart,bankStart+rel),dst);dst+=rel;
+    outBody.set(a.subarray(bankStart+rel+EXTRA,bankStart+NEW_BANK),dst);dst+=OLD_BANK-rel;
+    src+=NEW_BANK;
+  }
+  // External adjustment + meta should consume exactly 31 bytes.
+  const tail=a.subarray(src,bodyEnd);
+  if(dst+tail.length!==9765)return null;
+  outBody.set(tail,dst);
+  const out=new Uint8Array(9767);out.set(outBody,0);
+  const s=checksum8(outBody);out[9765]=s;out[9766]=(255-out[0])&255;
+  return {bytes:out,label:'32B-per-bank@rel'+rel,extra:null};
+}
+
+function normalizeReadAll9895(a){
+  const candidates=[];
+  // Model A: one contiguous 128-byte extension at a known structural boundary.
+  const boundaries=[104,434,764,1094,3254,5414,7574,9734,9764,9765];
+  for(const cut of boundaries){
+    const x=canonicalFromContiguousExtension(a,cut,128,'128B-block');
+    if(x)candidates.push(x);
+  }
+  // Model B: 32 extra bytes in every MAP bank. Try every REDLEO sub-block boundary.
+  const rels=[0,840,1260,1680,1710,2130,2148,2160];
+  for(const rel of rels){
+    const x=canonicalFromPerBank32(a,rel);if(x)candidates.push(x);
+  }
+  let best=null;
+  for(const x of candidates){
+    try{
+      const parsed=parseCanonicalReadAll(x.bytes,9895,x.label);
+      const sc=readAllPlausibility(parsed);
+      if(!best||sc>best.score)best={...x,parsed,score:sc};
+    }catch(_e){}
+  }
+  if(!best||best.score<0.72)throw new Error('Read All 9895B: không xác định được vị trí extension 128B an toàn · score '+(best?best.score.toFixed(3):'none'));
+  best.parsed.extension128={model:best.label,score:best.score,rawLength:9895};
+  log('ReadAll 9895 normalized:',best.label,'score',best.score.toFixed(3));
+  return best.parsed;
+}
+
+function parseReadAll(a){
+  if(!(a instanceof Uint8Array))a=new Uint8Array(a);
+  if(!(a[0]===0xAB||a[0]===0x8B)||!validFrame(a))throw new Error('Read All/Restore frame checksum không hợp lệ: '+a.length+'B');
+  if(a.length===9767)return parseCanonicalReadAll(a,9767,'9767-native');
+  if(a.length===9895)return normalizeReadAll9895(a);
+  throw new Error('Read All length chưa hỗ trợ: '+a.length+'B (hỗ trợ 9767/9895)');
 }
 function decodeOptions(raw,vEct,bits,startRpm){
   return {
@@ -357,12 +442,12 @@ function syncOptions(C){
 function idleObject(b){return {idleCold:b.idle[0],idleHot:b.idle[1],maxSpeed:b.idle[2],returnCold:b.idle[3],returnHot:b.idle[4],accelPct:Math.round(b.idle[5]*50/64),idleSensitivity:b.idle[6]};}
 function syncIdle(bank){if(!readCache)return;const b=readCache.banks[bank-1],o=idleObject(b);for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);emitFeature(N.ect_idle_motor,b.ectMotor,bank);}
 function syncAll(C){
-  readCache=C;syncFuel(C);syncOptions(C);
+  readCache=C;window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,extension:C.extension128||null};syncFuel(C);syncOptions(C);
   for(const b of C.banks){emitFeature(N.inj_degree,b.injDegree,b.bank);emitFeature(N.ign_degree,b.ignDegree,b.bank);emitFeature(N.ign_time,b.ignTime,b.bank);emitFeature(N.ect_idle_motor,b.ectMotor,b.bank);}
   emitFeature(N.ect_inj,C.ectInj);emitFeature(N.ect_ign,C.ectIgn);emitFeature(N.map_inj,C.mapInj);emitFeature(N.iat_inj,[C.iatInj]);emitFeature(N.map_idle_motor,[C.mapMotor]);emitFeature(N.external_adjust,C.external);emitFeature(N.auto_clutch,[C.auto]);emitFeature(N.v_ect,[C.vEct]);emitFeature(N.v_iat,[C.vIat]);emitFeature(N.v_map,[C.vMap]);
   syncIdle((typeof state!=='undefined'&&state.activeMap)||1);
   document.querySelectorAll('[data-feature]').forEach(b=>{const id=b.dataset.feature;if(id==='spare'){b.dataset.protocol='legacy';}else{b.dataset.protocol='real';}});
-  const s=document.getElementById('redIoStatus');if(s)s.textContent='ECU REAL · Read All 9767B OK';
+  const s=document.getElementById('redIoStatus');if(s)s.textContent='ECU REAL · Read All '+C.sourceLength+'B OK · '+C.layoutInfo;
 }
 
 async function readAll(cmd=0xAB){
