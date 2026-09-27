@@ -233,20 +233,27 @@ async function initializeRealSession(){
   const epoch=transportEpoch;
   sessionInitPromise=(async()=>{
     installRawListener();installAfrListener();
+
+    // Every new connection starts with a visibly empty ECU map UI.
+    // This prevents stale values from looking like a successful ECU read.
+    try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
+    readCache=null;
+    pageCache.clear();
+
     if(typeof state!=='undefined')state.ecuPhase='handshake';
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
 
-    // Do NOT Read All on connect. Only fetch the lightweight A2 sensor /
-    // calibration page needed to decode ECT, IAT, MAP and TPS correctly.
-    if(typeof state!=='undefined')state.ecuPhase='sensor';
-    try{await readA2SensorPageReal(false);}catch(e){log('A2 sensor init skipped:',e.message||String(e));}
-    if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc đọc cấu hình cảm biến');
-
+    // Connect is intentionally lightweight: handshake + live 0x69 only.
+    // No 0x9A page read and no 0xAB Read All are sent here.
     if(typeof state!=='undefined')state.ecuPhase='live';
     startLiveLoop();
-    taskUi('success','ECU ONLINE · CẢM BIẾN LIVE · OK');
+    taskUi('success','ECU ONLINE · LIVE 0x69 · OK');
+
+    // If the user connected while already viewing an ECU table, lazily read
+    // only that visible table. Dashboard/ECU-home connection sends no 0x9A.
+    setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
     return info;
   })();
   try{return await sessionInitPromise;}
@@ -268,7 +275,6 @@ function abortRawTransport(reason='BLE disconnected'){
   sessionInitPromise=null;
   handshakeInfo=null;
   readCache=null;
-  sensorCalCache=null;
   pageCache.clear();
   if(typeof state!=='undefined'){
     state.ecuPhase='idle';
@@ -810,6 +816,7 @@ async function writeFuelBank(bank){
   bank=clamp(Math.round(bank),1,4);
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
+  if(inj.some(r=>r.some(v=>v==null||v===''||!Number.isFinite(Number(v)))))throw new Error('MAP hiện tại đang trống/chưa đọc đủ từ ECU. Hãy chờ ĐỌC HIỆN TẠI báo OK trước khi ghi.');
   for(let h=0;h<2;h++){
     taskUi('loading','ĐANG GHI MAP NO.'+bank+' · PHẦN '+(h+1)+'/2');
     const payload=[];
@@ -974,7 +981,7 @@ function boot(){
     settleTimer=setTimeout(()=>{
       if(cmdChar()!==cc||mapChar()!==mc)return;
       initializeRealSession()
-        .then(()=>notice('success','ECU REAL ONLINE','Handshake + cấu hình cảm biến A2 + Live 0x69 đã hoạt động · không Read All'))
+        .then(()=>notice('success','ECU REAL ONLINE','Handshake + Live 0x69 đã hoạt động · không tự 0x9A / không Read All'))
         .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
     },450);
   },150);
