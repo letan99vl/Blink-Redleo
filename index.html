@@ -2947,9 +2947,15 @@ async function autoReadVisibleEcuPage(reason='open'){
   const seq=++lazyPageReadSeq;
   try{
     if(active==='mapEditorScreen'){
-      // Only the real ECU injection table needs an ECU page read here.
-      // AFR measured/target/corrected tabs are Blink-local data.
-      if(state.tab==='inject')await api.readCurrentFuelBank(state.activeMap,true);
+      // INJ VE is the largest current-map reply (~843B). Let navigation and the
+      // previous live transaction settle before the automatic 0x9A read.
+      if(state.tab==='inject'){
+        if(reason==='open-fuel'||reason==='bank-change'||reason==='connect'){
+          await new Promise(r=>setTimeout(r,550));
+          if(seq!==lazyPageReadSeq)return;
+        }
+        await api.readCurrentFuelBank(state.activeMap,true);
+      }
       return;
     }
     if(active==='redleoEditorScreen'&&currentFeature){
@@ -3145,6 +3151,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=2.2"></script>
+<script src="redleo_real_protocol.js?v=2.3"></script>
 </body>
 </html>
