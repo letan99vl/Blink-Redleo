@@ -461,7 +461,17 @@ function matrixFromRedTable(rows,cols){
 }
 function currentSource(){return (document.getElementById('redSourceName')?.textContent||'').trim()}
 function currentFeatureId(){return FEAT[currentSource()]||null}
+function assertSafeWriteLayout(){
+  if(!readCache)throw new Error('Cần ĐỌC TOÀN BỘ ECU trước khi ghi.');
+  if(readCache.sourceLength===9895){
+    const sc=Number(readCache.extension128&&readCache.extension128.score);
+    if(!Number.isFinite(sc)||sc<0.90){
+      throw new Error('ECU 9895B đã đọc được nhưng layout 128B mở rộng chưa đủ chắc để GHI. Score='+(Number.isFinite(sc)?sc.toFixed(3):'--'));
+    }
+  }
+}
 async function writePageChecked(pg,payload){
+  assertSafeWriteLayout();
   const tx=pageFrame(pg,payload),rx=await rawExchange(tx,8000);
   if(!(rx.length>=2&&rx[0]===0xCD&&rx[1]===pg))throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
   return true;
@@ -517,8 +527,8 @@ async function writeFeatureReal(id){
   }
   await writePageChecked(pg,payload);await readAll();notice('success','ECU REAL · GHI OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · đã Read All verify');
 }
-async function writeIdleReal(){if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);await writePageChecked(pg,idlePayload(bank,true));await readAll();notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase())}
-async function writeOptionsReal(){if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
+async function writeIdleReal(){assertSafeWriteLayout();if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);await writePageChecked(pg,idlePayload(bank,true));await readAll();notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase())}
+async function writeOptionsReal(){assertSafeWriteLayout();if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
 
 async function writeFuelBank(bank){
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
