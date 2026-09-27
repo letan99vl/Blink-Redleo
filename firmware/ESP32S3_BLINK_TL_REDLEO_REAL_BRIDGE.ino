@@ -48,6 +48,20 @@ static const uint8_t RAW_RX_MARKER = 0xE2;
 static const size_t RAW_PAYLOAD_PER_PACKET = 12;
 static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
 static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
+
+// BLE pacing by response size. INJ VE current-map replies are ~843B and need
+// a slower stream than the smaller one-byte REDLEO pages on iOS/Bluefy.
+static uint16_t rawNotifyDelayFor(uint16_t total) {
+  if (total >= 800) return 14;
+  if (total >= 400) return 9;
+  return RAW_NOTIFY_DELAY_MS;
+}
+static uint16_t rawNotifyYieldEveryFor(uint16_t total) {
+  if (total >= 800) return 12;
+  if (total >= 400) return 18;
+  return RAW_NOTIFY_YIELD_EVERY;
+}
+
 static const size_t TX_MAX = 2048;
 static const size_t RX_MAX = 12000;
 
@@ -264,6 +278,13 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
     return;
   }
 
+  const uint16_t packetDelay = rawNotifyDelayFor(total);
+  const uint16_t yieldEvery = rawNotifyYieldEveryFor(total);
+  const bool longFrame = total >= 800;
+
+  // Long 0x9A INJ VE frames need a brief quiet gap before BLE streaming.
+  if (longFrame) delay(40);
+
   for (uint16_t off = 0; off < total && deviceConnected; off += RAW_PAYLOAD_PER_PACKET) {
     const uint8_t count = (uint8_t)min((size_t)RAW_PAYLOAD_PER_PACKET, (size_t)(total - off));
     uint8_t pkt[7 + RAW_PAYLOAD_PER_PACKET];
@@ -273,12 +294,21 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
     put16le(&pkt[3], total);
     put16le(&pkt[5], off);
     memcpy(&pkt[7], data + off, count);
+
     mapChar->setValue(pkt, 7 + count);
     mapChar->notify();
-    // Pace large ECU frames so the BLE stack / phone does not get flooded.
-    delay(RAW_NOTIFY_DELAY_MS);
-    if ((((off / RAW_PAYLOAD_PER_PACKET) + 1) % RAW_NOTIFY_YIELD_EVERY) == 0) {
-      delay(18);
+
+    // First and last chunks are critical for browser reassembly. Repeat them
+    // on long frames so a single lost notification does not cause 0x9A timeout.
+    if (longFrame && (off == 0 || off + count >= total)) {
+      delay(22);
+      mapChar->setValue(pkt, 7 + count);
+      mapChar->notify();
+    }
+
+    delay(packetDelay);
+    if ((((off / RAW_PAYLOAD_PER_PACKET) + 1) % yieldEvery) == 0) {
+      delay(longFrame ? 30 : 18);
       yield();
     }
   }
@@ -305,6 +335,10 @@ static void processTransaction() {
     Serial.printf(" first=%02X last=%02X valid=%u", rxBuf[0], rxBuf[got - 1], validRedleoFrame(rxBuf, got) ? 1 : 0);
   }
   Serial.println();
+  if (got >= 800) {
+    Serial.printf("BLE stream sid=%u len=%u pace=%ums long=1\n",
+                  sid, (unsigned)got, (unsigned)rawNotifyDelayFor((uint16_t)got));
+  }
   sendRawResponse(sid, rxBuf, (uint16_t)got);
 }
 
