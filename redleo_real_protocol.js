@@ -22,6 +22,7 @@ let sensorCalCache=null;     // populated by lightweight A2 page read
 let pageCache=new Map();     // page-specific lazy reads
 let fuelPagePrimed=new Set();// banks whose large INJ VE page has read successfully this BLE session
 let loginState=false;
+let ecuProfile=null;
 let transportCmdChar=null;
 let transportMapChar=null;
 let sessionInitPromise=null;
@@ -45,6 +46,78 @@ const FEAT={
   'MAP - Voltage Relation':'v_map'
 };
 const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17};
+
+const ECU_PROFILE_DEFS=Object.freeze({
+  MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,write:true,tpsStudy:true,testInjector:true,password:true}}),
+  MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,fuelRead:true,readAll:true,write:true,tpsStudy:true,testInjector:true,password:true}}),
+  LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · SAFE MODE',short:'V8 SAFE',family:'v8',caps:{live:false,pageRead:false,fuelRead:false,readAll:true,write:false,tpsStudy:false,testInjector:false,password:false}}),
+  LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,write:false,tpsStudy:false,testInjector:false,password:false}}),
+  UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,fuelRead:false,readAll:false,write:false,tpsStudy:false,testInjector:false,password:false}})
+});
+ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
+
+function profileFromHandshake(info){
+  if(info&&info.legacyProbe)return ECU_PROFILE_DEFS.LEGACY_PROBE;
+  const fw=String(info&&info.firmware||'').trim().toUpperCase();
+  const ident=String(info&&info.ident||'').trim().toUpperCase();
+  const all=(fw+' '+ident).trim();
+  if(/ULTRA/.test(all))return ECU_PROFILE_DEFS.MODERN_V10;
+  let m=fw.match(/(\d{1,2})(?:\.|\b)/);
+  if(!m)m=all.match(/(?:VER(?:SION)?\s*)?(\d{1,2})(?:\.|\b)/);
+  const major=m?Number(m[1]):NaN;
+  if(major===10)return ECU_PROFILE_DEFS.MODERN_V10;
+  if(major===9)return ECU_PROFILE_DEFS.MODERN_V9;
+  if(major===8||/\bV8\b|VER\s*8/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
+  return ECU_PROFILE_DEFS.UNKNOWN;
+}
+function profileCap(name){return !!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name])}
+function requireProfile(name,action='Thao tác ECU'){
+  if(profileCap(name))return true;
+  const label=ecuProfile?.label||ECU_PROFILE_DEFS.UNKNOWN.label;
+  throw new Error(label+' · '+action+' chưa được xác nhận an toàn cho đời ECU này.');
+}
+function setProfileDisabled(el,blocked,reason=''){
+  if(!el)return;
+  if(blocked){
+    el.dataset.profileBlocked='1';
+    el.disabled=true;
+    if(reason)el.title=reason;
+  }else if(el.dataset.profileBlocked==='1'){
+    delete el.dataset.profileBlocked;
+    el.disabled=false;
+    if(el.title&&el.title.includes('ECU Profile'))el.title='';
+  }
+}
+function applyProfileUi(){
+  const p=ecuProfile||ECU_PROFILE_DEFS.UNKNOWN;
+  document.querySelectorAll('[data-ecuprofile]').forEach(e=>e.textContent=p.label);
+  const sub=document.querySelector('#ecuScreen .screenSub');
+  if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
+  const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
+
+  ['writeMapBtn','applyCorrectedBtn','redWriteBtn','idleLimitWriteBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('write'),reason));
+  ['readMapBtn','redReadBtn','idleLimitReadBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('pageRead'),reason));
+
+  document.querySelectorAll('[data-ecucmd]').forEach(b=>{
+    const c=b.dataset.ecucmd;
+    let ok=true;
+    if(c==='READ_CURRENT'||c==='OPTIONS_READ')ok=profileCap('pageRead');
+    else if(c==='READ_ALL')ok=profileCap('readAll');
+    else if(c==='TPS_TEST')ok=profileCap('tpsStudy');
+    else if(c==='LOGIN'||c==='LOGOUT')ok=profileCap('password');
+    else if(c==='SEND_CURRENT'||c==='SEND_ALL'||c==='RESTORE'||c==='OPTIONS_WRITE'||c==='CHANGE_PASSWORD')ok=profileCap('write');
+    else if(c==='TEST_INJ')ok=profileCap('testInjector');
+    setProfileDisabled(b,!ok,reason);
+  });
+  document.querySelectorAll('[data-copybank]').forEach(b=>setProfileDisabled(b,!profileCap('write'),reason));
+}
+function setEcuProfile(p){
+  ecuProfile=p||ECU_PROFILE_DEFS.UNKNOWN;
+  if(typeof state!=='undefined')state.ecuProfile=ecuProfile.key;
+  applyProfileUi();
+  log('ECU PROFILE',ecuProfile.key,ecuProfile.label);
+  return ecuProfile;
+}
 
 function log(...a){console.log(TAG,...a)}
 function err(...a){console.error(TAG,...a)}
@@ -164,13 +237,16 @@ function parseHandshake(a){
 function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGGIO'][n]||'OTHER'}
 function syncHandshakeInfo(info){
   handshakeInfo=info;
+  const p=info.profile||profileFromHandshake(info);
+  setEcuProfile(p);
   if(typeof state!=='undefined'){
-    state.ecuConnected=true;state.ecuPhase='live';state.ecuId=info.ecuId||1;
+    state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
     if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
   }
-  const vals=[classNameFromCode(info.classify),info.ident||'ECU Blink','ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'9.1X',info.date||'—'];
+  const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
+  const vals=[cls,info.ident||p.label,'ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'—',info.date||'—',p.label];
   document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=vals[i]||'—');
-  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: REAL · MAP No.'+(info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
+  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+p.short+' · MAP No.'+(info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
   try{syncMirrors();}catch(_e){}
 }
 function syncCapabilityFlags(info){
@@ -219,7 +295,32 @@ function installAfrListener(){
   });
 }
 async function handshakeReal(){
-  const rx=await rawExchange(req5(0x5A,0x5A),6000);const info=parseHandshake(rx);syncHandshakeInfo(info);syncCapabilityFlags(info);return info;
+  let firstErr=null;
+  try{
+    const rx=await rawExchange(req5(0x5A,0x5A),6000);
+    const info=parseHandshake(rx);
+    info.profile=profileFromHandshake(info);
+    syncHandshakeInfo(info);
+    syncCapabilityFlags(info);
+    return info;
+  }catch(e){
+    firstErr=e;
+    log('0x5A handshake failed, trying safe legacy 0x69 probe:',String(e&&e.message||e));
+  }
+
+  // V3 / very old REDLEO builds do not use the modern 0x5A flow.
+  // 0x69 is read-only; use one probe only to identify a legacy ECU, then lock
+  // all modern page/write operations until a dedicated legacy parser exists.
+  try{
+    const rx=await rawExchange(req5(0x69,1),8000);
+    const f=findValidCommandFrame(rx,0xA1,3);
+    if(!f)throw new Error('Legacy probe không có frame A1 checksum hợp lệ');
+    const info={raw:new Uint8Array(0),short:true,activeMap:1,ecuId:1,password:null,ident:'REDLEO LEGACY',firmware:'LEGACY',date:'—',legacyProbe:true,legacyLiveLength:f.length,profile:ECU_PROFILE_DEFS.LEGACY_PROBE};
+    syncHandshakeInfo(info);
+    return info;
+  }catch(e){
+    throw new Error('Không nhận diện được ECU. 5A: '+String(firstErr&&firstErr.message||firstErr)+' · legacy 69: '+String(e&&e.message||e));
+  }
 }
 async function liveOnce(){
   if(!cmdChar()||busy||document.hidden)return;
@@ -247,15 +348,21 @@ async function initializeRealSession(){
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
 
-    // Connect is intentionally lightweight: handshake + live 0x69 only.
-    // No 0x9A page read and no 0xAB Read All are sent here.
-    if(typeof state!=='undefined')state.ecuPhase='live';
-    startLiveLoop();
-    taskUi('success','ECU ONLINE · LIVE 0x69 · OK');
-
-    // If the user connected while already viewing an ECU table, lazily read
-    // only that visible table. Dashboard/ECU-home connection sends no 0x9A.
-    setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
+    // Only the verified modern V9/V10 family is allowed to enter the existing
+    // live/page/write pipeline. V8 and legacy devices remain connected in SAFE MODE.
+    if(profileCap('live')){
+      if(typeof state!=='undefined')state.ecuPhase='live';
+      startLiveLoop();
+      taskUi('success','ECU ONLINE · '+ecuProfile.short+' · LIVE 0x69 · OK');
+      // If the user connected while already viewing a supported ECU table,
+      // lazily read only that visible table. INJ VE itself remains manual-read.
+      setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
+    }else{
+      stopLiveLoop();
+      if(typeof state!=='undefined')state.ecuPhase='profile-locked';
+      taskUi('success','ECU ONLINE · '+ecuProfile.short+' · SAFE MODE');
+      notice('info','ECU ĐÃ NHẬN DIỆN',ecuProfile.label+'\nĐã khóa các lệnh chưa được xác nhận để tránh ghi sai protocol.');
+    }
     return info;
   })();
   try{return await sessionInitPromise;}
@@ -279,6 +386,8 @@ function abortRawTransport(reason='BLE disconnected'){
   readCache=null;
   pageCache.clear();
   fuelPagePrimed.clear();
+  ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
+  try{applyProfileUi();}catch(_e){}
   if(typeof state!=='undefined'){
     state.ecuPhase='idle';
     // state.ecuConnected is owned by the BLE layer; do not force it true here.
@@ -656,6 +765,7 @@ async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeo
 }
 
 async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
+  requireProfile('pageRead','Đọc page 0x9A');
   pg&=255;
   if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
   const rx=await exchangePage9A(pg,label,3);
@@ -736,6 +846,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   return {...R,matrix:z.data};
 }
 async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
+  requireProfile('fuelRead','Đọc MAP thời gian phun');
   bank=clamp(Math.round(bank),1,4);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
@@ -759,9 +870,16 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   return R;
 }
 async function readAll(cmd=0xAB){
+  if(cmd===0x8B)requireProfile('write','Khôi phục ECU');
+  else requireProfile('readAll','Đọc toàn bộ ECU');
   taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
   const rx=await rawExchange(req5(cmd,cmd),16000);
-  const C=parseReadAll(rx);
+  let C=parseReadAll(rx);
+  // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
+  // even if its byte length happens to collide with a known modern length.
+  if(ecuProfile.family!=='modern'&&!C.rawOnly){
+    C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
+  }
   window.blinkReadAllRaw=C.raw.slice();
   window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
   if(C.rawOnly){
@@ -792,6 +910,7 @@ function assertSafeWriteLayout(){
   }
 }
 async function writePageChecked(pg,payload,requireReadAll=true,retries=0){
+  requireProfile('write','Ghi dữ liệu ECU');
   if(requireReadAll)assertSafeWriteLayout();
   if(requireReadAll)taskUi('loading','ĐANG GHI ECU · PAGE 0x'+pg.toString(16).toUpperCase());
   const tx=pageFrame(pg,payload);
@@ -846,6 +965,7 @@ function matrixFromMaybe(id,fallback){
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
 async function writeFeatureReal(id){
+  requireProfile('write','Ghi bảng '+id);
   if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
@@ -861,10 +981,11 @@ async function writeFeatureReal(id){
   }
   await writePageChecked(pg,payload);await readAll();notice('success','ECU REAL · GHI OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · đã Read All verify');
 }
-async function writeIdleReal(){assertSafeWriteLayout();if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);await writePageChecked(pg,idlePayload(bank,true));await readAll();notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase())}
-async function writeOptionsReal(){assertSafeWriteLayout();if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
+async function writeIdleReal(){requireProfile('write','Ghi Idle/Limit');assertSafeWriteLayout();if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);await writePageChecked(pg,idlePayload(bank,true));await readAll();notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase())}
+async function writeOptionsReal(){requireProfile('write','Ghi Options');assertSafeWriteLayout();if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
 
 async function writeFuelBank(bank){
+  requireProfile('write','Ghi MAP thời gian phun');
   bank=clamp(Math.round(bank),1,4);
   const inj=state.mapBanks[bank-1].inject,low=pageLow(bank),halves=[[13,12,11,10,9,8,7],[6,5,4,3,2,1,0]];
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
@@ -892,6 +1013,7 @@ async function readCurrentFuelBankRetry(bank,attempts=3){
   throw lastErr||new Error('VERIFY READ CURRENT thất bại');
 }
 async function writeCurrentFuelAndVerify(bank){
+  requireProfile('write','Ghi hiện tại MAP thời gian phun');
   bank=clamp(Math.round(bank),1,4);
   const resumeLive=liveRunning;
   stopLiveLoop();
@@ -921,6 +1043,7 @@ async function writeBankAll(bank){
   await writePageChecked(page(6,bank),idlePayload(bank,false));
 }
 async function sendAllReal(){
+  requireProfile('write','Ghi toàn bộ ECU');
   taskUi('loading','ĐANG GHI TOÀN BỘ ECU...');
   if(!readCache)await readAll();
   await writePageChecked(0x72,encodeRowsByte(readCache.ectInj,encPct));await writePageChecked(0x82,encodeRowsByte(readCache.ectIgn,encEctIgn));await writePageChecked(0x92,encodeRowsByte(readCache.mapInj,encMapInj));await writePageChecked(0xA2,a2Payload());
@@ -928,22 +1051,23 @@ async function sendAllReal(){
 }
 
 async function copyBankReal(dest){
+  requireProfile('write','Sao chép/Ghi MAP');
   if(!readCache)await readAll();const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[Number(dest)];
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
 }
 
-async function restoreReal(){if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;taskUi('loading','ĐANG KHÔI PHỤC ECU...');const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
-async function tpsStudyReal(){taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');const rx=await rawExchange(req5(0x77,0x77),38000);if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');const min=rx[92]*20/1024,max=rx[93]*20/1024;if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V')}
-async function testInjectorReal(){const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));if(!Number.isFinite(s)||s<=1)return;const sec=clamp(Math.round(s),2,30);await rawExchange(req5(0xDC,sec+1),6000);notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200)}
+async function restoreReal(){requireProfile('write','Khôi phục dữ liệu gốc');if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;taskUi('loading','ĐANG KHÔI PHỤC ECU...');const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
+async function tpsStudyReal(){requireProfile('tpsStudy','Học TPS');taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');const rx=await rawExchange(req5(0x77,0x77),38000);if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');const min=rx[92]*20/1024,max=rx[93]*20/1024;if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V')}
+async function testInjectorReal(){requireProfile('testInjector','Thử kim phun');const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));if(!Number.isFinite(s)||s<=1)return;const sec=clamp(Math.round(s),2,30);await rawExchange(req5(0xDC,sec+1),6000);notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200)}
 
 function passwordDigitsToBytes(p){p=(String(p||'')+'FFFF').slice(0,4).toUpperCase();if(!/^[0-9A-F]{4}$/.test(p))throw new Error('Mật khẩu chỉ dùng 0-9/A-F, tối đa 4 ký tự');return Array.from(p,ch=>parseInt(ch,16));}
 function passwordBytesToString(a){return Array.from(a||[]).map(x=>(x&15).toString(16).toUpperCase()).join('').replace(/F+$/,'')}
-function loginReal(){if(!readCache)return notice('error','LOGIN','Hãy ĐỌC TOÀN BỘ trước');const p=prompt('Nhập mật khẩu ECU:','');if(p==null)return;const ok=passwordBytesToString(passwordDigitsToBytes(p))===passwordBytesToString(readCache.password);loginState=ok;notice(ok?'success':'error',ok?'LOGIN OK':'SAI MẬT KHẨU',ok?'Đã đăng nhập cục bộ theo password ECU':'Mật khẩu không khớp ECU')}
+function loginReal(){requireProfile('password','Đăng nhập ECU');if(!readCache)return notice('error','LOGIN','Hãy ĐỌC TOÀN BỘ trước');const p=prompt('Nhập mật khẩu ECU:','');if(p==null)return;const ok=passwordBytesToString(passwordDigitsToBytes(p))===passwordBytesToString(readCache.password);loginState=ok;notice(ok?'success':'error',ok?'LOGIN OK':'SAI MẬT KHẨU',ok?'Đã đăng nhập cục bộ theo password ECU':'Mật khẩu không khớp ECU')}
 function logoutReal(){loginState=false;notice('info','LOGOUT','Đã đăng xuất')}
-async function changePasswordReal(){if(!readCache)await readAll();const old=prompt('Mật khẩu cũ:','');if(old==null)return;if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];await writePageChecked(0xB2,payload);readCache.password=bytes;loginState=true;notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK')}
+async function changePasswordReal(){requireProfile('password','Đổi mật khẩu ECU');requireProfile('write','Đổi mật khẩu ECU');if(!readCache)await readAll();const old=prompt('Mật khẩu cũ:','');if(old==null)return;if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];await writePageChecked(0xB2,payload);readCache.password=bytes;loginState=true;notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK')}
 
 function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);return;}if(!readCache)return;const fields=[
-  'REDLEO ECU 9.1X','ECU Blink','Protocol 38400 8E2','ReadAll '+readCache.raw.length+'B','—','—','9.1+','P.b v1.2'
+  'REDLEO','ECU Blink','Protocol 38400 8E2','ReadAll '+readCache.raw.length+'B','—','—','—','—',ecuProfile.label
 ];document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=fields[i]||'—');}
 
 function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
@@ -1033,7 +1157,7 @@ function boot(){
     settleTimer=setTimeout(()=>{
       if(cmdChar()!==cc||mapChar()!==mc)return;
       initializeRealSession()
-        .then(()=>notice('success','ECU REAL ONLINE','Handshake + Live 0x69 đã hoạt động · không tự 0x9A / không Read All'))
+        .then(()=>notice('success','ECU REAL ONLINE',(ecuProfile?.label||'ECU')+(profileCap('live')?' · Handshake + Live 0x69':' · SAFE MODE')+' · không tự Read All'))
         .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
     },450);
   },150);
@@ -1041,10 +1165,10 @@ function boot(){
   window.addEventListener('pagehide',()=>abortRawTransport('pagehide'));
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden)stopLiveLoop();
-    else if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();
+    else if(cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
