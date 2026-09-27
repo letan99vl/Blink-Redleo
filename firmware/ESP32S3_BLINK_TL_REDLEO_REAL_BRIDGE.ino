@@ -189,6 +189,17 @@ static bool validRedleoFrame(const uint8_t *p, size_t n) {
   return sum == p[n - 2];
 }
 
+static bool extractValidLive53(uint8_t *rx, size_t got) {
+  if (!rx || got < 53) return false;
+  for (size_t i = 0; i + 53 <= got; ++i) {
+    if (rx[i] != 0xA1) continue;
+    if (!validRedleoFrame(rx + i, 53)) continue;
+    if (i != 0) memmove(rx, rx + i, 53);
+    return true;
+  }
+  return false;
+}
+
 // Match the proven PC bridge timing: Read Current needs a much longer idle
 // boundary than live polling; Read All also waits longer than the 53-byte live frame.
 static bool isFuelCurrentPage(const uint8_t *tx, size_t n) {
@@ -261,6 +272,14 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
       rx[got++] = (uint8_t)EcuSerial.read();
       lastRx = millis();
       first = true;
+    }
+
+    // Live 0x69 has a fixed, checksum-protected 53-byte A1 frame on the
+    // supported REDLEO families. As soon as a complete valid frame is present,
+    // finish immediately instead of burning the generic UART idle gap.
+    // This also strips a TX echo/noise prefix by selecting the valid A1 frame.
+    if (txLen > 0 && tx[0] == 0x69 && extractValidLive53(rx, got)) {
+      return 53;
     }
 
     if (!first) {
