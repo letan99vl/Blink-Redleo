@@ -85,6 +85,23 @@
   .ecuNotice .ntitle{font-size:16px;font-weight:900;letter-spacing:.2px}
   .ecuNotice .ndetail{font-size:12px;line-height:1.45;margin-top:3px;color:#dcecff;white-space:pre-line}
   .ecuNotice .nclose{margin-left:auto;background:#ffffff18;border:1px solid #ffffff32;padding:3px 8px;border-radius:5px;font-size:14px}
+
+  /* Global ECU operation state */
+  .ecuTaskStatus{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:100000;display:none;align-items:center;gap:9px;max-width:min(440px,72vw);padding:9px 12px;border-radius:999px;border:1px solid #31526c;background:#102638;color:#e8f5ff;box-shadow:0 10px 28px #0008;font-size:11px;font-weight:900;letter-spacing:.15px;pointer-events:none}
+  .ecuTaskStatus.show{display:flex}
+  .ecuTaskStatus.loading{background:#102b43;border-color:#238bd2;color:#eaf7ff}
+  .ecuTaskStatus.success{background:#123a24;border-color:#2bd06c;color:#baffcc}
+  .ecuTaskStatus.error{background:#4a1d24;border-color:#ff6473;color:#ffd8dc}
+  .ecuTaskStatus.offline{background:#2a2022;border-color:#7a3c44;color:#ffb8c0}
+  .ecuTaskIcon{width:17px;height:17px;min-width:17px;border-radius:50%;display:grid;place-items:center;font-size:13px;line-height:1}
+  .ecuTaskStatus.loading .ecuTaskIcon{border:2px solid #7ac7f555;border-top-color:#61c2ff;animation:ecuSpin .72s linear infinite;font-size:0}
+  .ecuTaskStatus.success .ecuTaskIcon::before{content:"✓"}
+  .ecuTaskStatus.error .ecuTaskIcon::before{content:"✕"}
+  .ecuTaskStatus.offline .ecuTaskIcon::before{content:"!"}
+  .ecuTaskText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @keyframes ecuSpin{to{transform:rotate(360deg)}}
+  @media(max-width:700px){.ecuTaskStatus{top:max(5px,env(safe-area-inset-top));right:max(5px,env(safe-area-inset-right));max-width:68vw;padding:7px 10px;font-size:10px}}
+
   .dot{width:8px;height:8px;border-radius:50%;background:#647484;display:inline-block;margin-right:5px}.dot.on{background:#23d36b}
   dialog{border:1px solid #34526c;border-radius:10px;background:#102030;color:#fff;min-width:min(640px,92vw);max-width:92vw;box-shadow:0 30px 80px #0008}
   dialog::backdrop{background:#0009}
@@ -800,6 +817,7 @@
 <body>
 <div id="portraitGate" aria-hidden="true"></div>
 <div id="ecuNotice" class="ecuNotice" role="status" aria-live="polite"><div class="icon" id="ecuNoticeIcon">✓</div><div style="flex:1;min-width:0"><div class="ntitle" id="ecuNoticeTitle"></div><div class="ndetail" id="ecuNoticeDetail"></div></div><button class="nclose" id="ecuNoticeClose" type="button">✕</button></div>
+<div id="ecuTaskStatus" class="ecuTaskStatus" role="status" aria-live="polite"><span class="ecuTaskIcon"></span><span class="ecuTaskText" id="ecuTaskText">ECU</span></div>
 <div class="app">
 
   <section id="dashboardScreen" class="screen active scrollScreen">
@@ -1263,6 +1281,21 @@ function showEcuNotice(kind,title,detail='',holdMs){
   const ms=holdMs==null?(k==='error'?7000:3200):holdMs;if(ms>0)ecuNoticeTimer=setTimeout(hideEcuNotice,ms);
 }
 $('ecuNoticeClose').onclick=hideEcuNotice;
+
+let ecuTaskTimer=null;
+function setEcuTaskStatus(kind,text,holdMs){
+  const box=$('ecuTaskStatus'),label=$('ecuTaskText');
+  if(!box||!label)return;
+  clearTimeout(ecuTaskTimer);ecuTaskTimer=null;
+  const k=['loading','success','error','offline'].includes(kind)?kind:'loading';
+  label.textContent=text||'ECU';
+  box.className='ecuTaskStatus show '+k;
+  if(k!=='loading'){
+    const ms=holdMs==null?(k==='error'?6500:2200):holdMs;
+    if(ms>0)ecuTaskTimer=setTimeout(()=>{box.className='ecuTaskStatus';},ms);
+  }
+}
+window.setEcuTaskStatus=setEcuTaskStatus;
 
 function nearestCol(rpm){return clamp(Math.round(rpm/500)-1,0,C-1)}
 function nearestRow(tps,rpm){
@@ -2765,6 +2798,7 @@ window.addEventListener('beforeunload',save);
       },900);
     }
     try{
+      setEcuTaskStatus('loading','ĐANG KẾT NỐI ECU...');
       if(!navigator.bluetooth)throw new Error('Trình duyệt này không có Web Bluetooth. Hãy mở URL HTTPS bằng Bluefy.');
       $('ecuBadge').textContent='BLE: ĐANG CHỌN ECU BLINK...';$('ecuBadge').className='badge';
       device=await navigator.bluetooth.requestDevice({
@@ -2782,13 +2816,15 @@ window.addEventListener('beforeunload',save);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
       window.blinkLiveChar=liveChar;window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkStatusChar=statusChar;window.blinkWriteCommand=writeCommand;
       setBleUi(true,device.name||'ECU Blink');
+      setEcuTaskStatus('success','ECU ĐÃ KẾT NỐI · OK');
       $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
       $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
       await writeCommand('PING');
     }catch(e){
-      if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';return;}
+      if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);
+      setEcuTaskStatus('error','KẾT NỐI ECU · LỖI');
       showEcuNotice('error','KẾT NỐI BLE THẤT BẠI',String(e&&e.message||e),0);
     }
   }
@@ -2796,6 +2832,7 @@ window.addEventListener('beforeunload',save);
   function onDisconnected(){
     liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;
     setBleUi(false);
+    setEcuTaskStatus('offline','ECU ĐÃ NGẮT KẾT NỐI',5000);
     showEcuNotice('error','ECU Blink ĐÃ NGẮT BLE','Bấm KẾT NỐI ECU BLINK để kết nối lại.');
   }
 
