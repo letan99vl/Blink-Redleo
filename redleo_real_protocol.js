@@ -614,11 +614,23 @@ function assertSafeWriteLayout(){
     }
   }
 }
-async function writePageChecked(pg,payload,requireReadAll=true){
+async function writePageChecked(pg,payload,requireReadAll=true,retries=0){
   if(requireReadAll)assertSafeWriteLayout();
-  const tx=pageFrame(pg,payload),rx=await rawExchange(tx,8000);
-  if(!(rx.length>=2&&rx[0]===0xCD&&rx[1]===pg))throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
-  return true;
+  const tx=pageFrame(pg,payload);
+  let lastErr=null;
+  for(let attempt=0;attempt<=retries;attempt++){
+    try{
+      const rx=await rawExchange(tx,10000);
+      if(rx.length>=2&&rx[0]===0xCD&&rx[1]===pg)return true;
+      throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
+    }catch(e){
+      lastErr=e;
+      if(attempt>=retries)break;
+      log('retry write page 0x'+pg.toString(16).toUpperCase(),attempt+1,String(e&&e.message||e));
+      await new Promise(r=>setTimeout(r,220));
+    }
+  }
+  throw lastErr||new Error('Ghi page 0x'+pg.toString(16).toUpperCase()+' thất bại');
 }
 function idlePayload(bank,fromUI=true){
   if(!readCache)throw new Error('Cần ĐỌC TOÀN BỘ trước để bảo toàn dữ liệu page Idle');
@@ -681,9 +693,37 @@ async function writeFuelBank(bank){
   for(let h=0;h<2;h++){
     const payload=[];
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
-    // Fuel half-pages contain the complete 7x30 payload, so READ ALL is not
-    // required. This enables READ CURRENT -> edit -> WRITE CURRENT directly.
-    await writePageChecked(0x10|low|h,payload,false);
+    // Re-sending the exact same half-page is safe if its ACK was lost.
+    await writePageChecked(0x10|low|h,payload,false,1);
+    if(h===0)await new Promise(r=>setTimeout(r,120));
+  }
+}
+async function readCurrentFuelBankRetry(bank,attempts=3){
+  let lastErr=null;
+  for(let i=0;i<attempts;i++){
+    try{return await readCurrentFuelBank(bank);}
+    catch(e){
+      lastErr=e;
+      if(i+1>=attempts)break;
+      log('retry READ CURRENT verify',i+1,String(e&&e.message||e));
+      await new Promise(r=>setTimeout(r,300+(i*250)));
+    }
+  }
+  throw lastErr||new Error('VERIFY READ CURRENT thất bại');
+}
+async function writeCurrentFuelAndVerify(bank){
+  bank=clamp(Math.round(bank),1,4);
+  const resumeLive=liveRunning;
+  stopLiveLoop();
+  try{
+    await writeFuelBank(bank);
+    // Let ECU finish its flash/page commit before the 0x9A read-back.
+    await new Promise(r=>setTimeout(r,260));
+    return await readCurrentFuelBankRetry(bank,3);
+  }finally{
+    if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
+      setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},350);
+    }
   }
 }
 async function writeBankAll(bank){
@@ -739,9 +779,9 @@ function installUI(){
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
   capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
-  capture('writeMapBtn',async()=>{await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' CD pair + VERIFY 0x9A · '+R.frame.length+'B')});
+  capture('writeMapBtn',async()=>{const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+state.activeMap+' · ghi 2 page + VERIFY 0x9A · '+R.frame.length+'B')});
   capture('applyCorrectedBtn',async()=>{
-    if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify READ CURRENT · '+R.frame.length+'B');
+    if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify READ CURRENT · '+R.frame.length+'B');
   });
   capture('studyTpsBtn',tpsStudyReal);
 
@@ -750,7 +790,7 @@ function installUI(){
     if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
     if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
     if(cmd==='SEND_ALL'){await sendAllReal();return;}
-    if(cmd==='SEND_CURRENT'){await writeFuelBank(state.activeMap);const R=await readCurrentFuelBank(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
+    if(cmd==='SEND_CURRENT'){const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
     if(cmd==='RESTORE'){await restoreReal();return;}
     if(cmd==='TPS_TEST'){await tpsStudyReal();return;}
     if(cmd==='TEST_INJ'){await testInjectorReal();return;}
@@ -814,6 +854,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,readAll,readCurrentFuelBank,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,get cache(){return readCache},get handshake(){return handshakeInfo},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
