@@ -254,6 +254,23 @@ function u16be(a,i){return ((a[i]<<8)|a[i+1])>>>0}
 function push16be(a,v){v=clamp(Math.round(v),0,65535);a.push((v>>8)&255,v&255)}
 function finalizePage(a){const s=checksum8(a);a.push((255-s)&255,s,(a.length+3)&255);return new Uint8Array(a)}
 function pageFrame(pg,payload){return finalizePage([0xCD,pg,...payload])}
+function validateOutgoingPageFrame(tx,pg,payloadLen){
+  if(!(tx instanceof Uint8Array))tx=new Uint8Array(tx||[]);
+  const expectedLen=Number(payloadLen)+5;
+  if(tx.length!==expectedLen)throw new Error('WRITE FRAME sai độ dài · '+tx.length+'B / '+expectedLen+'B');
+  if(tx[0]!==0xCD||tx[1]!==((pg)&255))throw new Error('WRITE FRAME sai command/page.');
+  if(tx[tx.length-1]!==((tx.length)&255))throw new Error('WRITE FRAME sai length byte.');
+  const sum=checksum8(tx,tx.length-3);
+  if(tx[tx.length-2]!==sum||(((tx[tx.length-3]+sum)&255)!==255))throw new Error('WRITE FRAME sai checksum.');
+  return true;
+}
+function bridgeRawWriteSafe(){
+  const t=String(window.blinkBridgeFirmwareStatus||'');
+  const m=t.match(/FW\s*(\d+)\.(\d+)/i);
+  if(!m)return false;
+  const major=Number(m[1]),minor=Number(m[2]);
+  return major>1||(major===1&&minor>=1);
+}
 
 // ----- REDLEO conversions (EXE TrueFalse / macroReckon) -----
 function decVolt(raw){return r2(raw*20/1024)}
@@ -1229,7 +1246,7 @@ function parseCurrentFuelFrame(a,bank){
       const uiRow=13-wireRow;
       for(let c=0;c<30;c++)out[uiRow][c]=r2(f[p++]/20);
     }
-    return {frame:f,matrix:out,page:pg};
+    return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,f.length-2)};
   }
 
   // V9+ fuel uses uint16 BE cells: No.1=0x12, No.2=0x14, No.3=0x16, No.4=0x18.
@@ -1246,7 +1263,18 @@ function parseCurrentFuelFrame(a,bank){
       out[uiRow][c]=decOilTab(raw);
     }
   }
-  return {frame:f,matrix:out,page:pg};
+  return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,f.length-2)};
+}
+function encodeFuelVerifyRaw(matrix){
+  if(!Array.isArray(matrix)||matrix.length!==14||matrix.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP verify cần ma trận 14x30.');
+  const out=[];
+  const v8=ecuProfile&&ecuProfile.family==='v8';
+  for(let r=13;r>=0;r--)for(let c=0;c<30;c++){
+    const v=Number(matrix[r][c]);
+    if(v8)out.push(clamp(Math.round(v*20),0,255));
+    else push16be(out,encOilTab(v));
+  }
+  return new Uint8Array(out);
 }
 function parseV11A2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
@@ -1673,6 +1701,10 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
   if(requireReadAll)assertSafeWriteLayout();
   if(requireReadAll)taskUi('loading','ĐANG GHI ECU · PAGE 0x'+pg.toString(16).toUpperCase());
   const tx=pageFrame(pg,payload);
+  validateOutgoingPageFrame(tx,pg,payload.length);
+  if(tx.length>RAW_CHUNK&&!bridgeRawWriteSafe()){
+    throw new Error('ESP32 bridge chưa xác nhận FW1.1+ an toàn cho RAW multi-chunk. Hãy nạp firmware bridge mới và kết nối lại; PING phải hiện FW1.1 hoặc mới hơn.');
+  }
   let lastErr=null;
   for(let attempt=0;attempt<=retries;attempt++){
     try{
@@ -2021,13 +2053,15 @@ async function writeFuelBank(bank){
   if(!inj||inj.length!==14||inj.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP hiện tại chưa có đủ dữ liệu 14x30 để ghi.');
   if(inj.some(r=>r.some(v=>v==null||v===''||!Number.isFinite(Number(v)))))throw new Error('MAP hiện tại đang trống/chưa đọc đủ từ ECU. Hãy chờ ĐỌC HIỆN TẠI báo OK trước khi ghi.');
 
+  const fuelMax=ecuProfile&&ecuProfile.family==='v8'?12.75:(65535/500);
+  let badCell=null;
+  outer:for(let r=0;r<14;r++)for(let c=0;c<30;c++){
+    const v=Number(inj[r][c]);
+    if(v<0||v>fuelMax){badCell={r,c,v};break outer;}
+  }
+  if(badCell)throw new Error('MAP phun vượt giới hạn 0–'+fuelMax.toFixed(3)+' ms tại TPS row '+(badCell.r+1)+', RPM col '+(badCell.c+1)+' · '+badCell.v+' ms');
+
   if(ecuProfile&&ecuProfile.family==='v8'){
-    let badCell=null;
-    outer:for(let r=0;r<14;r++)for(let c=0;c<30;c++){
-      const v=Number(inj[r][c]);
-      if(v<0||v>12.75){badCell={r,c,v};break outer;}
-    }
-    if(badCell)throw new Error('V8 MAP phun vượt giới hạn 0–12.75 ms tại TPS row '+(badCell.r+1)+', RPM col '+(badCell.c+1)+' · '+badCell.v+' ms');
     taskUi('loading','ĐANG GHI V8 MAP NO.'+bank+' · PAGE 0x'+page(1,bank).toString(16).toUpperCase());
     const payload=encodeRowsByte(inj,v=>Math.round(Math.max(0,Number(v))*20));
     await writePageChecked(page(1,bank),payload,false,1,'fuelWrite');
@@ -2035,6 +2069,7 @@ async function writeFuelBank(bank){
   }
 
   for(let h=0;h<2;h++){
+    if(typeof state!=='undefined')state.ecuPhase=h===0?'write1':'write2';
     taskUi('loading','ĐANG GHI MAP NO.'+bank+' · PHẦN '+(h+1)+'/2');
     const payload=[];
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
@@ -2052,10 +2087,15 @@ async function writeCurrentFuelAndVerify(bank){
   requireProfile('fuelWrite','Ghi hiện tại MAP thời gian phun');
   bank=normalizeBankForProfile(bank);
   const resumeLive=liveRunning;
+  const previousPhase=typeof state!=='undefined'?state.ecuPhase:'live';
+  const mapSelect=document.getElementById('mapSelect');
   stopLiveLoop();
+  if(typeof state!=='undefined')state.ecuPhase='write1';
+  if(mapSelect)mapSelect.disabled=true;
   taskUi('loading','ĐANG GHI HIỆN TẠI · MAP NO.'+bank);
   try{
     const intended=state.mapBanks[bank-1].inject.map(r=>r.map(Number));
+    const expectedRaw=encodeFuelVerifyRaw(intended);
     await writeFuelBank(bank);
     // Let ECU finish its flash/page commit before the 0x9A read-back.
     taskUi('loading','ECU ĐÃ ACK · ĐANG VERIFY MAP NO.'+bank);
@@ -2066,16 +2106,20 @@ async function writeCurrentFuelAndVerify(bank){
     }catch(e){
       throw new Error('ECU đã ACK ghi MAP nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));
     }
-    const tol=ecuProfile&&ecuProfile.family==='v8'?0.051:0.003;
-    for(let r=0;r<14;r++)for(let c=0;c<30;c++){
-      const a=intended[r][c],b=Number(R.matrix[r][c]);
-      if(!Number.isFinite(a)||!Number.isFinite(b)||Math.abs(a-b)>tol){
-        throw new Error('VERIFY MAP sai tại TPS row '+(r+1)+', RPM col '+(c+1)+' · ghi '+a+' ms, đọc lại '+b+' ms');
+    const gotRaw=R.rawPayload instanceof Uint8Array?R.rawPayload:new Uint8Array(R.rawPayload||[]);
+    if(gotRaw.length!==expectedRaw.length)throw new Error('VERIFY MAP sai kích thước raw · ghi '+expectedRaw.length+'B đọc '+gotRaw.length+'B');
+    for(let i=0;i<expectedRaw.length;i++){
+      if(gotRaw[i]!==expectedRaw[i]){
+        const bytesPerCell=ecuProfile&&ecuProfile.family==='v8'?1:2;
+        const cell=Math.floor(i/bytesPerCell),wireRow=Math.floor(cell/30),c=cell%30,r=13-wireRow;
+        throw new Error('VERIFY MAP raw sai tại TPS row '+(r+1)+', RPM col '+(c+1)+' · byte '+i+' · ghi '+expectedRaw[i]+' đọc '+gotRaw[i]);
       }
     }
-    taskUi('success','GHI + VERIFY · MAP NO.'+bank+' · OK');
+    taskUi('success','GHI + VERIFY RAW · MAP NO.'+bank+' · 420/420 Ô OK');
     return R;
   }finally{
+    if(typeof state!=='undefined')state.ecuPhase=(previousPhase==='write1'||previousPhase==='write2')?'live':previousPhase;
+    if(mapSelect)mapSelect.disabled=!!(typeof state!=='undefined'&&state.threeRun&&state.threeRun.active);
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
       setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},350);
     }
@@ -2582,9 +2626,13 @@ function installUI(){
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
   capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
-  capture('writeMapBtn',async()=>{const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY 0x9A · '+R.frame.length+'B')});
+  capture('writeMapBtn',async()=>{
+    if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
+    const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
+  });
   capture('applyCorrectedBtn',async()=>{
-    if(typeof correctedMatrix!=='function')throw new Error('Không có correctedMatrix');const corr=correctedMatrix();for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(corr[r][c]!=null)state.inject[r][c]=corr[r][c];const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP ĐÃ BÙ → ECU REAL','Đã ghi + verify READ CURRENT · '+R.frame.length+'B');
+    if(typeof applyCorrectedAndWrite==='function'){await applyCorrectedAndWrite();return;}
+    throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
   });
   capture('studyTpsBtn',tpsStudyReal);
 
