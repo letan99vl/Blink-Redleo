@@ -995,9 +995,57 @@
 
 <script>
 'use strict';
-const RPMS = Array.from({length:30},(_,i)=>(i+1)*500);
-const TPS_ROWS = [100,90,80,70,60,50,40,30,20,14,8,5,2,'IDLE'];
-const R=TPS_ROWS.length,C=RPMS.length;
+const DEFAULT_RPMS = Array.from({length:30},(_,i)=>(i+1)*500);
+const DEFAULT_TPS_PCT = [0,2,5,8,14,20,30,40,50,60,70,80,90,100];
+const RPMS = DEFAULT_RPMS.slice();
+const TPS_ROWS = DEFAULT_TPS_PCT.slice(1).reverse().concat('IDLE');
+let ECU_AUX_AXES={
+  ect:Array.from({length:11},(_,i)=>i*14),
+  iat:Array.from({length:11},(_,i)=>i*6),
+  map:Array.from({length:11},(_,i)=>i*12)
+};
+let ecuAxisMeta={source:'DEFAULT',profile:'',firmware:''};
+const R=14,C=30;
+
+function validMainAxes(tpsPct,rpmAxis){
+  if(!Array.isArray(tpsPct)||tpsPct.length!==14||!Array.isArray(rpmAxis)||rpmAxis.length!==30)return false;
+  const t=tpsPct.map(Number),r=rpmAxis.map(Number);
+  if(t.some(x=>!Number.isFinite(x)||x<0||x>100)||r.some(x=>!Number.isFinite(x)||x<=0))return false;
+  for(let i=1;i<t.length;i++)if(t[i]<t[i-1])return false;
+  for(let i=1;i<r.length;i++)if(r[i]<=r[i-1])return false;
+  return true;
+}
+function sameAxis(a,b,tol=1e-9){
+  return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>Math.abs(Number(v)-Number(b[i]))<=tol);
+}
+function applyEcuAxes(info={}){
+  const t=Array.from(info.tpsPct||[],Number),r=Array.from(info.rpmAxis||[],Number);
+  if(!validMainAxes(t,r))return false;
+  const nextRows=t.slice(1).reverse().concat('IDLE');
+  const changed=!sameAxis(RPMS,r)||!sameAxis(TPS_ROWS.slice(0,-1).map(Number),nextRows.slice(0,-1).map(Number));
+  RPMS.splice(0,RPMS.length,...r);
+  TPS_ROWS.splice(0,TPS_ROWS.length,...nextRows);
+  if(Array.isArray(info.ectAxis)&&info.ectAxis.length===11)ECU_AUX_AXES.ect=info.ectAxis.map(Number);
+  if(Array.isArray(info.iatAxis)&&info.iatAxis.length===11)ECU_AUX_AXES.iat=info.iatAxis.map(Number);
+  if(Array.isArray(info.mapAxis)&&info.mapAxis.length===11)ECU_AUX_AXES.map=info.mapAxis.map(Number);
+  ecuAxisMeta={source:String(info.source||'ECU'),profile:String(info.profile||''),firmware:String(info.firmware||'')};
+
+  // AFR samples belong to physical TPS/RPM cells. If a newly identified ECU
+  // changes those breakpoints, never reuse old measured samples by row index.
+  if(changed&&typeof state!=='undefined'&&!state.threeRun?.active){
+    for(const b of state.mapBanks||[]){b.measured=blankMatrix(null);b.counts=blankMatrix(0);}
+    state.lastCellKey='';
+  }
+  try{render();updateLive();}catch(_e){}
+  try{window.refreshRedEcuAxes?.();}catch(_e){}
+  const sub=document.getElementById('editorSub');
+  if(sub&&document.getElementById('mapEditorScreen')?.classList.contains('active')){
+    sub.textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;
+  }
+  return true;
+}
+window.applyEcuAxes=applyEcuAxes;
+window.getBlinkEcuAxes=()=>({rpm:RPMS.slice(),tpsRows:TPS_ROWS.slice(),aux:{ect:ECU_AUX_AXES.ect.slice(),iat:ECU_AUX_AXES.iat.slice(),map:ECU_AUX_AXES.map.slice()},meta:{...ecuAxisMeta}});
 
 const state={
   tab:'measured',
@@ -1307,14 +1355,30 @@ function setEcuTaskStatus(kind,text,holdMs){
 }
 window.setEcuTaskStatus=setEcuTaskStatus;
 
-function nearestCol(rpm){return clamp(Math.round(rpm/500)-1,0,C-1)}
+function nearestCol(rpm){
+  rpm=Number(rpm);
+  let best=0,dist=Infinity;
+  for(let c=0;c<C;c++){const d=Math.abs(rpm-Number(RPMS[c]));if(d<dist){dist=d;best=c;}}
+  return best;
+}
 function nearestRow(tps,rpm){
-  if(rpm<350 || tps<1) return R-1;
-  let best=0,dist=1e9;
+  tps=Number(tps);rpm=Number(rpm);
+  const numeric=TPS_ROWS.slice(0,-1).map(Number).filter(Number.isFinite);
+  const lowest=numeric.length?Math.min(...numeric):2;
+  const firstRpm=Number(RPMS[0])||500;
+  if(rpm<firstRpm/2 || tps<Math.max(0.05,lowest/2))return R-1;
+  let best=0,dist=Infinity;
   for(let r=0;r<R-1;r++){const d=Math.abs(tps-Number(TPS_ROWS[r]));if(d<dist){dist=d;best=r;}}
   return best;
 }
-function currentCell(){const rpm=state.live.rpm,tps=state.live.tps;if(rpm<250)return {r:R-1,c:0,key:'idle'};const r=nearestRow(tps,rpm),c=nearestCol(rpm);return {r,c,key:r+':'+c};}
+function currentCell(){const rpm=Number(state.live.rpm)||0,tps=Number(state.live.tps)||0;const r=nearestRow(tps,rpm),c=nearestCol(rpm);return {r,c,key:r===R-1?'idle':r+':'+c};}
+async function ensureActiveEcuAxes(showUi=false){
+  if(!state.ecuConnected)return true;
+  const api=window.BlinkRealProtocol;
+  if(!api||typeof api.ensureAxes!=='function')return true;
+  try{await api.ensureAxes(showUi);return true;}
+  catch(e){showEcuNotice('error','TRỤC TPS/RPM ECU',String(e&&e.message||e),0);return false;}
+}
 let mapAutoFollowPauseUntil=0;
 let mapAutoFollowLastKey='';
 let liveCursorEnabled=localStorage.getItem('blinkLiveCursorEnabled')!=='0';
