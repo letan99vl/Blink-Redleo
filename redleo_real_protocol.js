@@ -961,7 +961,23 @@ function syncOptions(C){
   try{if(window.syncAfrSensorUi)syncAfrSensorUi();}catch(_e){}
 }
 function idleObject(b){return {idleCold:b.idle[0],idleHot:b.idle[1],maxSpeed:b.idle[2],returnCold:b.idle[3],returnHot:b.idle[4],accelPct:Math.round(b.idle[5]*50/64),idleSensitivity:b.idle[6]};}
-function syncIdle(bank){if(!readCache)return;const b=readCache.banks[bank-1],o=idleObject(b);for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);emitFeature(N.ect_idle_motor,b.ectMotor,bank);}
+function syncIdle(bank){
+  if(!readCache)return;
+  bank=clamp(Math.round(bank),1,4);
+  const b=readCache.banks&&readCache.banks[bank-1];
+  if(!b)return;
+  if(readCache.v11Decoded){
+    // V11 stores a 44-byte Idle family per bank (24 Idle + 9 Aux + 11 ECT Motor),
+    // not the V9 idle[]/ectMotor structure. Never feed V11 raw bytes into V9 UI.
+    const st=document.getElementById('redIoStatus');
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · READ-ONLY RAW '+((b.idleRaw?.length||0)+(b.auxRaw?.length||0)+(b.ectMotorRaw?.length||0))+'B';
+    return;
+  }
+  if(!Array.isArray(b.idle)||!Array.isArray(b.ectMotor))return;
+  const o=idleObject(b);
+  for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);
+  emitFeature(N.ect_idle_motor,b.ectMotor,bank);
+}
 function syncAll(C){
   readCache=C;window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,extension:C.extension128||null};syncFuel(C);syncOptions(C);
   try{applyProfileUi();}catch(_e){}
