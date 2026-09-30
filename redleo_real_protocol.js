@@ -51,7 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -1046,6 +1046,39 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: Idle/Limit có layout Option riêng, chưa mở ở profile MAIN TUNE.');
   bank=normalizeBankForProfile(bank);
   const pg=page(6,bank);
+
+  if(isV11Profile()){
+    // ATE V11 page 6x is not the old 30-byte V9 layout.
+    // Original V11 serializer sends, for the selected MAP:
+    //   24B Idle/Limit grid (8 rows x 3 ECU-data columns)
+    //    9B auxiliary idle/shift grid
+    //   11B ECT-motor grid
+    // Keep all bytes exact. Editing stays locked until every V11 cell semantic
+    // has been mapped; this reader is intentionally non-destructive.
+    const R=await readDirectPageReal(pg,44,'ATE V11 · IDLE / LIMIT RAW · MAP NO.'+bank,showUi);
+    const C={
+      page:pg,
+      raw:R.data.slice(),
+      idleRaw:R.data.slice(0,24),
+      auxRaw:R.data.slice(24,33),
+      ectMotorRaw:R.data.slice(33,44),
+      tailRaw:R.data.slice(44)
+    };
+    if(!window.blinkV11IdleRaw)window.blinkV11IdleRaw={};
+    window.blinkV11IdleRaw[bank]={
+      page:pg,
+      raw:Array.from(C.raw),
+      idleRaw:Array.from(C.idleRaw),
+      auxRaw:Array.from(C.auxRaw),
+      ectMotorRaw:Array.from(C.ectMotorRaw),
+      tailRaw:Array.from(C.tailRaw)
+    };
+    const st=document.getElementById('redIoStatus');
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · '+R.data.length+'B READ-ONLY · RAW preserved';
+    if(showUi)notice('success','ATE V11 · IDLE READ OK','MAP No.'+bank+' · '+R.data.length+'B · 24B Idle + 9B Aux + 11B ECT Motor. Ghi vẫn khóa an toàn.');
+    return {...R,...C,readOnly:true};
+  }
+
   const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
   let p=0;const idle=[];
   for(let i=0;i<9;i++){idle.push(u16be(R.data,p));p+=2;}
