@@ -212,6 +212,7 @@ function err(...a){console.error(TAG,...a)}
 function clamp(v,a,b){v=Number(v);return Math.max(a,Math.min(b,Number.isFinite(v)?v:0))}
 function r1(v){return Math.round(v*10)/10}
 function r2(v){return Math.round(v*100)/100}
+function r3(v){return Math.round(v*1000)/1000}
 function checksum8(a,n=a.length){let s=0;for(let i=0;i<n;i++)s=(s+(a[i]&255))&255;return s}
 function req5(cmd,arg){const s=(cmd+arg)&255;return new Uint8Array([cmd,arg,(255-s)&255,s,5])}
 function validFrame(f){return !!f&&f.length>=3&&(((f[0]+f[f.length-1])&255)===255)&&checksum8(f,f.length-2)===f[f.length-2]}
@@ -1771,7 +1772,7 @@ async function writeV11Chg(){
 async function writeV11AutoClutch(){
   if(!isV11Profile())throw new Error('Automatic Clutch writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<165)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI để bảo toàn config/PIN của A2.');
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI đủ page A2 286B.');
   const m=matrixFromRedTable(1,6),vals=m[0]||[];
   if(vals.length!==6||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch V11 chưa có đủ 6 giá trị hợp lệ.');
   const config=new Uint8Array(cached.slice(154,165));
@@ -2093,7 +2094,7 @@ function v11BuildA2Payload(){
 
   const opts=v11StoreMatrix('ate_options',0,C.ateOptions);
   if(Array.isArray(opts)&&opts.length===1&&opts[0].length===20){
-    const raw20=encV11Options20(opts,C.vEct);
+    const raw20=encV11Options20(opts,vEct);
     for(let i=0;i<20;i++)if(v11ValueChanged(opts[0][i],C.ateOptions[0][i]))out[165+i]=raw20[i];
   }
 
