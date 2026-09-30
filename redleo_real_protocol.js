@@ -1689,6 +1689,9 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=normalizeBankForProfile(bank);
   if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
+  if(ecuProfile&&(ecuProfile.key==='MODERN_V10'||ecuProfile.key==='MODERN_V11')&&['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj'].includes(id)){
+    await ensureEcuAxesReal(false);
+  }
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
