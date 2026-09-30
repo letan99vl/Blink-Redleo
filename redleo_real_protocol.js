@@ -1979,7 +1979,7 @@ async function writeV11AlternateTable(){
   const raw=Uint8Array.from(vals,v=>clamp(Math.round(Number(v)),0,255));
   const payload=new Uint8Array(cached);
   payload.set(raw,V11_A2.GLOBAL_AUX);
-  taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN 277 BYTE A2 KHÁC');
+  taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN 263 BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
   let R;
@@ -2032,7 +2032,7 @@ async function writeV11Chg(){
   const raw=encV11Chg8(m);
   const payload=new Uint8Array(cached);
   payload.set(raw,V11_A2.CHG);
-  taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 261 BYTE A2 KHÁC');
+  taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 264 BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
   let R;
@@ -2370,9 +2370,9 @@ function v11PatchExternalRaw(raw,edited,base){
 }
 function v11BuildA2Payload(){
   const base=pageCache.get(0xA2);
-  if(!base||base.length<286)throw new Error('ATE V11 SEND ALL cần đọc trực tiếp page A2 đủ 272B trước.');
+  if(!base||base.length<V11_A2.LEN)throw new Error('ATE V11 SEND ALL cần đọc trực tiếp page A2 đủ 272B trước.');
   const C=parseV11A2Data(base);
-  if(C.v11A2KnownLength!==V11_A2.LEN)throw new Error('ATE V11 A2 direct layout chưa đủ 286B.');
+  if(C.v11A2KnownLength!==V11_A2.LEN)throw new Error('ATE V11 A2 direct layout chưa đủ 272B.');
   const out=new Uint8Array(base);
 
   const vEct=v11OneRow('v_ect',C.vEct),vIat=v11OneRow('v_iat',C.vIat),vMap=v11OneRow('v_map',C.vMap);
@@ -2459,7 +2459,7 @@ function v11BuildFullWritePlan(){
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
-  // A2 direct page has a different 286B layout from the compact Read-All partition.
+  // A2 direct page has a different 272B layout from the compact Read-All partition.
   // It is verified separately with a direct 0xA2 read after this Read-All check.
   if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
   if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
