@@ -78,6 +78,7 @@ function firmwareNumbers(info=handshakeInfo){
   return {major:Number(m[1]),minor:m[2]==null?NaN:Number(m[2])};
 }
 function usesNewThermalAxis(info=handshakeInfo){
+  if(ecuProfile&&(ecuProfile.key==='MODERN_V10'||ecuProfile.key==='MODERN_V11'))return true;
   const v=firmwareNumbers(info);
   if(v.major>=10)return true;
   if(v.major===9&&Number.isFinite(v.minor)&&v.minor>=2)return true;
