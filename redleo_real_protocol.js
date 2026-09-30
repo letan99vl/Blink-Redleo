@@ -91,11 +91,18 @@ function mainFeaturePage(id,bank){
   if(id==='inj_degree')return page(2,bank);
   if(id==='ign_degree')return page(3,bank);
   if(id==='ign_time')return page(4,bank);
+  if(id==='ect_inj')return 0x72;
+  if(id==='ect_ign')return 0x82;
+  if(id==='map_inj')return 0x92;
   return null;
+}
+function isDirectVerifiedFeature(id){
+  if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
-  return pg!=null&&profileCap('mainWrite')&&pageCache.has(pg);
+  return pg!=null&&profileCap('mainWrite')&&isDirectVerifiedFeature(id)&&pageCache.has(pg);
 }
 function requireProfile(name,action='Thao tác ECU'){
   if(profileCap(name))return true;
@@ -122,7 +129,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time']);
+  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -159,7 +166,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time']);
+  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -1007,8 +1014,11 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=normalizeBankForProfile(bank);
   if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
-  if(ecuProfile&&(ecuProfile.family==='v8'||ecuProfile.family==='v11')&&!['inj_degree','ign_degree','ign_time'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
+  }
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj'].includes(id)){
+    throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
 
@@ -1019,7 +1029,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
     case 'ign_time':pg=page(4,bank);rows=1;cols=30;dec=decOil;n=N.ign_time;label='DWELL BOBIN';break;
     case 'ect_idle_motor':return readIdlePageReal(bank,showUi);
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
-    case 'ect_ign':pg=0x82;rows=11;cols=30;dec=decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
+    case 'ect_ign':pg=0x82;rows=11;cols=30;dec=isV11Profile()?decMainIgn:decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
     case 'map_inj':pg=0x92;rows=11;cols=30;dec=decMapInj;n=N.map_inj;label='BÙ PHUN MAP';break;
     case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':
     case 'v_ect':case 'v_iat':case 'v_map':
@@ -1170,7 +1180,7 @@ function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[
 
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
-  const isMain=['inj_degree','ign_degree','ign_time'].includes(id);
+  const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -1183,6 +1193,9 @@ async function writeFeatureReal(id){
       case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encMainInjAngle;payload=encodeRowsByte(m,enc);break;
       case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encMainIgn;payload=encodeRowsByte(m,enc);break;
       case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encOil;payload=encodeRowsByte(m,enc);break;
+      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;enc=encPct;payload=encodeRowsByte(m,enc);break;
+      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;enc=isV11Profile()?encMainIgn:encEctIgn;payload=encodeRowsByte(m,enc);break;
+      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;enc=encMapInj;payload=encodeRowsByte(m,enc);break;
     }
     await writePageChecked(pg,payload,false,1,'mainWrite');
     await new Promise(r=>setTimeout(r,220));
