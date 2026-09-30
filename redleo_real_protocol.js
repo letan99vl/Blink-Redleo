@@ -1626,16 +1626,21 @@ function v11BuildA2Payload(C){
 function v11BuildFullWritePlan(){
   if(!v11FullImageReady())throw new Error('ATE V11 cần READ ALL 9958B trước khi GỬI TOÀN BỘ.');
   const C=readCache;
-  const plan=[];
+  const allPlan=[];
   const a2=v11BuildA2Payload(C);
+  const a2Base=new Uint8Array([
+    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
+    ...C.vEctRaw,...C.vIatRaw,...C.vMapRaw,...C.iatInjRaw,...C.mapMotorRaw,
+    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
+  ]);
   const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
   const ectRaw=patchRowsBytePreserve(C.ectInjRaw,ect,C.ectInj,encPct);
   const ectIgnRaw=patchRowsBytePreserve(C.ectIgnRaw,ectIgn,C.ectIgn,encMainIgn);
   const mapInjRaw=patchRowsBytePreserve(C.mapInjRaw,mapInj,C.mapInj,encMapInj);
-  plan.push({pg:0xA2,payload:a2,label:'A2'});
-  plan.push({pg:0x72,payload:ectRaw,label:'ECT INJ'});
-  plan.push({pg:0x82,payload:ectIgnRaw,label:'ECT IGN'});
-  plan.push({pg:0x92,payload:mapInjRaw,label:'MAP INJ'});
+  allPlan.push({pg:0xA2,payload:new Uint8Array(a2),baseline:a2Base,label:'A2'});
+  allPlan.push({pg:0x72,payload:new Uint8Array(ectRaw),baseline:new Uint8Array(C.ectInjRaw),label:'ECT INJ'});
+  allPlan.push({pg:0x82,payload:new Uint8Array(ectIgnRaw),baseline:new Uint8Array(C.ectIgnRaw),label:'ECT IGN'});
+  allPlan.push({pg:0x92,payload:new Uint8Array(mapInjRaw),baseline:new Uint8Array(C.mapInjRaw),label:'MAP INJ'});
 
   const bankExpected=[];
   for(let b=1;b<=4;b++){
@@ -1651,16 +1656,17 @@ function v11BuildFullWritePlan(){
     const afRaw=new Uint8Array(old.afRaw);
     const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
     const low=pageLow(b);
-    plan.push({pg:0x10|low,payload:injRaw.slice(0,420),label:'MAP '+b+' FUEL 1/2'});
-    plan.push({pg:0x10|low|1,payload:injRaw.slice(420),label:'MAP '+b+' FUEL 2/2'});
-    plan.push({pg:page(2,b),payload:injDegreeRaw,label:'MAP '+b+' INJ ANGLE'});
-    plan.push({pg:page(3,b),payload:ignDegreeRaw,label:'MAP '+b+' IGN'});
-    plan.push({pg:page(4,b),payload:ignTimeRaw,label:'MAP '+b+' DWELL'});
-    plan.push({pg:page(5,b),payload:afRaw,label:'MAP '+b+' AFR RAW'});
-    plan.push({pg:page(6,b),payload:[...idleRaw,...auxRaw,...ectMotorRaw],label:'MAP '+b+' IDLE RAW'});
+    allPlan.push({pg:0x10|low,payload:injRaw.slice(0,420),baseline:new Uint8Array(old.injRaw.slice(0,420)),label:'MAP '+b+' FUEL 1/2'});
+    allPlan.push({pg:0x10|low|1,payload:injRaw.slice(420),baseline:new Uint8Array(old.injRaw.slice(420)),label:'MAP '+b+' FUEL 2/2'});
+    allPlan.push({pg:page(2,b),payload:injDegreeRaw,baseline:new Uint8Array(old.injDegreeRaw),label:'MAP '+b+' INJ ANGLE'});
+    allPlan.push({pg:page(3,b),payload:ignDegreeRaw,baseline:new Uint8Array(old.ignDegreeRaw),label:'MAP '+b+' IGN'});
+    allPlan.push({pg:page(4,b),payload:ignTimeRaw,baseline:new Uint8Array(old.ignTimeRaw),label:'MAP '+b+' DWELL'});
+    // AFR / Idle / Aux / ECT Motor are preserved from Read All and are only
+    // verified. Blink does not rewrite these unsupported V11 blocks.
     bankExpected.push({injRaw,injDegreeRaw,ignDegreeRaw,ignTimeRaw,afRaw,idleRaw,auxRaw,ectMotorRaw});
   }
-  return {plan,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected};
+  const plan=allPlan.filter(x=>!bytesEqual(x.payload,x.baseline));
+  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected};
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
@@ -1690,11 +1696,11 @@ async function sendAllV11Real(){
       await writePageChecked(x.pg,x.payload,false,1,'mainWrite');
       await new Promise(r=>setTimeout(r,70));
     }
-    taskUi('loading','ATE V11 · FULL WRITE ACK · ĐANG READ ALL VERIFY...');
+    taskUi('loading','ATE V11 · '+E.plan.length+' PAGE ĐÃ THAY ĐỔI · ĐANG READ ALL VERIFY...');
     await new Promise(r=>setTimeout(r,300));
     const C=await readAll();
     verifyV11FullWrite(C,E);
-    notice('success','GỬI TOÀN BỘ ATE V11 OK','32 page-write + Read All 9958B VERIFY byte-level.');
+    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All 9958B VERIFY byte-level · block ẩn không bị ghi lại.');
     return C;
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
@@ -1742,29 +1748,41 @@ async function copyBankV11Real(dest){
   const dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[clamp(Number(dest),1,4)];
   if(dests.includes(src)&&dests.length===1)return notice('info','COPY MAP','MAP nguồn và MAP đích giống nhau.');
   const S=v11BankSnapshot(readCache.banks[src-1]);
-  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30||S.afRaw.length!==420||S.idleRaw.length!==24||S.auxRaw.length!==9||S.ectMotorRaw.length!==11){
-    throw new Error('ATE V11 source bank chưa đủ raw block để Copy an toàn.');
+  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30){
+    throw new Error('ATE V11 source bank chưa đủ 4 block tune chính để Copy an toàn.');
   }
-  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nSẽ ghi toàn bộ dữ liệu bank đích và VERIFY bằng Read All. Giữ nguồn ECU ổn định.'))return;
+  const hiddenBefore={};
+  for(const d of dests){
+    const D=v11BankSnapshot(readCache.banks[d-1]);
+    hiddenBefore[d]={afRaw:D.afRaw,idleRaw:D.idleRaw,auxRaw:D.auxRaw,ectMotorRaw:D.ectMotorRaw};
+  }
+  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nChỉ copy 4 bảng đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell. AFR/Idle/Aux/ECT Motor của MAP đích được giữ nguyên và VERIFY không đổi.'))return;
 
   const resume=liveRunning;stopLiveLoop();
   try{
     for(const d of dests){
       const low=pageLow(d);
-      taskUi('loading','ATE V11 · COPY MAP '+src+' → '+d+'...');
+      taskUi('loading','ATE V11 · COPY TUNE MAP '+src+' → '+d+'...');
       await writePageChecked(0x10|low,S.injRaw.slice(0,420),false,1,'mainWrite');
       await writePageChecked(0x10|low|1,S.injRaw.slice(420,840),false,1,'mainWrite');
       await writePageChecked(page(2,d),S.injDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(3,d),S.ignDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(4,d),S.ignTimeRaw,false,1,'mainWrite');
-      await writePageChecked(page(5,d),S.afRaw,false,1,'mainWrite');
-      await writePageChecked(page(6,d),[...S.idleRaw,...S.auxRaw,...S.ectMotorRaw],false,1,'mainWrite');
       await new Promise(r=>setTimeout(r,140));
     }
     const C=await readAll();
     if(!C.v11Decoded)throw new Error('COPY đã ACK nhưng Read All VERIFY không trả layout ATE V11 9958B.');
-    for(const d of dests)assertV11BankMatch(C.banks[d-1],S,'MAP '+d);
-    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · tất cả block đã VERIFY.');
+    for(const d of dests){
+      const B=C.banks[d-1],H=hiddenBefore[d];
+      if(!bytesEqual(B.injRaw,S.injRaw))throw new Error('VERIFY COPY MAP '+d+' sai Fuel');
+      if(!bytesEqual(B.injDegreeRaw,S.injDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc phun');
+      if(!bytesEqual(B.ignDegreeRaw,S.ignDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc lửa');
+      if(!bytesEqual(B.ignTimeRaw,S.ignTimeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Dwell');
+      if(!bytesEqual(B.afRaw,H.afRaw)||!bytesEqual(B.idleRaw,H.idleRaw)||!bytesEqual(B.auxRaw,H.auxRaw)||!bytesEqual(B.ectMotorRaw,H.ectMotorRaw)){
+        throw new Error('VERIFY COPY MAP '+d+' phát hiện block ẩn bị thay đổi ngoài ý muốn.');
+      }
+    }
+    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · 4 bảng tune đã copy · block ẩn giữ nguyên.');
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
   }
