@@ -2971,6 +2971,7 @@ function featureData(f,bank=state.activeMap){const k=keyFor(f,bank),cur=featureS
 function featureForProfile(id){
   const base=F[id];if(!base)return null;
   if(id==='idle_limit'&&state.ecuProfile==='MODERN_V11')return {...base,rows:4,cols:3,x:['G1','G2','G3'],y:['Idle RPM 1','Idle RPM 2','Raw','RPM/64'],desc:'ATE V11 · Idle/Limit page 6x · 12 byte đã xác minh; AutoShift và ECT Motor được giữ nguyên.'};
+  if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...base,rows:2,cols:11,x:[0,14,28,42,56,70,84,98,112,126,140],y:['Step/Time','INJ VE(ms)'],unit:'',desc:'ATE V11 · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   return base;
 }
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
@@ -3202,6 +3203,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.10"></script>
+<script src="redleo_real_protocol.js?v=3.11"></script>
 </body>
 </html>
