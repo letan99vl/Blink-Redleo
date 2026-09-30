@@ -133,6 +133,15 @@ function setProfileDisabled(el,blocked,reason=''){
 function applyProfileUi(){
   const p=ecuProfile||ECU_PROFILE_DEFS.UNKNOWN;
   document.querySelectorAll('[data-ecuprofile]').forEach(e=>e.textContent=p.label);
+  // V11 handshake exposes a four-nibble ECU PIN. This is distinct from the
+  // original ATE service/master login handled by FtcECU.dll, which Blink does
+  // not emulate. Label the controls according to what Blink actually verifies.
+  const loginBtn=document.querySelector('[data-ecucmd="LOGIN"]');
+  const logoutBtn=document.querySelector('[data-ecucmd="LOGOUT"]');
+  const changePwBtn=document.querySelector('[data-ecucmd="CHANGE_PASSWORD"]');
+  if(loginBtn)loginBtn.textContent=p.family==='v11'?'XÁC NHẬN PIN ECU':'ĐĂNG NHẬP ECU';
+  if(logoutBtn)logoutBtn.textContent=p.family==='v11'?'XÓA XÁC NHẬN PIN':'ĐĂNG XUẤT';
+  if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
   const sub=document.querySelector('#ecuScreen .screenSub');
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
@@ -1819,7 +1828,11 @@ async function restoreReal(){
       if(!verify||!verify.v11Decoded||verify.sourceLength!==9958)throw new Error('Restore đã trả dữ liệu nhưng READ ALL verify không hợp lệ.');
       const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
       if(!bytesEqual(a,b))throw new Error('RESTORE VERIFY: dữ liệu sau 0x8B khác lần READ ALL xác nhận.');
-      notice('success','RESTORE ATE V11 OK','0x8B + Read All 9958B verify byte-level.');
+      try{await refreshV11PasswordHandshake();}catch(e){
+        if(handshakeInfo)handshakeInfo.password=null;
+        log('Restore OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
+      }
+      notice('success','RESTORE ATE V11 OK','0x8B + Read All 9958B verify byte-level · PIN handshake đã làm mới.');
       return verify;
     }
     notice('success','RESTORE ECU OK','0x8B hoàn tất · ECU trả '+restored.raw.length+'B.');
@@ -1924,12 +1937,12 @@ async function loginReal(){
   let cur=currentPasswordBytes();
   if(isV11Profile()&&!cur)cur=await ensureV11PasswordCache();
   if(!cur)return notice('error','LOGIN','Chưa đọc được PIN ECU.');
-  const p=prompt(isV11Profile()?'Nhập PIN ATE ECU (1–4 số):':'Nhập mật khẩu ECU:','');
+  const p=prompt(isV11Profile()?'Nhập PIN ECU hiện tại (1–4 số):':'Nhập mật khẩu ECU:','');
   if(p==null)return;
   const inBytes=isV11Profile()?v11PasswordDigitsToBytes(p):passwordDigitsToBytes(p);
   const ok=passwordBytesToString(inBytes)===passwordBytesToString(cur);
   loginState=ok;
-  notice(ok?'success':'error',ok?'LOGIN OK':'SAI MẬT KHẨU',ok?'PIN khớp dữ liệu ECU':'Mật khẩu/PIN không khớp ECU');
+  notice(ok?'success':'error',isV11Profile()?(ok?'PIN ECU OK':'SAI PIN ECU'):(ok?'LOGIN OK':'SAI MẬT KHẨU'),ok?(isV11Profile()?'PIN khớp handshake 0x5A của ECU':'Mật khẩu khớp dữ liệu ECU'):(isV11Profile()?'PIN không khớp handshake ECU':'Mật khẩu không khớp ECU'));
 }
 function logoutReal(){loginState=false;notice('info','LOGOUT','Đã đăng xuất')}
 async function changePasswordReal(){
