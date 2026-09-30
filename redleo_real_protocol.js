@@ -80,6 +80,9 @@ function profileFromHandshake(info){
   if(major===8||/\bV8\b|\bVER\s*8\b/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
   return ECU_PROFILE_DEFS.UNKNOWN;
 }
+function v11FullImageReady(){
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&readCache&&readCache.v11Decoded&&readCache.sourceLength===9958);
+}
 function profileCap(name){
   if(name==='fullWrite'){
     return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
@@ -162,7 +165,7 @@ function applyProfileUi(){
     else if(c==='TEST_INJ')ok=profileCap('testInjector');
     setProfileDisabled(b,!ok,reason);
   });
-  document.querySelectorAll('[data-copybank]').forEach(b=>setProfileDisabled(b,!profileCap('fullWrite'),reason));
+  document.querySelectorAll('[data-copybank]').forEach(b=>setProfileDisabled(b,!(profileCap('fullWrite')||v11FullImageReady()),reason));
 
   const singleV8=p.family==='v8'&&((handshakeInfo?.ecuMode===1)||(handshakeInfo?.ecuMode===4));
   document.querySelectorAll('.mapBankBtn').forEach(b=>{
@@ -807,9 +810,13 @@ function parseV11ReadAll9958(f){
 
   for(let bank=1;bank<=4;bank++){
     const B={bank};
+    B.injRaw=f.slice(p,p+840);
     z=decodeRowsU16(f,p,14,30,decOilTab);B.inj=z.data;p=z.next;
+    B.injDegreeRaw=f.slice(p,p+420);
     z=decodeRowsByte(f,p,14,30,decMainInjAngle);B.injDegree=z.data;p=z.next;
+    B.ignDegreeRaw=f.slice(p,p+420);
     z=decodeRowsByte(f,p,14,30,decMainIgn);B.ignDegree=z.data;p=z.next;
+    B.ignTimeRaw=f.slice(p,p+30);
     z=decodeRowsByte(f,p,1,30,decMainDwell);B.ignTime=z.data;p=z.next;
     B.afRaw=f.slice(p,p+420);p+=420;
     B.idleRaw=f.slice(p,p+24);p+=24;
@@ -1530,7 +1537,68 @@ async function sendAllReal(){
   for(let b=1;b<=4;b++)await writeBankAll(b);await readAll();notice('success','SEND ALL REAL OK','Đã ghi toàn bộ page hỗ trợ và Read All verify');
 }
 
+function bytesEqual(a,b){
+  if(!a||!b||a.length!==b.length)return false;
+  for(let i=0;i<a.length;i++)if((a[i]&255)!==(b[i]&255))return false;
+  return true;
+}
+function v11BankSnapshot(B){
+  return {
+    injRaw:new Uint8Array(B.injRaw||[]),
+    injDegreeRaw:new Uint8Array(B.injDegreeRaw||[]),
+    ignDegreeRaw:new Uint8Array(B.ignDegreeRaw||[]),
+    ignTimeRaw:new Uint8Array(B.ignTimeRaw||[]),
+    afRaw:new Uint8Array(B.afRaw||[]),
+    idleRaw:new Uint8Array(B.idleRaw||[]),
+    auxRaw:new Uint8Array(B.auxRaw||[]),
+    ectMotorRaw:new Uint8Array(B.ectMotorRaw||[])
+  };
+}
+function assertV11BankMatch(B,S,label){
+  const pairs=[
+    ['Fuel',B.injRaw,S.injRaw],['INJ angle',B.injDegreeRaw,S.injDegreeRaw],
+    ['IGN angle',B.ignDegreeRaw,S.ignDegreeRaw],['Dwell',B.ignTimeRaw,S.ignTimeRaw],
+    ['AFR raw',B.afRaw,S.afRaw],['Idle',B.idleRaw,S.idleRaw],
+    ['Aux',B.auxRaw,S.auxRaw],['ECT Motor',B.ectMotorRaw,S.ectMotorRaw]
+  ];
+  for(const [name,a,b] of pairs)if(!bytesEqual(a,b))throw new Error('VERIFY COPY '+label+' sai block '+name);
+}
+async function copyBankV11Real(dest){
+  if(!v11FullImageReady())await readAll();
+  if(!v11FullImageReady())throw new Error('ATE V11 cần READ ALL 9958B hợp lệ trước khi Copy MAP.');
+  const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+  const dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[clamp(Number(dest),1,4)];
+  if(dests.includes(src)&&dests.length===1)return notice('info','COPY MAP','MAP nguồn và MAP đích giống nhau.');
+  const S=v11BankSnapshot(readCache.banks[src-1]);
+  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30||S.afRaw.length!==420||S.idleRaw.length!==24||S.auxRaw.length!==9||S.ectMotorRaw.length!==11){
+    throw new Error('ATE V11 source bank chưa đủ raw block để Copy an toàn.');
+  }
+  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nSẽ ghi toàn bộ dữ liệu bank đích và VERIFY bằng Read All. Giữ nguồn ECU ổn định.'))return;
+
+  const resume=liveRunning;stopLiveLoop();
+  try{
+    for(const d of dests){
+      const low=pageLow(d);
+      taskUi('loading','ATE V11 · COPY MAP '+src+' → '+d+'...');
+      await writePageChecked(0x10|low,S.injRaw.slice(0,420),false,1,'mainWrite');
+      await writePageChecked(0x10|low|1,S.injRaw.slice(420,840),false,1,'mainWrite');
+      await writePageChecked(page(2,d),S.injDegreeRaw,false,1,'mainWrite');
+      await writePageChecked(page(3,d),S.ignDegreeRaw,false,1,'mainWrite');
+      await writePageChecked(page(4,d),S.ignTimeRaw,false,1,'mainWrite');
+      await writePageChecked(page(5,d),S.afRaw,false,1,'mainWrite');
+      await writePageChecked(page(6,d),[...S.idleRaw,...S.auxRaw,...S.ectMotorRaw],false,1,'mainWrite');
+      await new Promise(r=>setTimeout(r,140));
+    }
+    const C=await readAll();
+    if(!C.v11Decoded)throw new Error('COPY đã ACK nhưng Read All VERIFY không trả layout ATE V11 9958B.');
+    for(const d of dests)assertV11BankMatch(C.banks[d-1],S,'MAP '+d);
+    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · tất cả block đã VERIFY.');
+  }finally{
+    if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
+  }
+}
 async function copyBankReal(dest){
+  if(isV11Profile())return copyBankV11Real(dest);
   requireProfile('fullWrite','Sao chép/Ghi MAP');
   if(!readCache)await readAll();const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[Number(dest)];
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
