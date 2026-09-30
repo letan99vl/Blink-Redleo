@@ -713,9 +713,9 @@ async function initializeRealSession(){
       // If the user connected while already viewing a supported ECU table,
       // lazily read only that visible table. INJ VE itself remains manual-read.
       setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
-      // V11 live ECT/IAT/MAP needs the voltage curves stored at the front of
-      // page A. This is a read-only calibration fetch; it never writes Options.
-      if(isV11Profile())setTimeout(()=>{readA2SensorPageReal(false).catch(e=>log('V11 sensor calibration read skipped:',String(e&&e.message||e)))},900);
+      // Do NOT auto-read the large V11 A2 page on connect. It blocks the ECU
+      // for several seconds on Bluefy/iOS and can collide with the user's first action.
+      // A2 is read lazily only when an A2-backed feature is opened or explicitly requested.
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -798,6 +798,25 @@ async function waitForEcuIdle(maxWait=16000){
   }
 }
 
+async function writeRawBleChunk(cur,pkt,reliable){
+  // ESP32 bridge assembles RAW chunks strictly by offset. For multi-chunk frames
+  // (fuel writes, A2 writes, etc.) use ATT write-with-response so the next offset
+  // is not sent until the previous chunk has been accepted by the bridge.
+  if(reliable){
+    if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
+    if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
+    if(typeof cur.writeValueWithoutResponse==='function'){
+      await cur.writeValueWithoutResponse(pkt);
+      await new Promise(r=>setTimeout(r,14));
+      return;
+    }
+  }
+  if(typeof cur.writeValueWithoutResponse==='function'){await cur.writeValueWithoutResponse(pkt);return;}
+  if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
+  if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
+  throw new Error('BLE characteristic không hỗ trợ ghi RAW');
+}
+
 async function rawExchange(bytes,timeout=12000){
   if(!installRawListener())throw new Error('Chưa có BLE MAP characteristic');
   const ch=cmdChar();if(!ch)throw new Error('Chưa kết nối ECU Blink BLE');
@@ -814,15 +833,16 @@ async function rawExchange(bytes,timeout=12000){
       pending.set(id,{resolve,reject,to,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
     });
     try{
+      const reliableChunks=total>RAW_CHUNK;
       for(let off=0;off<total;off+=RAW_CHUNK){
         if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
         const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
         const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
         pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
-        if(cur.writeValueWithoutResponse)await cur.writeValueWithoutResponse(pkt);else await cur.writeValue(pkt);
-        if(total>800)await new Promise(r=>setTimeout(r,6));
-        else if(total>400)await new Promise(r=>setTimeout(r,4));
-        else if(total>48)await new Promise(r=>setTimeout(r,2));
+        await writeRawBleChunk(cur,pkt,reliableChunks);
+        // With-response already provides flow control. Keep only a tiny yield on
+        // long frames so Bluefy/iOS can service notifications/UI between chunks.
+        if(reliableChunks&&((off/RAW_CHUNK+1)%12===0))await new Promise(r=>setTimeout(r,2));
       }
     }catch(e){
       const p=pending.get(id);
@@ -1286,7 +1306,7 @@ function parseA2Data(data){
   for(let c=0;c<15;c++)C.external[0][c]=decExtPct(data[118+c]);
   return C;
 }
-async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000){
+async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000,showUi=true){
   pg&=255;
   const resumeLive=liveRunning;
   stopLiveLoop();
@@ -1300,14 +1320,14 @@ async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeo
 
     for(let attempt=1;attempt<=attempts;attempt++){
       try{
-        taskUi('loading','ĐANG ĐỌC '+label+' · LẦN '+attempt+'/'+attempts);
+        if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · LẦN '+attempt+'/'+attempts);
         const rx=await rawExchange(req5(0x9A,pg),replyTimeout);
         return rx;
       }catch(e){
         lastErr=e;
         log('0x9A retry page 0x'+pg.toString(16).toUpperCase(),attempt+'/'+attempts,String(e&&e.message||e));
         if(attempt<attempts){
-          taskUi('loading','ECU CHƯA TRẢ LỜI · THỬ LẠI '+(attempt+1)+'/'+attempts);
+          if(showUi)taskUi('loading','ECU CHƯA TRẢ LỜI · THỬ LẠI '+(attempt+1)+'/'+attempts);
           // Let the ECU/parser fully settle before repeating the same read.
           await new Promise(r=>setTimeout(r,450+(attempt-1)*250));
         }
@@ -1325,7 +1345,7 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   requireProfile('pageRead','Đọc page 0x9A');
   pg&=255;
   if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  const rx=await exchangePage9A(pg,label,3);
+  const rx=await exchangePage9A(pg,label,3,260,10000,showUi);
   const f=findValidCommandFrame(rx,pg,minData+3);
   if(!f)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B');
   const data=f.slice(1,-2);
@@ -1582,7 +1602,8 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
     'MAP NO.'+bank,
     first ? (isV8?3:4) : 2,
     first ? (isV8?450:900) : 260,
-    18000
+    18000,
+    showUi
   );
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
