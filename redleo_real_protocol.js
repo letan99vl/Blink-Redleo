@@ -43,12 +43,13 @@ const FEAT={
   'External adjustment':'external_adjust',
   'Automatic shift':'auto_shift',
   'Automatic clutch':'auto_clutch',
+  'Charger Parameters':'chg_params',
   'Spare':'spare',
   'ECT - Voltage Relation':'v_ect',
   'IAT - Voltage Relation':'v_iat',
   'MAP - Voltage Relation':'v_map'
 };
-const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18};
+const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19};
 
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
@@ -105,12 +106,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
-  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -151,7 +152,7 @@ function applyProfileUi(){
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
-  if(p.family==='v11')mainFeatureIds.add('auto_clutch');
+  if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');}
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -189,7 +190,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -300,6 +301,57 @@ function decV11ExtPct(raw){return Math.round(((Number(raw)-128)*100)/128)}
 function encV11ExtPct(v){return clamp(Math.round(Number(v)*128/100)+128,0,255)}
 // ATE V11 Automatic Clutch (Dgv_Dzfm) lives in A2 configRaw[1..6].
 // Cols: Low RPM, High RPM, Low Angle, High Angle, Close RPM, ECT-On Voltage.
+function v11RoundEven(x){
+  x=Number(x);if(!Number.isFinite(x))return 0;
+  const f=Math.floor(x),d=x-f;
+  if(Math.abs(d-0.5)<1e-12)return (f%2===0)?f:f+1;
+  return Math.round(x);
+}
+function decV11Chg(col,raw){
+  raw=Number(raw)&255;
+  if(col<=2){
+    if(raw===0)return 0;
+    return v11RoundEven((250000/raw)/10)*10;
+  }
+  if(col<=5)return r2((180*raw/1024)+28.125);
+  if(col===6)return r2((25*raw/1024)+13.8);
+  if(col===7)return r2((25*raw/1024)+14.8);
+  return raw;
+}
+function encV11Chg(col,v){
+  v=Number(v);if(!Number.isFinite(v))v=0;
+  if(col<=2){
+    v=Math.max(800,v);
+    return clamp(v11RoundEven(250000/v),0,255);
+  }
+  if(col<=5){
+    const adj=v>28.125?v-28.125:0;
+    return clamp(v11RoundEven(1024*adj/180),0,255);
+  }
+  if(col===6){
+    const adj=v>13.8?v-13.8:0;
+    return clamp(v11RoundEven(adj*1024/25),0,255);
+  }
+  if(col===7){
+    const adj=v>14.8?v-14.8:0;
+    return clamp(v11RoundEven(adj*1024/25),0,255);
+  }
+  return clamp(v11RoundEven(v),0,255);
+}
+function decodeV11Chg8(raw){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<8)throw new Error('ATE V11 CHG cần 8 byte.');
+  return [Array.from({length:8},(_,i)=>decV11Chg(i,raw[i]))];
+}
+function encV11Chg8(matrix){
+  if(!Array.isArray(matrix)||matrix.length!==1||!Array.isArray(matrix[0])||matrix[0].length!==8)throw new Error('ATE V11 CHG cần bảng 1 × 8.');
+  const v=matrix[0].map(Number);
+  if(v.some(x=>!Number.isFinite(x)))throw new Error('ATE V11 CHG có giá trị không hợp lệ.');
+  if(v[0]>v[1]||v[1]>v[2])throw new Error('CHG RPM phải theo thứ tự Min ≤ Mid ≤ Max.');
+  if(v[3]>v[4]||v[4]>v[5])throw new Error('CHG Current phải theo thứ tự Min ≤ Mid ≤ Max.');
+  return new Uint8Array(v.map((x,i)=>encV11Chg(i,x)));
+}
+
 function decV11Dzfm(col,raw){
   raw=Number(raw)&255;
   if(col===0||col===1||col===4)return raw*20;
@@ -870,7 +922,7 @@ function parseV11ReadAll9958(f){
   C.external=[Array(15).fill(0),Array(15).fill(0)];
   for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
   for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
-  C.chgRaw=f.slice(p,p+8);p+=8;
+  C.chgRaw=f.slice(p,p+8);C.chg=decodeV11Chg8(C.chgRaw);p+=8;
   if(p!==f.length-2)throw new Error('ATE V11 Read All layout lệch offset '+p+' / checksum '+(f.length-2));
   C.hidden.tailData=f.slice(p,f.length-2);
   return C;
@@ -916,6 +968,7 @@ function syncV11ReadAll(C){
   emitFeature(N.map_idle_motor,[C.mapMotor]);
   emitFeature(N.external_adjust,C.external);
   if(C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
+  if(C.chg)emitFeature(N.chg_params,C.chg);
   emitFeature(N.v_ect,[C.vEct]);
   emitFeature(N.v_iat,[C.vIat]);
   emitFeature(N.v_map,[C.vMap]);
@@ -1113,7 +1166,7 @@ function parseV11A2Data(data){
     C.external=[Array(15).fill(0),Array(15).fill(0)];
     for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
     for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
-    C.chgRaw=data.slice(p,p+8);p+=8;
+    C.chgRaw=data.slice(p,p+8);C.chg=decodeV11Chg8(C.chgRaw);p+=8;
     C.v11A2KnownLength=p;
   }
   return C;
@@ -1222,6 +1275,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.map_idle_motor,[C.mapMotor]);
       if(C.external)emitFeature(N.external_adjust,C.external);
       if(v11&&C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
+      if(v11&&C.chg)emitFeature(N.chg_params,C.chg);
       if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
@@ -1391,7 +1445,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1405,7 +1459,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
     case 'ect_ign':pg=0x82;rows=11;cols=30;dec=isV11Profile()?decMainIgn:decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
     case 'map_inj':pg=0x92;rows=11;cols=30;dec=decMapInj;n=N.map_inj;label='BÙ PHUN MAP';break;
-    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':
+    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'chg_params':
     case 'v_ect':case 'v_iat':case 'v_map':
       return readA2SensorPageReal(showUi);
     case 'spare':throw new Error('Spare không dùng trên firmware 9.1X');
@@ -1621,6 +1675,32 @@ async function writeV11IdleLimit(bank){
   return R;
 }
 
+async function writeV11Chg(){
+  if(!isV11Profile())throw new Error('CHG writer chỉ dùng cho ATE V11.');
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<269)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI để bảo toàn toàn bộ page A2.');
+  const m=matrixFromRedTable(1,8);
+  const raw=encV11Chg8(m);
+  const payload=new Uint8Array(cached);
+  payload.set(raw,261);
+  taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 261 BYTE A2 KHÁC');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  let R;
+  try{R=await readA2SensorPageReal(true);}
+  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY CHG đọc lại thất bại: '+String(e&&e.message||e));}
+  if(!R.cache||!R.cache.chgRaw||R.cache.chgRaw.length!==8)throw new Error('VERIFY CHG không đọc đủ 8 byte.');
+  for(let i=0;i<8;i++)if((R.cache.chgRaw[i]&255)!==(raw[i]&255)){
+    throw new Error('VERIFY CHG sai byte '+i+' · ghi '+raw[i]+' đọc '+R.cache.chgRaw[i]);
+  }
+  if(readCache&&readCache.v11Decoded){
+    readCache.chgRaw=new Uint8Array(R.cache.chgRaw);
+    readCache.chg=R.cache.chg.map(r=>r.slice());
+  }
+  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · offset A2 261..268 · các byte khác giữ nguyên.');
+  return R;
+}
+
 async function writeV11AutoClutch(){
   if(!isV11Profile())throw new Error('Automatic Clutch writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
@@ -1719,6 +1799,7 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='auto_shift')return writeV11AutoShift(bank);
     if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
     if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
+    if(isV11Profile()&&id==='chg_params')return writeV11Chg();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -1902,6 +1983,16 @@ function v11OneRow(id,fallback){
   const m=v11StoreMatrix(id,0,[fallback]);
   return m[0].slice();
 }
+function v11PatchChgRaw(raw,edited,base){
+  const out=new Uint8Array(raw||[]);
+  if(out.length!==8||!Array.isArray(edited)||edited.length!==1||!Array.isArray(base)||base.length!==1)return out;
+  const vals=edited[0],old=base[0];
+  if(!Array.isArray(vals)||!Array.isArray(old)||vals.length!==8||old.length!==8)return out;
+  if(vals[0]>vals[1]||vals[1]>vals[2])throw new Error('CHG RPM phải theo thứ tự Min ≤ Mid ≤ Max.');
+  if(vals[3]>vals[4]||vals[4]>vals[5])throw new Error('CHG Current phải theo thứ tự Min ≤ Mid ≤ Max.');
+  for(let i=0;i<8;i++)if(v11ValueChanged(vals[i],old[i]))out[i]=encV11Chg(i,vals[i]);
+  return out;
+}
 function v11PatchExternalRaw(raw,edited,base){
   const out=new Uint8Array(raw||[]);
   if(out.length!==30||!Array.isArray(edited)||edited.length!==2||!Array.isArray(base)||base.length!==2)return out;
@@ -1924,10 +2015,12 @@ function v11BuildA2Payload(C){
   const mapMotorRaw=patchLinearPreserve(C.mapMotorRaw,mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255));
   const external=v11StoreMatrix('external_adjust',0,C.external);
   const externalRaw=v11PatchExternalRaw(C.externalRaw,external,C.external);
+  const chg=v11StoreMatrix('chg_params',0,C.chg);
+  const chgRaw=v11PatchChgRaw(C.chgRaw,chg,C.chg);
   const out=[
     ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
     ...vEctRaw,...vIatRaw,...vMapRaw,...iatRaw,...mapMotorRaw,
-    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...externalRaw,...C.chgRaw
+    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...externalRaw,...chgRaw
   ];
   if(out.length!==269)throw new Error('ATE V11 A2 full payload phải 269B, hiện '+out.length+'B');
   return out;
