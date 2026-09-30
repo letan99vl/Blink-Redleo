@@ -63,6 +63,58 @@ const ECU_PROFILE_DEFS=Object.freeze({
 });
 ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
 
+const LEGACY_TPS_PCT=Object.freeze([0,2,5,8,14,20,30,40,50,60,70,80,90,100]);
+const LEGACY_RPM_AXIS=Object.freeze(Array.from({length:30},(_,i)=>(i+1)*500));
+const OLD_ECT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>i*14));
+const NEW_ECT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>-14+i*14));
+const OLD_IAT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>i*6));
+const NEW_IAT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>-14+i*7));
+const MAP_KPA_AXIS=Object.freeze(Array.from({length:11},(_,i)=>i*12));
+
+function firmwareNumbers(info=handshakeInfo){
+  const txt=(String(info&&info.firmware||'')+' '+String(info&&info.ident||'')).toUpperCase();
+  const m=txt.match(/(?:V|VER(?:SION)?)?\s*(8|9|10|11)(?:\.(\d+))?/);
+  if(!m)return {major:NaN,minor:NaN};
+  return {major:Number(m[1]),minor:m[2]==null?NaN:Number(m[2])};
+}
+function usesNewThermalAxis(info=handshakeInfo){
+  const v=firmwareNumbers(info);
+  if(v.major>=10)return true;
+  if(v.major===9&&Number.isFinite(v.minor)&&v.minor>=2)return true;
+  return false;
+}
+function currentAuxAxes(){
+  const newer=usesNewThermalAxis();
+  return {
+    ect:(newer?NEW_ECT_AXIS:OLD_ECT_AXIS).slice(),
+    iat:(newer?NEW_IAT_AXIS:OLD_IAT_AXIS).slice(),
+    map:MAP_KPA_AXIS.slice(),
+    generation:newer?'9.2+':'8/9.1'
+  };
+}
+function validDynamicAxes(tpsPct,rpmAxis){
+  if(!Array.isArray(tpsPct)||tpsPct.length!==14||!Array.isArray(rpmAxis)||rpmAxis.length!==30)return false;
+  const t=tpsPct.map(Number),r=rpmAxis.map(Number);
+  if(t.some(x=>!Number.isFinite(x)||x<0||x>100)||r.some(x=>!Number.isFinite(x)||x<=0||x>30000))return false;
+  for(let i=1;i<t.length;i++)if(t[i]<t[i-1])return false;
+  for(let i=1;i<r.length;i++)if(r[i]<=r[i-1])return false;
+  return true;
+}
+function publishEcuAxes(tpsPct,rpmAxis,source='ECU'){
+  const aux=currentAuxAxes();
+  let t=Array.from(tpsPct||[],Number),r=Array.from(rpmAxis||[],Number);
+  if(!validDynamicAxes(t,r)){t=LEGACY_TPS_PCT.slice();r=LEGACY_RPM_AXIS.slice();}
+  const payload={profile:ecuProfile?.key||'UNKNOWN',firmware:handshakeInfo?.firmware||'',tpsPct:t.slice(),rpmAxis:r.slice(),ectAxis:aux.ect,iatAxis:aux.iat,mapAxis:aux.map,source};
+  window.blinkEcuAxes=payload;
+  try{window.applyEcuAxes?.(payload);}catch(_e){}
+  return payload;
+}
+function publishProfileAxisFallback(source='PROFILE'){
+  // V8/V9 use the fixed main TPS/RPM breakpoints proven in their original EXEs.
+  // V10/Ultra/V11 will be replaced by the ECU-provided A2 axis as soon as it is read.
+  return publishEcuAxes(LEGACY_TPS_PCT.slice(),LEGACY_RPM_AXIS.slice(),source);
+}
+
 function profileFromHandshake(info){
   if(info&&info.legacyProbe)return ECU_PROFILE_DEFS.LEGACY_PROBE;
   const fw=String(info&&info.firmware||'').trim().toUpperCase();
