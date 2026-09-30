@@ -1369,7 +1369,7 @@ async function readAll(cmd=0xAB){
 // ----- write builders -----
 function matrixFromRedTable(rows,cols){
   const m=Array.from({length:rows},()=>Array(cols).fill(0));
-  document.querySelectorAll('#redTable [data-rr][data-rc]').forEach(td=>{const r=+td.dataset.rr,c=+td.dataset.rc;if(r<rows&&c<cols){const n=Number(td.textContent);if(Number.isFinite(n))m[r][c]=n;}});return m;
+  document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]').forEach(td=>{const r=+td.dataset.rr,c=+td.dataset.rc;if(r<rows&&c<cols){const n=Number(td.textContent);if(Number.isFinite(n))m[r][c]=n;}});return m;
 }
 function currentSource(){return (document.getElementById('redSourceName')?.textContent||'').trim()}
 function currentFeatureId(){return FEAT[currentSource()]||null}
@@ -1442,10 +1442,10 @@ function a2Payload(){
   if(out.length!==133)throw new Error('A2 payload phải 133B, hiện '+out.length+'B');return out;
 }
 function matrixFromMaybe(id,fallback){
-  if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length){const cols=Math.max(...cells.map(x=>+x.dataset.rc))+1;const m=matrixFromRedTable(1,cols);return m[0];}}
+  if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]')];if(cells.length){const cols=Math.max(...cells.map(x=>+x.dataset.rc))+1;const m=matrixFromRedTable(1,cols);return m[0];}}
   return fallback.slice();
 }
-function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
+function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
 async function writeV11IdleLimit(bank){
   if(!isV11Profile())throw new Error('Idle V11 writer chỉ dùng cho ATE V11.');
