@@ -1018,11 +1018,36 @@ function validMainAxes(tpsPct,rpmAxis){
 function sameAxis(a,b,tol=1e-9){
   return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>Math.abs(Number(v)-Number(b[i]))<=tol);
 }
+function nearestAxisIndex(axis,value){
+  let best=0,dist=Infinity;
+  for(let i=0;i<axis.length;i++){const d=Math.abs(Number(axis[i])-Number(value));if(d<dist){dist=d;best=i;}}
+  return best;
+}
+function remapTargetToAxes(matrix,oldRows,oldRpms,newRows,newRpms){
+  if(!validMatrix(matrix))return matrix;
+  const out=blankMatrix(13.2);
+  for(let nr=0;nr<R;nr++){
+    const or=nr===R-1?R-1:nearestAxisIndex(oldRows.slice(0,-1).map(Number),Number(newRows[nr]));
+    for(let nc=0;nc<C;nc++){
+      const oc=nearestAxisIndex(oldRpms,Number(newRpms[nc]));
+      out[nr][nc]=num(matrix[or][oc],13.2);
+    }
+  }
+  return out;
+}
 function applyEcuAxes(info={}){
   const t=Array.from(info.tpsPct||[],Number),r=Array.from(info.rpmAxis||[],Number);
   if(!validMainAxes(t,r))return false;
+  const oldRpms=RPMS.slice(),oldRows=TPS_ROWS.slice();
   const nextRows=t.slice(1).reverse().concat('IDLE');
-  const changed=!sameAxis(RPMS,r)||!sameAxis(TPS_ROWS.slice(0,-1).map(Number),nextRows.slice(0,-1).map(Number));
+  const changed=!sameAxis(oldRpms,r)||!sameAxis(oldRows.slice(0,-1).map(Number),nextRows.slice(0,-1).map(Number));
+  if(changed&&typeof state!=='undefined'&&!state.threeRun?.active){
+    for(const b of state.mapBanks||[]){
+      b.target=remapTargetToAxes(b.target,oldRows,oldRpms,nextRows,r);
+      b.measured=blankMatrix(null);b.counts=blankMatrix(0);
+    }
+    state.lastCellKey='';
+  }
   RPMS.splice(0,RPMS.length,...r);
   TPS_ROWS.splice(0,TPS_ROWS.length,...nextRows);
   if(Array.isArray(info.ectAxis)&&info.ectAxis.length===11)ECU_AUX_AXES.ect=info.ectAxis.map(Number);
@@ -1030,12 +1055,8 @@ function applyEcuAxes(info={}){
   if(Array.isArray(info.mapAxis)&&info.mapAxis.length===11)ECU_AUX_AXES.map=info.mapAxis.map(Number);
   ecuAxisMeta={source:String(info.source||'ECU'),profile:String(info.profile||''),firmware:String(info.firmware||'')};
 
-  // AFR samples belong to physical TPS/RPM cells. If a newly identified ECU
-  // changes those breakpoints, never reuse old measured samples by row index.
-  if(changed&&typeof state!=='undefined'&&!state.threeRun?.active){
-    for(const b of state.mapBanks||[]){b.measured=blankMatrix(null);b.counts=blankMatrix(0);}
-    state.lastCellKey='';
-  }
+  // Main axes are now committed. Measured AFR was cleared and target AFR
+  // remapped above whenever the physical breakpoints changed.
   try{render();updateLive();}catch(_e){}
   try{window.refreshRedEcuAxes?.();}catch(_e){}
   const sub=document.getElementById('editorSub');
