@@ -135,7 +135,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj']);
+  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
