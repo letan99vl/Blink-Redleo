@@ -46,12 +46,13 @@ const FEAT={
   'Charger Parameters':'chg_params',
   'ATE options':'ate_options',
   'Start Add Injection':'ect_start',
+  'Alternate Table':'alternate_table',
   'Spare':'spare',
   'ECT - Voltage Relation':'v_ect',
   'IAT - Voltage Relation':'v_iat',
   'MAP - Voltage Relation':'v_map'
 };
-const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20,ect_start:21};
+const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20,ect_start:21,alternate_table:22};
 
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
@@ -161,12 +162,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
-  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -215,7 +216,7 @@ function applyProfileUi(){
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
-  if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');}
+  if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');mainFeatureIds.add('alternate_table');}
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -253,11 +254,11 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options'||id==='ect_start');
+    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options'||id==='ect_start'||id==='alternate_table');
     const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
     // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
@@ -1085,7 +1086,7 @@ function parseV11ReadAll9958(f){
   // is mapped; offsets and lengths are proven from the V11 grid serializer.
   C.optionRawV11=f.slice(p,p+24);p+=24;
   C.ectStartRaw=f.slice(p,p+33);p+=33;
-  C.globalAuxRaw=f.slice(p,p+9);p+=9;
+  C.globalAuxRaw=f.slice(p,p+9);C.alternateRaw=C.globalAuxRaw.slice();C.alternateTable=[Array.from(C.alternateRaw,x=>Number(x))];p+=9;
 
   C.ectInjRaw=f.slice(p,p+330);let z=decodeRowsByte(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
   C.ectIgnRaw=f.slice(p,p+330);z=decodeRowsByte(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
@@ -1159,6 +1160,7 @@ function syncV11ReadAll(C){
   // Read-All 9958 has a different compact partition after configRaw.
   // Do not populate direct-A2 External/CHG UI from those bytes.
   if(C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
+  if(C.alternateTable)emitFeature(N.alternate_table,C.alternateTable);
   emitFeature(N.v_ect,[C.vEct]);
   emitFeature(N.v_iat,[C.vIat]);
   emitFeature(N.v_map,[C.vMap]);
@@ -1358,7 +1360,7 @@ function parseV11A2Data(data){
   if(data.length>=286){
     C.optionRawV11=data.slice(p,p+30);C.ateOptions=decodeV11Options20(C.optionRawV11,C.vEct);p+=30;
     C.ectStartRaw=data.slice(p,p+44);C.ectStart=decodeV11EctStart44(C.ectStartRaw);p+=44;
-    C.globalAuxRaw=data.slice(p,p+9);p+=9;
+    C.globalAuxRaw=data.slice(p,p+9);C.alternateRaw=C.globalAuxRaw.slice();C.alternateTable=[Array.from(C.alternateRaw,x=>Number(x))];p+=9;
     C.externalRaw=data.slice(p,p+30);p+=30;
     C.external=[Array(15).fill(0),Array(15).fill(0)];
     for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
@@ -1505,6 +1507,7 @@ async function readA2SensorPageReal(showUi=true){
       if(v11&&C.chg)emitFeature(N.chg_params,C.chg);
       if(v11&&C.ateOptions)emitFeature(N.ate_options,C.ateOptions);
       if(v11&&C.ectStart)emitFeature(N.ect_start,C.ectStart);
+      if(v11&&C.alternateTable)emitFeature(N.alternate_table,C.alternateTable);
       if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
@@ -1696,7 +1699,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1710,7 +1713,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
     case 'ect_ign':pg=0x82;rows=11;cols=30;dec=isV11Profile()?decMainIgn:decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
     case 'map_inj':pg=0x92;rows=11;cols=30;dec=decMapInj;n=N.map_inj;label='BÙ PHUN MAP';break;
-    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'chg_params':case 'ate_options':case 'ect_start':
+    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'chg_params':case 'ate_options':case 'ect_start':case 'alternate_table':
     case 'v_ect':case 'v_iat':case 'v_map':
       return readA2SensorPageReal(showUi);
     case 'spare':throw new Error('Spare không dùng trên firmware 9.1X');
