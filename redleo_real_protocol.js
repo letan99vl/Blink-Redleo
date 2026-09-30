@@ -1747,7 +1747,17 @@ async function copyBankV11Real(dest){
   const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
   const dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[clamp(Number(dest),1,4)];
   if(dests.includes(src)&&dests.length===1)return notice('info','COPY MAP','MAP nguồn và MAP đích giống nhau.');
-  const S=v11BankSnapshot(readCache.banks[src-1]);
+  const srcBase=readCache.banks[src-1];
+  const srcInj=v11FuelMatrix(src,srcBase.inj);
+  const srcInjAngle=v11StoreMatrix('inj_degree',src,srcBase.injDegree);
+  const srcIgn=v11StoreMatrix('ign_degree',src,srcBase.ignDegree);
+  const srcDwell=v11StoreMatrix('ign_time',src,srcBase.ignTime);
+  const S={
+    injRaw:patchRowsU16Preserve(srcBase.injRaw,srcInj,srcBase.inj,encOilTab),
+    injDegreeRaw:patchRowsBytePreserve(srcBase.injDegreeRaw,srcInjAngle,srcBase.injDegree,encMainInjAngle),
+    ignDegreeRaw:patchRowsBytePreserve(srcBase.ignDegreeRaw,srcIgn,srcBase.ignDegree,encMainIgn),
+    ignTimeRaw:patchRowsBytePreserve(srcBase.ignTimeRaw,srcDwell,srcBase.ignTime,encMainDwell)
+  };
   if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30){
     throw new Error('ATE V11 source bank chưa đủ 4 block tune chính để Copy an toàn.');
   }
