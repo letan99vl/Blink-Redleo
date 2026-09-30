@@ -51,6 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · MAIN TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:false,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -70,9 +71,10 @@ function profileFromHandshake(info){
   const fm=fw.match(/(?:V|VER)?\s*(\d{1,2})(?:\.|\b)/);
   if(fm)major=Number(fm[1]);
   if(!Number.isFinite(major)){
-    const im=ident.match(/(?:^|\s)(?:V|VER(?:SION)?)\s*(8|9|10)(?:\.|\b)/);
+    const im=ident.match(/(?:^|\s)(?:V|VER(?:SION)?)\s*(8|9|10|11)(?:\.|\b)/);
     if(im)major=Number(im[1]);
   }
+  if(major===11)return ECU_PROFILE_DEFS.MODERN_V11;
   if(major===10)return ECU_PROFILE_DEFS.MODERN_V10;
   if(major===9)return ECU_PROFILE_DEFS.MODERN_V9;
   if(major===8||/\bV8\b|\bVER\s*8\b/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
@@ -155,13 +157,14 @@ function applyProfileUi(){
     setProfileDisabled(b,blocked,blocked?'ECU Profile: '+p.label+' · ECU_MODE này chỉ có một MAP.':'');
   });
 
-  // V8 MAIN TUNE intentionally exposes only the four page families proven from
-  // the V8 EXE. Everything else stays visibly locked until its V8 layout is mapped.
-  const v8Main=new Set(['inj_ve','inj_degree','ign_degree','ign_time']);
+  // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
+  // page mapping, byte width and unit conversion were verified from their EXEs.
+  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
-    const blocked=p.family==='v8'&&!v8Main.has(id);
-    setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn trên V8.':'');
+    const limited=(p.family==='v8'||p.family==='v11');
+    const blocked=limited&&!limitedMain.has(id);
+    setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
   });
 }
 function setEcuProfile(p){
@@ -215,6 +218,32 @@ function decOilAngle(raw){return Math.round(raw*2*360/256)}
 function encOilAngle(v){return clamp(Math.round((Number(v)/2)*256/360),0,255)}
 function decIgn(raw){return r1((raw-64)/VER_ANGLE)}
 function encIgn(v){return clamp(Math.round(Number(v)*VER_ANGLE)+64,0,255)}
+
+// ATE / REDLEO V11 changed the main injection-angle and ignition-angle unit
+// transforms while keeping the same page families and byte widths.
+// Derived from V11 __InjAngle_PcEcu_Unit / __Ign_To_PcEcu with the original
+// application's default B_True=false mode.
+function isV11Profile(){return !!(ecuProfile&&ecuProfile.key==='MODERN_V11')}
+function decMainInjAngle(raw){
+  if(isV11Profile())return clamp(Math.round((Number(raw)*512/360)/2)*2,0,360);
+  return decOilAngle(raw);
+}
+function encMainInjAngle(v){
+  if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
+  return encOilAngle(v);
+}
+function decMainIgn(raw){
+  if(isV11Profile())return r1((Number(raw)-64)*0.28125);
+  return decIgn(raw);
+}
+function encMainIgn(v){
+  if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
+  return encIgn(v);
+}
+function decLiveIgn(raw){
+  if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
+  return Number(raw)/32-16;
+}
 function decEctIgn(raw){return r1(((raw-64)/VER_ANGLE)*360/256)}
 function encEctIgn(v){return clamp(Math.round((Number(v)*256/360)*VER_ANGLE)+64,0,255)}
 function decPct(raw){return Math.round(raw*50/64)}
@@ -352,7 +381,7 @@ function parseLiveReal(a){
   state.live.rpm=u16be(a,6);
   // Injection table contribution and ignition angle use REDLEO live conversion.
   state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
-  state.live.ign=u16be(a,28)/32-16;
+  state.live.ign=decLiveIgn(u16be(a,28));
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
   if(liveCal){
@@ -978,15 +1007,15 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=normalizeBankForProfile(bank);
   if(id==='inj_ve')return readCurrentFuelBank(bank,showUi);
-  if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
-    throw new Error('REDLEO V8: hiện đã mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ map layout V8.');
+  if(ecuProfile&&(ecuProfile.family==='v8'||ecuProfile.family==='v11')&&!['inj_degree','ign_degree','ign_time'].includes(id)){
+    throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
 
   let pg=0,rows=0,cols=0,dec=x=>x,n=0,label=id;
   switch(id){
-    case 'inj_degree':pg=page(2,bank);rows=14;cols=30;dec=decOilAngle;n=N.inj_degree;label='GÓC PHUN';break;
-    case 'ign_degree':pg=page(3,bank);rows=14;cols=30;dec=decIgn;n=N.ign_degree;label='GÓC ĐÁNH LỬA';break;
+    case 'inj_degree':pg=page(2,bank);rows=14;cols=30;dec=decMainInjAngle;n=N.inj_degree;label='GÓC PHUN';break;
+    case 'ign_degree':pg=page(3,bank);rows=14;cols=30;dec=decMainIgn;n=N.ign_degree;label='GÓC ĐÁNH LỬA';break;
     case 'ign_time':pg=page(4,bank);rows=1;cols=30;dec=decOil;n=N.ign_time;label='DWELL BOBIN';break;
     case 'ect_idle_motor':return readIdlePageReal(bank,showUi);
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
@@ -1151,8 +1180,8 @@ async function writeFeatureReal(id){
     }
     let m,pg,payload,enc;
     switch(id){
-      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encOilAngle;payload=encodeRowsByte(m,enc);break;
-      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encIgn;payload=encodeRowsByte(m,enc);break;
+      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encMainInjAngle;payload=encodeRowsByte(m,enc);break;
+      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encMainIgn;payload=encodeRowsByte(m,enc);break;
       case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encOil;payload=encodeRowsByte(m,enc);break;
     }
     await writePageChecked(pg,payload,false,1,'mainWrite');
