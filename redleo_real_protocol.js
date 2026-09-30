@@ -45,12 +45,13 @@ const FEAT={
   'Automatic clutch':'auto_clutch',
   'Charger Parameters':'chg_params',
   'ATE options':'ate_options',
+  'Start Add Injection':'ect_start',
   'Spare':'spare',
   'ECT - Voltage Relation':'v_ect',
   'IAT - Voltage Relation':'v_iat',
   'MAP - Voltage Relation':'v_map'
 };
-const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20};
+const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20,ect_start:21};
 
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
@@ -107,12 +108,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
-  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -161,7 +162,7 @@ function applyProfileUi(){
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
-  if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');}
+  if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');}
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -199,11 +200,11 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options');
+    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options'||id==='ect_start');
     const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
     // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
@@ -364,6 +365,42 @@ function encV11Options20(matrix,vEct){
   if(v[0]<0||v[0]>5||v[1]<0||v[1]>5||v[0]>=v[1])throw new Error('TPS Voltage Min/Max phải trong 0–5V và Min < Max.');
   if(v[9]<0||v[9]>140)throw new Error('Fan temperature phải trong 0–140°C.');
   return new Uint8Array(v.map((x,i)=>encV11Option(i,x,vEct)));
+}
+
+function decV11EctStartCell(uiRow,raw){
+  raw=Number(raw)&255;
+  if(uiRow===0)return r1(raw*0.2);          // Delayed (Second)
+  if(uiRow===1||uiRow===3)return r2(raw/20); // INJ add / Not Started add (ms)
+  if(uiRow===2)return raw;                  // Not Delayed (Number)
+  return raw;
+}
+function encV11EctStartCell(uiRow,v){
+  v=Number(v);if(!Number.isFinite(v))v=0;
+  if(uiRow===0)return clamp(Math.round(Math.max(0,v)*5),0,255);
+  if(uiRow===1||uiRow===3)return clamp(Math.round(Math.max(0,v)*20),0,255);
+  if(uiRow===2)return clamp(Math.round(Math.max(1,v)),1,255);
+  return clamp(Math.round(v),0,255);
+}
+function decodeV11EctStart44(raw){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<44)throw new Error('ATE V11 ECT Start cần 44 byte.');
+  const m=Array.from({length:4},()=>Array(11).fill(0));
+  let p=0;
+  // Original proUartDgvNum/Uart_DatToDgv reverse UI rows on the wire.
+  for(let wireRow=0;wireRow<4;wireRow++){
+    const uiRow=3-wireRow;
+    for(let c=0;c<11;c++,p++)m[uiRow][c]=decV11EctStartCell(uiRow,raw[p]);
+  }
+  return m;
+}
+function encodeV11EctStart44(matrix){
+  if(!Array.isArray(matrix)||matrix.length!==4||matrix.some(r=>!Array.isArray(r)||r.length!==11))throw new Error('ATE V11 ECT Start cần bảng 4 × 11.');
+  const out=new Uint8Array(44);let p=0;
+  for(let wireRow=0;wireRow<4;wireRow++){
+    const uiRow=3-wireRow;
+    for(let c=0;c<11;c++,p++)out[p]=encV11EctStartCell(uiRow,matrix[uiRow][c]);
+  }
+  return out;
 }
 
 function decV11Chg(col,raw){
@@ -1215,7 +1252,7 @@ function parseV11A2Data(data){
   const C={tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,autoClutch,v11PrefixLength:p,raw:data.slice()};
   if(data.length>=286){
     C.optionRawV11=data.slice(p,p+30);C.ateOptions=decodeV11Options20(C.optionRawV11,C.vEct);p+=30;
-    C.ectStartRaw=data.slice(p,p+44);p+=44;
+    C.ectStartRaw=data.slice(p,p+44);C.ectStart=decodeV11EctStart44(C.ectStartRaw);p+=44;
     C.globalAuxRaw=data.slice(p,p+9);p+=9;
     C.externalRaw=data.slice(p,p+30);p+=30;
     C.external=[Array(15).fill(0),Array(15).fill(0)];
@@ -1332,6 +1369,7 @@ async function readA2SensorPageReal(showUi=true){
       if(v11&&C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
       if(v11&&C.chg)emitFeature(N.chg_params,C.chg);
       if(v11&&C.ateOptions)emitFeature(N.ate_options,C.ateOptions);
+      if(v11&&C.ectStart)emitFeature(N.ect_start,C.ectStart);
       if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
@@ -1501,7 +1539,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1515,7 +1553,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
     case 'ect_ign':pg=0x82;rows=11;cols=30;dec=isV11Profile()?decMainIgn:decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
     case 'map_inj':pg=0x92;rows=11;cols=30;dec=decMapInj;n=N.map_inj;label='BÙ PHUN MAP';break;
-    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'chg_params':case 'ate_options':
+    case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'chg_params':case 'ate_options':case 'ect_start':
     case 'v_ect':case 'v_iat':case 'v_map':
       return readA2SensorPageReal(showUi);
     case 'spare':throw new Error('Spare không dùng trên firmware 9.1X');
@@ -1731,6 +1769,28 @@ async function writeV11IdleLimit(bank){
   return R;
 }
 
+async function writeV11EctStart(){
+  if(!isV11Profile())throw new Error('ECT Start writer chỉ dùng cho ATE V11.');
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC ECT Start thành công trước khi GHI đủ page A2 286B.');
+  const m=matrixFromRedTable(4,11);
+  const raw44=encodeV11EctStart44(m);
+  const payload=new Uint8Array(cached);
+  payload.set(raw44,195);
+  taskUi('loading','ATE V11 · GHI ECT START 44B · GIỮ NGUYÊN A2 CÒN LẠI');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  let R;
+  try{R=await readA2SensorPageReal(true);}
+  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY ECT Start đọc lại thất bại: '+String(e&&e.message||e));}
+  if(!R.cache||!R.cache.ectStartRaw||R.cache.ectStartRaw.length!==44)throw new Error('VERIFY ECT Start không đọc đủ 44 byte.');
+  for(let i=0;i<286;i++)if((R.data[i]&255)!==(payload[i]&255)){
+    throw new Error('VERIFY ECT Start sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
+  }
+  notice('success','GHI + VERIFY ECT START ATE V11 OK','44 byte · A2 offset 195..238 · toàn page A2 286B đã verify.');
+  return R;
+}
+
 async function writeV11Options20(){
   if(!isV11Profile())throw new Error('ATE Options writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
@@ -1883,6 +1943,7 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
     if(isV11Profile()&&id==='chg_params')return writeV11Chg();
     if(isV11Profile()&&id==='ate_options')return writeV11Options20();
+    if(isV11Profile()&&id==='ect_start')return writeV11EctStart();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -2110,6 +2171,12 @@ function v11BuildA2Payload(){
   if(Array.isArray(opts)&&opts.length===1&&opts[0].length===20){
     const raw20=encV11Options20(opts,vEct);
     for(let i=0;i<20;i++)if(v11ValueChanged(opts[0][i],C.ateOptions[0][i]))out[165+i]=raw20[i];
+  }
+
+  const start=v11StoreMatrix('ect_start',0,C.ectStart);
+  if(Array.isArray(start)&&start.length===4&&start.every(r=>Array.isArray(r)&&r.length===11)){
+    const raw44=encodeV11EctStart44(start);
+    for(let i=0;i<44;i++)if(v11ValueChanged(raw44[i],C.ectStartRaw[i],0))out[195+i]=raw44[i];
   }
 
   const external=v11StoreMatrix('external_adjust',0,C.external);
