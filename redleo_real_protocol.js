@@ -102,12 +102,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
-  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -147,7 +147,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map']);
+  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -185,7 +185,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -288,6 +288,12 @@ function decExtPct(raw){return Math.round(((raw-128)/128)*100)}
 function encExtPct(v){return clamp(Math.round(Number(v)*128/100+128),0,255)}
 function decExtIgn(raw){return raw-128}
 function encExtIgn(v){return clamp(Math.round(Number(v)+128),0,255)}
+// ATE V11 EX_ADJ uses the V11 ignition-angle unit path, centered at raw 128.
+// Verified from proUartDgvNum/Uart_DatToDgv: 1 raw step = 0.28125 degree.
+function decV11ExtIgn(raw){return r2((Number(raw)-128)*0.28125)}
+function encV11ExtIgn(v){return clamp(Math.round(Number(v)/0.28125)+128,0,255)}
+function decV11ExtPct(raw){return Math.round(((Number(raw)-128)*100)/128)}
+function encV11ExtPct(v){return clamp(Math.round(Number(v)*128/100)+128,0,255)}
 function decSeconds(raw,factor){const x=raw*factor*5/1000;return factor===64?Math.round(x):r1(x)}
 function encSeconds(sec,factor){return clamp(Math.round(Math.max(0,Number(sec))*1000/5/factor),0,255)}
 function decColdStart(raw){return r1((raw*64/50)/20)}
@@ -834,6 +840,9 @@ function parseV11ReadAll9958(f){
     C.banks.push(B);
   }
   C.externalRaw=f.slice(p,p+30);p+=30;
+  C.external=[Array(15).fill(0),Array(15).fill(0)];
+  for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
+  for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
   C.chgRaw=f.slice(p,p+8);p+=8;
   if(p!==f.length-2)throw new Error('ATE V11 Read All layout lệch offset '+p+' / checksum '+(f.length-2));
   C.hidden.tailData=f.slice(p,f.length-2);
@@ -878,6 +887,7 @@ function syncV11ReadAll(C){
   emitFeature(N.map_inj,C.mapInj);
   emitFeature(N.iat_inj,[C.iatInj]);
   emitFeature(N.map_idle_motor,[C.mapMotor]);
+  emitFeature(N.external_adjust,C.external);
   emitFeature(N.v_ect,[C.vEct]);
   emitFeature(N.v_iat,[C.vIat]);
   emitFeature(N.v_map,[C.vMap]);
@@ -1062,7 +1072,22 @@ function parseV11A2Data(data){
   const configRaw=data.slice(p,p+11);p+=11;
   // V11 ECU PIN is NOT read from this A2 config block. The original ATE
   // reads the four PIN nibbles from handshake 0x5A bytes 35..38.
-  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+  const C={tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+  // ATE V11 page A2 continues with:
+  // Option 24B + ECT Start 33B + Spare 9B + External Adjust 30B + CHG 8B.
+  // External wire order is reversed by proUartDgvNum: IGN row first, then INJ %.
+  if(data.length>=269){
+    C.optionRawV11=data.slice(p,p+24);p+=24;
+    C.ectStartRaw=data.slice(p,p+33);p+=33;
+    C.globalAuxRaw=data.slice(p,p+9);p+=9;
+    C.externalRaw=data.slice(p,p+30);p+=30;
+    C.external=[Array(15).fill(0),Array(15).fill(0)];
+    for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
+    for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
+    C.chgRaw=data.slice(p,p+8);p+=8;
+    C.v11A2KnownLength=p;
+  }
+  return C;
 }
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
@@ -1166,7 +1191,7 @@ async function readA2SensorPageReal(showUi=true){
     try{
       emitFeature(N.iat_inj,[C.iatInj]);
       emitFeature(N.map_idle_motor,[C.mapMotor]);
-      if(!v11&&C.external)emitFeature(N.external_adjust,C.external);
+      if(C.external)emitFeature(N.external_adjust,C.external);
       if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
@@ -1230,7 +1255,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1393,6 +1418,32 @@ function matrixFromMaybe(id,fallback){
 }
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
+async function writeV11ExternalAdjust(){
+  if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<269)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI để bảo toàn toàn bộ page A2.');
+  const m=matrixFromRedTable(2,15);
+  if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa có đủ dữ liệu 2 × 15.');
+  const payload=Array.from(cached);
+  const expected=[];
+  // Original ATE proUartDgvNum serializes row 1 first (IGN), then row 0 (INJ %).
+  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[231+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[246+c]=raw;expected.push(raw);}
+  taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  const R=await readA2SensorPageReal(true);
+  if(!R.cache||!R.cache.externalRaw||R.cache.externalRaw.length!==30)throw new Error('ECU đã ACK A2 nhưng VERIFY External Adjustment không đọc đủ 30 byte.');
+  const got=Array.from(R.cache.externalRaw);
+  for(let i=0;i<30;i++)if(got[i]!==expected[i])throw new Error('VERIFY External Adjustment sai byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
+  if(readCache&&readCache.v11Decoded){
+    readCache.externalRaw=new Uint8Array(got);
+    readCache.external=R.cache.external.map(r=>r.slice());
+  }
+  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · A2 offset 231..260 · 30 byte · các byte A2 khác được giữ nguyên');
+  return R;
+}
+
 function v11A2PatchSpec(id){
   switch(id){
     case 'v_ect':return {off:99,enc:encVolt,label:'ECT VOLTAGE'};
@@ -1431,6 +1482,7 @@ async function writeFeatureReal(id){
   const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
+    if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
@@ -1613,6 +1665,15 @@ function v11OneRow(id,fallback){
   const m=v11StoreMatrix(id,0,[fallback]);
   return m[0].slice();
 }
+function v11PatchExternalRaw(raw,edited,base){
+  const out=new Uint8Array(raw||[]);
+  if(out.length!==30||!Array.isArray(edited)||edited.length!==2||!Array.isArray(base)||base.length!==2)return out;
+  for(let c=0;c<15;c++){
+    if(v11ValueChanged(edited[1][c],base[1][c]))out[c]=encV11ExtIgn(edited[1][c]);
+    if(v11ValueChanged(edited[0][c],base[0][c]))out[15+c]=encV11ExtPct(edited[0][c]);
+  }
+  return out;
+}
 function v11BuildA2Payload(C){
   const vEct=v11OneRow('v_ect',C.vEct);
   const vIat=v11OneRow('v_iat',C.vIat);
@@ -1624,10 +1685,12 @@ function v11BuildA2Payload(C){
   const vMapRaw=patchLinearPreserve(C.vMapRaw,vMap,C.vMap,encVolt);
   const iatRaw=patchLinearPreserve(C.iatInjRaw,iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255));
   const mapMotorRaw=patchLinearPreserve(C.mapMotorRaw,mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255));
+  const external=v11StoreMatrix('external_adjust',0,C.external);
+  const externalRaw=v11PatchExternalRaw(C.externalRaw,external,C.external);
   const out=[
     ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
     ...vEctRaw,...vIatRaw,...vMapRaw,...iatRaw,...mapMotorRaw,
-    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
+    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...externalRaw,...C.chgRaw
   ];
   if(out.length!==269)throw new Error('ATE V11 A2 full payload phải 269B, hiện '+out.length+'B');
   return out;
