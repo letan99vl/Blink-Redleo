@@ -791,11 +791,11 @@ function parseV11ReadAll9958(f){
   C.rpmRaw=f.slice(p,p+60);p+=60;
   C.rpmAxis=[];for(let i=0;i<60;i+=2)C.rpmAxis.push(u16be(C.rpmRaw,i)*20);
   C.vAfrRaw=f.slice(p,p+11);p+=11;
-  C.vEct=Array.from(f.slice(p,p+11),decVolt);p+=11;
-  C.vIat=Array.from(f.slice(p,p+11),decVolt);p+=11;
-  C.vMap=Array.from(f.slice(p,p+11),decVolt);p+=11;
-  C.iatInj=Array.from(f.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
-  C.mapMotor=Array.from(f.slice(p,p+11),x=>Number(x));p+=11;
+  C.vEctRaw=f.slice(p,p+11);C.vEct=Array.from(C.vEctRaw,decVolt);p+=11;
+  C.vIatRaw=f.slice(p,p+11);C.vIat=Array.from(C.vIatRaw,decVolt);p+=11;
+  C.vMapRaw=f.slice(p,p+11);C.vMap=Array.from(C.vMapRaw,decVolt);p+=11;
+  C.iatInjRaw=f.slice(p,p+11);C.iatInj=Array.from(C.iatInjRaw,x=>r2(Number(x)/20));p+=11;
+  C.mapMotorRaw=f.slice(p,p+11);C.mapMotor=Array.from(C.mapMotorRaw,x=>Number(x));p+=11;
   C.configRaw=f.slice(p,p+11);p+=11;
   C.password=Array.from(C.configRaw.slice(7,11));
 
@@ -805,9 +805,9 @@ function parseV11ReadAll9958(f){
   C.ectStartRaw=f.slice(p,p+33);p+=33;
   C.globalAuxRaw=f.slice(p,p+9);p+=9;
 
-  let z=decodeRowsByte(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
-  z=decodeRowsByte(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
-  z=decodeRowsByte(f,p,11,30,decMapInj);C.mapInj=z.data;p=z.next;
+  C.ectInjRaw=f.slice(p,p+330);let z=decodeRowsByte(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
+  C.ectIgnRaw=f.slice(p,p+330);z=decodeRowsByte(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
+  C.mapInjRaw=f.slice(p,p+330);z=decodeRowsByte(f,p,11,30,decMapInj);C.mapInj=z.data;p=z.next;
 
   for(let bank=1;bank<=4;bank++){
     const B={bank};
@@ -1530,6 +1530,44 @@ async function writeBankAll(bank){
   await writePageChecked(page(5,bank),Array.from(b.afRaw));
   await writePageChecked(page(6,bank),idlePayload(bank,false));
 }
+function v11ValueChanged(a,b,tol=1e-4){
+  a=Number(a);b=Number(b);
+  return !Number.isFinite(a)||!Number.isFinite(b)||Math.abs(a-b)>tol;
+}
+function patchRowsBytePreserve(raw,edited,base,enc){
+  const out=new Uint8Array(raw||[]);
+  if(!Array.isArray(edited)||!Array.isArray(base)||edited.length!==base.length)return out;
+  let p=0;
+  for(let wr=0;wr<base.length;wr++){
+    const ur=base.length-1-wr;
+    for(let c=0;c<base[ur].length;c++,p++){
+      if(v11ValueChanged(edited[ur][c],base[ur][c]))out[p]=clamp(Math.round(enc(edited[ur][c])),0,255);
+    }
+  }
+  return out;
+}
+function patchRowsU16Preserve(raw,edited,base,enc){
+  const out=new Uint8Array(raw||[]);
+  if(!Array.isArray(edited)||!Array.isArray(base)||edited.length!==base.length)return out;
+  let p=0;
+  for(let wr=0;wr<base.length;wr++){
+    const ur=base.length-1-wr;
+    for(let c=0;c<base[ur].length;c++,p+=2){
+      if(v11ValueChanged(edited[ur][c],base[ur][c])){
+        const x=clamp(Math.round(enc(edited[ur][c])),0,65535);
+        out[p]=(x>>8)&255;out[p+1]=x&255;
+      }
+    }
+  }
+  return out;
+}
+function patchLinearPreserve(raw,edited,base,enc){
+  const out=new Uint8Array(raw||[]);
+  for(let i=0;i<out.length&&i<edited.length&&i<base.length;i++){
+    if(v11ValueChanged(edited[i],base[i]))out[i]=clamp(Math.round(enc(edited[i])),0,255);
+  }
+  return out;
+}
 function v11StoreMatrix(id,bank,fallback){
   try{
     if(typeof F!=='undefined'&&F[id]&&typeof featureData==='function'){
@@ -1556,11 +1594,14 @@ function v11BuildA2Payload(C){
   const vMap=v11OneRow('v_map',C.vMap);
   const iat=v11OneRow('iat_inj',C.iatInj);
   const mapMotor=v11OneRow('map_idle_motor',C.mapMotor);
+  const vEctRaw=patchLinearPreserve(C.vEctRaw,vEct,C.vEct,encVolt);
+  const vIatRaw=patchLinearPreserve(C.vIatRaw,vIat,C.vIat,encVolt);
+  const vMapRaw=patchLinearPreserve(C.vMapRaw,vMap,C.vMap,encVolt);
+  const iatRaw=patchLinearPreserve(C.iatInjRaw,iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255));
+  const mapMotorRaw=patchLinearPreserve(C.mapMotorRaw,mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255));
   const out=[
     ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
-    ...vEct.map(encVolt),...vIat.map(encVolt),...vMap.map(encVolt),
-    ...iat.map(v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),
-    ...mapMotor.map(v=>clamp(Math.round(Number(v)),0,255)),
+    ...vEctRaw,...vIatRaw,...vMapRaw,...iatRaw,...mapMotorRaw,
     ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
   ];
   if(out.length!==269)throw new Error('ATE V11 A2 full payload phải 269B, hiện '+out.length+'B');
@@ -1572,7 +1613,9 @@ function v11BuildFullWritePlan(){
   const plan=[];
   const a2=v11BuildA2Payload(C);
   const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
-  const ectRaw=encodeRowsByte(ect,encPct),ectIgnRaw=encodeRowsByte(ectIgn,encMainIgn),mapInjRaw=encodeRowsByte(mapInj,encMapInj);
+  const ectRaw=patchRowsBytePreserve(C.ectInjRaw,ect,C.ectInj,encPct);
+  const ectIgnRaw=patchRowsBytePreserve(C.ectIgnRaw,ectIgn,C.ectIgn,encMainIgn);
+  const mapInjRaw=patchRowsBytePreserve(C.mapInjRaw,mapInj,C.mapInj,encMapInj);
   plan.push({pg:0xA2,payload:a2,label:'A2'});
   plan.push({pg:0x72,payload:ectRaw,label:'ECT INJ'});
   plan.push({pg:0x82,payload:ectIgnRaw,label:'ECT IGN'});
@@ -1585,10 +1628,10 @@ function v11BuildFullWritePlan(){
     const injAngle=v11StoreMatrix('inj_degree',b,old.injDegree);
     const ign=v11StoreMatrix('ign_degree',b,old.ignDegree);
     const dwell=v11StoreMatrix('ign_time',b,old.ignTime);
-    const injRaw=new Uint8Array(encodeRowsU16(inj,encOilTab));
-    const injDegreeRaw=new Uint8Array(encodeRowsByte(injAngle,encMainInjAngle));
-    const ignDegreeRaw=new Uint8Array(encodeRowsByte(ign,encMainIgn));
-    const ignTimeRaw=new Uint8Array(encodeRowsByte(dwell,encMainDwell));
+    const injRaw=patchRowsU16Preserve(old.injRaw,inj,old.inj,encOilTab);
+    const injDegreeRaw=patchRowsBytePreserve(old.injDegreeRaw,injAngle,old.injDegree,encMainInjAngle);
+    const ignDegreeRaw=patchRowsBytePreserve(old.ignDegreeRaw,ign,old.ignDegree,encMainIgn);
+    const ignTimeRaw=patchRowsBytePreserve(old.ignTimeRaw,dwell,old.ignTime,encMainDwell);
     const afRaw=new Uint8Array(old.afRaw);
     const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
     const low=pageLow(b);
@@ -1609,15 +1652,13 @@ function verifyV11FullWrite(C,E){
   // from the decoded full image and require byte-for-byte equality.
   const gotA2=new Uint8Array([
     ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
-    ...C.vEct.map(encVolt),...C.vIat.map(encVolt),...C.vMap.map(encVolt),
-    ...C.iatInj.map(v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),
-    ...C.mapMotor.map(v=>clamp(Math.round(Number(v)),0,255)),
+    ...C.vEctRaw,...C.vIatRaw,...C.vMapRaw,...C.iatInjRaw,...C.mapMotorRaw,
     ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
   ]);
   if(!bytesEqual(gotA2,E.a2))throw new Error('VERIFY Full Write sai page A2.');
-  if(!bytesEqual(encodeRowsByte(C.ectInj,encPct),E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
-  if(!bytesEqual(encodeRowsByte(C.ectIgn,encMainIgn),E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
-  if(!bytesEqual(encodeRowsByte(C.mapInj,encMapInj),E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
+  if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
+  if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
+  if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
   for(let b=1;b<=4;b++)assertV11BankMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
 }
 async function sendAllV11Real(){
