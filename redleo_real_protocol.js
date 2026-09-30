@@ -105,12 +105,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
-  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -151,6 +151,7 @@ function applyProfileUi(){
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  if(p.family==='v11')mainFeatureIds.add('auto_clutch');
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -188,11 +189,11 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const blocked=(limited&&!limitedMain.has(id))||(id==='auto_shift'&&p.family!=='v11');
+    const blocked=(limited&&!limitedMain.has(id))||(id==='auto_shift'&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
   });
 }
@@ -297,6 +298,27 @@ function decV11ExtIgn(raw){return r2((Number(raw)-128)*0.28125)}
 function encV11ExtIgn(v){return clamp(Math.round(Number(v)/0.28125)+128,0,255)}
 function decV11ExtPct(raw){return Math.round(((Number(raw)-128)*100)/128)}
 function encV11ExtPct(v){return clamp(Math.round(Number(v)*128/100)+128,0,255)}
+// ATE V11 Automatic Clutch (Dgv_Dzfm) lives in A2 configRaw[1..6].
+// Cols: Low RPM, High RPM, Low Angle, High Angle, Close RPM, ECT-On Voltage.
+function decV11Dzfm(col,raw){
+  raw=Number(raw)&255;
+  if(col===0||col===1||col===4)return raw*20;
+  if(col===2||col===3)return -Math.round(raw*0.28125);
+  if(col===5)return r2(raw*5/256);
+  return raw;
+}
+function encV11Dzfm(col,v){
+  v=Number(v);if(!Number.isFinite(v))v=0;
+  if(col===0||col===1||col===4)return clamp(Math.round(Math.max(500,v)/20),0,255);
+  if(col===2||col===3)return clamp(Math.round(Math.min(40,Math.abs(v))/0.28125),0,255);
+  if(col===5)return clamp(Math.round(v*256/5),0,255);
+  return clamp(Math.round(v),0,255);
+}
+function decodeV11AutoClutch(configRaw){
+  const r=configRaw instanceof Uint8Array?configRaw:new Uint8Array(configRaw||[]);
+  if(r.length<11)throw new Error('ATE V11 config block cần 11 byte.');
+  return [Array.from({length:6},(_,i)=>decV11Dzfm(i,r[1+i]))];
+}
 function decSeconds(raw,factor){const x=raw*factor*5/1000;return factor===64?Math.round(x):r1(x)}
 function encSeconds(sec,factor){return clamp(Math.round(Math.max(0,Number(sec))*1000/5/factor),0,255)}
 function decColdStart(raw){return r1((raw*64/50)/20)}
@@ -814,7 +836,9 @@ function parseV11ReadAll9958(f){
   C.vMapRaw=f.slice(p,p+11);C.vMap=Array.from(C.vMapRaw,decVolt);p+=11;
   C.iatInjRaw=f.slice(p,p+11);C.iatInj=Array.from(C.iatInjRaw,x=>r2(Number(x)/20));p+=11;
   C.mapMotorRaw=f.slice(p,p+11);C.mapMotor=Array.from(C.mapMotorRaw,x=>Number(x));p+=11;
-  C.configRaw=f.slice(p,p+11);p+=11;
+  C.configRaw=f.slice(p,p+11);
+  C.autoClutch=decodeV11AutoClutch(C.configRaw);
+  p+=11;
 
   // V11 option area after Config/PW. Keep exact raw until each cell semantic
   // is mapped; offsets and lengths are proven from the V11 grid serializer.
@@ -891,6 +915,7 @@ function syncV11ReadAll(C){
   emitFeature(N.iat_inj,[C.iatInj]);
   emitFeature(N.map_idle_motor,[C.mapMotor]);
   emitFeature(N.external_adjust,C.external);
+  if(C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
   emitFeature(N.v_ect,[C.vEct]);
   emitFeature(N.v_iat,[C.vIat]);
   emitFeature(N.v_map,[C.vMap]);
@@ -1073,9 +1098,10 @@ function parseV11A2Data(data){
   const iatInj=Array.from(data.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
   const mapMotor=Array.from(data.slice(p,p+11),x=>Number(x));p+=11;
   const configRaw=data.slice(p,p+11);p+=11;
+  const autoClutch=decodeV11AutoClutch(configRaw);
   // V11 ECU PIN is NOT read from this A2 config block. The original ATE
   // reads the four PIN nibbles from handshake 0x5A bytes 35..38.
-  const C={tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+  const C={tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,autoClutch,v11PrefixLength:p,raw:data.slice()};
   // ATE V11 page A2 continues with:
   // Option 24B + ECT Start 33B + Spare 9B + External Adjust 30B + CHG 8B.
   // External wire order is reversed by proUartDgvNum: IGN row first, then INJ %.
@@ -1195,6 +1221,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.iat_inj,[C.iatInj]);
       emitFeature(N.map_idle_motor,[C.mapMotor]);
       if(C.external)emitFeature(N.external_adjust,C.external);
+      if(v11&&C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
       if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
@@ -1364,7 +1391,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1594,6 +1621,36 @@ async function writeV11IdleLimit(bank){
   return R;
 }
 
+async function writeV11AutoClutch(){
+  if(!isV11Profile())throw new Error('Automatic Clutch writer chỉ dùng cho ATE V11.');
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<165)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI để bảo toàn config/PIN của A2.');
+  const m=matrixFromRedTable(1,6),vals=m[0]||[];
+  if(vals.length!==6||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch V11 chưa có đủ 6 giá trị hợp lệ.');
+  const config=new Uint8Array(cached.slice(154,165));
+  const expected=new Uint8Array(config);
+  for(let i=0;i<6;i++)expected[1+i]=encV11Dzfm(i,vals[i]);
+  const payload=new Uint8Array(cached);
+  payload.set(expected,154);
+  taskUi('loading','ATE V11 · GHI AUTOMATIC CLUTCH · GIỮ NGUYÊN ENABLE + PIN');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  let R;
+  try{R=await readA2SensorPageReal(true);}
+  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Automatic Clutch đọc lại thất bại: '+String(e&&e.message||e));}
+  const got=R.cache&&R.cache.configRaw;
+  if(!got||got.length!==11)throw new Error('VERIFY Automatic Clutch không đọc đủ configRaw 11B.');
+  for(let i=0;i<11;i++)if((got[i]&255)!==(expected[i]&255)){
+    throw new Error('VERIFY Automatic Clutch sai config byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
+  }
+  if(readCache&&readCache.v11Decoded){
+    readCache.configRaw=new Uint8Array(got);
+    readCache.autoClutch=R.cache.autoClutch.map(r=>r.slice());
+  }
+  notice('success','GHI + VERIFY AUTOMATIC CLUTCH ATE V11 OK','6 byte Dgv_Dzfm đã ghi · config enable và 4 byte password cũ được giữ nguyên.');
+  return R;
+}
+
 async function writeV11ExternalAdjust(){
   if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
@@ -1661,6 +1718,7 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
     if(isV11Profile()&&id==='auto_shift')return writeV11AutoShift(bank);
     if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
+    if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
