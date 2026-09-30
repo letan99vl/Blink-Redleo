@@ -1118,6 +1118,7 @@ function parseV11ReadAll9958(f){
 
 function syncV11ReadAll(C){
   readCache=C;
+  if(validDynamicAxes(C.tpsPct,C.rpmAxis))publishEcuAxes(C.tpsPct,C.rpmAxis,'READ ALL V11');
   window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:false,v11Decoded:true};
   window.blinkV11ReadAll={
     length:C.sourceLength,
@@ -1366,6 +1367,27 @@ function parseV11A2Data(data){
   }
   return C;
 }
+function parseModernA2Prefix(data){
+  if(!(data instanceof Uint8Array))data=new Uint8Array(data);
+  if(data.length<165)throw new Error('REDLEO V10+/ATE A2 thiếu dữ liệu · '+data.length+'B / cần tối thiểu 165B');
+  let p=0;
+  const tpsRaw=data.slice(p,p+28);p+=28;
+  const tpsVolt=Array.from(tpsRaw.slice(0,14),decVolt);
+  const tpsPct=Array.from(tpsRaw.slice(14,28),x=>Number(x)/2);
+  const rpmRaw=data.slice(p,p+60);p+=60;
+  const rpmAxis=[];for(let i=0;i<60;i+=2)rpmAxis.push(u16be(rpmRaw,i)*20);
+  const vAfrRaw=data.slice(p,p+11);p+=11;
+  const vEct=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const vIat=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const vMap=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const iatInjRaw=data.slice(p,p+11);p+=11;
+  const iatInj=Array.from(iatInjRaw,decOil);
+  const mapMotorRaw=data.slice(p,p+11);p+=11;
+  const mapMotor=Array.from(mapMotorRaw,x=>Number(x));
+  const configRaw=data.slice(p,p+11);p+=11;
+  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInjRaw,iatInj,mapMotorRaw,mapMotor,configRaw,modernPrefixLength:p,raw:data.slice()};
+}
+
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
   if(data.length<133)throw new Error('Page A2 thiếu dữ liệu · '+data.length+'B / cần 133B');
@@ -1441,19 +1463,28 @@ async function readA2SensorPageReal(showUi=true){
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const v11=isV11Profile();
-  const R=await readDirectPageReal(0xA2,v11?286:133,v11?'ATE V11 · A2 / OPTIONS':'CẢM BIẾN / OPTIONS',showUi);
-  const C=v11?parseV11A2Data(R.data):parseA2Data(R.data);
+  const v10=!!(ecuProfile&&ecuProfile.key==='MODERN_V10');
+  const minData=v11?286:(v10?165:133);
+  const label=v11?'ATE V11 · A2 / OPTIONS':(v10?'REDLEO V10/ULTRA · A2 / AXIS':'CẢM BIẾN / OPTIONS');
+  const R=await readDirectPageReal(0xA2,minData,label,showUi);
+  const C=v11?parseV11A2Data(R.data):(v10?parseModernA2Prefix(R.data):parseA2Data(R.data));
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
   ].join('|'):null;
+
+  if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
+    publishEcuAxes(C.tpsPct,C.rpmAxis,v11?'A2 ECU · V11':'A2 ECU · V10/ULTRA');
+  }else if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
+    publishProfileAxisFallback('ECU V9 · AXIS CỐ ĐỊNH');
+  }
 
   // Keep TPS live calibration aligned with the ECU without requiring Read All.
   if(typeof state!=='undefined'&&C.options){
     if(Number.isFinite(C.options.tpsMinEcu))state.cal.tpsMin=C.options.tpsMinEcu;
     if(Number.isFinite(C.options.tpsMaxEcu))state.cal.tpsMax=C.options.tpsMaxEcu;
     try{syncControls();}catch(_e){}
-  }else if(typeof state!=='undefined'&&v11&&Array.isArray(C.tpsVolt)&&C.tpsVolt.length===14){
+  }else if(typeof state!=='undefined'&&(v10||v11)&&Array.isArray(C.tpsVolt)&&C.tpsVolt.length===14){
     const lo=Number(C.tpsVolt[0]),hi=Number(C.tpsVolt[13]);
     if(Number.isFinite(lo)&&Number.isFinite(hi)&&Math.abs(hi-lo)>.1){
       state.cal.tpsMin=lo;state.cal.tpsMax=hi;
@@ -1478,7 +1509,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success',v11?'ATE V11 · SENSOR CAL · OK':'CẢM BIẾN / OPTIONS · OK');
+    taskUi('success',v11?'ATE V11 · SENSOR CAL · OK':(v10?'V10/ULTRA · AXIS + SENSOR · OK':'CẢM BIẾN / OPTIONS · OK'));
   }
   return {...R,cache:C};
 }
