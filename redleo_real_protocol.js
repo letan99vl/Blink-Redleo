@@ -1962,7 +1962,8 @@ function patchLinearPreserve(raw,edited,base,enc){
 function v11StoreMatrix(id,bank,fallback){
   try{
     if(typeof F!=='undefined'&&F[id]&&typeof featureData==='function'){
-      const d=featureData(F[id],bank);
+      const def=(typeof featureForProfile==='function'&&featureForProfile(id))||F[id];
+      const d=featureData(def,bank);
       if(Array.isArray(d)&&d.length&&d.every(r=>Array.isArray(r)&&r.length&&r.every(v=>v!=null&&Number.isFinite(Number(v)))))return d.map(r=>r.map(Number));
     }
   }catch(_e){}
@@ -1998,39 +1999,39 @@ function v11PatchExternalRaw(raw,edited,base){
   }
   return out;
 }
-function v11BuildA2Payload(C){
-  const vEct=v11OneRow('v_ect',C.vEct);
-  const vIat=v11OneRow('v_iat',C.vIat);
-  const vMap=v11OneRow('v_map',C.vMap);
-  const iat=v11OneRow('iat_inj',C.iatInj);
-  const mapMotor=v11OneRow('map_idle_motor',C.mapMotor);
-  const vEctRaw=patchLinearPreserve(C.vEctRaw,vEct,C.vEct,encVolt);
-  const vIatRaw=patchLinearPreserve(C.vIatRaw,vIat,C.vIat,encVolt);
-  const vMapRaw=patchLinearPreserve(C.vMapRaw,vMap,C.vMap,encVolt);
-  const iatRaw=patchLinearPreserve(C.iatInjRaw,iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255));
-  const mapMotorRaw=patchLinearPreserve(C.mapMotorRaw,mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255));
+function v11BuildA2Payload(){
+  const base=pageCache.get(0xA2);
+  if(!base||base.length<286)throw new Error('ATE V11 SEND ALL cần đọc trực tiếp page A2 đủ 286B trước.');
+  const C=parseV11A2Data(base);
+  if(C.v11A2KnownLength!==286)throw new Error('ATE V11 A2 direct layout chưa đủ 286B.');
+  const out=new Uint8Array(base);
+
+  const vEct=v11OneRow('v_ect',C.vEct),vIat=v11OneRow('v_iat',C.vIat),vMap=v11OneRow('v_map',C.vMap);
+  const iat=v11OneRow('iat_inj',C.iatInj),mapMotor=v11OneRow('map_idle_motor',C.mapMotor);
+  out.set(patchLinearPreserve(out.slice(99,110),vEct,C.vEct,encVolt),99);
+  out.set(patchLinearPreserve(out.slice(110,121),vIat,C.vIat,encVolt),110);
+  out.set(patchLinearPreserve(out.slice(121,132),vMap,C.vMap,encVolt),121);
+  out.set(patchLinearPreserve(out.slice(132,143),iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),132);
+  out.set(patchLinearPreserve(out.slice(143,154),mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255)),143);
+
+  const clutch=v11StoreMatrix('auto_clutch',0,C.autoClutch);
+  if(Array.isArray(clutch)&&clutch.length===1&&clutch[0].length===6){
+    for(let i=0;i<6;i++)if(v11ValueChanged(clutch[0][i],C.autoClutch[0][i]))out[155+i]=encV11Dzfm(i,clutch[0][i]);
+  }
+
   const external=v11StoreMatrix('external_adjust',0,C.external);
-  const externalRaw=v11PatchExternalRaw(C.externalRaw,external,C.external);
+  out.set(v11PatchExternalRaw(C.externalRaw,external,C.external),248);
   const chg=v11StoreMatrix('chg_params',0,C.chg);
-  const chgRaw=v11PatchChgRaw(C.chgRaw,chg,C.chg);
-  const out=[
-    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
-    ...vEctRaw,...vIatRaw,...vMapRaw,...iatRaw,...mapMotorRaw,
-    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...externalRaw,...chgRaw
-  ];
-  if(out.length!==269)throw new Error('ATE V11 A2 full payload phải 269B, hiện '+out.length+'B');
+  out.set(v11PatchChgRaw(C.chgRaw,chg,C.chg),278);
   return out;
 }
 function v11BuildFullWritePlan(){
   if(!v11FullImageReady())throw new Error('ATE V11 cần READ ALL 9958B trước khi GỬI TOÀN BỘ.');
   const C=readCache;
   const allPlan=[];
-  const a2=v11BuildA2Payload(C);
-  const a2Base=new Uint8Array([
-    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
-    ...C.vEctRaw,...C.vIatRaw,...C.vMapRaw,...C.iatInjRaw,...C.mapMotorRaw,
-    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
-  ]);
+  const a2Base=new Uint8Array(pageCache.get(0xA2)||[]);
+  if(a2Base.length<286)throw new Error('ATE V11 SEND ALL thiếu baseline A2 direct 286B.');
+  const a2=v11BuildA2Payload();
   const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
   const ectRaw=patchRowsBytePreserve(C.ectInjRaw,ect,C.ectInj,encPct);
   const ectIgnRaw=patchRowsBytePreserve(C.ectIgnRaw,ectIgn,C.ectIgn,encMainIgn);
@@ -2068,14 +2069,8 @@ function v11BuildFullWritePlan(){
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
-  // A2 includes known + preserved unknown blocks. Rebuild returned A2 payload
-  // from the decoded full image and require byte-for-byte equality.
-  const gotA2=new Uint8Array([
-    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
-    ...C.vEctRaw,...C.vIatRaw,...C.vMapRaw,...C.iatInjRaw,...C.mapMotorRaw,
-    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
-  ]);
-  if(!bytesEqual(gotA2,E.a2))throw new Error('VERIFY Full Write sai page A2.');
+  // A2 direct page has a different 286B layout from the compact Read-All partition.
+  // It is verified separately with a direct 0xA2 read after this Read-All check.
   if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
   if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
@@ -2084,7 +2079,8 @@ function verifyV11FullWrite(C,E){
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp sẽ lấy Read All 9958B làm nền, áp các bảng đã sửa, giữ nguyên byte chưa hiểu, ghi từng page và Read All VERIFY.\n\nGiữ nguồn ECU ổn định.'))return;
+  if(!pageCache.get(0xA2)||pageCache.get(0xA2).length<286)await readA2SensorPageReal(false);
+  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B cho các bank và page A2 trực tiếp 286B cho Options/AUX. Chỉ byte đã sửa mới thay đổi và tất cả page sẽ được verify.\n\nGiữ nguồn ECU ổn định.'))return;
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2098,7 +2094,9 @@ async function sendAllV11Real(){
     await new Promise(r=>setTimeout(r,300));
     const C=await readAll();
     verifyV11FullWrite(C,E);
-    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All 9958B VERIFY byte-level · block ẩn không bị ghi lại.');
+    const A=await readA2SensorPageReal(false);
+    if(!bytesEqual(A.data,E.a2))throw new Error('VERIFY Full Write sai page A2 direct 286B.');
+    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 direct 286B VERIFY byte-level.');
     return C;
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
