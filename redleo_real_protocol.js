@@ -772,10 +772,111 @@ function findValidCommandFrame(a,start,minLen=3){
   }
   return null;
 }
+function parseV11ReadAll9958(f){
+  if(!(f instanceof Uint8Array))f=new Uint8Array(f||[]);
+  if(f.length!==9958||f[0]!==0xAE&&f[0]!==0xAB&&f[0]!==0x8B)throw new Error('ATE V11 Read All phải 9958B');
+  if(!validFrame(f))throw new Error('ATE V11 Read All 9958B checksum không hợp lệ');
+  let p=1;
+  const C={
+    raw:f.slice(),sourceLength:f.length,layoutInfo:'ATE-V11-9958',rawOnly:false,v11Decoded:true,
+    banks:[],hidden:{}
+  };
+  C.tpsRaw=f.slice(p,p+28);p+=28;
+  C.tpsVolt=Array.from(C.tpsRaw.slice(0,14),decVolt);
+  C.tpsPct=Array.from(C.tpsRaw.slice(14,28),x=>Number(x)/2);
+  C.rpmRaw=f.slice(p,p+60);p+=60;
+  C.rpmAxis=[];for(let i=0;i<60;i+=2)C.rpmAxis.push(u16be(C.rpmRaw,i)*20);
+  C.vAfrRaw=f.slice(p,p+11);p+=11;
+  C.vEct=Array.from(f.slice(p,p+11),decVolt);p+=11;
+  C.vIat=Array.from(f.slice(p,p+11),decVolt);p+=11;
+  C.vMap=Array.from(f.slice(p,p+11),decVolt);p+=11;
+  C.iatInj=Array.from(f.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
+  C.mapMotor=Array.from(f.slice(p,p+11),x=>Number(x));p+=11;
+  C.configRaw=f.slice(p,p+11);p+=11;
+  C.password=Array.from(C.configRaw.slice(7,11));
+
+  // V11 option area after Config/PW. Keep exact raw until each cell semantic
+  // is mapped; offsets and lengths are proven from the V11 grid serializer.
+  C.optionRawV11=f.slice(p,p+24);p+=24;
+  C.ectStartRaw=f.slice(p,p+33);p+=33;
+  C.globalAuxRaw=f.slice(p,p+9);p+=9;
+
+  let z=decodeRowsByte(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
+  z=decodeRowsByte(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
+  z=decodeRowsByte(f,p,11,30,decMapInj);C.mapInj=z.data;p=z.next;
+
+  for(let bank=1;bank<=4;bank++){
+    const B={bank};
+    z=decodeRowsU16(f,p,14,30,decOilTab);B.inj=z.data;p=z.next;
+    z=decodeRowsByte(f,p,14,30,decMainInjAngle);B.injDegree=z.data;p=z.next;
+    z=decodeRowsByte(f,p,14,30,decMainIgn);B.ignDegree=z.data;p=z.next;
+    z=decodeRowsByte(f,p,1,30,decMainDwell);B.ignTime=z.data;p=z.next;
+    B.afRaw=f.slice(p,p+420);p+=420;
+    B.idleRaw=f.slice(p,p+24);p+=24;
+    B.auxRaw=f.slice(p,p+9);p+=9;
+    B.ectMotorRaw=f.slice(p,p+11);p+=11;
+    C.banks.push(B);
+  }
+  C.externalRaw=f.slice(p,p+30);p+=30;
+  C.chgRaw=f.slice(p,p+8);p+=8;
+  if(p!==f.length-2)throw new Error('ATE V11 Read All layout lệch offset '+p+' / checksum '+(f.length-2));
+  C.hidden.tailData=f.slice(p,f.length-2);
+  return C;
+}
+
+function syncV11ReadAll(C){
+  readCache=C;
+  window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:false,v11Decoded:true};
+  window.blinkV11ReadAll={
+    length:C.sourceLength,
+    optionRaw:Array.from(C.optionRawV11||[]),
+    ectStartRaw:Array.from(C.ectStartRaw||[]),
+    globalAuxRaw:Array.from(C.globalAuxRaw||[]),
+    externalRaw:Array.from(C.externalRaw||[]),
+    chgRaw:Array.from(C.chgRaw||[]),
+    bankIdleRaw:(C.banks||[]).map(b=>Array.from(b.idleRaw||[])),
+    bankAuxRaw:(C.banks||[]).map(b=>Array.from(b.auxRaw||[])),
+    bankEctMotorRaw:(C.banks||[]).map(b=>Array.from(b.ectMotorRaw||[]))
+  };
+  syncFuel(C);
+  sensorCalCache={
+    raw:C.raw.slice(),tpsRaw:C.tpsRaw.slice(),tpsVolt:C.tpsVolt.slice(),tpsPct:C.tpsPct.slice(),
+    rpmRaw:C.rpmRaw.slice(),rpmAxis:C.rpmAxis.slice(),vAfrRaw:C.vAfrRaw.slice(),
+    vEct:C.vEct.slice(),vIat:C.vIat.slice(),vMap:C.vMap.slice(),
+    iatInj:C.iatInj.slice(),mapMotor:C.mapMotor.slice(),configRaw:C.configRaw.slice()
+  };
+  sensorCalIdentity=handshakeInfo?[
+    ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
+  ].join('|'):null;
+  if(typeof state!=='undefined'&&C.tpsVolt.length===14){
+    const lo=Number(C.tpsVolt[0]),hi=Number(C.tpsVolt[13]);
+    if(Number.isFinite(lo)&&Number.isFinite(hi)&&Math.abs(hi-lo)>.1){state.cal.tpsMin=lo;state.cal.tpsMax=hi;}
+  }
+  for(const b of C.banks){
+    emitFeature(N.inj_degree,b.injDegree,b.bank);
+    emitFeature(N.ign_degree,b.ignDegree,b.bank);
+    emitFeature(N.ign_time,b.ignTime,b.bank);
+  }
+  emitFeature(N.ect_inj,C.ectInj);
+  emitFeature(N.ect_ign,C.ectIgn);
+  emitFeature(N.map_inj,C.mapInj);
+  emitFeature(N.iat_inj,[C.iatInj]);
+  emitFeature(N.map_idle_motor,[C.mapMotor]);
+  emitFeature(N.v_ect,[C.vEct]);
+  emitFeature(N.v_iat,[C.vIat]);
+  emitFeature(N.v_map,[C.vMap]);
+  try{syncControls();render();updateLive();saveSoon();applyProfileUi();}catch(_e){}
+  const st=document.getElementById('redIoStatus');
+  if(st)st.textContent='ATE V11 · READ ALL 9958B · KNOWN TABLES DECODED · UNKNOWN BYTES PRESERVED';
+}
+
 function parseReadAll(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   const f=findValidCommandFrame(a,0xAB,100)||findValidCommandFrame(a,0x8B,100)||findValidCommandFrame(a,0xAE,100);
   if(!f)throw new Error('Read All không tìm thấy frame AB/8B/AE checksum hợp lệ trong RX '+a.length+'B');
+
+  // ATE V11.1 exact full-image layout reconstructed from the original EXE.
+  if(isV11Profile()&&f.length===9958)return parseV11ReadAll9958(f);
 
   // 9767 is the legacy 9.1X layout that is already fully decoded by Blink.
   if(f.length===9767)return parseCanonicalReadAll(f,9767,'9767-native');
@@ -1155,7 +1256,7 @@ async function readAll(cmd=0xAB){
   let C=parseReadAll(rx);
   // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
   // even if its byte length happens to collide with a known modern length.
-  if(ecuProfile.family!=='modern'&&!C.rawOnly){
+  if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
     C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
   }
   window.blinkReadAllRaw=C.raw.slice();
@@ -1167,6 +1268,8 @@ async function readAll(cmd=0xAB){
     const s=document.getElementById('redIoStatus');
     if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
     log('ReadAll raw frame accepted:',C.sourceLength+'B');
+  }else if(C.v11Decoded){
+    syncV11ReadAll(C);
   }else{
     syncAll(C);
   }
