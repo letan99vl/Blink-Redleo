@@ -2967,7 +2967,12 @@ const featureStore=JSON.parse(localStorage.getItem('blinkRedleoFeatureStoreV6')|
 const optionStore=JSON.parse(localStorage.getItem('blinkRedleoOptionsV6')||'{}');
 function keyFor(f,bank){return f.id+':'+(f.banked?bank:0)}
 function initMatrix(f){return Array.from({length:f.rows},()=>Array.from({length:f.cols},()=>null))}
-function featureData(f,bank=state.activeMap){const k=keyFor(f,bank);if(!featureStore[k])featureStore[k]=initMatrix(f);return featureStore[k]}
+function featureData(f,bank=state.activeMap){const k=keyFor(f,bank),cur=featureStore[k];if(!Array.isArray(cur)||cur.length!==f.rows||cur.some(r=>!Array.isArray(r)||r.length!==f.cols))featureStore[k]=initMatrix(f);return featureStore[k]}
+function featureForProfile(id){
+  const base=F[id];if(!base)return null;
+  if(id==='idle_limit'&&state.ecuProfile==='MODERN_V11')return {...base,rows:4,cols:3,x:['G1','G2','G3'],y:['Idle RPM 1','Idle RPM 2','Raw','RPM/64'],desc:'ATE V11 · Idle/Limit page 6x · 12 byte đã xác minh; AutoShift và ECT Motor được giữ nguyên.'};
+  return base;
+}
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
 function resetEcuMapUiForNewSession(){
   // Keep AFR measured/target/local autotune data, but remove all ECU-derived maps.
@@ -3021,7 +3026,7 @@ async function autoReadVisibleEcuPage(reason='open'){
 window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
 function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor')}
-function openFeature(id){const f=F[id];if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
+function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -3072,7 +3077,7 @@ function smoothCurrent(){if(!currentFeature)return;const d=featureData(currentFe
 async function cmd(s){if(typeof window.blinkWriteCommand!=='function')throw new Error('Chưa kết nối ECU Blink');return window.blinkWriteCommand(s)}
 async function readFeature(){if(!currentFeature)return;document.getElementById('redIoStatus').textContent='Đang yêu cầu ECU Blink...';try{await cmd('RDF:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0))}catch(e){showEcuNotice('error','ĐỌC MAP',e.message,0)}}
 async function writeFeature(){if(!currentFeature)return;const ch=window.blinkMapChar;if(!ch){showEcuNotice('error','GHI MAP','Chưa kết nối ECU Blink',0);return}const d=featureData(currentFeature,state.activeMap);try{await cmd('WRF_BEGIN:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));for(let r=0;r<currentFeature.rows;r++)for(let c=0;c<currentFeature.cols;c+=3){const count=Math.min(3,currentFeature.cols-c),buf=new ArrayBuffer(6+count*4),v=new DataView(buf);v.setUint8(0,0xC2);v.setUint8(1,currentFeature.n);v.setUint8(2,currentFeature.banked?state.activeMap:0);v.setUint8(3,r);v.setUint8(4,c);v.setUint8(5,count);for(let i=0;i<count;i++)v.setFloat32(6+i*4,Number(d[r][c+i]||0),true);const bytes=new Uint8Array(buf);if(ch.writeValueWithoutResponse)await ch.writeValueWithoutResponse(bytes);else await ch.writeValue(bytes)}await cmd('WRF_END:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0));document.getElementById('redIoStatus').textContent='Đã gửi bảng qua BLE';}catch(e){showEcuNotice('error','GHI MAP BLE',e.message,0)}}
-window.onBlinkFeaturePacket=function(v){if(v.byteLength<10)return;const n=v.getUint8(1),bank=v.getUint8(2),r=v.getUint8(3),c0=v.getUint8(4),count=v.getUint8(5),f=REDLEO_FEATURES.find(x=>x.n===n);if(!f||r>=f.rows||c0>=f.cols)return;const d=featureData(f,bank||state.activeMap);for(let i=0;i<count&&c0+i<f.cols&&10+i*4<=v.byteLength;i++)d[r][c0+i]=v.getFloat32(6+i*4,true);saveFeatureStore();if(currentFeature?.id===f.id)renderFeature();document.getElementById('redIoStatus').textContent='RX '+f.title+' · hàng '+(r+1)};
+window.onBlinkFeaturePacket=function(v){if(v.byteLength<10)return;const n=v.getUint8(1),bank=v.getUint8(2),r=v.getUint8(3),c0=v.getUint8(4),count=v.getUint8(5),base=REDLEO_FEATURES.find(x=>x.n===n),f=base?featureForProfile(base.id):null;if(!f||r>=f.rows||c0>=f.cols)return;const d=featureData(f,bank||state.activeMap);for(let i=0;i<count&&c0+i<f.cols&&10+i*4<=v.byteLength;i++)d[r][c0+i]=v.getFloat32(6+i*4,true);saveFeatureStore();if(currentFeature?.id===f.id){currentFeature=f;renderFeature()}document.getElementById('redIoStatus').textContent='RX '+f.title+' · hàng '+(r+1)};
 window.onBlinkStatus=function(text){if(text.startsWith('FEATURE_DONE')){document.getElementById('redIoStatus').textContent='Đọc bảng hoàn tất';showEcuNotice('success','ĐỌC BẢNG THÀNH CÔNG',text)}if(text.startsWith('FEATURE_WRITE_OK'))showEcuNotice('success','GHI BẢNG TEST OK',text);if(text.startsWith('ECU_INFO:')){const vals=text.substring(9).split('|');document.querySelectorAll('[data-ecuinfo]').forEach(el=>el.textContent=vals[+el.dataset.ecuinfo]||'—')}};
 function saveOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>optionStore[e.dataset.ecuopt]=e.value);document.querySelectorAll('[data-ecutoggle]').forEach(e=>optionStore[e.dataset.ecutoggle]=e.checked);localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore))}
 function syncAfrSensorUi(){const t=document.getElementById('afrControlToggle'),s=document.getElementById('afrControlState');if(t&&s){s.textContent=t.checked?'ON':'OFF';s.style.color=t.checked?'#76ff9a':'#ff7d88'}}
@@ -3197,6 +3202,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.9"></script>
+<script src="redleo_real_protocol.js?v=3.10"></script>
 </body>
 </html>
