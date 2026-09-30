@@ -51,7 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · MAIN TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:false,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:false,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -166,7 +166,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj']);
+  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -250,6 +250,14 @@ function encMainIgn(v){
 function decLiveIgn(raw){
   if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
   return Number(raw)/32-16;
+}
+function decMainDwell(raw){
+  if(isV11Profile())return r2(Number(raw)/20);
+  return decOil(raw);
+}
+function encMainDwell(v){
+  if(isV11Profile())return clamp(Math.round(Math.max(0,Number(v))*20),0,255);
+  return encOil(v);
 }
 function decEctIgn(raw){return r1(((raw-64)/VER_ANGLE)*360/256)}
 function encEctIgn(v){return clamp(Math.round((Number(v)*256/360)*VER_ANGLE)+64,0,255)}
@@ -507,6 +515,9 @@ async function initializeRealSession(){
       // If the user connected while already viewing a supported ECU table,
       // lazily read only that visible table. INJ VE itself remains manual-read.
       setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
+      // V11 live ECT/IAT/MAP needs the voltage curves stored at the front of
+      // page A. This is a read-only calibration fetch; it never writes Options.
+      if(isV11Profile())setTimeout(()=>{readA2SensorPageReal(false).catch(e=>log('V11 sensor calibration read skipped:',String(e&&e.message||e)))},900);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -891,6 +902,24 @@ function parseCurrentFuelFrame(a,bank){
   }
   return {frame:f,matrix:out,page:pg};
 }
+function parseV11A2Data(data){
+  if(!(data instanceof Uint8Array))data=new Uint8Array(data);
+  // V11 A-page prefix is proven from __UartToDgvTpsRpm and
+  // Uart_DatToDgv_Voltage: TPS 28B + RPM 60B + six 11B grids +
+  // 11B config/password block = 165 bytes before Option/ECT-start/etc.
+  if(data.length<165)throw new Error('ATE V11 page A2 thiếu dữ liệu · '+data.length+'B / cần tối thiểu 165B');
+  let p=0;
+  const tpsRaw=data.slice(p,p+28);p+=28;
+  const rpmRaw=data.slice(p,p+60);p+=60;
+  const vAfrRaw=data.slice(p,p+11);p+=11;
+  const vEct=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const vIat=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const vMap=Array.from(data.slice(p,p+11),decVolt);p+=11;
+  const iatInj=Array.from(data.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
+  const mapMotor=Array.from(data.slice(p,p+11),x=>Number(x));p+=11;
+  const configRaw=data.slice(p,p+11);p+=11;
+  return {tpsRaw,rpmRaw,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+}
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
   if(data.length<133)throw new Error('Page A2 thiếu dữ liệu · '+data.length+'B / cần 133B');
@@ -965,8 +994,9 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
 async function readA2SensorPageReal(showUi=true){
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
-  const R=await readDirectPageReal(0xA2,133,'CẢM BIẾN / OPTIONS',showUi);
-  const C=parseA2Data(R.data);
+  const v11=isV11Profile();
+  const R=await readDirectPageReal(0xA2,v11?165:133,v11?'ATE V11 · SENSOR CAL':'CẢM BIẾN / OPTIONS',showUi);
+  const C=v11?parseV11A2Data(R.data):parseA2Data(R.data);
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
@@ -982,17 +1012,17 @@ async function readA2SensorPageReal(showUi=true){
   // On initial connect we only need calibration for live sensors.
   // When the user actually opens an A2-backed page, also sync that page's UI.
   if(showUi){
-    try{syncOptions(C);}catch(_e){}
+    if(!v11){try{syncOptions(C);}catch(_e){}}
     try{
       emitFeature(N.iat_inj,[C.iatInj]);
       emitFeature(N.map_idle_motor,[C.mapMotor]);
-      emitFeature(N.external_adjust,C.external);
-      emitFeature(N.auto_clutch,[C.auto]);
+      if(!v11&&C.external)emitFeature(N.external_adjust,C.external);
+      if(!v11&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success','CẢM BIẾN / OPTIONS · OK');
+    taskUi('success',v11?'ATE V11 · SENSOR CAL · OK':'CẢM BIẾN / OPTIONS · OK');
   }
   return {...R,cache:C};
 }
@@ -1017,7 +1047,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1026,7 +1056,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   switch(id){
     case 'inj_degree':pg=page(2,bank);rows=14;cols=30;dec=decMainInjAngle;n=N.inj_degree;label='GÓC PHUN';break;
     case 'ign_degree':pg=page(3,bank);rows=14;cols=30;dec=decMainIgn;n=N.ign_degree;label='GÓC ĐÁNH LỬA';break;
-    case 'ign_time':pg=page(4,bank);rows=1;cols=30;dec=decOil;n=N.ign_time;label='DWELL BOBIN';break;
+    case 'ign_time':pg=page(4,bank);rows=1;cols=30;dec=decMainDwell;n=N.ign_time;label='DWELL BOBIN';break;
     case 'ect_idle_motor':return readIdlePageReal(bank,showUi);
     case 'ect_inj':pg=0x72;rows=11;cols=30;dec=decPct;n=N.ect_inj;label='BÙ PHUN ECT';break;
     case 'ect_ign':pg=0x82;rows=11;cols=30;dec=isV11Profile()?decMainIgn:decEctIgn;n=N.ect_ign;label='BÙ ĐÁNH LỬA ECT';break;
@@ -1192,7 +1222,7 @@ async function writeFeatureReal(id){
     switch(id){
       case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encMainInjAngle;payload=encodeRowsByte(m,enc);break;
       case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encMainIgn;payload=encodeRowsByte(m,enc);break;
-      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encOil;payload=encodeRowsByte(m,enc);break;
+      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encMainDwell;payload=encodeRowsByte(m,enc);break;
       case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;enc=encPct;payload=encodeRowsByte(m,enc);break;
       case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;enc=isV11Profile()?encMainIgn:encEctIgn;payload=encodeRowsByte(m,enc);break;
       case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;enc=encMapInj;payload=encodeRowsByte(m,enc);break;
