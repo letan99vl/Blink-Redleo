@@ -30,6 +30,7 @@ let sessionInitPromise=null;
 let transportEpoch=0;
 
 const FEAT={
+  'Idle and limit':'idle_limit',
   'INJ degree':'inj_degree',
   'IGN degree':'ign_degree',
   'IGN Time':'ign_time',
@@ -102,12 +103,13 @@ function mainFeaturePage(id,bank){
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
+  if(ecuProfile&&ecuProfile.family==='v11'&&id==='idle_limit')return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -147,7 +149,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const mainFeatureIds=new Set(['idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -185,7 +187,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -1201,6 +1203,33 @@ async function readA2SensorPageReal(showUi=true){
   }
   return {...R,cache:C};
 }
+function decV11IdleCell(row,raw){
+  raw=Number(raw)&255;
+  if(row===0||row===1)return raw*20;
+  if(row===3)return Math.round((raw*64/50))*50;
+  return raw;
+}
+function encV11IdleCell(row,value){
+  let v=Number(value);
+  if(!Number.isFinite(v))v=0;
+  if(row===0||row===1)return clamp(Math.round(Math.max(500,v)/20),0,255);
+  if(row===3)return clamp(Math.round(v/64),0,255);
+  return clamp(Math.round(v),0,255);
+}
+function decodeV11Idle12(raw){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<12)throw new Error('ATE V11 Idle cần 12 byte.');
+  const m=Array.from({length:4},()=>Array(3).fill(0));
+  for(let group=0;group<3;group++)for(let row=0;row<4;row++)m[row][group]=decV11IdleCell(row,raw[group*4+row]);
+  return m;
+}
+function encodeV11Idle12(matrix){
+  if(!Array.isArray(matrix)||matrix.length!==4||matrix.some(r=>!Array.isArray(r)||r.length!==3))throw new Error('ATE V11 Idle cần bảng 4 × 3.');
+  const out=new Uint8Array(12);
+  for(let group=0;group<3;group++)for(let row=0;row<4;row++)out[group*4+row]=encV11IdleCell(row,matrix[row][group]);
+  return out;
+}
+
 async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   requireProfile('idleRead','Đọc Idle/Limit');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: Idle/Limit có layout Option riêng, chưa mở ở profile MAIN TUNE.');
@@ -1208,35 +1237,35 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
   const pg=page(6,bank);
 
   if(isV11Profile()){
-    // ATE V11 page 6x is not the old 30-byte V9 layout.
-    // Original V11 serializer sends, for the selected MAP:
-    //   24B Idle/Limit grid (8 rows x 3 ECU-data columns)
-    //    9B auxiliary idle/shift grid
-    //   11B ECT-motor grid
-    // Keep all bytes exact. Editing stays locked until every V11 cell semantic
-    // has been mapped; this reader is intentionally non-destructive.
-    const R=await readDirectPageReal(pg,44,'ATE V11 · IDLE / LIMIT RAW · MAP NO.'+bank,showUi);
+    // Exact ATE V11 page-6 serializer (selected MAP only):
+    //   Dgv_Idle_Limit : 4 rows × 3 transmitted groups = 12B
+    //   Dgv_AutoShift  : 9B
+    //   Dgv_Ect_Motor  : 2 rows × 11 transmitted columns = 22B
+    // Total = 43B. Only the first 12B are editable in this phase.
+    const R=await readDirectPageReal(pg,43,'ATE V11 · IDLE / LIMIT · MAP NO.'+bank,showUi);
     const C={
       page:pg,
       raw:R.data.slice(),
-      idleRaw:R.data.slice(0,24),
-      auxRaw:R.data.slice(24,33),
-      ectMotorRaw:R.data.slice(33,44),
-      tailRaw:R.data.slice(44)
+      idleRaw:R.data.slice(0,12),
+      autoShiftRaw:R.data.slice(12,21),
+      ectMotorRaw:R.data.slice(21,43),
+      tailRaw:R.data.slice(43)
     };
+    C.idleMatrix=decodeV11Idle12(C.idleRaw);
+    emitFeature(N.idle_limit,C.idleMatrix,bank);
     if(!window.blinkV11IdleRaw)window.blinkV11IdleRaw={};
     window.blinkV11IdleRaw[bank]={
       page:pg,
       raw:Array.from(C.raw),
       idleRaw:Array.from(C.idleRaw),
-      auxRaw:Array.from(C.auxRaw),
+      autoShiftRaw:Array.from(C.autoShiftRaw),
       ectMotorRaw:Array.from(C.ectMotorRaw),
       tailRaw:Array.from(C.tailRaw)
     };
     const st=document.getElementById('redIoStatus');
-    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · '+R.data.length+'B READ-ONLY · RAW preserved';
-    if(showUi)notice('success','ATE V11 · IDLE READ OK','MAP No.'+bank+' · '+R.data.length+'B · 24B Idle + 9B Aux + 11B ECT Motor. Ghi vẫn khóa an toàn.');
-    return {...R,...C,readOnly:true};
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · 43B · Idle 12B editable · AutoShift 9B + ECT Motor 22B preserved';
+    if(showUi)notice('success','ATE V11 · IDLE READ OK','MAP No.'+bank+' · Idle 12B đã giải mã · 31B AutoShift/ECT Motor giữ nguyên.');
+    return {...R,...C,readOnly:false};
   }
 
   const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
@@ -1255,7 +1284,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1418,6 +1447,29 @@ function matrixFromMaybe(id,fallback){
 }
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
+async function writeV11IdleLimit(bank){
+  if(!isV11Profile())throw new Error('Idle V11 writer chỉ dùng cho ATE V11.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank);
+  const cached=pageCache.get(pg);
+  if(!cached||cached.length<43)throw new Error('Hãy ĐỌC Idle/Limit MAP No.'+bank+' thành công trước khi GHI.');
+  const m=matrixFromRedTable(4,3);
+  if(m.some(r=>r.some(v=>!Number.isFinite(Number(v)))))throw new Error('Idle/Limit V11 chưa có đủ 12 giá trị hợp lệ.');
+  const idle=encodeV11Idle12(m);
+  const payload=new Uint8Array(cached);
+  payload.set(idle,0);
+  taskUi('loading','ATE V11 · GHI IDLE/LIMIT MAP NO.'+bank+' · GIỮ NGUYÊN AUTOSHIFT + ECT MOTOR');
+  await writePageChecked(pg,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  const R=await readIdlePageReal(bank,true);
+  if(R.data.length<payload.length)throw new Error('VERIFY Idle V11 thiếu dữ liệu.');
+  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
+    throw new Error('VERIFY Idle V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
+  }
+  notice('success','GHI + VERIFY IDLE ATE V11 OK','MAP No.'+bank+' · 12B Idle đã ghi · 31B AutoShift/ECT Motor giữ nguyên byte-for-byte.');
+  return R;
+}
+
 async function writeV11ExternalAdjust(){
   if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
@@ -1482,6 +1534,7 @@ async function writeFeatureReal(id){
   const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
+    if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
