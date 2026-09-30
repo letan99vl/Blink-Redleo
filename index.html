@@ -824,7 +824,7 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.25</span></div></div>
+      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.26</span></div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
     <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ECU BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
@@ -1023,11 +1023,26 @@ function nearestAxisIndex(axis,value){
   for(let i=0;i<axis.length;i++){const d=Math.abs(Number(axis[i])-Number(value));if(d<dist){dist=d;best=i;}}
   return best;
 }
+
 function remapTargetToAxes(matrix,oldRows,oldRpms,newRows,newRpms){
   if(!validMatrix(matrix))return matrix;
   const out=blankMatrix(13.2);
+  const oldNumeric=oldRows.map((v,i)=>({i,v:Number(v)})).filter(x=>Number.isFinite(x.v));
+  const oldIdle=oldRows.findIndex(v=>String(v).toUpperCase()==='IDLE');
+  const nearestOldRow=(label)=>{
+    if(String(label).toUpperCase()==='IDLE'){
+      if(oldIdle>=0)return oldIdle;
+      let best=oldNumeric[0]?.i??0,dist=Infinity;
+      for(const x of oldNumeric){const d=Math.abs(x.v);if(d<dist){dist=d;best=x.i;}}
+      return best;
+    }
+    const target=Number(label);
+    let best=oldNumeric[0]?.i??0,dist=Infinity;
+    for(const x of oldNumeric){const d=Math.abs(x.v-target);if(d<dist){dist=d;best=x.i;}}
+    return best;
+  };
   for(let nr=0;nr<R;nr++){
-    const or=nr===R-1?R-1:nearestAxisIndex(oldRows.slice(0,-1).map(Number),Number(newRows[nr]));
+    const or=nearestOldRow(newRows[nr]);
     for(let nc=0;nc<C;nc++){
       const oc=nearestAxisIndex(oldRpms,Number(newRpms[nc]));
       out[nr][nc]=num(matrix[or][oc],13.2);
@@ -1035,12 +1050,18 @@ function remapTargetToAxes(matrix,oldRows,oldRpms,newRows,newRpms){
   }
   return out;
 }
+
 function applyEcuAxes(info={}){
   const t=Array.from(info.tpsPct||[],Number),r=Array.from(info.rpmAxis||[],Number);
   if(!validMainAxes(t,r))return false;
   const oldRpms=RPMS.slice(),oldRows=TPS_ROWS.slice();
-  const nextRows=t.slice(1).reverse().concat('IDLE');
-  const changed=!sameAxis(oldRpms,r)||!sameAxis(oldRows.slice(0,-1).map(Number),nextRows.slice(0,-1).map(Number));
+  // V8/V9 uses 0% as the idle row. V10/Ultra/V11 may expose a real
+  // lowest breakpoint such as 0.5%, so keep all 14 numeric rows in that case.
+  const hasZeroIdle=Math.abs(Number(t[0]))<1e-9;
+  const nextRows=hasZeroIdle?t.slice(1).reverse().concat('IDLE'):t.slice().reverse();
+  if(nextRows.length!==R)return false;
+  const rowSig=a=>a.map(v=>String(v).toUpperCase()==='IDLE'?-1:Number(v));
+  const changed=!sameAxis(oldRpms,r)||!sameAxis(rowSig(oldRows),rowSig(nextRows));
   if(changed&&typeof state!=='undefined'&&!state.threeRun?.active){
     for(const b of state.mapBanks||[]){
       b.target=remapTargetToAxes(b.target,oldRows,oldRpms,nextRows,r);
@@ -1055,8 +1076,6 @@ function applyEcuAxes(info={}){
   if(Array.isArray(info.mapAxis)&&info.mapAxis.length===11)ECU_AUX_AXES.map=info.mapAxis.map(Number);
   ecuAxisMeta={source:String(info.source||'ECU'),profile:String(info.profile||''),firmware:String(info.firmware||'')};
 
-  // Main axes are now committed. Measured AFR was cleared and target AFR
-  // remapped above whenever the physical breakpoints changed.
   try{render();updateLive();}catch(_e){}
   try{window.refreshRedEcuAxes?.();}catch(_e){}
   const sub=document.getElementById('editorSub');
@@ -1384,15 +1403,22 @@ function nearestCol(rpm){
 }
 function nearestRow(tps,rpm){
   tps=Number(tps);rpm=Number(rpm);
-  const numeric=TPS_ROWS.slice(0,-1).map(Number).filter(Number.isFinite);
-  const lowest=numeric.length?Math.min(...numeric):2;
+  const hasIdle=String(TPS_ROWS[R-1]).toUpperCase()==='IDLE';
+  const count=hasIdle?R-1:R;
+  const numeric=TPS_ROWS.slice(0,count).map(Number).filter(Number.isFinite);
+  const lowest=numeric.length?Math.min(...numeric):0;
   const firstRpm=Number(RPMS[0])||500;
-  if(rpm<firstRpm/2 || tps<Math.max(0.05,lowest/2))return R-1;
+  if(hasIdle&&(rpm<firstRpm/2 || tps<Math.max(0.05,lowest/2)))return R-1;
   let best=0,dist=Infinity;
-  for(let r=0;r<R-1;r++){const d=Math.abs(tps-Number(TPS_ROWS[r]));if(d<dist){dist=d;best=r;}}
+  for(let r=0;r<count;r++){const d=Math.abs(tps-Number(TPS_ROWS[r]));if(d<dist){dist=d;best=r;}}
   return best;
 }
-function currentCell(){const rpm=Number(state.live.rpm)||0,tps=Number(state.live.tps)||0;const r=nearestRow(tps,rpm),c=nearestCol(rpm);return {r,c,key:r===R-1?'idle':r+':'+c};}
+function currentCell(){
+  const rpm=Number(state.live.rpm)||0,tps=Number(state.live.tps)||0;
+  const r=nearestRow(tps,rpm),c=nearestCol(rpm);
+  const idle=String(TPS_ROWS[r]).toUpperCase()==='IDLE';
+  return {r,c,key:idle?'idle':r+':'+c};
+}
 async function ensureActiveEcuAxes(showUi=false){
   if(!state.ecuConnected)return true;
   const api=window.BlinkRealProtocol;
@@ -3118,7 +3144,8 @@ function featureForProfile(id){
 }
 function externalTpsAxis(){
   if(state.ecuProfile==='MODERN_V10'||state.ecuProfile==='MODERN_V11'){
-    return ['IDLE',...TPS_ROWS.slice(0,-1).map(Number).reverse(),'ALL'];
+    const asc=TPS_ROWS.slice().reverse().map(v=>String(v).toUpperCase()==='IDLE'?'IDLE':Number(v));
+    return [...asc,'ALL'];
   }
   return [0,2,5,8,14,20,30,40,50,60,70,80,90,100,'ALL'];
 }
@@ -3393,6 +3420,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.25"></script>
+<script src="redleo_real_protocol.js?v=3.26"></script>
 </body>
 </html>
