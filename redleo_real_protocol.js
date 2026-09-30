@@ -51,7 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -84,7 +84,12 @@ function profileCap(name){
   if(name==='fullWrite'){
     return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
-  return !!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
+  const cap=!!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
+  if(cap&&ecuProfile&&ecuProfile.family==='v11'&&(name==='tpsStudy'||name==='testInjector')){
+    const mode=Number(handshakeInfo&&handshakeInfo.ecuMode);
+    if(Number.isFinite(mode)&&mode>=4)return false;
+  }
+  return cap;
 }
 function mainFeaturePage(id,bank){
   bank=normalizeBankForProfile(bank);
@@ -910,7 +915,10 @@ function parseV11A2Data(data){
   if(data.length<165)throw new Error('ATE V11 page A2 thiếu dữ liệu · '+data.length+'B / cần tối thiểu 165B');
   let p=0;
   const tpsRaw=data.slice(p,p+28);p+=28;
+  const tpsVolt=Array.from(tpsRaw.slice(0,14),decVolt);
+  const tpsPct=Array.from(tpsRaw.slice(14,28),x=>Number(x)/2);
   const rpmRaw=data.slice(p,p+60);p+=60;
+  const rpmAxis=[];for(let i=0;i<60;i+=2)rpmAxis.push(u16be(rpmRaw,i)*20);
   const vAfrRaw=data.slice(p,p+11);p+=11;
   const vEct=Array.from(data.slice(p,p+11),decVolt);p+=11;
   const vIat=Array.from(data.slice(p,p+11),decVolt);p+=11;
@@ -918,7 +926,7 @@ function parseV11A2Data(data){
   const iatInj=Array.from(data.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
   const mapMotor=Array.from(data.slice(p,p+11),x=>Number(x));p+=11;
   const configRaw=data.slice(p,p+11);p+=11;
-  return {tpsRaw,rpmRaw,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
 }
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
@@ -1007,6 +1015,12 @@ async function readA2SensorPageReal(showUi=true){
     if(Number.isFinite(C.options.tpsMinEcu))state.cal.tpsMin=C.options.tpsMinEcu;
     if(Number.isFinite(C.options.tpsMaxEcu))state.cal.tpsMax=C.options.tpsMaxEcu;
     try{syncControls();}catch(_e){}
+  }else if(typeof state!=='undefined'&&v11&&Array.isArray(C.tpsVolt)&&C.tpsVolt.length===14){
+    const lo=Number(C.tpsVolt[0]),hi=Number(C.tpsVolt[13]);
+    if(Number.isFinite(lo)&&Number.isFinite(hi)&&Math.abs(hi-lo)>.1){
+      state.cal.tpsMin=lo;state.cal.tpsMax=hi;
+      try{syncControls();saveSoon();}catch(_e){}
+    }
   }
 
   // On initial connect we only need calibration for live sensors.
@@ -1351,8 +1365,62 @@ async function copyBankReal(dest){
 }
 
 async function restoreReal(){requireProfile('restore','Khôi phục dữ liệu gốc');if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;taskUi('loading','ĐANG KHÔI PHỤC ECU...');const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
-async function tpsStudyReal(){requireProfile('tpsStudy','Học TPS');taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');const rx=await rawExchange(req5(0x77,0x77),38000);if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');const min=rx[92]*20/1024,max=rx[93]*20/1024;if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V')}
-async function testInjectorReal(){requireProfile('testInjector','Thử kim phun');const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));if(!Number.isFinite(s)||s<=1)return;const sec=clamp(Math.round(s),2,30);await rawExchange(req5(0xDC,sec+1),6000);notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200)}
+async function tpsStudyReal(){
+  requireProfile('tpsStudy','Học TPS');
+  if(isV11Profile()){
+    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
+    taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
+    const rx=await rawExchange(req5(0x77,0x77),38000);
+    const f=findValidCommandFrame(rx,0x77,168);
+    if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
+    const C=parseV11A2Data(f.slice(1,-2));
+    sensorCalCache=C;
+    sensorCalIdentity=handshakeInfo?[ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
+    const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
+    if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
+      state.cal.tpsMin=min;state.cal.tpsMax=max;
+      try{syncControls();saveSoon();}catch(_e){}
+    }
+    notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
+    return C;
+  }
+  taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');
+  const rx=await rawExchange(req5(0x77,0x77),38000);
+  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');
+  const min=rx[92]*20/1024,max=rx[93]*20/1024;
+  if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');
+  state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}
+  notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+}
+async function testInjectorReal(){
+  requireProfile('testInjector','Thử kim phun');
+  const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));
+  if(!Number.isFinite(s)||s<=1)return;
+  const sec=clamp(Math.round(s),2,30);
+  if(isV11Profile()){
+    if(!confirm('ATE V11 · TEST KIM PHUN '+sec+' GIÂY\n\nĐộng cơ phải tắt. Đảm bảo khu vực an toàn trước khi kích kim phun.'))return;
+    const resume=liveRunning;stopLiveLoop();
+    const until=Date.now()+sec*1000;
+    try{
+      // Original ATE state machine arms/stops with DC 00 and repeatedly sends
+      // DC AA while B_TestInj is active.
+      await rawExchange(req5(0xDC,0x00),6000);
+      await new Promise(r=>setTimeout(r,120));
+      while(Date.now()<until){
+        await rawExchange(req5(0xDC,0xAA),6000);
+        await new Promise(r=>setTimeout(r,80));
+      }
+    }finally{
+      try{await rawExchange(req5(0xDC,0x00),6000)}catch(_e){}
+      if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
+    }
+    notice('success','TEST INJECTOR ATE V11 XONG',sec+' giây · đã gửi DC 00 stop');
+    return;
+  }
+  await rawExchange(req5(0xDC,sec+1),6000);
+  notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');
+  setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200);
+}
 
 function passwordDigitsToBytes(p){p=(String(p||'')+'FFFF').slice(0,4).toUpperCase();if(!/^[0-9A-F]{4}$/.test(p))throw new Error('Mật khẩu chỉ dùng 0-9/A-F, tối đa 4 ký tự');return Array.from(p,ch=>parseInt(ch,16));}
 function passwordBytesToString(a){return Array.from(a||[]).map(x=>(x&15).toString(16).toUpperCase()).join('').replace(/F+$/,'')}
