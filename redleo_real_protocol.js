@@ -194,7 +194,7 @@ function applyProfileUi(){
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const blocked=(limited&&!limitedMain.has(id))||(id==='auto_shift'&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
+    const blocked=(limited&&!limitedMain.has(id))||(id==='auto_shift'&&p.family!=='v11')||(id==='chg_params'&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
   });
 }
