@@ -2005,6 +2005,7 @@ function beginThreeRunPass(pass,keepMeasured=false){
 async function startThreeRunSession(){
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!state.afrPort||!state.afrKeepReading)return alert('Hãy kết nối AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
+  if(!await ensureActiveEcuAxes(true))return;
   let maxPw=0;for(const row of state.inject)for(const v of row)maxPw=Math.max(maxPw,num(v,0));if(maxPw<=0)return alert('Chưa có MAP phun ECU. Hãy bấm Đọc MAP ECU trước.');
   const ok=confirm('BẮT ĐẦU MODE CHẠY 3 LƯỢT trên MAP No.'+state.activeMap+'?\n\nLượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi + VERIFY ECU lần 3.\n\nChỉ sau khi FINAL VERIFY thành công phiên mới hoàn tất. Trong lúc chạy, MAP và chỉnh tay sẽ bị khóa.');if(!ok)return;
   state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:null,runPw:null,target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};beginThreeRunPass(1,false);
@@ -2778,7 +2779,13 @@ async function disconnectAfr(){
 }
 
 function setTab(tab){resetQuickType();state.tab=tab;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));render();}
-function toggleRecord(){if(state.threeRun.active)return;setRecording(!state.recording);}
+async function toggleRecord(){
+  if(state.threeRun.active)return;
+  if(!state.recording){
+    if(!await ensureActiveEcuAxes(true))return;
+  }
+  setRecording(!state.recording);
+}
 
 load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);render();updateLive();renderThreeRunUi();renderThreeRunHistory();
 
@@ -3152,7 +3159,18 @@ async function autoReadVisibleEcuPage(reason='open'){
 }
 window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
-function openOurEditor(tab,fromTune=false){const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';syncBanks();showScreen('editor')}
+function openOurEditor(tab,fromTune=false){
+  const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};
+  document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';
+  document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');
+  setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';
+  document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';
+  syncBanks();showScreen('editor');
+  if(state.ecuConnected)setTimeout(async()=>{
+    const ok=await ensureActiveEcuAxes(false);
+    if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
+  },0);
+}
 function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
