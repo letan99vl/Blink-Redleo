@@ -149,6 +149,14 @@ function applyProfileUi(){
   if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
   const sub=document.querySelector('#ecuScreen .screenSub');
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
+  const mapSub=document.getElementById('mapsProfileSub');
+  if(mapSub){
+    if(p.family==='v11')mapSub.textContent='ATE / REDLEO 11.x · giao diện V11 · AFR/Auto Tune dùng Blink';
+    else if(p.family==='modern')mapSub.textContent=p.label+' · giao diện REDLEO · AFR/Auto Tune dùng Blink';
+    else if(p.family==='v8')mapSub.textContent=p.label+' · chỉ hiện các bảng đã xác minh';
+    else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
+  }
+  document.body.dataset.ecuProfile=p.key||'UNKNOWN';
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
@@ -195,8 +203,14 @@ function applyProfileUi(){
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const blocked=(limited&&!limitedMain.has(id))||(id==='auto_shift'&&p.family!=='v11')||(id==='chg_params'&&p.family!=='v11')||(id==='ate_options'&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
+    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options');
+    const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
+    // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
+    if(v11Only)el.style.display=p.family==='v11'?'':'none';
+    // Spare is a pre-9.x concept and is not part of the verified ATE V11 UI.
+    if(id==='spare'&&p.family==='v11')el.style.display='none';
+    else if(id==='spare'&&p.family!=='v11')el.style.display='';
   });
 }
 function setEcuProfile(p){
