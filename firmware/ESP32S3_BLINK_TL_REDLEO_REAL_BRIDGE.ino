@@ -140,7 +140,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     // Compatibility / diagnostics.
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
-      if (text == "PING") notifyStatus("PONG");
+      if (text == "PING") notifyStatus("PONG FW1.1");
       return;
     }
 
