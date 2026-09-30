@@ -556,43 +556,43 @@ function decodeRowsU16(a,off,rows,cols,dec=x=>x){
 }
 function encodeRowsU16(m,enc=x=>x){const out=[];for(let wr=0;wr<m.length;wr++){const ur=m.length-1-wr;for(let c=0;c<m[ur].length;c++)push16be(out,enc(m[ur][c]));}return out}
 
-function ectTempToRaw(temp, vEct){
-  temp=Number(temp);if(!Number.isFinite(temp))temp=0;
-  const vals=vEct&&vEct.length?vEct:Array(11).fill(0);
-  if(temp<=0)return encVolt(vals[0]);
-  if(temp>=140)return encVolt(vals[10]);
-  const idx=Math.min(9,Math.floor(temp/14));
-  const t0=idx*14,t1=(idx+1)*14,v0=Number(vals[idx]),v1=Number(vals[idx+1]);
-  const v=v0+(v1-v0)*(temp-t0)/(t1-t0);
-  return encVolt(v);
-}
-function ectRawToTemp(raw,vEct){
-  const v=decVolt(raw),vals=vEct&&vEct.length?vEct:Array(11).fill(0);
-  // REDLEO curve is normally descending. Search adjacent pair inclusively.
-  for(let i=0;i<10;i++){
-    const a=Number(vals[i]),b=Number(vals[i+1]);
-    if((v<=a&&v>=b)||(v>=a&&v<=b)){
-      if(Math.abs(b-a)<1e-9)return i*14;
-      return Math.round(i*14+(v-a)/(b-a)*14);
-    }
+function valueToCurveVoltage(value,curve,axis){
+  const vals=Array.from(curve||[],Number),ax=Array.from(axis||[],Number);
+  value=Number(value);
+  if(vals.length<2||vals.length!==ax.length||!Number.isFinite(value))return NaN;
+  if(value<=ax[0])return vals[0];
+  if(value>=ax[ax.length-1])return vals[vals.length-1];
+  for(let i=0;i<ax.length-1;i++){
+    const x0=ax[i],x1=ax[i+1];
+    if(value<x0||value>x1)continue;
+    if(Math.abs(x1-x0)<1e-9)return vals[i];
+    return vals[i]+(vals[i+1]-vals[i])*(value-x0)/(x1-x0);
   }
-  return 140;
+  return vals[0];
 }
-
-function curveVoltageToAxis(v,curve,step){
+function ectTempToRaw(temp,vEct){
+  const v=valueToCurveVoltage(temp,vEct,currentAuxAxes().ect);
+  return encVolt(Number.isFinite(v)?v:0);
+}
+function curveVoltageToAxis(v,curve,axis){
   const vals=Array.from(curve||[],Number);
-  if(vals.length<2||!Number.isFinite(v))return NaN;
+  const ax=Array.isArray(axis)?Array.from(axis,Number):Array.from({length:vals.length},(_,i)=>i*Number(axis||1));
+  if(vals.length<2||vals.length!==ax.length||!Number.isFinite(v))return NaN;
   for(let i=0;i<vals.length-1;i++){
     const a=vals[i],b=vals[i+1];
-    if(!Number.isFinite(a)||!Number.isFinite(b))continue;
-    if((v>=Math.min(a,b)&&v<=Math.max(a,b))){
-      if(Math.abs(b-a)<1e-9)return i*step;
-      return i*step+((v-a)/(b-a))*step;
+    if(!Number.isFinite(a)||!Number.isFinite(b)||!Number.isFinite(ax[i])||!Number.isFinite(ax[i+1]))continue;
+    if(v>=Math.min(a,b)&&v<=Math.max(a,b)){
+      if(Math.abs(b-a)<1e-9)return ax[i];
+      return ax[i]+((v-a)/(b-a))*(ax[i+1]-ax[i]);
     }
   }
-  // Clamp to closest endpoint rather than extrapolate wildly.
+  // Clamp to the closest calibration endpoint rather than extrapolate wildly.
   const d0=Math.abs(v-vals[0]),d1=Math.abs(v-vals[vals.length-1]);
-  return d0<=d1?0:(vals.length-1)*step;
+  return d0<=d1?ax[0]:ax[ax.length-1];
+}
+function ectRawToTemp(raw,vEct){
+  const t=curveVoltageToAxis(decVolt(raw),vEct,currentAuxAxes().ect);
+  return Number.isFinite(t)?Math.round(t):currentAuxAxes().ect[0];
 }
 function liveVolt10(raw){return Number(raw)*5/1024}
 function ascii(a,start,len){let out='';for(let i=0;i<len&&start+i<a.length;i++){const x=a[start+i];if(!x)break;if(x>=32&&x<=126)out+=String.fromCharCode(x);}return out.trim()}
@@ -625,6 +625,7 @@ function syncHandshakeInfo(info){
   handshakeInfo=info;
   const p=info.profile||profileFromHandshake(info);
   setEcuProfile(p);
+  publishProfileAxisFallback(p.key==='MODERN_V10'||p.key==='MODERN_V11'?'PROFILE · CHỜ A2 TPS/RPM':'PROFILE · AXIS CỐ ĐỊNH');
   if(typeof state!=='undefined'){
     state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
     if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
@@ -667,9 +668,10 @@ function parseLiveReal(a){
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
   if(liveCal){
-    state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,14);
-    state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,6);
-    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,12);
+    const aux=currentAuxAxes();
+    state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,aux.ect);
+    state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,aux.iat);
+    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,aux.map);
   }else{
     state.live.ect=NaN;
     state.live.iat=NaN;
@@ -816,6 +818,7 @@ function abortRawTransport(reason='BLE disconnected'){
   fuelPagePrimed.clear();
   v8LiveSlot=0;
   ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
+  publishEcuAxes(LEGACY_TPS_PCT.slice(),LEGACY_RPM_AXIS.slice(),'DISCONNECTED');
   try{applyProfileUi();}catch(_e){}
   if(typeof state!=='undefined'){
     state.ecuPhase='idle';
