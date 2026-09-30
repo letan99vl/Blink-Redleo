@@ -1812,7 +1812,7 @@ async function applyCorrectedAndWrite(){
   state.inject=next;
   saveSoon();
   if(state.tab==='inject'||state.tab==='corrected')render();
-  await startFuelWrite();
+  await startFuelWrite({skipConfirm:true});
 }
 
 
@@ -2847,6 +2847,7 @@ window.addEventListener('beforeunload',save);
       mapRx.active=false;saveSoon();
       showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
     }else if(text.startsWith('PONG')){
+      window.blinkBridgeFirmwareStatus=text;
       const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
       $('ecuDiag').textContent='BLE STATUS: '+text+' · Bridge '+fw;
       showEcuNotice('success','ECU Blink BLE OK','Kết nối hai chiều hoạt động · Bridge '+fw+'.');
@@ -2889,6 +2890,7 @@ window.addEventListener('beforeunload',save);
       await mapChar.startNotifications();mapChar.addEventListener('characteristicvaluechanged',parseMap);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
       window.blinkLiveChar=liveChar;window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkStatusChar=statusChar;window.blinkWriteCommand=writeCommand;
+      window.blinkBridgeFirmwareStatus='';
       setBleUi(true,device.name||'ECU Blink');
       setEcuTaskStatus('success','ECU ĐÃ KẾT NỐI · OK');
       $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
@@ -2904,7 +2906,7 @@ window.addEventListener('beforeunload',save);
   }
 
   function onDisconnected(){
-    liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;
+    liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
     setBleUi(false);
     setEcuTaskStatus('offline','ECU ĐÃ NGẮT KẾT NỐI',5000);
     showEcuNotice('error','ECU Blink ĐÃ NGẮT BLE','Bấm KẾT NỐI ECU BLINK để kết nối lại.');
