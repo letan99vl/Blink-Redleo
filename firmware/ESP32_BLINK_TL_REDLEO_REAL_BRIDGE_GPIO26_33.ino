@@ -140,7 +140,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     // Compatibility / diagnostics.
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
-      if (text == "PING") notifyStatus("PONG ESP32 FW1.1");
+      if (text == "PING") notifyStatus("PONG ESP32 FW1.2");
       return;
     }
 
@@ -200,6 +200,15 @@ static bool validRedleoFrame(const uint8_t *p, size_t n) {
   uint8_t sum = 0;
   for (size_t i = 0; i < n - 2; ++i) sum = (uint8_t)(sum + p[i]);
   return sum == p[n - 2];
+}
+
+static bool validWritePageFrame(const uint8_t *p, size_t n) {
+  if (!p || n < 5 || p[0] != 0xCD) return false;
+  if (p[n - 1] != (uint8_t)(n & 0xFFU)) return false;
+  uint8_t sum = 0;
+  for (size_t i = 0; i < n - 3; ++i) sum = (uint8_t)(sum + p[i]);
+  if (p[n - 2] != sum) return false;
+  return (uint8_t)(p[n - 3] + p[n - 2]) == 0xFFU;
 }
 
 static bool extractValidLive53(uint8_t *rx, size_t got) {
@@ -373,6 +382,13 @@ static void processTransaction() {
     return;
   }
 
+  if (n > 0 && txBuf[0] == 0xCD && !validWritePageFrame(txBuf, n)) {
+    Serial.printf("BLOCK BAD WRITE sid=%u len=%u\n", sid, n);
+    notifyStatus("ERR TX FRAME");
+    sendRawResponse(sid, nullptr, 0);
+    return;
+  }
+
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
   const size_t got = transactUart(txBuf, n, rxBuf, RX_MAX);
   Serial.printf("ECU RX sid=%u len=%u", sid, (unsigned)got);
@@ -403,7 +419,7 @@ static void sendAfrPacket() {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\nBLINK TL REDLEO ECU REAL BRIDGE ESP32 FW1.1");
+  Serial.println("\nBLINK TL REDLEO ECU REAL BRIDGE ESP32 FW1.2");
   Serial.printf("ECU UART: 38400 8E2 RX=%d TX=%d RTS=%d\n", ECU_RX_PIN, ECU_TX_PIN, ECU_RTS_PIN);
 
   if (ECU_RX_PIN >= 0 && ECU_TX_PIN >= 0) {
