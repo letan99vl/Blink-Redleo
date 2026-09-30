@@ -74,9 +74,11 @@ BLECharacteristic *statusChar = nullptr;
 volatile bool deviceConnected = false;
 
 uint8_t txBuf[TX_MAX];
+uint8_t txSeen[TX_MAX];
 uint16_t txExpected = 0;
 uint16_t txGot = 0;
 uint8_t txSid = 0;
+bool txEndSeen = false;
 volatile bool transactionReady = false;
 uint16_t transactionLen = 0;
 uint8_t transactionSid = 0;
@@ -111,6 +113,8 @@ class ServerCallbacks : public BLEServerCallbacks {
     transactionSid = 0;
     txExpected = 0;
     txGot = 0;
+    txEndSeen = false;
+    memset(txSeen, 0, sizeof(txSeen));
     interrupts();
     delay(120);
     s->getAdvertising()->start();
@@ -122,6 +126,8 @@ static void resetAssembler(uint8_t sid, uint16_t total) {
   txSid = sid;
   txExpected = total;
   txGot = 0;
+  txEndSeen = false;
+  memset(txSeen, 0, sizeof(txSeen));
 }
 
 class CommandCallbacks : public BLECharacteristicCallbacks {
@@ -152,24 +158,34 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
       notifyStatus("ERR RAW SIZE");
       return;
     }
-    if ((flags & 0x01) || sid != txSid || total != txExpected) resetAssembler(sid, total);
-    if (off != txGot) {
-      // Sequential transport by design. Reject gaps rather than writing a partial ECU frame.
-      notifyStatus("ERR RAW OFFSET");
-      resetAssembler(sid, total);
-      return;
-    }
-    memcpy(txBuf + off, p + 7, payload);
-    txGot += payload;
 
-    if ((flags & 0x02) || txGot >= txExpected) {
-      if (txGot == txExpected && !transactionReady) {
-        transactionSid = txSid;
-        transactionLen = txExpected;
-        transactionReady = true;
-      } else if (txGot != txExpected) {
-        notifyStatus("ERR RAW INCOMP");
+    // Start a new frame only when SID/length changes, or when START arrives for
+    // a frame that has not collected any bytes yet. Do NOT reset merely because
+    // a duplicate START chunk is delivered by Bluefy/iOS.
+    if (sid != txSid || total != txExpected) {
+      resetAssembler(sid, total);
+    } else if ((flags & 0x01) && txGot == 0) {
+      resetAssembler(sid, total);
+    }
+
+    // Offset-addressed reassembly. BLE stacks may duplicate or reorder writes;
+    // copy each byte into its declared position and count only first receipt.
+    for (uint16_t i = 0; i < payload; ++i) {
+      const uint16_t pos = off + i;
+      txBuf[pos] = p[7 + i];
+      if (!txSeen[pos]) {
+        txSeen[pos] = 1;
+        ++txGot;
       }
+    }
+    if (flags & 0x02) txEndSeen = true;
+
+    // The END flag may arrive before an earlier chunk. Execute only after every
+    // byte has actually been received. Duplicate chunks are harmless.
+    if (txEndSeen && txGot == txExpected && !transactionReady) {
+      transactionSid = txSid;
+      transactionLen = txExpected;
+      transactionReady = true;
     }
   }
 };
@@ -390,7 +406,7 @@ static void sendAfrPacket() {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\nBLINK TL REDLEO ECU REAL BRIDGE");
+  Serial.println("\nBLINK TL REDLEO ECU REAL BRIDGE FW 1.1");
   Serial.printf("ECU UART: 38400 8E2 RX=%d TX=%d RTS=%d\n", ECU_RX_PIN, ECU_TX_PIN, ECU_RTS_PIN);
 
   if (ECU_RX_PIN >= 0 && ECU_TX_PIN >= 0) {
