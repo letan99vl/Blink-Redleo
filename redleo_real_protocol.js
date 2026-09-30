@@ -1513,6 +1513,25 @@ async function readA2SensorPageReal(showUi=true){
   }
   return {...R,cache:C};
 }
+async function ensureEcuAxesReal(showUi=false){
+  if(!handshakeInfo)throw new Error('Chưa nhận diện ECU để lấy trục TPS/RPM.');
+  if(ecuProfile&&((ecuProfile.family==='v8')||ecuProfile.key==='MODERN_V9')){
+    return publishProfileAxisFallback((ecuProfile.key==='MODERN_V9'?'V9':'V8')+' · AXIS CỐ ĐỊNH');
+  }
+  if(ecuProfile&&(ecuProfile.key==='MODERN_V10'||ecuProfile.key==='MODERN_V11')){
+    if(sensorCalCache&&validDynamicAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis)){
+      return publishEcuAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis,'CACHE ECU · '+ecuProfile.short);
+    }
+    if(readCache&&validDynamicAxes(readCache.tpsPct,readCache.rpmAxis)){
+      return publishEcuAxes(readCache.tpsPct,readCache.rpmAxis,'READ ALL · '+ecuProfile.short);
+    }
+    const R=await readA2SensorPageReal(showUi);
+    const C=R&&R.cache;
+    if(!C||!validDynamicAxes(C.tpsPct,C.rpmAxis))throw new Error(ecuProfile.label+' · không đọc được trục TPS/RPM hợp lệ từ A2.');
+    return window.blinkEcuAxes;
+  }
+  return publishProfileAxisFallback('SAFE FALLBACK');
+}
 function decV11IdleCell(row,raw){
   raw=Number(raw)&255;
   if(row===0||row===1)return raw*20;
@@ -1702,6 +1721,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
 }
 async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   requireProfile('fuelRead','Đọc MAP thời gian phun');
+  await ensureEcuAxesReal(false);
   bank=normalizeBankForProfile(bank);
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
   const pg=page(1,bank);
@@ -2171,6 +2191,7 @@ async function readCurrentFuelBankRetry(bank){
 }
 async function writeCurrentFuelAndVerify(bank){
   requireProfile('fuelWrite','Ghi hiện tại MAP thời gian phun');
+  await ensureEcuAxesReal(false);
   bank=normalizeBankForProfile(bank);
   const resumeLive=liveRunning;
   const previousPhase=typeof state!=='undefined'?state.ecuPhase:'live';
@@ -2790,6 +2811,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
