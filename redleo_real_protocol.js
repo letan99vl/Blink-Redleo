@@ -103,13 +103,13 @@ function mainFeaturePage(id,bank){
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
-  if(ecuProfile&&ecuProfile.family==='v11'&&id==='idle_limit')return page(6,bank);
+  if(ecuProfile&&ecuProfile.family==='v11'&&(id==='idle_limit'||id==='ect_idle_motor'))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -149,7 +149,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
@@ -187,7 +187,7 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
@@ -1216,6 +1216,50 @@ function encV11IdleCell(row,value){
   if(row===3)return clamp(Math.round(v/64),0,255);
   return clamp(Math.round(v),0,255);
 }
+function v11IdleMotorMode(requireKnown=false){
+  const raw=handshakeInfo&&handshakeInfo.features;
+  const n=Number(raw);
+  if(!Number.isFinite(n)){
+    if(requireKnown)throw new Error('ATE V11 chưa có feature byte từ handshake 0x5A; không ghi ECT Motor.');
+    return {known:false,solenoid:false,limit128:false,label:'UNKNOWN'};
+  }
+  // Original ATE maps handshake byte 28 bit0..7 -> InfoChk[1]..InfoChk[8].
+  // __IsMotorSolenoid() = InfoChk[5] || InfoChk[4].
+  const info4=!!(n&(1<<3)),info5=!!(n&(1<<4));
+  return {known:true,solenoid:info4||info5,limit128:info5,label:(info4||info5)?'SOLENOID':'STEPPER',features:n&255};
+}
+function decV11EctMotorInj(raw){return r2((Number(raw)&255)*0.064)}
+function encV11EctMotorInj(v){return clamp(Math.round(Math.max(0,Number(v))*15.625),0,255)}
+function decodeV11EctMotor22(raw,mode=v11IdleMotorMode(false)){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<22)throw new Error('ATE V11 ECT Motor cần 22 byte.');
+  const out=[Array(11).fill(0),Array(11).fill(0)];
+  // proUartDgvNum reverses UI rows: wire 0..10 = UI INJ VE row,
+  // wire 11..21 = UI Step/Time row.
+  for(let c=0;c<11;c++)out[1][c]=decV11EctMotorInj(raw[c]);
+  for(let c=0;c<11;c++){
+    const x=raw[11+c]&255;
+    out[0][c]=mode.known?(mode.solenoid?x*2:r1(x*0.2)):x;
+  }
+  return out;
+}
+function encodeV11EctMotor22(matrix,mode=v11IdleMotorMode(true)){
+  if(!Array.isArray(matrix)||matrix.length!==2||matrix.some(r=>!Array.isArray(r)||r.length!==11))throw new Error('ATE V11 ECT Motor cần bảng 2 × 11.');
+  if(!mode.known)throw new Error('Không xác định được loại motor garanti từ handshake.');
+  const out=new Uint8Array(22);
+  for(let c=0;c<11;c++)out[c]=encV11EctMotorInj(matrix[1][c]);
+  for(let c=0;c<11;c++){
+    let v=Number(matrix[0][c]);
+    if(!Number.isFinite(v))v=0;
+    if(mode.solenoid){
+      if(mode.limit128)v=Math.min(v,128);
+      out[11+c]=clamp(Math.round(v/2),0,255);
+    }else{
+      out[11+c]=clamp(Math.round(Math.max(0,v)*5),0,255);
+    }
+  }
+  return out;
+}
 function decodeV11Idle12(raw){
   raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
   if(raw.length<12)throw new Error('ATE V11 Idle cần 12 byte.');
@@ -1252,7 +1296,10 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
       tailRaw:R.data.slice(43)
     };
     C.idleMatrix=decodeV11Idle12(C.idleRaw);
+    C.motorMode=v11IdleMotorMode(false);
+    C.ectMotorMatrix=decodeV11EctMotor22(C.ectMotorRaw,C.motorMode);
     emitFeature(N.idle_limit,C.idleMatrix,bank);
+    emitFeature(N.ect_idle_motor,C.ectMotorMatrix,bank);
     if(!window.blinkV11IdleRaw)window.blinkV11IdleRaw={};
     window.blinkV11IdleRaw[bank]={
       page:pg,
@@ -1260,11 +1307,12 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
       idleRaw:Array.from(C.idleRaw),
       autoShiftRaw:Array.from(C.autoShiftRaw),
       ectMotorRaw:Array.from(C.ectMotorRaw),
+      motorMode:C.motorMode,
       tailRaw:Array.from(C.tailRaw)
     };
     const st=document.getElementById('redIoStatus');
-    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · 43B · Idle 12B editable · AutoShift 9B + ECT Motor 22B preserved';
-    if(showUi)notice('success','ATE V11 · IDLE READ OK','MAP No.'+bank+' · Idle 12B đã giải mã · 31B AutoShift/ECT Motor giữ nguyên.');
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · 43B · Idle 12B + ECT Motor 22B decoded · AutoShift 9B preserved · '+C.motorMode.label;
+    if(showUi)notice('success','ATE V11 · IDLE READ OK','MAP No.'+bank+' · Idle 12B + ECT Motor 22B đã giải mã · AutoShift 9B giữ nguyên · mode '+C.motorMode.label+'.');
     return {...R,...C,readOnly:false};
   }
 
@@ -1284,7 +1332,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
@@ -1447,6 +1495,29 @@ function matrixFromMaybe(id,fallback){
 }
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
+async function writeV11EctMotor(bank){
+  if(!isV11Profile())throw new Error('ECT Motor writer chỉ dùng cho ATE V11.');
+  bank=normalizeBankForProfile(bank);
+  const mode=v11IdleMotorMode(true),pg=page(6,bank);
+  const cached=pageCache.get(pg);
+  if(!cached||cached.length<43)throw new Error('Hãy ĐỌC Temperature–Idle Motor MAP No.'+bank+' thành công trước khi GHI.');
+  const m=matrixFromRedTable(2,11);
+  if(m.some(r=>r.some(v=>!Number.isFinite(Number(v)))))throw new Error('ECT Motor V11 chưa có đủ 22 giá trị hợp lệ.');
+  const motor=encodeV11EctMotor22(m,mode);
+  const payload=new Uint8Array(cached);
+  payload.set(motor,21);
+  taskUi('loading','ATE V11 · GHI ECT MOTOR MAP NO.'+bank+' · '+mode.label+' · GIỮ NGUYÊN IDLE + AUTOSHIFT');
+  await writePageChecked(pg,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  const R=await readIdlePageReal(bank,true);
+  if(R.data.length<payload.length)throw new Error('VERIFY ECT Motor V11 thiếu dữ liệu.');
+  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
+    throw new Error('VERIFY ECT Motor V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
+  }
+  notice('success','GHI + VERIFY ECT MOTOR ATE V11 OK','MAP No.'+bank+' · 22B ECT Motor đã ghi · 21B Idle/AutoShift giữ nguyên byte-for-byte · '+mode.label+'.');
+  return R;
+}
+
 async function writeV11IdleLimit(bank){
   if(!isV11Profile())throw new Error('Idle V11 writer chỉ dùng cho ATE V11.');
   bank=normalizeBankForProfile(bank);
@@ -1535,6 +1606,7 @@ async function writeFeatureReal(id){
 
   if(isMain){
     if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
+    if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
