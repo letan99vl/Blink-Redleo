@@ -51,7 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -158,7 +158,7 @@ function applyProfileUi(){
     else if(c==='SEND_CURRENT')ok=profileCap('fuelWrite');
     else if(c==='SEND_ALL'||c==='OPTIONS_WRITE')ok=profileCap('fullWrite');
     else if(c==='RESTORE')ok=profileCap('restore');
-    else if(c==='CHANGE_PASSWORD')ok=profileCap('password')&&profileCap('fullWrite');
+    else if(c==='CHANGE_PASSWORD')ok=profileCap('password')&&(p.family==='v11'||profileCap('fullWrite'));
     else if(c==='TEST_INJ')ok=profileCap('testInjector');
     setProfileDisabled(b,!ok,reason);
   });
@@ -1028,7 +1028,8 @@ function parseV11A2Data(data){
   const iatInj=Array.from(data.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
   const mapMotor=Array.from(data.slice(p,p+11),x=>Number(x));p+=11;
   const configRaw=data.slice(p,p+11);p+=11;
-  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
+  const password=Array.from(configRaw.slice(7,11));
+  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,password,v11PrefixLength:p,raw:data.slice()};
 }
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
@@ -1595,9 +1596,80 @@ async function testInjectorReal(){
 
 function passwordDigitsToBytes(p){p=(String(p||'')+'FFFF').slice(0,4).toUpperCase();if(!/^[0-9A-F]{4}$/.test(p))throw new Error('Mật khẩu chỉ dùng 0-9/A-F, tối đa 4 ký tự');return Array.from(p,ch=>parseInt(ch,16));}
 function passwordBytesToString(a){return Array.from(a||[]).map(x=>(x&15).toString(16).toUpperCase()).join('').replace(/F+$/,'')}
-function loginReal(){requireProfile('password','Đăng nhập ECU');if(!readCache)return notice('error','LOGIN','Hãy ĐỌC TOÀN BỘ trước');const p=prompt('Nhập mật khẩu ECU:','');if(p==null)return;const ok=passwordBytesToString(passwordDigitsToBytes(p))===passwordBytesToString(readCache.password);loginState=ok;notice(ok?'success':'error',ok?'LOGIN OK':'SAI MẬT KHẨU',ok?'Đã đăng nhập cục bộ theo password ECU':'Mật khẩu không khớp ECU')}
+function v11PasswordDigitsToBytes(p){
+  p=String(p??'').trim();
+  if(!/^[0-9]{1,4}$/.test(p))throw new Error('ATE V11 PIN chỉ dùng số 0–9, từ 1 đến 4 số.');
+  return Array.from((p+'FFFF').slice(0,4),ch=>parseInt(ch,16));
+}
+function currentPasswordBytes(){
+  if(isV11Profile()){
+    if(sensorCalCache&&Array.isArray(sensorCalCache.password))return sensorCalCache.password.slice();
+    if(readCache&&Array.isArray(readCache.password))return readCache.password.slice();
+    return null;
+  }
+  return readCache&&Array.isArray(readCache.password)?readCache.password.slice():null;
+}
+async function ensureV11PasswordCache(){
+  if(!isV11Profile())return currentPasswordBytes();
+  let pw=currentPasswordBytes();
+  if(pw)return pw;
+  await readA2SensorPageReal(false);
+  return currentPasswordBytes();
+}
+async function loginReal(){
+  requireProfile('password','Đăng nhập ECU');
+  let cur=currentPasswordBytes();
+  if(isV11Profile()&&!cur)cur=await ensureV11PasswordCache();
+  if(!cur)return notice('error','LOGIN','Chưa đọc được PIN ECU.');
+  const p=prompt(isV11Profile()?'Nhập PIN ATE ECU (1–4 số):':'Nhập mật khẩu ECU:','');
+  if(p==null)return;
+  const inBytes=isV11Profile()?v11PasswordDigitsToBytes(p):passwordDigitsToBytes(p);
+  const ok=passwordBytesToString(inBytes)===passwordBytesToString(cur);
+  loginState=ok;
+  notice(ok?'success':'error',ok?'LOGIN OK':'SAI MẬT KHẨU',ok?'PIN khớp dữ liệu ECU':'Mật khẩu/PIN không khớp ECU');
+}
 function logoutReal(){loginState=false;notice('info','LOGOUT','Đã đăng xuất')}
-async function changePasswordReal(){requireProfile('password','Đổi mật khẩu ECU');requireProfile('fullWrite','Đổi mật khẩu ECU');if(!readCache)await readAll();const old=prompt('Mật khẩu cũ:','');if(old==null)return;if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];await writePageChecked(0xB2,payload);readCache.password=bytes;loginState=true;notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK')}
+async function changePasswordReal(){
+  requireProfile('password','Đổi mật khẩu ECU');
+
+  if(isV11Profile()){
+    let cur=await ensureV11PasswordCache();
+    if(!cur)throw new Error('Không đọc được PIN hiện tại từ ATE V11.');
+    const old=prompt('PIN ATE hiện tại (1–4 số):','');
+    if(old==null)return;
+    if(passwordBytesToString(v11PasswordDigitsToBytes(old))!==passwordBytesToString(cur))throw new Error('PIN cũ sai.');
+    const p=prompt('PIN ATE mới (1–4 số, chỉ 0–9):','');
+    if(p==null)return;
+    const bytes=v11PasswordDigitsToBytes(p);
+
+    // Original ATE V11 Change Password calls proDgvEnter(..., 0xB0).
+    // The B0 serializer emits: CD B0 + 4 password nibbles + 00 00 + checksum.
+    const payload=[...bytes,0,0];
+    taskUi('loading','ATE V11 · ĐANG ĐỔI PIN PAGE B0...');
+    await writePageChecked(0xB0,payload,false,1,'password');
+    await new Promise(r=>setTimeout(r,220));
+
+    const R=await readA2SensorPageReal(false);
+    const got=R.cache&&R.cache.password;
+    if(!got||passwordBytesToString(got)!==passwordBytesToString(bytes)){
+      throw new Error('ECU đã ACK B0 nhưng VERIFY PIN qua A2 không khớp.');
+    }
+    if(readCache)readCache.password=bytes.slice();
+    loginState=true;
+    notice('success','ĐỔI PIN ATE V11 OK','Page B0 ACK + A2 verify · PIN mới đã lưu.');
+    return;
+  }
+
+  requireProfile('fullWrite','Đổi mật khẩu ECU');
+  if(!readCache)await readAll();
+  const old=prompt('Mật khẩu cũ:','');if(old==null)return;
+  if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');
+  const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;
+  const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];
+  await writePageChecked(0xB2,payload);
+  readCache.password=bytes;loginState=true;
+  notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK');
+}
 
 function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);return;}if(!readCache)return;const fields=[
   'REDLEO','ECU Blink','Protocol 38400 8E2','ReadAll '+readCache.raw.length+'B','—','—','—','—',ecuProfile.label
