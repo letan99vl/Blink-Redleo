@@ -99,11 +99,12 @@ function mainFeaturePage(id,bank){
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
+  if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -1222,11 +1223,45 @@ function matrixFromMaybe(id,fallback){
 }
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
+function v11A2PatchSpec(id){
+  switch(id){
+    case 'v_ect':return {off:99,enc:encVolt,label:'ECT VOLTAGE'};
+    case 'v_iat':return {off:110,enc:encVolt,label:'IAT VOLTAGE'};
+    case 'v_map':return {off:121,enc:encVolt,label:'MAP VOLTAGE'};
+    case 'iat_inj':return {off:132,enc:v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255),label:'IAT COMP INJ'};
+    case 'map_idle_motor':return {off:143,enc:v=>clamp(Math.round(Number(v)),0,255),label:'MAP IDLE MOTOR'};
+    default:return null;
+  }
+}
+async function writeV11A2KnownFeature(id){
+  if(!isV11Profile())throw new Error('A2 partial writer chỉ dùng cho ATE V11.');
+  const spec=v11A2PatchSpec(id);
+  if(!spec)throw new Error('ATE V11 chưa có A2 patch spec cho '+id);
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<165)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI để bảo toàn toàn bộ byte ẩn của page A2.');
+  const m=matrixFromRedTable(1,11);
+  const vals=m[0]||[];
+  if(vals.length!==11||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Bảng '+id+' chưa có đủ 11 giá trị hợp lệ.');
+  const payload=Array.from(cached);
+  const expected=[];
+  for(let i=0;i<11;i++){const raw=clamp(Math.round(spec.enc(vals[i])),0,255);payload[spec.off+i]=raw;expected.push(raw);}
+  taskUi('loading','ATE V11 · GHI '+spec.label+' · GIỮ NGUYÊN BYTE ẨN');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,220));
+  let R;
+  try{R=await readA2SensorPageReal(true);}
+  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
+  const got=Array.from(R.cache.raw.slice(spec.off,spec.off+11));
+  for(let i=0;i<11;i++)if(got[i]!==expected[i])throw new Error('VERIFY '+id+' không khớp byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
+  notice('success','GHI + VERIFY ATE V11 OK',spec.label+' · page A2 · 11 byte · byte ẩn được bảo toàn');
+  return R;
+}
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
   const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
+    if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
     if(expectedPage==null||!pageCache.has(expectedPage)){
