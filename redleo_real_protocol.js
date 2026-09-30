@@ -51,7 +51,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:false,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -768,8 +768,8 @@ function findValidCommandFrame(a,start,minLen=3){
 }
 function parseReadAll(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  const f=findValidCommandFrame(a,0xAB,100)||findValidCommandFrame(a,0x8B,100);
-  if(!f)throw new Error('Read All không tìm thấy frame checksum hợp lệ trong RX '+a.length+'B');
+  const f=findValidCommandFrame(a,0xAB,100)||findValidCommandFrame(a,0x8B,100)||findValidCommandFrame(a,0xAE,100);
+  if(!f)throw new Error('Read All không tìm thấy frame AB/8B/AE checksum hợp lệ trong RX '+a.length+'B');
 
   // 9767 is the legacy 9.1X layout that is already fully decoded by Blink.
   if(f.length===9767)return parseCanonicalReadAll(f,9767,'9767-native');
@@ -1117,7 +1117,7 @@ async function readAll(cmd=0xAB){
     // response could only be preserved as RAW.
     readCache=null;
     const s=document.getElementById('redIoStatus');
-    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':'');
+    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
     log('ReadAll raw frame accepted:',C.sourceLength+'B');
   }else{
     syncAll(C);
