@@ -3082,7 +3082,9 @@ function featureForProfile(id){
     f.x=ECU_AUX_AXES.iat.slice();
   }else if(id==='map_idle_motor'||id==='v_map'){
     f.x=ECU_AUX_AXES.map.slice();
-  }else if(id==='ect_idle_motor'||id==='v_ect'||id==='ect_start'){
+  }else if(id==='ect_idle_motor'){
+    f.x=ECU_AUX_AXES.ect.slice().concat('SUM');
+  }else if(id==='v_ect'||id==='ect_start'){
     f.x=ECU_AUX_AXES.ect.slice();
   }else if(id==='v_iat'){
     f.x=ECU_AUX_AXES.iat.slice();
