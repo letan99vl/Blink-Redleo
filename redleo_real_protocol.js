@@ -159,7 +159,8 @@ function applyProfileUi(){
     else if(c==='TPS_TEST')ok=profileCap('tpsStudy');
     else if(c==='LOGIN'||c==='LOGOUT')ok=profileCap('password');
     else if(c==='SEND_CURRENT')ok=profileCap('fuelWrite');
-    else if(c==='SEND_ALL'||c==='OPTIONS_WRITE')ok=profileCap('fullWrite');
+    else if(c==='SEND_ALL')ok=p.family==='v11'?v11FullImageReady():profileCap('fullWrite');
+    else if(c==='OPTIONS_WRITE')ok=profileCap('fullWrite');
     else if(c==='RESTORE')ok=profileCap('restore');
     else if(c==='CHANGE_PASSWORD')ok=profileCap('password')&&(p.family==='v11'||profileCap('fullWrite'));
     else if(c==='TEST_INJ')ok=profileCap('testInjector');
@@ -1529,7 +1530,121 @@ async function writeBankAll(bank){
   await writePageChecked(page(5,bank),Array.from(b.afRaw));
   await writePageChecked(page(6,bank),idlePayload(bank,false));
 }
+function v11StoreMatrix(id,bank,fallback){
+  try{
+    if(typeof F!=='undefined'&&F[id]&&typeof featureData==='function'){
+      const d=featureData(F[id],bank);
+      if(Array.isArray(d)&&d.length&&d.every(r=>Array.isArray(r)&&r.length&&r.every(v=>v!=null&&Number.isFinite(Number(v)))))return d.map(r=>r.map(Number));
+    }
+  }catch(_e){}
+  return fallback.map(r=>r.slice());
+}
+function v11FuelMatrix(bank,fallback){
+  try{
+    const d=state&&state.mapBanks&&state.mapBanks[bank-1]&&state.mapBanks[bank-1].inject;
+    if(Array.isArray(d)&&d.length===14&&d.every(r=>Array.isArray(r)&&r.length===30&&r.every(v=>v!=null&&Number.isFinite(Number(v)))))return d.map(r=>r.map(Number));
+  }catch(_e){}
+  return fallback.map(r=>r.slice());
+}
+function v11OneRow(id,fallback){
+  const m=v11StoreMatrix(id,0,[fallback]);
+  return m[0].slice();
+}
+function v11BuildA2Payload(C){
+  const vEct=v11OneRow('v_ect',C.vEct);
+  const vIat=v11OneRow('v_iat',C.vIat);
+  const vMap=v11OneRow('v_map',C.vMap);
+  const iat=v11OneRow('iat_inj',C.iatInj);
+  const mapMotor=v11OneRow('map_idle_motor',C.mapMotor);
+  const out=[
+    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
+    ...vEct.map(encVolt),...vIat.map(encVolt),...vMap.map(encVolt),
+    ...iat.map(v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),
+    ...mapMotor.map(v=>clamp(Math.round(Number(v)),0,255)),
+    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
+  ];
+  if(out.length!==269)throw new Error('ATE V11 A2 full payload phải 269B, hiện '+out.length+'B');
+  return out;
+}
+function v11BuildFullWritePlan(){
+  if(!v11FullImageReady())throw new Error('ATE V11 cần READ ALL 9958B trước khi GỬI TOÀN BỘ.');
+  const C=readCache;
+  const plan=[];
+  const a2=v11BuildA2Payload(C);
+  const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
+  const ectRaw=encodeRowsByte(ect,encPct),ectIgnRaw=encodeRowsByte(ectIgn,encMainIgn),mapInjRaw=encodeRowsByte(mapInj,encMapInj);
+  plan.push({pg:0xA2,payload:a2,label:'A2'});
+  plan.push({pg:0x72,payload:ectRaw,label:'ECT INJ'});
+  plan.push({pg:0x82,payload:ectIgnRaw,label:'ECT IGN'});
+  plan.push({pg:0x92,payload:mapInjRaw,label:'MAP INJ'});
+
+  const bankExpected=[];
+  for(let b=1;b<=4;b++){
+    const old=C.banks[b-1];
+    const inj=v11FuelMatrix(b,old.inj);
+    const injAngle=v11StoreMatrix('inj_degree',b,old.injDegree);
+    const ign=v11StoreMatrix('ign_degree',b,old.ignDegree);
+    const dwell=v11StoreMatrix('ign_time',b,old.ignTime);
+    const injRaw=new Uint8Array(encodeRowsU16(inj,encOilTab));
+    const injDegreeRaw=new Uint8Array(encodeRowsByte(injAngle,encMainInjAngle));
+    const ignDegreeRaw=new Uint8Array(encodeRowsByte(ign,encMainIgn));
+    const ignTimeRaw=new Uint8Array(encodeRowsByte(dwell,encMainDwell));
+    const afRaw=new Uint8Array(old.afRaw);
+    const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
+    const low=pageLow(b);
+    plan.push({pg:0x10|low,payload:injRaw.slice(0,420),label:'MAP '+b+' FUEL 1/2'});
+    plan.push({pg:0x10|low|1,payload:injRaw.slice(420),label:'MAP '+b+' FUEL 2/2'});
+    plan.push({pg:page(2,b),payload:injDegreeRaw,label:'MAP '+b+' INJ ANGLE'});
+    plan.push({pg:page(3,b),payload:ignDegreeRaw,label:'MAP '+b+' IGN'});
+    plan.push({pg:page(4,b),payload:ignTimeRaw,label:'MAP '+b+' DWELL'});
+    plan.push({pg:page(5,b),payload:afRaw,label:'MAP '+b+' AFR RAW'});
+    plan.push({pg:page(6,b),payload:[...idleRaw,...auxRaw,...ectMotorRaw],label:'MAP '+b+' IDLE RAW'});
+    bankExpected.push({injRaw,injDegreeRaw,ignDegreeRaw,ignTimeRaw,afRaw,idleRaw,auxRaw,ectMotorRaw});
+  }
+  return {plan,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected};
+}
+function verifyV11FullWrite(C,E){
+  if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
+  // A2 includes known + preserved unknown blocks. Rebuild returned A2 payload
+  // from the decoded full image and require byte-for-byte equality.
+  const gotA2=new Uint8Array([
+    ...C.tpsRaw,...C.rpmRaw,...C.vAfrRaw,
+    ...C.vEct.map(encVolt),...C.vIat.map(encVolt),...C.vMap.map(encVolt),
+    ...C.iatInj.map(v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),
+    ...C.mapMotor.map(v=>clamp(Math.round(Number(v)),0,255)),
+    ...C.configRaw,...C.optionRawV11,...C.ectStartRaw,...C.globalAuxRaw,...C.externalRaw,...C.chgRaw
+  ]);
+  if(!bytesEqual(gotA2,E.a2))throw new Error('VERIFY Full Write sai page A2.');
+  if(!bytesEqual(encodeRowsByte(C.ectInj,encPct),E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
+  if(!bytesEqual(encodeRowsByte(C.ectIgn,encMainIgn),E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
+  if(!bytesEqual(encodeRowsByte(C.mapInj,encMapInj),E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
+  for(let b=1;b<=4;b++)assertV11BankMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
+}
+async function sendAllV11Real(){
+  if(!v11FullImageReady())await readAll();
+  if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
+  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp sẽ lấy Read All 9958B làm nền, áp các bảng đã sửa, giữ nguyên byte chưa hiểu, ghi từng page và Read All VERIFY.\n\nGiữ nguồn ECU ổn định.'))return;
+  const E=v11BuildFullWritePlan();
+  const resume=liveRunning;stopLiveLoop();
+  try{
+    for(let i=0;i<E.plan.length;i++){
+      const x=E.plan[i];
+      taskUi('loading','ATE V11 · FULL WRITE '+(i+1)+'/'+E.plan.length+' · '+x.label);
+      await writePageChecked(x.pg,x.payload,false,1,'mainWrite');
+      await new Promise(r=>setTimeout(r,70));
+    }
+    taskUi('loading','ATE V11 · FULL WRITE ACK · ĐANG READ ALL VERIFY...');
+    await new Promise(r=>setTimeout(r,300));
+    const C=await readAll();
+    verifyV11FullWrite(C,E);
+    notice('success','GỬI TOÀN BỘ ATE V11 OK','32 page-write + Read All 9958B VERIFY byte-level.');
+    return C;
+  }finally{
+    if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
+  }
+}
 async function sendAllReal(){
+  if(isV11Profile())return sendAllV11Real();
   requireProfile('fullWrite','Ghi toàn bộ ECU');
   taskUi('loading','ĐANG GHI TOÀN BỘ ECU...');
   if(!readCache)await readAll();
@@ -1722,7 +1837,16 @@ async function changePasswordReal(){
     if(!got||passwordBytesToString(got)!==passwordBytesToString(bytes)){
       throw new Error('ECU đã ACK B0 nhưng VERIFY PIN qua A2 không khớp.');
     }
-    if(readCache)readCache.password=bytes.slice();
+    if(readCache){
+      readCache.password=bytes.slice();
+      if(readCache.v11Decoded&&readCache.configRaw&&readCache.configRaw.length>=11){
+        for(let i=0;i<4;i++)readCache.configRaw[7+i]=bytes[i];
+      }
+    }
+    if(sensorCalCache&&sensorCalCache.configRaw&&sensorCalCache.configRaw.length>=11){
+      sensorCalCache.password=bytes.slice();
+      for(let i=0;i<4;i++)sensorCalCache.configRaw[7+i]=bytes[i];
+    }
     loginState=true;
     notice('success','ĐỔI PIN ATE V11 OK','Page B0 ACK + A2 verify · PIN mới đã lưu.');
     return;
