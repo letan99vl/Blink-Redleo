@@ -1957,6 +1957,37 @@ async function writeV11EctStart(){
   return R;
 }
 
+async function writeV11AlternateTable(){
+  if(!isV11Profile())throw new Error('Alternate Table writer chỉ dùng cho ATE V11.');
+  const cached=pageCache.get(0xA2);
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC Alternate Table thành công trước khi GHI đủ page A2 286B.');
+  const m=matrixFromRedTable(1,9),vals=m[0]||[];
+  if(vals.length!==9||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Alternate Table V11 chưa có đủ 9 giá trị hợp lệ.');
+  let bad=-1;
+  for(let i=0;i<9;i++)if(Number(vals[i])<0||Number(vals[i])>255){bad=i;break;}
+  if(bad>=0)throw new Error('Alternate Table chỉ chấp nhận raw 0–255 · cột '+(bad+1)+' = '+vals[bad]);
+  const raw=Uint8Array.from(vals,v=>clamp(Math.round(Number(v)),0,255));
+  const payload=new Uint8Array(cached);
+  payload.set(raw,239);
+  taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN 277 BYTE A2 KHÁC');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  let R;
+  try{R=await readA2SensorPageReal(true);}
+  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Alternate Table đọc lại thất bại: '+String(e&&e.message||e));}
+  if(!R.data||R.data.length<286)throw new Error('VERIFY Alternate Table không đọc đủ A2 286B.');
+  for(let i=0;i<286;i++)if((R.data[i]&255)!==(payload[i]&255)){
+    throw new Error('VERIFY Alternate Table sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
+  }
+  if(readCache&&readCache.v11Decoded){
+    readCache.globalAuxRaw=new Uint8Array(raw);
+    readCache.alternateRaw=new Uint8Array(raw);
+    readCache.alternateTable=[Array.from(raw,x=>Number(x))];
+  }
+  notice('success','GHI + VERIFY ALTERNATE TABLE V11 OK','9 byte raw · A2 offset 239..247 · toàn page A2 286B đã verify.');
+  return R;
+}
+
 async function writeV11Options20(){
   if(!isV11Profile())throw new Error('ATE Options writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
@@ -2110,6 +2141,7 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='chg_params')return writeV11Chg();
     if(isV11Profile()&&id==='ate_options')return writeV11Options20();
     if(isV11Profile()&&id==='ect_start')return writeV11EctStart();
+    if(isV11Profile()&&id==='alternate_table')return writeV11AlternateTable();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -2356,6 +2388,15 @@ function v11BuildA2Payload(){
   if(Array.isArray(start)&&start.length===4&&start.every(r=>Array.isArray(r)&&r.length===11)){
     const raw44=encodeV11EctStart44(start);
     for(let i=0;i<44;i++)if(v11ValueChanged(raw44[i],C.ectStartRaw[i],0))out[195+i]=raw44[i];
+  }
+
+  const alternate=v11StoreMatrix('alternate_table',0,C.alternateTable);
+  if(Array.isArray(alternate)&&alternate.length===1&&Array.isArray(alternate[0])&&alternate[0].length===9){
+    for(let i=0;i<9;i++){
+      const v=Number(alternate[0][i]);
+      if(!Number.isFinite(v)||v<0||v>255)throw new Error('Alternate Table SEND ALL chỉ chấp nhận raw 0–255 tại cột '+(i+1)+'.');
+      if(v11ValueChanged(v,C.alternateTable[0][i]))out[239+i]=clamp(Math.round(v),0,255);
+    }
   }
 
   const external=v11StoreMatrix('external_adjust',0,C.external);
