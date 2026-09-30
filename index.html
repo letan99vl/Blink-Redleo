@@ -824,7 +824,7 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.20</span></div></div>
+      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.21</span></div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
     <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ECU BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
@@ -2846,8 +2846,10 @@ window.addEventListener('beforeunload',save);
     if(text.startsWith('MAP_DONE')){
       mapRx.active=false;saveSoon();
       showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
-    }else if(text==='PONG'){
-      showEcuNotice('success','ECU Blink BLE OK','Kết nối và truyền lệnh hai chiều hoạt động.');
+    }else if(text.startsWith('PONG')){
+      const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
+      $('ecuDiag').textContent='BLE STATUS: '+text+' · Bridge '+fw;
+      showEcuNotice('success','ECU Blink BLE OK','Kết nối hai chiều hoạt động · Bridge '+fw+'.');
     }else if(text.startsWith('TPS_OK')){
       showEcuNotice('success','TPS STUDY TEST',text);
     }else if(text.startsWith('ERR')){
@@ -3247,6 +3249,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.20"></script>
+<script src="redleo_real_protocol.js?v=3.21"></script>
 </body>
 </html>
