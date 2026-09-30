@@ -797,7 +797,6 @@ function parseV11ReadAll9958(f){
   C.iatInjRaw=f.slice(p,p+11);C.iatInj=Array.from(C.iatInjRaw,x=>r2(Number(x)/20));p+=11;
   C.mapMotorRaw=f.slice(p,p+11);C.mapMotor=Array.from(C.mapMotorRaw,x=>Number(x));p+=11;
   C.configRaw=f.slice(p,p+11);p+=11;
-  C.password=Array.from(C.configRaw.slice(7,11));
 
   // V11 option area after Config/PW. Keep exact raw until each cell semantic
   // is mapped; offsets and lengths are proven from the V11 grid serializer.
@@ -1052,8 +1051,9 @@ function parseV11A2Data(data){
   const iatInj=Array.from(data.slice(p,p+11),x=>r2(Number(x)/20));p+=11;
   const mapMotor=Array.from(data.slice(p,p+11),x=>Number(x));p+=11;
   const configRaw=data.slice(p,p+11);p+=11;
-  const password=Array.from(configRaw.slice(7,11));
-  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,password,v11PrefixLength:p,raw:data.slice()};
+  // V11 ECU PIN is NOT read from this A2 config block. The original ATE
+  // reads the four PIN nibbles from handshake 0x5A bytes 35..38.
+  return {tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,v11PrefixLength:p,raw:data.slice()};
 }
 function parseA2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
@@ -1804,7 +1804,30 @@ async function copyBankReal(dest){
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
 }
 
-async function restoreReal(){requireProfile('restore','Khôi phục dữ liệu gốc');if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nLệnh thật 0x8B sẽ thay đổi dữ liệu ECU. Chỉ tiếp tục khi nguồn ECU ổn định.'))return;taskUi('loading','ĐANG KHÔI PHỤC ECU...');const C=await readAll(0x8B);notice('success','RESTORE ECU OK','ECU trả frame 0x8B '+C.raw.length+'B và đã nạp lại dữ liệu')}
+async function restoreReal(){
+  requireProfile('restore','Khôi phục dữ liệu gốc');
+  if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nATE gốc dùng lệnh 0x8B. Thao tác này thay đổi dữ liệu ECU. Giữ nguồn ECU ổn định và không tắt khóa điện giữa chừng.'))return;
+  const resume=liveRunning;stopLiveLoop();
+  try{
+    taskUi('loading','ATE · RESTORE 0x8B · ĐANG CHỜ ECU...');
+    const restored=await readAll(0x8B);
+    if(isV11Profile()){
+      if(!restored||!restored.v11Decoded||restored.sourceLength!==9958)throw new Error('ATE V11 Restore 0x8B không trả full image 9958B hợp lệ.');
+      await new Promise(r=>setTimeout(r,350));
+      taskUi('loading','ATE V11 · RESTORE ACK · READ ALL VERIFY...');
+      const verify=await readAll(0xAB);
+      if(!verify||!verify.v11Decoded||verify.sourceLength!==9958)throw new Error('Restore đã trả dữ liệu nhưng READ ALL verify không hợp lệ.');
+      const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
+      if(!bytesEqual(a,b))throw new Error('RESTORE VERIFY: dữ liệu sau 0x8B khác lần READ ALL xác nhận.');
+      notice('success','RESTORE ATE V11 OK','0x8B + Read All 9958B verify byte-level.');
+      return verify;
+    }
+    notice('success','RESTORE ECU OK','0x8B hoàn tất · ECU trả '+restored.raw.length+'B.');
+    return restored;
+  }finally{
+    if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),350);
+  }
+}
 async function tpsStudyReal(){
   requireProfile('tpsStudy','Học TPS');
   if(isV11Profile()){
@@ -1871,18 +1894,30 @@ function v11PasswordDigitsToBytes(p){
 }
 function currentPasswordBytes(){
   if(isV11Profile()){
-    if(sensorCalCache&&Array.isArray(sensorCalCache.password))return sensorCalCache.password.slice();
-    if(readCache&&Array.isArray(readCache.password))return readCache.password.slice();
-    return null;
+    return handshakeInfo&&Array.isArray(handshakeInfo.password)&&handshakeInfo.password.length===4
+      ?handshakeInfo.password.slice():null;
   }
   return readCache&&Array.isArray(readCache.password)?readCache.password.slice():null;
 }
+async function refreshV11PasswordHandshake(){
+  if(!isV11Profile())return currentPasswordBytes();
+  const rx=await rawExchange(req5(0x5A,0x5A),7000);
+  const info=parseHandshake(rx);
+  const p=profileFromHandshake(info);
+  if(!p||p.family!=='v11')throw new Error('Handshake verify sau PIN không còn nhận diện ATE V11.');
+  if(!Array.isArray(info.password)||info.password.length!==4)throw new Error('ATE V11 handshake không trả đủ 4 byte PIN.');
+  // Refresh the authoritative ECU identity/PIN cache without resetting maps.
+  if(handshakeInfo){
+    for(const k of ['raw','short','activeMap','ecuId','ident','firmware','date','classify','ecuMode','features','sumSignal','zeroIgn','zeroInj','password'])handshakeInfo[k]=info[k];
+    handshakeInfo.profile=p;
+  }else{
+    handshakeInfo=info;handshakeInfo.profile=p;
+  }
+  return info.password.slice();
+}
 async function ensureV11PasswordCache(){
   if(!isV11Profile())return currentPasswordBytes();
-  let pw=currentPasswordBytes();
-  if(pw)return pw;
-  await readA2SensorPageReal(false);
-  return currentPasswordBytes();
+  return currentPasswordBytes()||await refreshV11PasswordHandshake();
 }
 async function loginReal(){
   requireProfile('password','Đăng nhập ECU');
@@ -1915,25 +1950,15 @@ async function changePasswordReal(){
     const payload=[...bytes,0,0];
     taskUi('loading','ATE V11 · ĐANG ĐỔI PIN PAGE B0...');
     await writePageChecked(0xB0,payload,false,1,'password');
-    await new Promise(r=>setTimeout(r,220));
+    await new Promise(r=>setTimeout(r,260));
 
-    const R=await readA2SensorPageReal(false);
-    const got=R.cache&&R.cache.password;
-    if(!got||passwordBytesToString(got)!==passwordBytesToString(bytes)){
-      throw new Error('ECU đã ACK B0 nhưng VERIFY PIN qua A2 không khớp.');
-    }
-    if(readCache){
-      readCache.password=bytes.slice();
-      if(readCache.v11Decoded&&readCache.configRaw&&readCache.configRaw.length>=11){
-        for(let i=0;i<4;i++)readCache.configRaw[7+i]=bytes[i];
-      }
-    }
-    if(sensorCalCache&&sensorCalCache.configRaw&&sensorCalCache.configRaw.length>=11){
-      sensorCalCache.password=bytes.slice();
-      for(let i=0;i<4;i++)sensorCalCache.configRaw[7+i]=bytes[i];
+    // Original ATE reads ECU PIN from 0x5A offsets 35..38. Verify the same way.
+    const got=await refreshV11PasswordHandshake();
+    if(passwordBytesToString(got)!==passwordBytesToString(bytes)){
+      throw new Error('ECU đã ACK B0 nhưng VERIFY PIN qua handshake 0x5A không khớp.');
     }
     loginState=true;
-    notice('success','ĐỔI PIN ATE V11 OK','Page B0 ACK + A2 verify · PIN mới đã lưu.');
+    notice('success','ĐỔI PIN ATE V11 OK','Page B0 ACK + handshake 0x5A verify · PIN mới đã xác nhận.');
     return;
   }
 
