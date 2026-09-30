@@ -922,7 +922,7 @@ function parseV11ReadAll9958(f){
   C.external=[Array(15).fill(0),Array(15).fill(0)];
   for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
   for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
-  C.chgRaw=f.slice(p,p+8);C.chg=decodeV11Chg8(C.chgRaw);p+=8;
+  C.chgRaw=f.slice(p,p+8);p+=8;
   if(p!==f.length-2)throw new Error('ATE V11 Read All layout lệch offset '+p+' / checksum '+(f.length-2));
   C.hidden.tailData=f.slice(p,f.length-2);
   return C;
@@ -966,9 +966,9 @@ function syncV11ReadAll(C){
   emitFeature(N.map_inj,C.mapInj);
   emitFeature(N.iat_inj,[C.iatInj]);
   emitFeature(N.map_idle_motor,[C.mapMotor]);
-  emitFeature(N.external_adjust,C.external);
+  // Read-All 9958 has a different compact partition after configRaw.
+  // Do not populate direct-A2 External/CHG UI from those bytes.
   if(C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
-  if(C.chg)emitFeature(N.chg_params,C.chg);
   emitFeature(N.v_ect,[C.vEct]);
   emitFeature(N.v_iat,[C.vIat]);
   emitFeature(N.v_map,[C.vMap]);
@@ -1134,9 +1134,8 @@ function parseCurrentFuelFrame(a,bank){
 }
 function parseV11A2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
-  // V11 A-page prefix is proven from __UartToDgvTpsRpm and
-  // Uart_DatToDgv_Voltage: TPS 28B + RPM 60B + six 11B grids +
-  // 11B config/password block = 165 bytes before Option/ECT-start/etc.
+  // Direct A2 page layout from the original ATE 11.1 serializer:
+  // 165B prefix + Option 30B + ECT Start 44B + Spare 9B + External 30B + CHG 8B = 286B.
   if(data.length<165)throw new Error('ATE V11 page A2 thiếu dữ liệu · '+data.length+'B / cần tối thiểu 165B');
   let p=0;
   const tpsRaw=data.slice(p,p+28);p+=28;
@@ -1155,12 +1154,9 @@ function parseV11A2Data(data){
   // V11 ECU PIN is NOT read from this A2 config block. The original ATE
   // reads the four PIN nibbles from handshake 0x5A bytes 35..38.
   const C={tpsRaw,tpsVolt,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,autoClutch,v11PrefixLength:p,raw:data.slice()};
-  // ATE V11 page A2 continues with:
-  // Option 24B + ECT Start 33B + Spare 9B + External Adjust 30B + CHG 8B.
-  // External wire order is reversed by proUartDgvNum: IGN row first, then INJ %.
-  if(data.length>=269){
-    C.optionRawV11=data.slice(p,p+24);p+=24;
-    C.ectStartRaw=data.slice(p,p+33);p+=33;
+  if(data.length>=286){
+    C.optionRawV11=data.slice(p,p+30);p+=30;
+    C.ectStartRaw=data.slice(p,p+44);p+=44;
     C.globalAuxRaw=data.slice(p,p+9);p+=9;
     C.externalRaw=data.slice(p,p+30);p+=30;
     C.external=[Array(15).fill(0),Array(15).fill(0)];
@@ -1246,7 +1242,7 @@ async function readA2SensorPageReal(showUi=true){
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const v11=isV11Profile();
-  const R=await readDirectPageReal(0xA2,v11?165:133,v11?'ATE V11 · SENSOR CAL':'CẢM BIẾN / OPTIONS',showUi);
+  const R=await readDirectPageReal(0xA2,v11?286:133,v11?'ATE V11 · A2 / OPTIONS':'CẢM BIẾN / OPTIONS',showUi);
   const C=v11?parseV11A2Data(R.data):parseA2Data(R.data);
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
@@ -1678,11 +1674,11 @@ async function writeV11IdleLimit(bank){
 async function writeV11Chg(){
   if(!isV11Profile())throw new Error('CHG writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<269)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI để bảo toàn toàn bộ page A2.');
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI đủ page A2 286B.');
   const m=matrixFromRedTable(1,8);
   const raw=encV11Chg8(m);
   const payload=new Uint8Array(cached);
-  payload.set(raw,261);
+  payload.set(raw,278);
   taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 261 BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -1697,7 +1693,7 @@ async function writeV11Chg(){
     readCache.chgRaw=new Uint8Array(R.cache.chgRaw);
     readCache.chg=R.cache.chg.map(r=>r.slice());
   }
-  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · offset A2 261..268 · các byte khác giữ nguyên.');
+  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · offset A2 278..285 · các byte khác giữ nguyên.');
   return R;
 }
 
@@ -1734,14 +1730,14 @@ async function writeV11AutoClutch(){
 async function writeV11ExternalAdjust(){
   if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<269)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI để bảo toàn toàn bộ page A2.');
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI đủ page A2 286B.');
   const m=matrixFromRedTable(2,15);
   if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa có đủ dữ liệu 2 × 15.');
   const payload=Array.from(cached);
   const expected=[];
   // Original ATE proUartDgvNum serializes row 1 first (IGN), then row 0 (INJ %).
-  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[231+c]=raw;expected.push(raw);}
-  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[246+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[248+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[263+c]=raw;expected.push(raw);}
   taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -1753,7 +1749,7 @@ async function writeV11ExternalAdjust(){
     readCache.externalRaw=new Uint8Array(got);
     readCache.external=R.cache.external.map(r=>r.slice());
   }
-  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · A2 offset 231..260 · 30 byte · các byte A2 khác được giữ nguyên');
+  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · A2 offset 248..277 · 30 byte · các byte A2 khác được giữ nguyên');
   return R;
 }
 
@@ -1772,7 +1768,7 @@ async function writeV11A2KnownFeature(id){
   const spec=v11A2PatchSpec(id);
   if(!spec)throw new Error('ATE V11 chưa có A2 patch spec cho '+id);
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<165)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI để bảo toàn toàn bộ byte ẩn của page A2.');
+  if(!cached||cached.length<286)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI đủ page A2 286B.');
   const m=matrixFromRedTable(1,11);
   const vals=m[0]||[];
   if(vals.length!==11||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Bảng '+id+' chưa có đủ 11 giá trị hợp lệ.');
