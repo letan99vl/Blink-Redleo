@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.62';
+  window.BLINK_PB_VERSION = '3.63';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -85,10 +85,19 @@
   .ecuNotice.success{background:#123a24;border-color:#28c86b}
   .ecuNotice.error{background:#4a1d24;border-color:#ff6473}
   .ecuNotice.info{background:#12314a;border-color:#38a6ee}
-  .ecuNotice .icon{font-size:26px;line-height:1;font-weight:900}
+  .ecuNotice .icon{
+    font-size:26px;line-height:1;font-weight:900;
+    width:38px;min-width:38px;height:38px;margin:-5px 0 0 -6px;padding:0;
+    display:grid;place-items:center;border:0;border-radius:9px;
+    background:transparent;color:inherit;cursor:pointer;pointer-events:auto;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  }
+  .ecuNotice .icon:active{background:#ffffff18;transform:scale(.92)}
   .ecuNotice .ntitle{font-size:16px;font-weight:900;letter-spacing:.2px}
   .ecuNotice .ndetail{font-size:12px;line-height:1.45;margin-top:3px;color:#dcecff;white-space:pre-line}
-  .ecuNotice .nclose{margin-left:auto;background:#ffffff18;border:1px solid #ffffff32;padding:3px 8px;border-radius:5px;font-size:14px}
+  /* Large left icon is now the single visible close target. Keep the old
+     right-side button in DOM only for compatibility with older JS. */
+  .ecuNotice .nclose{display:none!important}
 
   /* Global ECU operation state */
   .ecuTaskStatus{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:100000;display:none;align-items:center;gap:9px;max-width:min(440px,72vw);padding:9px 12px;border-radius:999px;border:1px solid #31526c;background:#102638;color:#e8f5ff;box-shadow:0 10px 28px #0008;font-size:11px;font-weight:900;letter-spacing:.15px;pointer-events:none}
@@ -822,7 +831,7 @@
 </head>
 <body>
 <div id="portraitGate" aria-hidden="true"></div>
-<div id="ecuNotice" class="ecuNotice" role="status" aria-live="polite"><div class="icon" id="ecuNoticeIcon">✓</div><div style="flex:1;min-width:0"><div class="ntitle" id="ecuNoticeTitle"></div><div class="ndetail" id="ecuNoticeDetail"></div></div><button class="nclose" id="ecuNoticeClose" type="button">✕</button></div>
+<div id="ecuNotice" class="ecuNotice" role="status" aria-live="polite"><button class="icon" id="ecuNoticeIcon" type="button" aria-label="Đóng thông báo">✓</button><div style="flex:1;min-width:0"><div class="ntitle" id="ecuNoticeTitle"></div><div class="ndetail" id="ecuNoticeDetail"></div></div><button class="nclose" id="ecuNoticeClose" type="button" aria-label="Đóng thông báo">✕</button></div>
 <div id="ecuTaskStatus" class="ecuTaskStatus" role="status" aria-live="polite"><span class="ecuTaskIcon"></span><span class="ecuTaskText" id="ecuTaskText">ECU</span></div>
 <div class="app">
 
@@ -1406,15 +1415,32 @@ function applyQuickTypeKey(key){
 }
 function flashSave(msg){$('saveInfo').textContent=msg;setTimeout(()=>{$('saveInfo').textContent='Auto save: ON'},1800)}
 let ecuNoticeTimer=null;
-function hideEcuNotice(){clearTimeout(ecuNoticeTimer);ecuNoticeTimer=null;const n=$('ecuNotice');if(n)n.className='ecuNotice';}
+function placeEcuTaskStatus(){
+  const notice=$('ecuNotice'),task=$('ecuTaskStatus');
+  if(!task)return;
+  if(notice&&notice.classList.contains('show')){
+    const r=notice.getBoundingClientRect();
+    task.style.top=Math.ceil(r.bottom+8)+'px';
+  }else{
+    task.style.removeProperty('top');
+  }
+}
+function hideEcuNotice(){
+  clearTimeout(ecuNoticeTimer);ecuNoticeTimer=null;
+  const n=$('ecuNotice');if(n)n.className='ecuNotice';
+  requestAnimationFrame(placeEcuTaskStatus);
+}
 function showEcuNotice(kind,title,detail='',holdMs){
   const n=$('ecuNotice');if(!n)return;clearTimeout(ecuNoticeTimer);
   const k=kind==='error'?'error':kind==='info'?'info':'success';
   $('ecuNoticeIcon').textContent=k==='success'?'✓':k==='error'?'✕':'i';
   $('ecuNoticeTitle').textContent=title;$('ecuNoticeDetail').textContent=detail||'';n.className='ecuNotice show '+k;
+  requestAnimationFrame(()=>requestAnimationFrame(placeEcuTaskStatus));
   const ms=holdMs==null?(k==='error'?7000:3200):holdMs;if(ms>0)ecuNoticeTimer=setTimeout(hideEcuNotice,ms);
 }
+$('ecuNoticeIcon').onclick=hideEcuNotice;
 $('ecuNoticeClose').onclick=hideEcuNotice;
+window.addEventListener('resize',()=>requestAnimationFrame(placeEcuTaskStatus));
 
 let ecuTaskTimer=null;
 function setEcuTaskStatus(kind,text,holdMs){
@@ -1424,9 +1450,10 @@ function setEcuTaskStatus(kind,text,holdMs){
   const k=['loading','success','error','offline'].includes(kind)?kind:'loading';
   label.textContent=text||'ECU';
   box.className='ecuTaskStatus show '+k;
+  requestAnimationFrame(placeEcuTaskStatus);
   if(k!=='loading'){
     const ms=holdMs==null?(k==='error'?6500:2200):holdMs;
-    if(ms>0)ecuTaskTimer=setTimeout(()=>{box.className='ecuTaskStatus';},ms);
+    if(ms>0)ecuTaskTimer=setTimeout(()=>{box.className='ecuTaskStatus';box.style.removeProperty('top');},ms);
   }
 }
 window.setEcuTaskStatus=setEcuTaskStatus;
