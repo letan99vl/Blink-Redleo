@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.5"
+#define FW_VERSION "1.6"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -454,6 +454,40 @@ static uint32_t totalTimeoutFor(const uint8_t *tx, size_t n) {
   }
 }
 
+static bool exactPrefix(const uint8_t *a, size_t alen, const uint8_t *b, size_t blen);
+
+// 0xCD write ACK is normally just CD + page. The generic UART path used to
+// wait the full 140ms idle boundary even after that ACK was already complete.
+// Finish after a short quiet window, but never mistake bytes inside a TX echo
+// for the ACK. A real two-byte ACK becomes distinguishable from a partial echo
+// because an echo at 38400 baud keeps delivering bytes continuously.
+static bool writeAckSettled(const uint8_t *tx, size_t txLen,
+                            const uint8_t *rx, size_t got,
+                            uint32_t lastRxMs) {
+  if (!tx || !rx || txLen < 2 || tx[0] != 0xCD || got < 2 || !lastRxMs) return false;
+  if ((uint32_t)(millis() - lastRxMs) < 10U) return false;
+
+  const uint8_t page = tx[1];
+
+  // Direct no-echo ACK.
+  if (got == 2 && rx[0] == 0xCD && rx[1] == page) return true;
+
+  // If the buffer is still only a prefix of TX, it is an echo, not an ACK.
+  if (got < txLen && exactPrefix(rx, got, tx, got)) return false;
+
+  size_t from = 0;
+  if (got >= txLen && exactPrefix(rx, got, tx, txLen)) from = txLen;
+  if (got < from + 2) return false;
+
+  // ACK should be at the tail after any exact TX echo/status noise.
+  const size_t tailStart = got > 8 ? got - 8 : from;
+  const size_t start = tailStart > from ? tailStart : from;
+  for (size_t i = start; i + 1 < got; ++i) {
+    if (rx[i] == 0xCD && rx[i + 1] == page) return true;
+  }
+  return false;
+}
+
 static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t rxMax) {
   if (!uartReady) return 0;
 
@@ -484,6 +518,12 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
     // This also strips a TX echo/noise prefix by selecting the valid A1 frame.
     if (txLen > 0 && tx[0] == 0x69 && extractValidLive53(rx, got)) {
       return 53;
+    }
+
+    // FW1.6: a confirmed short write ACK does not need the generic 140ms
+    // serial-idle wait. Break here, then run the normal exact TX-echo stripping.
+    if (writeAckSettled(tx, txLen, rx, got, lastRx)) {
+      break;
     }
 
     if (!first) {

@@ -1152,6 +1152,9 @@ function dataViewText(d){
 
 async function confirmBridgeRawReady(id,p){
   if(p&&p.bridgeReadyAt)return true;
+  // If RAW_RX already completed while we were finishing TX, the bridge could
+  // only have reached UART after fully assembling the frame.
+  if(!pending.has(id))return true;
   const sc=statusChar();
   if(!sc||typeof sc.readValue!=='function')return null;
 
@@ -2679,7 +2682,7 @@ async function writeFeatureReal(id){
     stopLiveLoop();
     try{
       await waitForEcuIdle(16000);
-      await new Promise(r=>setTimeout(r,120));
+      await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,5)?25:120));
       await writePageChecked(pg,payload,false,1,'mainWrite');
       cacheAckedPage(pg,payload);
       notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK');
@@ -2760,7 +2763,7 @@ async function writeFuelBank(bank){
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
     await writePageChecked(0x10|low|h,payload,false,1);
-    if(h===0)await new Promise(r=>setTimeout(r,60));
+    if(h===0)await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,6)?15:60));
   }
 }
 async function readCurrentFuelBankRetry(bank){
