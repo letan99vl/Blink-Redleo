@@ -210,6 +210,18 @@ function setProfileDisabled(el,blocked,reason=''){
     if(el.title&&el.title.includes('ECU Profile'))el.title='';
   }
 }
+const PROFILE_FEATURES=Object.freeze({
+  LEGACY_V8:new Set(['inj_ve','inj_degree','ign_degree','ign_time']),
+  MODERN_V9:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map']),
+  MODERN_V10:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','v_ect','v_iat','v_map']),
+  MODERN_V11:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map','ect_inj','ect_ign','map_inj','iat_inj','ect_start','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_shift','auto_clutch','chg_params','ate_options','alternate_table','v_ect','v_iat','v_map']),
+  LEGACY_PROBE:new Set(),
+  UNKNOWN:new Set()
+});
+function profileSupportsFeature(id,p=ecuProfile){
+  const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
+  return set.has(id);
+}
 function applyProfileUi(){
   const p=ecuProfile||ECU_PROFILE_DEFS.UNKNOWN;
   document.querySelectorAll('[data-ecuprofile]').forEach(e=>e.textContent=p.label);
@@ -239,14 +251,15 @@ function applyProfileUi(){
   if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');mainFeatureIds.add('alternate_table');}
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
-  const canRedWrite=mainFeatureIds.has(activeFeatureId)
-    ?mainFeatureReady(activeFeatureId,(typeof state!=='undefined'&&state.activeMap)||1)
-    :profileCap('fullWrite');
+  const activeFeatureSupported=!activeFeatureId||profileSupportsFeature(activeFeatureId,p);
+  const directReady=activeFeatureId?mainFeatureReady(activeFeatureId,(typeof state!=='undefined'&&state.activeMap)||1):false;
+  const legacyFullReady=activeFeatureId&&activeFeatureSupported&&profileCap('fullWrite');
+  const canRedWrite=activeFeatureId?(directReady||legacyFullReady):profileCap('fullWrite');
   setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite,reason);
   setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
-  setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead'),reason);
-  setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead'),reason);
-  setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead'),reason);
+  setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead')||!profileSupportsFeature('inj_ve',p),reason);
+  setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead')||!activeFeatureSupported,reason);
+  setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead')||!profileSupportsFeature('idle_limit',p),reason);
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>{
     const c=b.dataset.ecucmd;
@@ -272,20 +285,14 @@ function applyProfileUi(){
     setProfileDisabled(b,blocked,blocked?'ECU Profile: '+p.label+' · ECU_MODE này chỉ có một MAP.':'');
   });
 
-  // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
-  // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  // Show only features whose parser/writer surface is verified for the
+  // detected ECU profile. Before identification keep cards visible but locked.
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
-    const limited=(p.family==='v8'||p.family==='v11');
-    const v11Only=(id==='auto_shift'||id==='afr_map'||id==='chg_params'||id==='ate_options'||id==='ect_start'||id==='alternate_table');
-    const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
-    setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
-    // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
-    if(v11Only)el.style.display=p.family==='v11'?'':'none';
-    // Spare is a pre-9.x concept and is not part of the verified ATE V11 UI.
-    if(id==='spare'&&p.family==='v11')el.style.display='none';
-    else if(id==='spare'&&p.family!=='v11')el.style.display='';
+    const pending=p.key==='UNKNOWN'||p.key==='LEGACY_PROBE';
+    const supported=profileSupportsFeature(id,p);
+    setProfileDisabled(el,!supported,!supported?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
+    el.style.display=(pending||supported)?'':'none';
   });
 }
 function setEcuProfile(p){
@@ -732,8 +739,12 @@ function parseLiveReal(a){
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
-  // Injection table contribution and ignition angle use REDLEO live conversion.
-  state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
+  // Verified profile-specific live injection SUM:
+  // V10/Ultra = byte14..15 /640; ATE V11 = byte14..15 /500.
+  // V8/V9 retain their previously verified paths.
+  if(ecuProfile&&ecuProfile.key==='MODERN_V10')state.live.pw=u16be(a,14)/640;
+  else if(isV11Profile())state.live.pw=u16be(a,14)/500;
+  else state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
   state.live.ign=decLiveIgn(u16be(a,28));
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
@@ -741,7 +752,10 @@ function parseLiveReal(a){
     const aux=currentAuxAxes();
     state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,aux.ect);
     state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,aux.iat);
-    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,aux.map);
+    // ATE V11 NumberToVoltage uses raw*5/256 for the 16-bit MAP live field.
+    // V8/V9/V10 use the existing raw*5/1024 path here.
+    const mapV=isV11Profile()?decVolt(u16be(a,4)):liveVolt10(u16be(a,4));
+    state.live.mapKpa=curveVoltageToAxis(mapV,liveCal.vMap,aux.map);
   }else{
     state.live.ect=NaN;
     state.live.iat=NaN;
