@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.47';
+  window.BLINK_PB_VERSION = '3.48';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1872,21 +1872,13 @@ function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
 
-  // Manual SAVE must remain clickable even while a 3-run session is active.
+  // Manual SAVE never opens a browser/WebView confirmation dialog.
+  // While 3-run is active, keep the safety interlock: do not silently cancel
+  // an automatic tuning session just because SAVE was tapped.
   // Internal 3-run writes use skipConfirm=true and continue normally.
   if(state.threeRun.active&&!skipConfirm){
-    const ok=await blinkConfirm(
-      'MODE CHẠY 3 LƯỢT',
-      'Đang ở lượt '+state.threeRun.pass+'/3.\n\n'+
-      'Để GHI HIỆN TẠI bằng tay, app phải hủy phiên 3 lượt đang chạy để tránh hai luồng cùng ghi ECU.',
-      'HỦY 3 LƯỢT + GHI TAY',
-      'GIỮ PHIÊN'
-    );
-    if(!ok){
-      showEcuNotice('info','GHI TAY ĐANG KHÓA BỞI MODE 3 LƯỢT','Hãy kết thúc/hủy phiên 3 lượt nếu muốn ghi MAP thủ công.',4200);
-      return false;
-    }
-    resetThreeRunCancelled('ĐÃ HỦY MODE 3 LƯỢT · CHUYỂN SANG GHI TAY');
+    showEcuNotice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','Hãy kết thúc hoặc hủy phiên 3 lượt trước khi GHI HIỆN TẠI bằng tay.',4200);
+    return false;
   }
 
   setEcuTaskStatus('loading','ĐÃ NHẬN NÚT LƯU HIỆN TẠI · ĐANG KIỂM TRA...');
@@ -1911,19 +1903,9 @@ async function startFuelWrite(opts={}){
     ?realApi.normalizeBank(state.activeMap)
     :state.activeMap;
 
-  if(!skipConfirm){
-    const profile=realApi?.profile?.label||'REDLEO';
-    const ok=await blinkConfirm(
-      'XÁC NHẬN GHI ECU · MAP No.'+mapNo,
-      profile+'\n\n'+
-      '420 ô · '+min.toFixed(2)+'–'+max.toFixed(2)+' ms\n'+
-      'Tool sẽ GHI theo đúng profile ECU, sau đó ĐỌC HIỆN TẠI để VERIFY 420/420 ô.\n\n'+
-      'Chỉ tiếp tục khi điện nguồn ECU ổn định.',
-      'GHI VÀO ECU',
-      'HỦY'
-    );
-    if(!ok)return false;
-  }
+  // No confirmation popup here. A tap on LƯU HIỆN TẠI starts the
+  // write immediately; the REDLEO REAL capture layer shows press feedback,
+  // locks READ+WRITE, and keeps them locked until write+verify finishes.
 
   // Current BLE/REDLEO path: always use the profile-aware protocol writer.
   // This is essential for V8, whose fuel map is one U8 page rather than the
@@ -2144,9 +2126,10 @@ function renderThreeRunUi(){
   // Do not hard-disable READ/SAVE during 3-run: a disabled HTML button cannot
   // emit a click, which previously made LƯU HIỆN TẠI look completely dead.
   // The handlers now show a clear safety message/prompt instead.
-  $('writeMapBtn').disabled=$('writeMapBtn').dataset.profileBlocked==='1';
-  $('readMapBtn').disabled=$('readMapBtn').dataset.profileBlocked==='1';
-  $('writeMapBtn').textContent=state.threeRun.active?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
+  $('writeMapBtn').disabled=$('writeMapBtn').dataset.profileBlocked==='1'||$('writeMapBtn').dataset.ioBusy==='1';
+  $('readMapBtn').disabled=$('readMapBtn').dataset.profileBlocked==='1'||$('readMapBtn').dataset.ioBusy==='1';
+  if($('writeMapBtn').dataset.ioBusy!=='1')$('writeMapBtn').textContent=state.threeRun.active?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
+  if($('readMapBtn').dataset.ioBusy!=='1')$('readMapBtn').textContent='↓ ĐỌC HIỆN TẠI';
   $('mapSelect').disabled=state.threeRun.active||(state.ecuPhase==='write1'||state.ecuPhase==='write2');
   $('threeRunStartBtn').disabled=state.threeRun.active;$('threeRunCancelBtn').disabled=!state.threeRun.active;$('threeRunCancelBtn').textContent=state.threeRun.cancelRequested?'ĐANG HỦY...':'HỦY PHIÊN';$('threeRunStepBtn').disabled=!state.threeRun.active||state.threeRun.phase==='writing'||state.threeRun.phase==='error'||state.threeRun.cancelRequested;
   if(state.threeRun.active){if(state.threeRun.phase==='paused')$('threeRunStepBtn').textContent='TIẾP TỤC GHI LƯỢT '+state.threeRun.pass;else if(state.threeRun.pass<3)$('threeRunStepBtn').textContent='KẾT THÚC LƯỢT '+state.threeRun.pass+' → TÍNH + GHI ECU';else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT 3 → TÍNH + GHI FINAL';}else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT';

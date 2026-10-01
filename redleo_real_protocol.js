@@ -260,7 +260,7 @@ function setProfileDisabled(el,blocked,reason=''){
     if(reason)el.title=reason;
   }else if(el.dataset.profileBlocked==='1'){
     delete el.dataset.profileBlocked;
-    el.disabled=false;
+    el.disabled=el.dataset.ioBusy==='1';
     if(el.title&&el.title.includes('ECU Profile'))el.title='';
   }
 }
@@ -3201,6 +3201,55 @@ function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);r
 ];document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=fields[i]||'—');}
 
 function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
+
+let mapIoUiBusy=false;
+let mapIoUiToken=0;
+function setMapIoUiBusy(kind,on){
+  const readBtn=document.getElementById('readMapBtn');
+  const writeBtn=document.getElementById('writeMapBtn');
+
+  if(on){
+    if(mapIoUiBusy)return false;
+    mapIoUiBusy=true;
+    const token=++mapIoUiToken;
+    [readBtn,writeBtn].forEach(btn=>{
+      if(!btn)return;
+      btn.dataset.ioBusy='1';
+      btn.disabled=true;
+    });
+
+    const active=kind==='read'?readBtn:writeBtn;
+    if(active){
+      active.textContent=kind==='read'?'✓ ĐÃ NHẬN · ĐỌC':'✓ ĐÃ NHẬN · GHI';
+      try{
+        active.animate(
+          [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.96)',filter:'brightness(1.45)'},{transform:'scale(1)',filter:'brightness(1)'}],
+          {duration:220,easing:'ease-out'}
+        );
+      }catch(_e){}
+      setTimeout(()=>{
+        if(!mapIoUiBusy||mapIoUiToken!==token||active.dataset.ioBusy!=='1')return;
+        active.textContent=kind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...';
+      },220);
+    }
+    taskUi('loading',kind==='read'?'✓ ĐÃ NHẬN LỆNH ĐỌC · ĐANG XỬ LÝ...':'✓ ĐÃ NHẬN LỆNH GHI · ĐANG XỬ LÝ...');
+    return true;
+  }
+
+  mapIoUiBusy=false;
+  ++mapIoUiToken;
+  [readBtn,writeBtn].forEach(btn=>{if(btn)delete btn.dataset.ioBusy;});
+  if(readBtn){
+    readBtn.textContent='↓ ĐỌC HIỆN TẠI';
+    readBtn.disabled=readBtn.dataset.profileBlocked==='1';
+  }
+  if(writeBtn){
+    writeBtn.textContent=(typeof state!=='undefined'&&state.threeRun?.active)?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
+    writeBtn.disabled=writeBtn.dataset.profileBlocked==='1';
+  }
+  return true;
+}
+
 function notice(type,title,detail){
   if(type==='success')taskUi('success',title+' · OK');
   else if(type==='error')taskUi('error',title+' · LỖI',6500);
@@ -3224,16 +3273,27 @@ function installUI(){
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
   capture('readMapBtn',async()=>{
-    if(state.threeRun?.active){
-      notice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','ĐỌC HIỆN TẠI bị chặn để không ghi đè MAP đang dùng cho lượt '+state.threeRun.pass+'/3. Hãy kết thúc hoặc hủy phiên trước.');
-      return;
+    if(!setMapIoUiBusy('read',true))return;
+    try{
+      if(state.threeRun?.active){
+        notice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','ĐỌC HIỆN TẠI bị chặn để không ghi đè MAP đang dùng cho lượt '+state.threeRun.pass+'/3. Hãy kết thúc hoặc hủy phiên trước.');
+        return;
+      }
+      const R=await readCurrentFuelBank(state.activeMap);
+      notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
+    }finally{
+      setMapIoUiBusy(null,false);
     }
-    const R=await readCurrentFuelBank(state.activeMap);
-    notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
   });
   capture('writeMapBtn',async()=>{
-    if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
-    const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
+    if(!setMapIoUiBusy('write',true))return;
+    try{
+      if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
+      const R=await writeCurrentFuelAndVerify(state.activeMap);
+      notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
+    }finally{
+      setMapIoUiBusy(null,false);
+    }
   });
   capture('applyCorrectedBtn',async()=>{
     if(typeof applyCorrectedAndWrite==='function'){await applyCorrectedAndWrite();return;}
