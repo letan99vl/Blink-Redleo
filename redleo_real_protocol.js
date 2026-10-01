@@ -28,6 +28,7 @@ let transportCmdChar=null;
 let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
+let otaPaused=false;
 
 const FEAT={
   'Idle and limit':'idle_limit',
@@ -801,6 +802,7 @@ async function handshakeReal(){
 }
 let v8LiveSlot=0;
 async function liveOnce(){
+  if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
   try{
     const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
@@ -817,6 +819,22 @@ function startLiveLoop(){
   if(liveRunning)return;liveRunning=true;clearInterval(liveTimer);liveTimer=setInterval(()=>{liveOnce();},180);
 }
 function stopLiveLoop(){liveRunning=false;if(liveTimer){clearInterval(liveTimer);liveTimer=null;}}
+
+async function pauseForOta(){
+  otaPaused=true;
+  stopLiveLoop();
+  const t0=performance.now();
+  while(busy){
+    if(performance.now()-t0>6000)throw new Error('ECU đang bận, chưa thể bắt đầu OTA');
+    await new Promise(r=>setTimeout(r,25));
+  }
+  return true;
+}
+
+function resumeAfterOta(){
+  otaPaused=false;
+  if(cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
+}
 async function initializeRealSession(){
   if(sessionInitPromise)return sessionInitPromise;
   const epoch=transportEpoch;
@@ -960,6 +978,9 @@ async function writeRawBleChunk(cur,pkt,reliable){
 }
 
 async function rawExchange(bytes,timeout=12000){
+  if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive())){
+    throw new Error('OTA ESP32 đang chạy');
+  }
   if(!installRawListener())throw new Error('Chưa có BLE MAP characteristic');
   const ch=cmdChar();if(!ch)throw new Error('Chưa kết nối ECU Blink BLE');
   await waitForEcuIdle(Math.max(4000,timeout+1500));
@@ -3031,10 +3052,10 @@ function boot(){
   window.addEventListener('pagehide',()=>abortRawTransport('pagehide'));
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden)stopLiveLoop();
-    else if(cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
+    else if(!otaPaused&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
