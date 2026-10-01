@@ -646,6 +646,33 @@ static bool connectOtaWifi() {
 }
 
 static int otaManifestHttpCode = 0;
+static int otaNetDiagCode = 0; // 0=ok, 1=DNS, 2=TCP443, 3=HTTPS
+
+static bool otaNetworkPreflight() {
+  otaNetDiagCode = 0;
+  IPAddress ip;
+  if (!WiFi.hostByName("cdn.jsdelivr.net", ip)) {
+    otaNetDiagCode = 1;
+    Serial.printf("OTA preflight DNS FAIL heap=%u max=%u\n",
+                  ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return false;
+  }
+
+  WiFiClient tcp;
+  tcp.setTimeout(5);
+  if (!tcp.connect(ip, 443)) {
+    otaNetDiagCode = 2;
+    Serial.printf("OTA preflight TCP443 FAIL ip=%s heap=%u max=%u\n",
+                  ip.toString().c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    tcp.stop();
+    return false;
+  }
+  tcp.stop();
+
+  Serial.printf("OTA preflight OK ip=%s heap=%u max=%u\n",
+                ip.toString().c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  return true;
+}
 
 static bool fetchManifest(String &version, String &url, String &sha256) {
   otaManifestHttpCode = 0;
@@ -723,6 +750,14 @@ static bool checkOtaManifest() {
   if (!connectOtaWifi()) return false;
 
   String version, url, sha256;
+  if (!otaNetworkPreflight()) {
+    if (otaNetDiagCode == 1) notifyStatus("OTA:ERR=DNS");
+    else if (otaNetDiagCode == 2) notifyStatus("OTA:ERR=TCP443");
+    else notifyStatus("OTA:ERR=NET");
+    otaWifiOff();
+    return false;
+  }
+
   const bool ok = fetchManifest(version, url, sha256);
   if (!ok) {
     if (otaManifestHttpCode == -1000) notifyStatus("OTA:ERR=TLS_BEGIN");
