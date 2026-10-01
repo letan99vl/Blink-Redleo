@@ -1,0 +1,21 @@
+name: Package FW 1.4 cable files
+on:
+  push:
+    branches:
+      - release/ble-ota-1.4
+    paths:
+      - .github/workflows/package-fw-1.4-cable.yml
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare source
+        run: |
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino BLINK_REDLEO_ESP32_FW_1.4.ino
+          grep -q '#define FW_VERSION "1.4"' BLINK_REDLEO_ESP32_FW_1.4.ino
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_REDLEO_ESP32_FW_1.4_SOURCE
+          path: BLINK_REDLEO_ESP32_FW_1.4.ino
