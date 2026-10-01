@@ -1256,7 +1256,10 @@ async function rawExchange(bytes,timeout=12000){
       };
 
       let usedJumbo=false;
-      if(turboWrite&&rawJumboSessionCap!==false){
+      const nativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(String(navigator.userAgent||''));
+      const nativeMtu=Number(window.__androidBleMtu||0);
+      const jumboAllowed=!nativeAndroid||nativeMtu>=170;
+      if(turboWrite&&rawJumboSessionCap!==false&&jumboAllowed){
         try{
           await sendPass(RAW_JUMBO_CHUNK,true);
           usedJumbo=true;
@@ -1273,6 +1276,9 @@ async function rawExchange(bytes,timeout=12000){
           await sendPass(RAW_CHUNK,true);
         }
       }else if(turboWrite){
+        if(nativeAndroid&&!jumboAllowed){
+          log('ANDROID MTU chưa đủ jumbo',nativeMtu||23,'→ 13B reliable path');
+        }
         await sendPass(RAW_CHUNK,true);
       }else{
         // Retry / legacy path: every packet is an ATT barrier.
