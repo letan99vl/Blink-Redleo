@@ -2307,7 +2307,13 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
     }
   }
   let lastErr=null;
-  const maxRetries=isV11Profile()?Math.max(retries,2):retries;
+  // Old V11 builds forced at least 3 attempts because the BLE bridge could
+  // lose long 0xCD frames. FW1.6 has MTU burst reassembly, RAWREADY and
+  // duplicate-SID protection, so ATE no longer needs that permanent slow path.
+  // On FW1.6+ use the exact same retry policy as REDLEO 9.x; keep the old
+  // conservative V11 allowance only for older bridge firmware.
+  const modernReliableBridge=bridgeFirmwareAtLeast(1,6);
+  const maxRetries=(isV11Profile()&&!modernReliableBridge)?Math.max(retries,2):retries;
   const totalAttempts=maxRetries+1;
   const phase=(typeof state!=='undefined'&&state.ecuPhase==='write1')?'PHẦN 1/2':
               (typeof state!=='undefined'&&state.ecuPhase==='write2')?'PHẦN 2/2':
@@ -2335,7 +2341,8 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
       if(hasWriteAck(rx,pg)){
         const meta=lastExchangeMeta;
         const detail=meta&&Number.isFinite(meta.replyAfterTxMs)?(' · ACK '+meta.replyAfterTxMs+' ms sau TX'):(' · '+elapsed+' ms');
-        taskUi('loading','ECU ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+detail);
+        const txDetail=meta&&Number.isFinite(meta.txMs)?(' · BLE '+meta.txMs+' ms'):'';
+        taskUi('loading','ECU ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+txDetail+detail);
         log('write ACK page 0x'+pg.toString(16).toUpperCase(),'attempt',tryNo+'/'+totalAttempts,'elapsed',elapsed,'meta',meta);
         return true;
       }
@@ -2362,8 +2369,11 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
         updateActiveMapIoText('↻ MẤT ACK · THỬ LẠI '+(tryNo+1)+'/'+totalAttempts);
       }
       taskUi('loading','MẤT ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+' · '+elapsed+' ms · THỬ LẠI...');
-      // Re-send only when BLE transport itself is still intact.
-      await new Promise(r=>setTimeout(r,420+attempt*220));
+      // FW1.6 guarantees the previous BLE frame is complete and protects
+      // duplicate SIDs. A short settle is enough before a retry; older bridges
+      // retain the longer V11 recovery gap.
+      const retryGap=modernReliableBridge?(90+attempt*60):(420+attempt*220);
+      await new Promise(r=>setTimeout(r,retryGap));
     }
   }
   throw lastErr||new Error('Ghi page 0x'+pg.toString(16).toUpperCase()+' thất bại');
