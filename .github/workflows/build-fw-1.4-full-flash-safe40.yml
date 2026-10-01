@@ -1,0 +1,58 @@
+name: Build FW 1.4 full flash SAFE40
+on:
+  push:
+    branches:
+      - release/ble-ota-1.4
+    paths:
+      - .github/workflows/build-fw-1.4-full-flash-safe40.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core 3.3.8
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+      - name: Compile FW 1.4 Minimal SPIFFS 40MHz
+        run: |
+          mkdir -p build/BlinkClassicESP32 build/out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+          grep -q '#define FW_VERSION "1.4"' build/BlinkClassicESP32/BlinkClassicESP32.ino
+          arduino-cli compile             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs,FlashFreq=40             --output-dir build/out             build/BlinkClassicESP32
+          find build/out -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
+      - name: Locate boot_app0
+        run: |
+          BOOT_APP0="$(find ~/.arduino15/packages/esp32 -type f -name boot_app0.bin | head -n 1)"
+          test -n "$BOOT_APP0"
+          echo "BOOT_APP0=$BOOT_APP0" >> "$GITHUB_ENV"
+      - name: Install esptool
+        run: python3 -m pip install --user esptool==5.1.0
+      - name: Merge safe full flash
+        run: |
+          APP="build/out/BlinkClassicESP32.ino.bin"
+          BOOT="build/out/BlinkClassicESP32.ino.bootloader.bin"
+          PART="build/out/BlinkClassicESP32.ino.partitions.bin"
+          python3 -m esptool --chip esp32 merge-bin             -o BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin             --flash-mode dio             --flash-freq 40m             --flash-size 4MB             0x1000 "$BOOT"             0x8000 "$PART"             0xe000 "$BOOT_APP0"             0x10000 "$APP"
+          sha256sum BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin > BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin.sha256
+          python3 - <<'PY'
+          from pathlib import Path
+          b=Path('BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin').read_bytes()
+          print('size',len(b))
+          print('boot header',b[0x1000:0x1004].hex())
+          print('app header',b[0x10000:0x10004].hex())
+          assert b[0x1000] == 0xE9
+          assert b[0x10000] == 0xE9
+          assert b[0x8000:0x8002] == bytes([0xAA,0x50])
+          PY
+          cat BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40
+          path: |
+            BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin
+            BLINK_REDLEO_ESP32_FW_1.4_FULL_FLASH_SAFE40.bin.sha256
