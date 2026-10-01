@@ -30,9 +30,18 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
-// Large 0xCD upload pacing: FW1.5 uses a fast first attempt; any retry falls
-// back to the proven conservative timing.
+// Large 0xCD upload pacing.
+// iOS/Bluefy is deliberately kept on the conservative path: long bursts of
+// write-with-response chunks can make the Web Bluetooth GATT characteristic
+// disappear mid-write even though FW1.5 can reassemble the frame correctly.
+// Android may use the faster first attempt; retries always fall back to safe.
 let rawWritePacingMode='safe';
+function isAppleMobileBleClient(){
+  const ua=String(navigator.userAgent||'');
+  const platform=String(navigator.platform||'');
+  return /iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||
+         (platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+}
 
 const FEAT={
   'Idle and limit':'idle_limit',
@@ -2235,7 +2244,7 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
         updateActiveMapIoText('⟳ ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
       }
-      const fastFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5));
+      const fastFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5)&&!isAppleMobileBleClient());
       rawWritePacingMode=fastFirst?'fast':'safe';
       taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+(fastFirst?' · FAST':''));
       let rx;
@@ -2256,14 +2265,26 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
     }catch(e){
       const elapsed=Math.round(performance.now()-attemptStarted);
       lastErr=e;
-      log('write attempt failed page 0x'+pg.toString(16).toUpperCase(),'attempt',tryNo+'/'+totalAttempts,'elapsed',elapsed,String(e&&e.message||e),lastExchangeMeta);
+      const msg=String(e&&e.message||e);
+      log('write attempt failed page 0x'+pg.toString(16).toUpperCase(),'attempt',tryNo+'/'+totalAttempts,'elapsed',elapsed,msg,lastExchangeMeta);
+
+      // A retry only makes sense while the same BLE transport is still alive.
+      // If MAP/CMD characteristic vanished, stop immediately. Retrying after a
+      // disconnect only produces misleading "LẦN 2/2" UI and can never reach ECU.
+      const transportLost=!cmdChar()||!mapChar()||
+        /BLE.*(?:ngắt|mất|disconnect|characteristic|kết nối)|Chưa có BLE MAP characteristic|Chưa kết nối ECU Blink BLE/i.test(msg);
+      if(transportLost){
+        if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('✕ MẤT KẾT NỐI BLE');
+        taskUi('error','BLE ESP32 ĐÃ NGẮT TRONG LÚC GHI',6500);
+        throw new Error('BLE ESP32 đã ngắt trong lúc ghi · dừng retry để tránh trạng thái giả. Kết nối lại ECU Blink rồi đọc/ghi lại.');
+      }
+
       if(attempt>=maxRetries)break;
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
         updateActiveMapIoText('↻ MẤT ACK · THỬ LẠI '+(tryNo+1)+'/'+totalAttempts);
       }
       taskUi('loading','MẤT ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+' · '+elapsed+' ms · THỬ LẠI...');
-      // V11 re-sends the exact same page. Keep the retry visible instead of
-      // silently turning a 3 s save into an unexplained 10 s save.
+      // Re-send only when BLE transport itself is still intact.
       await new Promise(r=>setTimeout(r,420+attempt*220));
     }
   }
