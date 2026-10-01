@@ -1,0 +1,55 @@
+name: Publish BLE OTA 1.4
+on:
+  push:
+    branches:
+      - release/ble-ota-1.4
+    paths:
+      - .github/workflows/publish-ble-ota-1.4.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact validated 1.4 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: blink-esp32-ble-ota-1.4
+          path: artifact
+          github-token: ${{ github.token }}
+          run-id: 36823763972
+
+      - name: Verify exact firmware SHA
+        run: |
+          test -f artifact/blink_esp32.bin
+          ACTUAL="$(sha256sum artifact/blink_esp32.bin | awk '{print $1}')"
+          EXPECTED="1654bd26a032df63aa7618be5be464620fa2fe883099f0b38a37a6843013cf1c"
+          echo "actual=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Publish binary and manifest
+        run: |
+          mkdir -p ota
+          cp "$GITHUB_WORKSPACE/artifact/blink_esp32.bin" ota/blink_esp32.bin
+          cat > ota/manifest.json <<'JSON'
+          {
+            "version": "1.4",
+            "url": "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin",
+            "sha256": "1654bd26a032df63aa7618be5be464620fa2fe883099f0b38a37a6843013cf1c"
+          }
+          JSON
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ota/blink_esp32.bin ota/manifest.json
+          git commit -m "release: publish BLE OTA firmware 1.4"
+          git push origin HEAD:main
