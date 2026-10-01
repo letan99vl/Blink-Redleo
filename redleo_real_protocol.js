@@ -7,7 +7,7 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
-const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=12;
+const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
 let sid=(Math.random()*220+1)|0;
@@ -30,12 +30,14 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
-// Large 0xCD upload pacing.
-// iOS/Bluefy is deliberately kept on the conservative path: long bursts of
-// write-with-response chunks can make the Web Bluetooth GATT characteristic
-// disappear mid-write even though FW1.5 can reassemble the frame correctly.
-// Android may use the faster first attempt; retries always fall back to safe.
-let rawWritePacingMode='safe';
+// Large 0xCD upload strategy.
+// FW1.5 advertises MTU 185. TURBO therefore tries ~160B RAW payload chunks
+// (7B protocol header + 160B data) and uses write-without-response bursts with
+// periodic write-with-response barriers. If the client cannot accept jumbo MTU,
+// the same transaction transparently falls back to 13B chunks. Any retry uses
+// the conservative all-with-response path.
+let rawWritePacingMode='safe'; // 'turbo' | 'safe'
+let rawJumboSessionCap=null;   // null=unknown, true=works, false=use 13B fallback
 function isAppleMobileBleClient(){
   const ua=String(navigator.userAgent||'');
   const platform=String(navigator.platform||'');
@@ -1001,6 +1003,7 @@ async function initializeRealSession(){
 // ----- raw BLE transport -----
 function mapChar(){return window.blinkMapChar||null}
 function cmdChar(){return window.blinkCommandChar||null}
+function statusChar(){return window.blinkStatusChar||null}
 function abortRawTransport(reason='BLE disconnected'){
   transportEpoch++;
   stopLiveLoop();
@@ -1015,6 +1018,7 @@ function abortRawTransport(reason='BLE disconnected'){
   readCache=null;
   pageCache.clear();
   fuelPagePrimed.clear();
+  rawJumboSessionCap=null;
   v8LiveSlot=0;
   ecuProfile=ECU_PROFILE_DEFS.UNKNOWN;
   publishEcuAxes(LEGACY_TPS_PCT.slice(),LEGACY_RPM_AXIS.slice(),'DISCONNECTED');
@@ -1117,23 +1121,59 @@ async function acquireEcuTransaction(maxWait=16000){
   }
 }
 
-async function writeRawBleChunk(cur,pkt,reliable){
-  // ESP32 bridge assembles RAW chunks strictly by offset. For multi-chunk frames
-  // (fuel writes, A2 writes, etc.) use ATT write-with-response so the next offset
-  // is not sent until the previous chunk has been accepted by the bridge.
-  if(reliable){
+async function writeRawBleChunk(cur,pkt,mode='response'){
+  if(mode==='no-response'){
+    if(typeof cur.writeValueWithoutResponse==='function'){await cur.writeValueWithoutResponse(pkt);return;}
+    // Some Web Bluetooth shims expose only the generic API. It is still safe;
+    // it simply becomes a barrier for this packet.
+    if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
+    if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
+  }else{
     if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
     if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
     if(typeof cur.writeValueWithoutResponse==='function'){
       await cur.writeValueWithoutResponse(pkt);
-      await new Promise(r=>setTimeout(r,14));
+      await new Promise(r=>setTimeout(r,8));
       return;
     }
   }
-  if(typeof cur.writeValueWithoutResponse==='function'){await cur.writeValueWithoutResponse(pkt);return;}
-  if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
-  if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
   throw new Error('BLE characteristic không hỗ trợ ghi RAW');
+}
+
+function dataViewText(d){
+  try{
+    if(!d)return '';
+    const u=d instanceof DataView
+      ?new Uint8Array(d.buffer,d.byteOffset,d.byteLength)
+      :(d.buffer?new Uint8Array(d.buffer,d.byteOffset||0,d.byteLength||d.length||0):new Uint8Array(d));
+    return new TextDecoder().decode(u).trim();
+  }catch(_e){return ''}
+}
+
+async function confirmBridgeRawReady(id,p){
+  if(p&&p.bridgeReadyAt)return true;
+  const sc=statusChar();
+  if(!sc||typeof sc.readValue!=='function')return null;
+
+  // A final write-with-response barrier has already completed. Read the status
+  // characteristic a few times to make RAWREADY an application-level ACK that
+  // the ESP32 assembler truly has every byte before we wait on the ECU.
+  for(let i=0;i<3;i++){
+    if(i)await new Promise(r=>setTimeout(r,18));
+    try{
+      const d=await sc.readValue();
+      const t=dataViewText(d);
+      if(t===('RAWREADY '+id)){
+        if(p&&!p.bridgeReadyAt)p.bridgeReadyAt=performance.now();
+        return true;
+      }
+    }catch(e){
+      log('RAWREADY status read unavailable',String(e&&e.message||e));
+      return null;
+    }
+    if(p&&p.bridgeReadyAt)return true;
+  }
+  return false;
 }
 
 function rejectPending(p,err){
@@ -1189,34 +1229,66 @@ async function rawExchange(bytes,timeout=12000){
       pending.set(id,pendingState);
     });
     try{
-      const reliableChunks=total>RAW_CHUNK;
       const isWritePage=data[0]===0xCD&&total>RAW_CHUNK;
+      const turboWrite=isWritePage&&rawWritePacingMode==='turbo'&&bridgeFirmwareAtLeast(1,5);
       const txStarted=performance.now();
-      for(let off=0;off<total;off+=RAW_CHUNK){
-        if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
-        const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
-        const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
-        pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
-        await writeRawBleChunk(cur,pkt,reliableChunks);
 
-        // FW1.5 hardened the BLE assembler. Use a quick first-path for normal
-        // saves, but keep the old conservative pacing for retries. This avoids
-        // paying the full reliability penalty on every successful write.
-        if(isWritePage){
-          if(rawWritePacingMode==='fast'){
-            await new Promise(r=>setTimeout(r,2));
-            if(((off/RAW_CHUNK+1)%10)===0)await new Promise(r=>setTimeout(r,4));
-          }else{
-            await new Promise(r=>setTimeout(r,8));
-            if(((off/RAW_CHUNK+1)%8)===0)await new Promise(r=>setTimeout(r,12));
-          }
-        }else if(reliableChunks&&((off/RAW_CHUNK+1)%12===0)){
-          await new Promise(r=>setTimeout(r,2));
+      const sendPass=async(chunkSize,burstMode)=>{
+        const chunks=Math.ceil(total/chunkSize);
+        // iOS gets a barrier every 2 packets; Android/desktop every 3. With
+        // 160B jumbo chunks a 425B half-map is only three writes total.
+        const barrierEvery=isAppleMobileBleClient()?2:3;
+        for(let off=0,k=0;off<total;off+=chunkSize,k++){
+          if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
+          const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
+          const n=Math.min(chunkSize,total-off),pkt=new Uint8Array(7+n);
+          pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);
+          pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;
+          pkt.set(data.subarray(off,off+n),7);
+
+          const last=(k===chunks-1);
+          const barrier=!burstMode||last||(((k+1)%barrierEvery)===0);
+          await writeRawBleChunk(cur,pkt,barrier?'response':'no-response');
+        }
+      };
+
+      let usedJumbo=false;
+      if(turboWrite&&rawJumboSessionCap!==false){
+        try{
+          await sendPass(RAW_JUMBO_CHUNK,true);
+          usedJumbo=true;
+          rawJumboSessionCap=true;
+        }catch(e){
+          const msg=String(e&&e.message||e);
+          if(!cmdChar()||!mapChar()||/disconnect|ngắt|mất kết nối/i.test(msg))throw e;
+          // Browser/client did not accept the negotiated MTU size. Re-send the
+          // whole offset-addressed frame with 13B burst chunks; already received
+          // bytes are harmless duplicates and fill accounting remains exact.
+          rawJumboSessionCap=false;
+          log('JUMBO RAW fallback to 13B burst',msg);
+          if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
+          await sendPass(RAW_CHUNK,true);
+        }
+      }else if(turboWrite){
+        await sendPass(RAW_CHUNK,true);
+      }else{
+        // Retry / legacy path: every packet is an ATT barrier.
+        await sendPass(RAW_CHUNK,false);
+      }
+
+      // Final GATT barrier is complete. On FW1.5+, verify assembler completion
+      // through RAWREADY before waiting for the ECU ACK. If a readable status
+      // characteristic proves bytes are missing, fail immediately so the caller
+      // retries via the conservative path instead of burning a 12s ECU timeout.
+      if(turboWrite){
+        await new Promise(r=>setTimeout(r,8));
+        const ready=await confirmBridgeRawReady(id,pendingState);
+        if(ready===false){
+          if(usedJumbo)rawJumboSessionCap=false;
+          throw new Error('BLE bridge chưa ráp đủ frame RAW · chuyển sang retry an toàn');
         }
       }
-      // Fast path needs only a tiny scheduler yield. Safe retries keep the
-      // longer pause that was proven stable on older/mobile BLE stacks.
-      if(isWritePage)await new Promise(r=>setTimeout(r,rawWritePacingMode==='fast'?4:25));
+
       const txDoneNow=performance.now();
       const txMs=Math.round(txDoneNow-txStarted);
       const p=pending.get(id);
@@ -2244,9 +2316,12 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
         updateActiveMapIoText('⟳ ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
       }
-      const fastFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5)&&!isAppleMobileBleClient());
-      rawWritePacingMode=fastFirst?'fast':'safe';
-      taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+(fastFirst?' · FAST':''));
+      const turboFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5));
+      rawWritePacingMode=turboFirst?'turbo':'safe';
+      taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+(turboFirst?' · TURBO':''));
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&turboFirst){
+        updateActiveMapIoText('⚡ TURBO · '+phase);
+      }
       let rx;
       try{
         rx=await rawExchange(tx,12000);
