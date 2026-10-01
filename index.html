@@ -3075,6 +3075,9 @@ window.addEventListener('beforeunload',save);
       const msg={
         MANIFEST:'Không đọc được manifest OTA trên GitHub.',
         TLS_BEGIN:'Không khởi tạo được kết nối HTTPS tới máy chủ cập nhật.',
+        DNS:'ESP32 đã vào Wi-Fi nhưng không phân giải được tên máy chủ cập nhật.',
+        TCP443:'ESP32 phân giải DNS được nhưng không mở được cổng HTTPS 443.',
+        NET:'ESP32 đã vào Wi-Fi nhưng đường Internet tới máy chủ cập nhật bị lỗi.',
         JSON:'Manifest tải được nhưng nội dung không hợp lệ.',
         CHECK_FIRST:'Hãy kiểm tra firmware mới trước.',
         PARTITION:'Partition hiện tại không hỗ trợ OTA hoặc không đủ chỗ.',
