@@ -708,6 +708,20 @@ function decodeRowsByte(a,off,rows,cols,dec=x=>x){
   return {data:out,next:p};
 }
 function encodeRowsByte(m,enc=x=>x){const out=[];for(let wr=0;wr<m.length;wr++){const ur=m.length-1-wr;for(let c=0;c<m[ur].length;c++)out.push(clamp(Math.round(enc(m[ur][c])),0,255));}return out}
+
+// ATE V11 compensation pages are stored in the same low->high order as their
+// physical axes (-14->126C for ECT, 0->120 kPa for MAP). Do not reuse the
+// TPS-map row reversal here: doing so made cold enrichment appear at the hot end.
+function decodeRowsByteForward(a,off,rows,cols,dec=x=>x){
+  const out=Array.from({length:rows},()=>Array(cols).fill(0));let p=off;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)out[r][c]=dec(a[p++]);
+  return {data:out,next:p};
+}
+function encodeRowsByteForward(m,enc=x=>x){
+  const out=[];
+  for(let r=0;r<m.length;r++)for(let c=0;c<m[r].length;c++)out.push(clamp(Math.round(enc(m[r][c])),0,255));
+  return out;
+}
 function decodeRowsU16(a,off,rows,cols,dec=x=>x){
   const out=Array.from({length:rows},()=>Array(cols).fill(0));let p=off;
   for(let wr=0;wr<rows;wr++){const ur=rows-1-wr;for(let c=0;c<cols;c++){out[ur][c]=dec(u16be(a,p));p+=2;}}
@@ -1518,9 +1532,10 @@ function parseV11ReadAll9958(f){
   C.ectStartRaw=f.slice(p,p+33);p+=33;
   C.globalAuxRaw=f.slice(p,p+9);C.alternateRaw=C.globalAuxRaw.slice();C.alternateTable=[Array.from(C.alternateRaw,x=>Number(x))];p+=9;
 
-  C.ectInjRaw=f.slice(p,p+330);let z=decodeRowsByte(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
-  C.ectIgnRaw=f.slice(p,p+330);z=decodeRowsByte(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
-  C.mapInjRaw=f.slice(p,p+330);z=decodeRowsByte(f,p,11,30,decMapInj);C.mapInj=z.data;p=z.next;
+  // V11 compensation blocks follow their ascending physical axes on wire.
+  C.ectInjRaw=f.slice(p,p+330);let z=decodeRowsByteForward(f,p,11,30,decPct);C.ectInj=z.data;p=z.next;
+  C.ectIgnRaw=f.slice(p,p+330);z=decodeRowsByteForward(f,p,11,30,decMainIgn);C.ectIgn=z.data;p=z.next;
+  C.mapInjRaw=f.slice(p,p+330);z=decodeRowsByteForward(f,p,11,30,decMapInj);C.mapInj=z.data;p=z.next;
 
   for(let bank=1;bank<=4;bank++){
     const B={bank};
@@ -2207,7 +2222,10 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   }
 
   const R=await readDirectPageReal(pg,rows*cols,label+(rows>1&&pg<0x70?' · MAP NO.'+bank:''),showUi);
-  const z=decodeRowsByte(R.data,0,rows,cols,dec);
+  const forwardComp=isV11Profile()&&['ect_inj','ect_ign','map_inj'].includes(id);
+  const z=forwardComp
+    ?decodeRowsByteForward(R.data,0,rows,cols,dec)
+    :decodeRowsByte(R.data,0,rows,cols,dec);
   emitFeature(n,z.data,pg<0x70?bank:0);
   if(showUi)taskUi('success',label+(pg<0x70?' · MAP NO.'+bank:'')+' · OK');
   return {...R,matrix:z.data};
@@ -2688,9 +2706,9 @@ async function writeFeatureReal(id){
       case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encMainInjAngle);break;
       case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
       case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encMainDwell);break;
-      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=encodeRowsByte(m,encPct);break;
-      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=encodeRowsByte(m,isV11Profile()?encMainIgn:encEctIgn);break;
-      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=encodeRowsByte(m,encMapInj);break;
+      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=isV11Profile()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
+      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=isV11Profile()?encodeRowsByteForward(m,encMainIgn):encodeRowsByte(m,encEctIgn);break;
+      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=isV11Profile()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
       default:throw new Error('Chưa có page ghi trực tiếp cho '+id);
     }
 
@@ -2847,6 +2865,17 @@ function patchRowsBytePreserve(raw,edited,base,enc){
     const ur=base.length-1-wr;
     for(let c=0;c<base[ur].length;c++,p++){
       if(v11ValueChanged(edited[ur][c],base[ur][c]))out[p]=clamp(Math.round(enc(edited[ur][c])),0,255);
+    }
+  }
+  return out;
+}
+function patchRowsByteForwardPreserve(raw,edited,base,enc){
+  const out=new Uint8Array(raw||[]);
+  if(!Array.isArray(edited)||!Array.isArray(base)||edited.length!==base.length)return out;
+  let p=0;
+  for(let r=0;r<base.length;r++){
+    for(let c=0;c<base[r].length;c++,p++){
+      if(v11ValueChanged(edited[r][c],base[r][c]))out[p]=clamp(Math.round(enc(edited[r][c])),0,255);
     }
   }
   return out;
@@ -3011,9 +3040,9 @@ function v11BuildFullWritePlan(){
   if(a2Base.length<272)throw new Error('ATE V11 SEND ALL thiếu baseline A2 direct.');
   const a2=v11BuildA2Payload();
   const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
-  const ectRaw=patchRowsBytePreserve(C.ectInjRaw,ect,C.ectInj,encPct);
-  const ectIgnRaw=patchRowsBytePreserve(C.ectIgnRaw,ectIgn,C.ectIgn,encMainIgn);
-  const mapInjRaw=patchRowsBytePreserve(C.mapInjRaw,mapInj,C.mapInj,encMapInj);
+  const ectRaw=patchRowsByteForwardPreserve(C.ectInjRaw,ect,C.ectInj,encPct);
+  const ectIgnRaw=patchRowsByteForwardPreserve(C.ectIgnRaw,ectIgn,C.ectIgn,encMainIgn);
+  const mapInjRaw=patchRowsByteForwardPreserve(C.mapInjRaw,mapInj,C.mapInj,encMapInj);
   allPlan.push({pg:0xA2,payload:new Uint8Array(a2),baseline:a2Base,label:'A2'});
   allPlan.push({pg:0x72,payload:new Uint8Array(ectRaw),baseline:new Uint8Array(C.ectInjRaw),label:'ECT INJ'});
   allPlan.push({pg:0x82,payload:new Uint8Array(ectIgnRaw),baseline:new Uint8Array(C.ectIgnRaw),label:'ECT IGN'});
