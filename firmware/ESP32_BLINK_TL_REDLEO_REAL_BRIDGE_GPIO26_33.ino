@@ -701,8 +701,16 @@ static bool fetchManifest(String &version, String &url, String &sha256) {
 
     const int code = http.GET();
     otaManifestHttpCode = code;
-    Serial.printf("OTA manifest HTTP=%d try=%u heap=%u max=%u\n",
-                  code, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    if (code < 0) {
+      char sslErrText[96] = {0};
+      const int sslErr = client.lastError(sslErrText, sizeof(sslErrText));
+      Serial.printf("OTA manifest HTTP=%d SSL=%d (%s) try=%u heap=%u max=%u\n",
+                    code, sslErr, sslErrText, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      otaManifestHttpCode = (sslErr < 0) ? sslErr : code;
+    } else {
+      Serial.printf("OTA manifest HTTP=%d try=%u heap=%u max=%u\n",
+                    code, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    }
 
     if (code == HTTP_CODE_OK) {
       const String json = http.getString();
@@ -779,6 +787,7 @@ static bool checkOtaManifest() {
   if (!ok) {
     if (otaManifestHttpCode == -1000) notifyStatus("OTA:ERR=TLS_BEGIN");
     else if (otaManifestHttpCode == -1001) notifyStatus("OTA:ERR=JSON");
+    else if (otaManifestHttpCode < 0) notifyStatus(String("OTA:SSL=") + otaManifestHttpCode);
     else notifyStatus(String("OTA:HTTP=") + otaManifestHttpCode);
     otaWifiOff();
     return false;
