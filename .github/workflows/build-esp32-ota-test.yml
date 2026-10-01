@@ -34,7 +34,7 @@ jobs:
         run: |
           mkdir -p build/out
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32:PartitionScheme=default \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --output-dir build/out \
             build/BlinkClassicESP32
           ls -lah build/out
