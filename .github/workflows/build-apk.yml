@@ -67,6 +67,8 @@ jobs:
           sed -i 's/WebSettings.LOAD_DEFAULT/WebSettings.LOAD_NO_CACHE/' "$SRC"
           sed -i 's/BLINK-REDLEO-ANDROID\/1.1/BLINK-REDLEO-ANDROID\/1.3-v11/' "$SRC"
           sed -i '/s.setCacheMode(WebSettings.LOAD_NO_CACHE);/a\            try { webView.clearCache(true); webView.clearHistory(); } catch (Throwable ignored) {}' "$SRC"
+          echo "===== ANDROID BLE SOURCE DIAGNOSTIC ====="
+          grep -n -C 8 -E "connectGatt|onConnectionStateChange|onServicesDiscovered|onMtuChanged|writeCharacteristic|WRITE_TYPE_" "$SRC" || true
 
       - name: Build signed release APK
         working-directory: android-build
