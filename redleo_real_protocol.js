@@ -2461,8 +2461,25 @@ async function readCurrentFuelBankRetry(bank){
 }
 async function writeCurrentFuelAndVerify(bank){
   requireProfile('fuelWrite','Ghi hiện tại MAP thời gian phun');
-  await ensureEcuAxesReal(false);
   bank=normalizeBankForProfile(bank);
+
+  // Acknowledge the tap immediately. Previously V10/V11 could spend several
+  // seconds reading A2 axes before any UI feedback, making SEND CURRENT look dead.
+  taskUi('loading','ĐÃ NHẬN LỆNH GHI · MAP NO.'+bank+' · ĐANG CHUẨN BỊ...');
+
+  // Fuel page serialization is always 14x30 and does not depend on A2 axis
+  // bytes. V11 may legally use an A2 build whose axis bytes need fallback, so
+  // never block a fuel write on another hidden A2 transaction.
+  if(ecuProfile&&ecuProfile.key==='MODERN_V11'){
+    if(sensorCalCache&&validDynamicAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis)){
+      publishEcuAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis,'WRITE CACHE A2 ECU · '+ecuProfile.short);
+    }else{
+      publishProfileAxisFallback('ATE V11 · WRITE MAP · AXIS FALLBACK');
+    }
+  }else{
+    await ensureEcuAxesReal(false);
+  }
+
   const resumeLive=liveRunning;
   const previousPhase=typeof state!=='undefined'?state.ecuPhase:'live';
   const mapSelect=document.getElementById('mapSelect');
@@ -3105,7 +3122,7 @@ function installUI(){
     if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
     if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
     if(cmd==='SEND_ALL'){await sendAllReal();return;}
-    if(cmd==='SEND_CURRENT'){const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
+    if(cmd==='SEND_CURRENT'){taskUi('loading','ĐÃ NHẬN NÚT GỬI HIỆN TẠI · MAP NO.'+state.activeMap);const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
     if(cmd==='RESTORE'){await restoreReal();return;}
     if(cmd==='TPS_TEST'){await tpsStudyReal();return;}
     if(cmd==='TEST_INJ'){await testInjectorReal();return;}
