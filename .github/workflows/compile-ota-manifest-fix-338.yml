@@ -1,0 +1,25 @@
+name: Compile OTA manifest fix 3.3.8
+
+on:
+  push:
+    branches:
+      - test/ota-manifest-fix-338
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core 3.3.8
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+      - name: Prepare and compile
+        run: |
+          mkdir -p build/BlinkClassicESP32 build/out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs --output-dir build/out build/BlinkClassicESP32
