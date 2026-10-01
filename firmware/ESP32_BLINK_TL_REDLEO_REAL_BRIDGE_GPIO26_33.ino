@@ -70,7 +70,18 @@ static const uint8_t OTA_TX_MARKER = 0xE3;
 static const uint8_t OTA_CMD_WIFI_CHECK = 0x01;
 static const uint8_t OTA_CMD_INSTALL = 0x02;
 static const uint8_t OTA_CMD_WIFI_SCAN = 0x03;
+static const uint8_t OTA_CMD_RESULT = 0x04;
 static const uint8_t OTA_WIFI_SCAN_MARKER = 0xE4;
+
+static const uint32_t OTA_RTC_MAGIC = 0x424C4F54UL; // "BLOT"
+static const uint8_t OTA_BOOT_NONE = 0;
+static const uint8_t OTA_BOOT_CHECK = 1;
+static const uint8_t OTA_BOOT_INSTALL = 2;
+
+RTC_DATA_ATTR uint32_t rtcOtaMagic = 0;
+RTC_DATA_ATTR uint8_t rtcOtaMode = OTA_BOOT_NONE;
+RTC_DATA_ATTR char rtcOtaSsid[33] = {0};
+RTC_DATA_ATTR char rtcOtaPassword[64] = {0};
 static const size_t OTA_PAYLOAD_PER_PACKET = 12;
 static const size_t OTA_MAX_PAYLOAD = 100;
 
@@ -127,11 +138,13 @@ String otaPassword;
 String otaAvailableVersion;
 String otaAvailableUrl;
 String otaAvailableSha256;
+String otaDeferredStatus;
 
 static uint16_t le16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
 static void put16le(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)(v >> 8); }
 
 static void notifyStatus(const String &msg) {
+  if (msg.startsWith("OTA:")) otaDeferredStatus = msg;
   if (!deviceConnected || !statusChar) return;
   // Keep status short for default 20-byte ATT payloads.
   String s = msg;
@@ -940,6 +953,69 @@ static bool installOtaFirmware() {
   return true;
 }
 
+static bool parseOtaWifiPayload(uint16_t len) {
+  if (len < 2) {
+    notifyStatus("OTA:ERR=WIFI_DATA");
+    return false;
+  }
+  const uint8_t ssidLen = otaBuf[0];
+  if (!ssidLen || ssidLen > 32 || (uint16_t)(1 + ssidLen) > len || (len - 1 - ssidLen) > 63) {
+    notifyStatus("OTA:ERR=WIFI_DATA");
+    return false;
+  }
+  otaSsid = "";
+  otaPassword = "";
+  for (uint8_t i = 0; i < ssidLen; ++i) otaSsid += (char)otaBuf[1 + i];
+  for (uint16_t i = 1 + ssidLen; i < len; ++i) otaPassword += (char)otaBuf[i];
+  return true;
+}
+
+static void stageOtaBoot(uint8_t mode) {
+  memset(rtcOtaSsid, 0, sizeof(rtcOtaSsid));
+  memset(rtcOtaPassword, 0, sizeof(rtcOtaPassword));
+  const size_t ssidLen = min((size_t)32, otaSsid.length());
+  const size_t passLen = min((size_t)63, otaPassword.length());
+  memcpy(rtcOtaSsid, otaSsid.c_str(), ssidLen);
+  memcpy(rtcOtaPassword, otaPassword.c_str(), passLen);
+  rtcOtaMode = mode;
+  rtcOtaMagic = OTA_RTC_MAGIC;
+
+  notifyStatus(mode == OTA_BOOT_INSTALL ? "OTA:REBOOT=I" : "OTA:REBOOT=C");
+  delay(250);
+  ESP.restart();
+}
+
+static void runStagedOtaBeforeBle() {
+  if (rtcOtaMagic != OTA_RTC_MAGIC ||
+      (rtcOtaMode != OTA_BOOT_CHECK && rtcOtaMode != OTA_BOOT_INSTALL)) return;
+
+  const uint8_t mode = rtcOtaMode;
+  rtcOtaMagic = 0;
+  rtcOtaMode = OTA_BOOT_NONE;
+
+  otaSsid = String(rtcOtaSsid);
+  otaPassword = String(rtcOtaPassword);
+  memset(rtcOtaSsid, 0, sizeof(rtcOtaSsid));
+  memset(rtcOtaPassword, 0, sizeof(rtcOtaPassword));
+
+  otaDeferredStatus = "";
+  Serial.printf("OTA boot mode=%u before BLE free=%u max=%u\n",
+                mode, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  if (mode == OTA_BOOT_CHECK) {
+    checkOtaManifest();
+  } else {
+    const bool checked = checkOtaManifest();
+    if (checked && otaAvailableVersion.length()) {
+      installOtaFirmware();
+    }
+  }
+
+  otaPassword = "";
+  Serial.printf("OTA boot finished status=%s free=%u max=%u\n",
+                otaDeferredStatus.c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
+
 static void processOtaCommand() {
   if (!otaCommandReady || otaBusy) return;
 
@@ -958,22 +1034,12 @@ static void processOtaCommand() {
   if (cmd == OTA_CMD_WIFI_SCAN) {
     scanOtaWifi();
   } else if (cmd == OTA_CMD_WIFI_CHECK) {
-    if (len < 2) {
-      notifyStatus("OTA:ERR=WIFI_DATA");
-    } else {
-      const uint8_t ssidLen = otaBuf[0];
-      if (!ssidLen || ssidLen > 32 || (uint16_t)(1 + ssidLen) > len || (len - 1 - ssidLen) > 63) {
-        notifyStatus("OTA:ERR=WIFI_DATA");
-      } else {
-        otaSsid = "";
-        otaPassword = "";
-        for (uint8_t i = 0; i < ssidLen; ++i) otaSsid += (char)otaBuf[1 + i];
-        for (uint16_t i = 1 + ssidLen; i < len; ++i) otaPassword += (char)otaBuf[i];
-        checkOtaManifest();
-      }
-    }
+    if (parseOtaWifiPayload(len)) stageOtaBoot(OTA_BOOT_CHECK);
   } else if (cmd == OTA_CMD_INSTALL) {
-    installOtaFirmware();
+    if (parseOtaWifiPayload(len)) stageOtaBoot(OTA_BOOT_INSTALL);
+  } else if (cmd == OTA_CMD_RESULT) {
+    if (otaDeferredStatus.length()) notifyStatus(otaDeferredStatus);
+    else notifyStatus("OTA:READY");
   } else {
     notifyStatus("OTA:ERR=CMD");
   }
@@ -1001,6 +1067,10 @@ void setup() {
   pinMode(AFR_ADC_PIN, INPUT);
   analogReadResolution(12);
 #endif
+
+  // OTA HTTPS runs before BLE is initialized. This avoids Bluedroid/TLS
+  // competing for contiguous internal RAM on classic ESP32.
+  runStagedOtaBeforeBle();
 
 #if CONFIG_IDF_TARGET_ESP32
   // This product uses BLE only. Free the unused Bluetooth Classic controller
