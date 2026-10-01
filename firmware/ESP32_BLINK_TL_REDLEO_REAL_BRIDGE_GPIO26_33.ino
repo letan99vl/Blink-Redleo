@@ -48,6 +48,8 @@
 
 static const char *OTA_MANIFEST_URL =
   "https://cdn.jsdelivr.net/gh/letan99vl/Blink-Redleo@main/ota/manifest.json";
+static const char *OTA_MANIFEST_HOST = "cdn.jsdelivr.net";
+static const char *OTA_MANIFEST_PATH = "/gh/letan99vl/Blink-Redleo@main/ota/manifest.json";
 
 static const uint32_t ECU_BAUD = 38400;
 static const char *DEVICE_NAME  = "BLINK-REDLEO";
@@ -687,63 +689,158 @@ static bool otaNetworkPreflight() {
   return true;
 }
 
+static bool readHttpLine(WiFiClientSecure &client, String &line, uint32_t timeoutMs) {
+  line = "";
+  const uint32_t started = millis();
+  while ((uint32_t)(millis() - started) < timeoutMs) {
+    while (client.available()) {
+      const char c = (char)client.read();
+      if (c == '\n') {
+        if (line.endsWith("\r")) line.remove(line.length() - 1);
+        return true;
+      }
+      if (line.length() < 512) line += c;
+    }
+    if (!client.connected() && !client.available()) return line.length() > 0;
+    delay(1);
+    yield();
+  }
+  return false;
+}
+
 static bool fetchManifest(String &version, String &url, String &sha256) {
   otaManifestHttpCode = 0;
 
-  for (uint8_t attempt = 1; attempt <= 1; ++attempt) {
-    WiFiClientSecure client;
-    client.setInsecure();
-    client.setHandshakeTimeout(8);
-    client.setTimeout(8000);
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setHandshakeTimeout(15);
+  client.setTimeout(10000);
 
-    HTTPClient http;
-    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    http.setConnectTimeout(8000);
-    http.setTimeout(8000);
-    http.setReuse(false);
+  Serial.printf("OTA direct TLS connect host=%s heap=%u max=%u\n",
+                OTA_MANIFEST_HOST, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
-    Serial.printf("OTA manifest try=%u heap=%u max=%u\n",
-                  attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-
-    if (!http.begin(client, OTA_MANIFEST_URL)) {
-      otaManifestHttpCode = -1000;
-      Serial.printf("OTA manifest begin failed try=%u\n", attempt);
-      delay(350);
-      continue;
-    }
-
-    const int code = http.GET();
-    otaManifestHttpCode = code;
-    if (code < 0) {
-      char sslErrText[96] = {0};
-      const int sslErr = client.lastError(sslErrText, sizeof(sslErrText));
-      Serial.printf("OTA manifest HTTP=%d SSL=%d (%s) try=%u heap=%u max=%u\n",
-                    code, sslErr, sslErrText, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-      otaManifestHttpCode = (sslErr < 0) ? sslErr : code;
-    } else {
-      Serial.printf("OTA manifest HTTP=%d try=%u heap=%u max=%u\n",
-                    code, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    }
-
-    if (code == HTTP_CODE_OK) {
-      const String json = http.getString();
-      http.end();
-
-      const bool parsed =
-        jsonStringValue(json, "version", version) &&
-        jsonStringValue(json, "url", url) &&
-        jsonStringValue(json, "sha256", sha256);
-
-      if (!parsed) otaManifestHttpCode = -1001;
-      return parsed;
-    }
-
-    http.end();
-    delay(250);
-    yield();
+  if (!client.connect(OTA_MANIFEST_HOST, 443, 15000)) {
+    char sslErrText[96] = {0};
+    const int sslErr = client.lastError(sslErrText, sizeof(sslErrText));
+    otaManifestHttpCode = (sslErr < 0) ? sslErr : -1;
+    Serial.printf("OTA TLS connect FAIL ssl=%d (%s) heap=%u max=%u\n",
+                  sslErr, sslErrText, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    client.stop();
+    return false;
   }
 
-  return false;
+  Serial.printf("OTA TLS connected heap=%u max=%u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  client.print("GET ");
+  client.print(OTA_MANIFEST_PATH);
+  client.print(" HTTP/1.0\r\nHost: ");
+  client.print(OTA_MANIFEST_HOST);
+  client.print("\r\nUser-Agent: Blink-Redleo-ESP32/");
+  client.print(FW_VERSION);
+  client.print("\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
+
+  String line;
+  if (!readHttpLine(client, line, 10000)) {
+    otaManifestHttpCode = -1002;
+    client.stop();
+    return false;
+  }
+
+  Serial.printf("OTA manifest status: %s\n", line.c_str());
+  int httpCode = 0;
+  const int sp = line.indexOf(' ');
+  if (sp >= 0 && line.length() >= sp + 4) httpCode = line.substring(sp + 1, sp + 4).toInt();
+  otaManifestHttpCode = httpCode;
+  if (httpCode != 200) {
+    client.stop();
+    return false;
+  }
+
+  int contentLength = -1;
+  bool chunked = false;
+  while (readHttpLine(client, line, 10000)) {
+    if (!line.length()) break;
+    String lower = line;
+    lower.toLowerCase();
+    if (lower.startsWith("content-length:")) {
+      contentLength = line.substring(15).toInt();
+    } else if (lower.indexOf("transfer-encoding: chunked") >= 0) {
+      chunked = true;
+    }
+  }
+
+  String json;
+  json.reserve((contentLength > 0 && contentLength < 4096) ? contentLength + 1 : 512);
+
+  if (chunked) {
+    while (true) {
+      if (!readHttpLine(client, line, 10000)) {
+        otaManifestHttpCode = -1003;
+        client.stop();
+        return false;
+      }
+      const int chunkSize = (int)strtol(line.c_str(), nullptr, 16);
+      if (chunkSize <= 0) break;
+      int remaining = chunkSize;
+      const uint32_t chunkStart = millis();
+      while (remaining > 0 && (uint32_t)(millis() - chunkStart) < 10000) {
+        while (client.available() && remaining > 0) {
+          json += (char)client.read();
+          --remaining;
+          if (json.length() > 4096) {
+            otaManifestHttpCode = -1004;
+            client.stop();
+            return false;
+          }
+        }
+        if (remaining > 0) {
+          delay(1);
+          yield();
+        }
+      }
+      if (remaining != 0) {
+        otaManifestHttpCode = -1003;
+        client.stop();
+        return false;
+      }
+      // consume CRLF after each chunk
+      uint32_t crlfStart = millis();
+      while (client.available() < 2 && (uint32_t)(millis() - crlfStart) < 1000) {
+        delay(1);
+      }
+      if (client.available()) client.read();
+      if (client.available()) client.read();
+    }
+  } else {
+    const uint32_t bodyStart = millis();
+    while ((client.connected() || client.available()) &&
+           (uint32_t)(millis() - bodyStart) < 10000) {
+      while (client.available()) {
+        json += (char)client.read();
+        if (json.length() > 4096) {
+          otaManifestHttpCode = -1004;
+          client.stop();
+          return false;
+        }
+      }
+      delay(1);
+      yield();
+    }
+  }
+
+  client.stop();
+
+  const bool parsed =
+    jsonStringValue(json, "version", version) &&
+    jsonStringValue(json, "url", url) &&
+    jsonStringValue(json, "sha256", sha256);
+
+  if (!parsed) {
+    otaManifestHttpCode = -1001;
+    Serial.printf("OTA manifest JSON parse failed len=%u\n", (unsigned)json.length());
+  }
+  return parsed;
 }
 
 static String sha256Hex(const uint8_t digest[32]) {
