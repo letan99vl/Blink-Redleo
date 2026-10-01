@@ -1,0 +1,52 @@
+name: Build canonical Arduino merged FW 1.4
+on:
+  push:
+    branches:
+      - release/ble-ota-1.4
+    paths:
+      - .github/workflows/build-fw-1.4-arduino-merged.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core 3.3.8
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+      - name: Compile canonical DIO 40MHz Minimal SPIFFS image
+        run: |
+          mkdir -p build/BlinkClassicESP32 build/out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+          grep -q '#define FW_VERSION "1.4"' build/BlinkClassicESP32/BlinkClassicESP32.ino
+          arduino-cli compile             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs,FlashMode=dio,FlashFreq=40             --output-dir build/out             build/BlinkClassicESP32
+
+          test -f build/out/BlinkClassicESP32.ino.merged.bin
+          cp build/out/BlinkClassicESP32.ino.merged.bin BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin
+          sha256sum BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin > BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin.sha256
+
+          python3 - <<'PY'
+          from pathlib import Path
+          b=Path('BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin').read_bytes()
+          print('size',len(b))
+          print('0x0000',b[:16].hex())
+          print('boot 0x1000',b[0x1000:0x1010].hex())
+          print('part 0x8000',b[0x8000:0x8010].hex())
+          print('otadata 0xe000',b[0xe000:0xe010].hex())
+          print('app 0x10000',b[0x10000:0x10010].hex())
+          assert len(b)==4194304
+          assert b[0x1000]==0xE9
+          assert b[0x8000:0x8002]==bytes([0xAA,0x50])
+          assert b[0x10000]==0xE9
+          PY
+          cat BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40
+          path: |
+            BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin
+            BLINK_REDLEO_ESP32_FW_1.4_ARDUINO_MERGED_DIO40.bin.sha256
