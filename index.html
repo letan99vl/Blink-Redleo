@@ -1000,7 +1000,7 @@
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
-      <div class="hint" id="otaInfo">Phiên bản mới được kiểm tra bằng Internet của điện thoại. Wi-Fi đã chọn chỉ dùng khi cập nhật ESP32.</div>
+      <div class="hint" id="otaInfo">Phiên bản mới và file firmware được tải bằng Internet của điện thoại rồi truyền sang ESP32 qua BLE. ESP32 không cần mở TLS.</div>
     </details>
   </section>
 
@@ -2936,11 +2936,13 @@ window.addEventListener('beforeunload',save);
     else await commandChar.writeValue(bytes);
   }
 
-  const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_SCAN_MARKER=0xE4,OTA_CHUNK=12;
+  const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_BLE_BEGIN=0x04,OTA_BLE_END=0x05,OTA_BLE_ABORT=0x06,OTA_SCAN_MARKER=0xE4,OTA_BLE_DATA_MARKER=0xE5,OTA_CHUNK=12;
   let otaUpdateReady=false;
   let otaWifiNetworks=[];
   let otaCurrentVersionCache='';
   let otaManifestCache=null;
+  let otaBleTransferActive=false;
+  const otaStatusWaiters=[];
   const otaWifiRx=new Map();
 
   async function writeOtaCommand(cmd,payload){
@@ -2966,6 +2968,29 @@ window.addEventListener('beforeunload',save);
       else await commandChar.writeValue(pkt);
       await new Promise(r=>setTimeout(r,8));
     }
+  }
+
+  function resolveOtaStatusWaiters(text){
+    for(let i=otaStatusWaiters.length-1;i>=0;i--){
+      const w=otaStatusWaiters[i];
+      if(w.test(text)){
+        otaStatusWaiters.splice(i,1);
+        clearTimeout(w.timer);
+        w.resolve(text);
+      }
+    }
+  }
+
+  function waitOtaStatus(test,timeoutMs){
+    return new Promise((resolve,reject)=>{
+      const w={test,resolve,reject,timer:null};
+      w.timer=setTimeout(()=>{
+        const i=otaStatusWaiters.indexOf(w);
+        if(i>=0)otaStatusWaiters.splice(i,1);
+        reject(new Error('ESP32 không phản hồi OTA.'));
+      },timeoutMs||6000);
+      otaStatusWaiters.push(w);
+    });
   }
 
   function setOtaInfo(text,kind){
@@ -3036,6 +3061,7 @@ window.addEventListener('beforeunload',save);
   }
 
   function handleOtaStatus(text){
+    resolveOtaStatusWaiters(text);
     const cur=$('otaCurrentVersion'),next=$('otaNewVersion'),btn=$('otaInstallBtn'),prog=$('otaProgress');
     if(text.startsWith('OTA:CUR=')){
       if(cur)cur.value=text.slice(8)||'--';
@@ -3078,6 +3104,10 @@ window.addEventListener('beforeunload',save);
       setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;if(next)next.value='Đã mới nhất';
       setOtaInfo('ESP32 đang dùng phiên bản mới nhất.');
+    }else if(text==='OTA:BSTART'){
+      if(btn)btn.disabled=true;if(prog)prog.value=0;
+      setOtaInfo('ESP32 đã mở phân vùng OTA · đang truyền firmware qua BLE...');
+      setEcuTaskStatus('loading','ĐANG CẬP NHẬT ESP32...');
     }else if(text==='OTA:START'){
       if(btn)btn.disabled=true;if(prog)prog.value=0;
       setOtaInfo('Đang tải firmware từ GitHub. Không tắt nguồn ESP32.');
@@ -3086,9 +3116,14 @@ window.addEventListener('beforeunload',save);
       const p=Math.max(0,Math.min(100,Number(text.slice(6))||0));
       if(prog)prog.value=p;setOtaInfo('Đang cập nhật firmware · '+p+'%');
     }else if(text==='OTA:DONE'){
+      otaBleTransferActive=false;
       if(prog)prog.value=100;
       setOtaInfo('Cập nhật xong. ESP32 đang khởi động lại...');
       setEcuTaskStatus('success','UPDATE ESP32 · XONG');
+    }else if(text==='OTA:ABORT'){
+      otaBleTransferActive=false;
+      setOtaControlsBusy(false);
+      setOtaInfo('Đã hủy cập nhật firmware.','error');
     }else if(text==='OTA:BUSY'){
       setOtaInfo('ESP32 đang xử lý lệnh OTA hiện tại...');
     }else if(text.startsWith('OTA:ERR=')){
@@ -3112,7 +3147,10 @@ window.addEventListener('beforeunload',save);
         ECU_BUSY:'ECU đang có giao dịch. Chờ xong rồi cập nhật.',
         WIFI_DATA:'SSID/mật khẩu Wi-Fi không hợp lệ.',
         NO_WIFI:'Chưa chọn Wi-Fi.',
-        SCAN:'Không quét được Wi-Fi. Hãy thử lại.'
+        SCAN:'Không quét được Wi-Fi. Hãy thử lại.',
+        BEGIN:'ESP32 không mở được phiên OTA BLE.',
+        DATA:'Gói firmware BLE không hợp lệ.',
+        SEQ:'Mất thứ tự gói firmware BLE. Đã hủy cập nhật.'
       }[code]||('Lỗi OTA: '+code);
       setOtaInfo(msg,'error');setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
     }
@@ -3192,16 +3230,95 @@ window.addEventListener('beforeunload',save);
       setOtaInfo('Không kiểm tra được firmware: '+String(e&&e.message||e),'error');
     }
   }
+  function hexToBytes(hex){
+    const out=new Uint8Array(hex.length/2);
+    for(let i=0;i<out.length;i++)out[i]=parseInt(hex.slice(i*2,i*2+2),16);
+    return out;
+  }
+
+  function bytesToHex(bytes){
+    return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  async function writeBleFirmwareChunk(offset,bytes){
+    const pkt=new Uint8Array(5+bytes.length);
+    pkt[0]=OTA_BLE_DATA_MARKER;
+    pkt[1]=offset&255;pkt[2]=(offset>>>8)&255;pkt[3]=(offset>>>16)&255;pkt[4]=(offset>>>24)&255;
+    pkt.set(bytes,5);
+    if(commandChar.writeValue)await commandChar.writeValue(pkt);
+    else await commandChar.writeValueWithoutResponse(pkt);
+  }
+
+  async function transferFirmwareBle(bin,shaHex){
+    const begin=new Uint8Array(36);
+    const size=bin.byteLength>>>0;
+    begin[0]=size&255;begin[1]=(size>>>8)&255;begin[2]=(size>>>16)&255;begin[3]=(size>>>24)&255;
+    begin.set(hexToBytes(shaHex),4);
+
+    otaBleTransferActive=true;
+    $('otaProgress').value=0;
+    setOtaControlsBusy(true);
+    const startWait=waitOtaStatus(t=>t==='OTA:BSTART'||t.startsWith('OTA:ERR='),8000);
+    await writeOtaCommand(OTA_BLE_BEGIN,begin);
+    const startStatus=await startWait;
+    if(startStatus!=='OTA:BSTART')throw new Error('ESP32 từ chối bắt đầu OTA: '+startStatus);
+
+    let chunkSize=160;
+    let offset=0;
+    while(offset<bin.byteLength){
+      const count=Math.min(chunkSize,bin.byteLength-offset);
+      try{
+        await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count));
+        offset+=count;
+      }catch(e){
+        if(chunkSize>20){
+          chunkSize=chunkSize>100?100:chunkSize>60?60:20;
+          continue;
+        }
+        throw e;
+      }
+      const pct=Math.floor(offset*100/bin.byteLength);
+      if($('otaProgress'))$('otaProgress').value=pct;
+      if((offset&0x3fff)<chunkSize)await new Promise(r=>setTimeout(r,0));
+    }
+
+    const doneWait=waitOtaStatus(t=>t==='OTA:DONE'||t.startsWith('OTA:ERR='),12000);
+    await writeOtaCommand(OTA_BLE_END,new Uint8Array(0));
+    const doneStatus=await doneWait;
+    if(doneStatus!=='OTA:DONE')throw new Error('ESP32 không hoàn tất OTA: '+doneStatus);
+  }
+
   async function otaInstall(){
     try{
       if(!otaUpdateReady||!otaManifestCache)throw new Error('Chưa có firmware mới sẵn sàng.');
-      const ssid=$('otaSsid').value;
-      const pass=$('otaPassword').value;
-      if(!ssid)throw new Error('Hãy QUÉT WI-FI và chọn mạng trước.');
-      if(pass.length>63)throw new Error('Mật khẩu Wi-Fi tối đa 63 ký tự.');
-      setOtaInfo('Firmware mới đã xác nhận. Phần nạp OTA đang dùng gói cập nhật mới; chưa gửi lệnh TLS cũ sang ESP32.');
-      showEcuNotice('info','OTA ESP32','Đã xác nhận firmware mới. Không dùng đường TLS cũ để tránh lỗi SSL.',5000);
-    }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
+      if(!state.ecuConnected)throw new Error('BLE với ESP32 đã ngắt.');
+      if(!confirm('Cập nhật ESP32 lên FW '+otaManifestCache.version+' ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
+
+      otaUpdateReady=false;
+      $('otaInstallBtn').disabled=true;
+      setOtaControlsBusy(true);
+      setOtaInfo('Điện thoại đang tải firmware '+otaManifestCache.version+'...');
+
+      const sep=otaManifestCache.url.includes('?')?'&':'?';
+      const res=await fetch(otaManifestCache.url+sep+'ts='+Date.now(),{cache:'no-store'});
+      if(!res.ok)throw new Error('Không tải được firmware · HTTP '+res.status);
+      const buf=await res.arrayBuffer();
+      if(!buf.byteLength)throw new Error('File firmware rỗng.');
+
+      setOtaInfo('Đang kiểm tra SHA-256 của firmware...');
+      const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',buf));
+      const actualSha=bytesToHex(digest);
+      if(actualSha!==otaManifestCache.sha256)throw new Error('SHA-256 firmware không khớp manifest.');
+
+      setOtaInfo('Firmware hợp lệ · đang truyền '+Math.round(buf.byteLength/1024)+' KB qua BLE...');
+      await transferFirmwareBle(new Uint8Array(buf),actualSha);
+    }catch(e){
+      otaBleTransferActive=false;
+      try{if(state.ecuConnected)await writeOtaCommand(OTA_BLE_ABORT,new Uint8Array(0));}catch(_e){}
+      setOtaControlsBusy(false);
+      setOtaInfo('Cập nhật thất bại: '+String(e&&e.message||e),'error');
+      setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
+    }
   }
   $('otaScanBtn').addEventListener('click',otaScanWifi);
   $('otaCheckBtn').addEventListener('click',otaCheck);
