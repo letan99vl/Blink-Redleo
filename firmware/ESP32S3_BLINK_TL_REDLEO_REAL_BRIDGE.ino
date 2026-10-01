@@ -3,6 +3,12 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <Update.h>
+#include <mbedtls/sha256.h>
+#include <mbedtls/version.h>
 
 /*
   BLINK TL - REDLEO ECU REAL BLE/UART BRIDGE
@@ -34,6 +40,13 @@
 #define AFR_INPUT_ENABLED 1
 #endif
 
+#ifndef FW_VERSION
+#define FW_VERSION "1.3"
+#endif
+
+static const char *OTA_MANIFEST_URL =
+  "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/manifest.json";
+
 static const uint32_t ECU_BAUD = 38400;
 static const char *DEVICE_NAME  = "BLINK-REDLEO";
 static const char *SERVICE_UUID = "afaf0001-7c35-4a6d-9f0e-2ea3117f1000";
@@ -48,6 +61,14 @@ static const uint8_t RAW_RX_MARKER = 0xE2;
 static const size_t RAW_PAYLOAD_PER_PACKET = 12;
 static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
 static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
+
+// OTA control uses the same BLE command characteristic but a separate marker,
+// so the existing REDLEO raw bridge protocol remains byte-for-byte compatible.
+static const uint8_t OTA_TX_MARKER = 0xE3;
+static const uint8_t OTA_CMD_WIFI_CHECK = 0x01;
+static const uint8_t OTA_CMD_INSTALL = 0x02;
+static const size_t OTA_PAYLOAD_PER_PACKET = 12;
+static const size_t OTA_MAX_PAYLOAD = 100;
 
 // BLE pacing by response size. INJ VE current-map replies are ~843B and need
 // a slower stream than the smaller one-byte REDLEO pages on iOS/Bluefy.
@@ -87,6 +108,22 @@ uint8_t rxBuf[RX_MAX];
 uint32_t lastAfrMs = 0;
 bool uartReady = false;
 
+uint8_t otaBuf[OTA_MAX_PAYLOAD];
+uint8_t otaSeen[OTA_MAX_PAYLOAD];
+uint16_t otaExpected = 0;
+uint16_t otaGot = 0;
+uint8_t otaCmd = 0;
+bool otaEndSeen = false;
+volatile bool otaCommandReady = false;
+uint16_t otaCommandLen = 0;
+uint8_t otaCommandCode = 0;
+bool otaBusy = false;
+String otaSsid;
+String otaPassword;
+String otaAvailableVersion;
+String otaAvailableUrl;
+String otaAvailableSha256;
+
 static uint16_t le16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
 static void put16le(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)(v >> 8); }
 
@@ -97,6 +134,14 @@ static void notifyStatus(const String &msg) {
   if (s.length() > 18) s = s.substring(0, 18);
   statusChar->setValue((uint8_t *)s.c_str(), s.length());
   statusChar->notify();
+}
+
+static void resetOtaAssembler(uint8_t cmd, uint16_t total) {
+  otaCmd = cmd;
+  otaExpected = total;
+  otaGot = 0;
+  otaEndSeen = false;
+  memset(otaSeen, 0, sizeof(otaSeen));
 }
 
 class ServerCallbacks : public BLEServerCallbacks {
@@ -137,10 +182,63 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (!n) return;
     const uint8_t *p = (const uint8_t *)raw.c_str();
 
+    // OTA control frames: 7-byte header + up to 12 payload bytes.
+    // Header: marker, command, flags, totalLE16, offsetLE16.
+    if (p[0] == OTA_TX_MARKER) {
+      if (n < 7) {
+        notifyStatus("OTA:ERR=HEADER");
+        return;
+      }
+      if (otaBusy || otaCommandReady) {
+        notifyStatus("OTA:BUSY");
+        return;
+      }
+      const uint8_t cmd = p[1];
+      const uint8_t flags = p[2];
+      const uint16_t total = le16(&p[3]);
+      const uint16_t off = le16(&p[5]);
+      const uint16_t payload = (uint16_t)(n - 7);
+
+      if (total == 0) {
+        if (off != 0 || payload != 0 || !(flags & 0x02)) {
+          notifyStatus("OTA:ERR=SIZE");
+          return;
+        }
+        otaCommandCode = cmd;
+        otaCommandLen = 0;
+        otaCommandReady = true;
+        return;
+      }
+      if (total > OTA_MAX_PAYLOAD || off + payload > total) {
+        notifyStatus("OTA:ERR=SIZE");
+        return;
+      }
+      if (cmd != otaCmd || total != otaExpected) {
+        resetOtaAssembler(cmd, total);
+      } else if ((flags & 0x01) && otaGot == 0) {
+        resetOtaAssembler(cmd, total);
+      }
+      for (uint16_t i = 0; i < payload; ++i) {
+        const uint16_t pos = off + i;
+        otaBuf[pos] = p[7 + i];
+        if (!otaSeen[pos]) {
+          otaSeen[pos] = 1;
+          ++otaGot;
+        }
+      }
+      if (flags & 0x02) otaEndSeen = true;
+      if (otaEndSeen && otaGot == otaExpected) {
+        otaCommandCode = otaCmd;
+        otaCommandLen = otaExpected;
+        otaCommandReady = true;
+      }
+      return;
+    }
+
     // Compatibility / diagnostics.
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
-      if (text == "PING") notifyStatus("PONG FW1.2");
+      if (text == "PING") notifyStatus(String("PONG FW") + FW_VERSION);
       return;
     }
 
@@ -419,10 +517,332 @@ static void sendAfrPacket() {
 #endif
 }
 
+static bool jsonStringValue(const String &json, const char *key, String &out) {
+  const String needle = String("\"") + key + "\"";
+  int k = json.indexOf(needle);
+  if (k < 0) return false;
+  int colon = json.indexOf(':', k + needle.length());
+  if (colon < 0) return false;
+  int q1 = json.indexOf('"', colon + 1);
+  if (q1 < 0) return false;
+  int q2 = q1 + 1;
+  while (true) {
+    q2 = json.indexOf('"', q2);
+    if (q2 < 0) return false;
+    if (q2 == q1 + 1 || json[q2 - 1] != '\\') break;
+    ++q2;
+  }
+  out = json.substring(q1 + 1, q2);
+  out.replace("\\/", "/");
+  return true;
+}
+
+static int nextVersionPart(const String &v, int &pos) {
+  while (pos < (int)v.length() && (v[pos] < '0' || v[pos] > '9')) ++pos;
+  int n = 0;
+  bool any = false;
+  while (pos < (int)v.length() && v[pos] >= '0' && v[pos] <= '9') {
+    any = true;
+    n = n * 10 + (v[pos] - '0');
+    ++pos;
+  }
+  return any ? n : 0;
+}
+
+static int compareVersions(const String &a, const String &b) {
+  int pa = 0, pb = 0;
+  for (int i = 0; i < 4; ++i) {
+    const int va = nextVersionPart(a, pa);
+    const int vb = nextVersionPart(b, pb);
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+  }
+  return 0;
+}
+
+static void otaWifiOff() {
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+}
+
+static bool connectOtaWifi() {
+  if (!otaSsid.length()) {
+    notifyStatus("OTA:ERR=NO_WIFI");
+    return false;
+  }
+  notifyStatus("OTA:WIFI");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(otaSsid.c_str(), otaPassword.c_str());
+  const uint32_t started = millis();
+  while (WiFi.status() != WL_CONNECTED && (uint32_t)(millis() - started) < 15000) {
+    delay(100);
+    yield();
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    notifyStatus("OTA:WIFI_FAIL");
+    otaWifiOff();
+    return false;
+  }
+  notifyStatus("OTA:WIFI_OK");
+  return true;
+}
+
+static bool fetchManifest(String &version, String &url, String &sha256) {
+  WiFiClientSecure client;
+  // V1 intentionally keeps certificate maintenance simple; the downloaded
+  // firmware is still checked against the SHA-256 in the manifest.
+  // For locked commercial distribution, sign the manifest in a later hardening step.
+  client.setInsecure();
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  http.setTimeout(15000);
+  if (!http.begin(client, OTA_MANIFEST_URL)) return false;
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+  const String json = http.getString();
+  http.end();
+  return jsonStringValue(json, "version", version) &&
+         jsonStringValue(json, "url", url) &&
+         jsonStringValue(json, "sha256", sha256);
+}
+
+static String sha256Hex(const uint8_t digest[32]) {
+  static const char hex[] = "0123456789abcdef";
+  String out;
+  out.reserve(64);
+  for (int i = 0; i < 32; ++i) {
+    out += hex[(digest[i] >> 4) & 0x0F];
+    out += hex[digest[i] & 0x0F];
+  }
+  return out;
+}
+
+static void shaStart(mbedtls_sha256_context &ctx) {
+  mbedtls_sha256_init(&ctx);
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 3
+  mbedtls_sha256_starts(&ctx, 0);
+#else
+  mbedtls_sha256_starts_ret(&ctx, 0);
+#endif
+}
+
+static void shaUpdate(mbedtls_sha256_context &ctx, const uint8_t *data, size_t len) {
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 3
+  mbedtls_sha256_update(&ctx, data, len);
+#else
+  mbedtls_sha256_update_ret(&ctx, data, len);
+#endif
+}
+
+static void shaFinish(mbedtls_sha256_context &ctx, uint8_t digest[32]) {
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 3
+  mbedtls_sha256_finish(&ctx, digest);
+#else
+  mbedtls_sha256_finish_ret(&ctx, digest);
+#endif
+  mbedtls_sha256_free(&ctx);
+}
+
+static bool checkOtaManifest() {
+  notifyStatus(String("OTA:CUR=") + FW_VERSION);
+  if (!connectOtaWifi()) return false;
+
+  String version, url, sha256;
+  const bool ok = fetchManifest(version, url, sha256);
+  if (!ok) {
+    notifyStatus("OTA:ERR=MANIFEST");
+    otaWifiOff();
+    return false;
+  }
+
+  version.trim();
+  sha256.trim();
+  sha256.toLowerCase();
+
+  if (compareVersions(version, String(FW_VERSION)) <= 0) {
+    otaAvailableVersion = "";
+    otaAvailableUrl = "";
+    otaAvailableSha256 = "";
+    notifyStatus("OTA:NO_UPDATE");
+    otaWifiOff();
+    return true;
+  }
+
+  if (!url.startsWith("https://") || sha256.length() != 64) {
+    notifyStatus("OTA:ERR=MANIFEST");
+    otaWifiOff();
+    return false;
+  }
+
+  otaAvailableVersion = version;
+  otaAvailableUrl = url;
+  otaAvailableSha256 = sha256;
+  notifyStatus(String("OTA:NEW=") + version);
+  otaWifiOff();
+  return true;
+}
+
+static bool installOtaFirmware() {
+  if (!otaAvailableVersion.length() || !otaAvailableUrl.length() || otaAvailableSha256.length() != 64) {
+    notifyStatus("OTA:ERR=CHECK_FIRST");
+    return false;
+  }
+  if (!connectOtaWifi()) return false;
+
+  notifyStatus("OTA:START");
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  http.setTimeout(20000);
+
+  if (!http.begin(client, otaAvailableUrl)) {
+    notifyStatus("OTA:ERR=HTTP");
+    otaWifiOff();
+    return false;
+  }
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    notifyStatus("OTA:ERR=HTTP");
+    http.end();
+    otaWifiOff();
+    return false;
+  }
+
+  const int total = http.getSize();
+  if (total <= 0) {
+    notifyStatus("OTA:ERR=SIZE");
+    http.end();
+    otaWifiOff();
+    return false;
+  }
+  if (!Update.begin((size_t)total, U_FLASH)) {
+    notifyStatus("OTA:ERR=PARTITION");
+    http.end();
+    otaWifiOff();
+    return false;
+  }
+
+  mbedtls_sha256_context sha;
+  shaStart(sha);
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  int remaining = total;
+  size_t received = 0;
+  int lastPct = -1;
+  uint32_t lastData = millis();
+  bool writeOk = true;
+
+  while (remaining > 0) {
+    const size_t avail = stream->available();
+    if (avail) {
+      const size_t want = min((size_t)remaining, min(avail, sizeof(buf)));
+      const int got = stream->readBytes(buf, want);
+      if (got <= 0) {
+        writeOk = false;
+        break;
+      }
+      if (Update.write(buf, (size_t)got) != (size_t)got) {
+        writeOk = false;
+        break;
+      }
+      shaUpdate(sha, buf, (size_t)got);
+      remaining -= got;
+      received += (size_t)got;
+      lastData = millis();
+
+      const int pct = (int)((received * 100ULL) / (size_t)total);
+      if (pct == 100 || pct >= lastPct + 10) {
+        lastPct = pct;
+        notifyStatus(String("OTA:P=") + pct);
+      }
+    } else {
+      if (!http.connected()) break;
+      if ((uint32_t)(millis() - lastData) > 20000) {
+        writeOk = false;
+        break;
+      }
+      delay(2);
+      yield();
+    }
+  }
+
+  uint8_t digest[32];
+  shaFinish(sha, digest);
+  http.end();
+
+  if (!writeOk || remaining != 0) {
+    Update.abort();
+    notifyStatus("OTA:ERR=DOWNLOAD");
+    otaWifiOff();
+    return false;
+  }
+
+  const String actualSha = sha256Hex(digest);
+  if (!actualSha.equalsIgnoreCase(otaAvailableSha256)) {
+    Update.abort();
+    notifyStatus("OTA:ERR=HASH");
+    otaWifiOff();
+    return false;
+  }
+
+  if (!Update.end(true)) {
+    notifyStatus("OTA:ERR=FLASH");
+    otaWifiOff();
+    return false;
+  }
+
+  notifyStatus("OTA:DONE");
+  delay(600);
+  ESP.restart();
+  return true;
+}
+
+static void processOtaCommand() {
+  if (!otaCommandReady || otaBusy) return;
+
+  noInterrupts();
+  const uint8_t cmd = otaCommandCode;
+  const uint16_t len = otaCommandLen;
+  otaCommandReady = false;
+  interrupts();
+
+  if (transactionReady) {
+    notifyStatus("OTA:ERR=ECU_BUSY");
+    return;
+  }
+
+  otaBusy = true;
+  if (cmd == OTA_CMD_WIFI_CHECK) {
+    if (len < 2) {
+      notifyStatus("OTA:ERR=WIFI_DATA");
+    } else {
+      const uint8_t ssidLen = otaBuf[0];
+      if (!ssidLen || ssidLen > 32 || (uint16_t)(1 + ssidLen) > len || (len - 1 - ssidLen) > 63) {
+        notifyStatus("OTA:ERR=WIFI_DATA");
+      } else {
+        otaSsid = "";
+        otaPassword = "";
+        for (uint8_t i = 0; i < ssidLen; ++i) otaSsid += (char)otaBuf[1 + i];
+        for (uint16_t i = 1 + ssidLen; i < len; ++i) otaPassword += (char)otaBuf[i];
+        checkOtaManifest();
+      }
+    }
+  } else if (cmd == OTA_CMD_INSTALL) {
+    installOtaFirmware();
+  } else {
+    notifyStatus("OTA:ERR=CMD");
+  }
+  otaBusy = false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\nBLINK TL REDLEO ECU REAL BRIDGE FW 1.2");
+  Serial.printf("\nBLINK TL REDLEO ECU REAL BRIDGE FW %s\n", FW_VERSION);
   Serial.printf("ECU UART: 38400 8E2 RX=%d TX=%d RTS=%d\n", ECU_RX_PIN, ECU_TX_PIN, ECU_RTS_PIN);
 
   if (ECU_RX_PIN >= 0 && ECU_TX_PIN >= 0) {
@@ -469,9 +889,10 @@ void setup() {
 }
 
 void loop() {
-  processTransaction();
+  processOtaCommand();
+  if (!otaBusy) processTransaction();
   const uint32_t now = millis();
-  if (deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
+  if (!otaBusy && deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
     lastAfrMs = now;
     sendAfrPacket();
   }
