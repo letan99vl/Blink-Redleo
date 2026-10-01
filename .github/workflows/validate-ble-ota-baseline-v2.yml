@@ -1,0 +1,35 @@
+name: Validate BLE OTA baseline v2
+on:
+  push:
+    branches:
+      - test/ble-ota-baseline-338-v2
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core 3.3.8
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+      - name: Compile firmware
+        run: |
+          mkdir -p build/BlinkClassicESP32 build/out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs --output-dir build/out build/BlinkClassicESP32
+          ls -lh build/out/BlinkClassicESP32.ino.bin
+      - name: Check JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          import re, pathlib
+          html=pathlib.Path('index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          out=pathlib.Path('/tmp/scripts'); out.mkdir(exist_ok=True)
+          for i,code in enumerate(scripts):
+              (out/f'script_{i}.js').write_text(code,encoding='utf-8')
+          print('scripts',len(scripts))
+          PY
+          for f in /tmp/scripts/*.js; do node --check "$f"; done
