@@ -3202,52 +3202,101 @@ function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);r
 
 function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
 
-let mapIoUiBusy=false;
-let mapIoUiToken=0;
-function setMapIoUiBusy(kind,on){
-  const readBtn=document.getElementById('readMapBtn');
-  const writeBtn=document.getElementById('writeMapBtn');
+const ECU_MAP_IO_BUTTON_IDS=[
+  'readMapBtn','writeMapBtn','applyCorrectedBtn',
+  'redReadBtn','redWriteBtn',
+  'idleLimitReadBtn','idleLimitWriteBtn'
+];
+const ECU_MAP_IO_SELECT_IDS=['mapSelect','redBankSelect','idleLimitBankSelect'];
+let ecuMapIoUiBusy=false;
+let ecuMapIoUiToken=0;
+
+function mapIoButtons(){
+  return ECU_MAP_IO_BUTTON_IDS.map(id=>document.getElementById(id)).filter(Boolean);
+}
+function setEcuMapIoUiBusy(activeId,kind,on,label=''){
+  const buttons=mapIoButtons();
+  const selectors=ECU_MAP_IO_SELECT_IDS.map(id=>document.getElementById(id)).filter(Boolean);
 
   if(on){
-    if(mapIoUiBusy)return false;
-    mapIoUiBusy=true;
-    const token=++mapIoUiToken;
-    [readBtn,writeBtn].forEach(btn=>{
-      if(!btn)return;
+    // SINGLE-FLIGHT: never enqueue a second user MAP read/write behind the
+    // current one. The protocol mutex is the last safety net, not a click queue.
+    if(ecuMapIoUiBusy)return false;
+    ecuMapIoUiBusy=true;
+    const token=++ecuMapIoUiToken;
+
+    for(const btn of buttons){
+      if(btn.dataset.ioBusy!=='1')btn.dataset.ioIdleText=btn.textContent;
       btn.dataset.ioBusy='1';
       btn.disabled=true;
-    });
+    }
+    for(const sel of selectors){
+      sel.dataset.ioBusy='1';
+      sel.disabled=true;
+    }
 
-    const active=kind==='read'?readBtn:writeBtn;
+    const active=document.getElementById(activeId);
     if(active){
       active.textContent=kind==='read'?'✓ ĐÃ NHẬN · ĐỌC':'✓ ĐÃ NHẬN · GHI';
       try{
         active.animate(
-          [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.96)',filter:'brightness(1.45)'},{transform:'scale(1)',filter:'brightness(1)'}],
+          [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.95)',filter:'brightness(1.5)'},{transform:'scale(1)',filter:'brightness(1)'}],
           {duration:220,easing:'ease-out'}
         );
       }catch(_e){}
       setTimeout(()=>{
-        if(!mapIoUiBusy||mapIoUiToken!==token||active.dataset.ioBusy!=='1')return;
+        if(!ecuMapIoUiBusy||ecuMapIoUiToken!==token||active.dataset.ioBusy!=='1')return;
         active.textContent=kind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...';
       },220);
     }
-    taskUi('loading',kind==='read'?'✓ ĐÃ NHẬN LỆNH ĐỌC · ĐANG XỬ LÝ...':'✓ ĐÃ NHẬN LỆNH GHI · ĐANG XỬ LÝ...');
+
+    const what=String(label||'MAP').toUpperCase();
+    taskUi('loading',(kind==='read'?'✓ ĐÃ NHẬN LỆNH ĐỌC · ':'✓ ĐÃ NHẬN LỆNH GHI · ')+what+' · ĐANG XỬ LÝ...');
     return true;
   }
 
-  mapIoUiBusy=false;
-  ++mapIoUiToken;
-  [readBtn,writeBtn].forEach(btn=>{if(btn)delete btn.dataset.ioBusy;});
-  if(readBtn){
-    readBtn.textContent='↓ ĐỌC HIỆN TẠI';
-    readBtn.disabled=readBtn.dataset.profileBlocked==='1';
+  ecuMapIoUiBusy=false;
+  ++ecuMapIoUiToken;
+
+  for(const btn of buttons){
+    delete btn.dataset.ioBusy;
+    if(btn.dataset.ioIdleText!=null){
+      btn.textContent=btn.dataset.ioIdleText;
+      delete btn.dataset.ioIdleText;
+    }
+    btn.disabled=btn.dataset.profileBlocked==='1';
   }
-  if(writeBtn){
-    writeBtn.textContent=(typeof state!=='undefined'&&state.threeRun?.active)?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
-    writeBtn.disabled=writeBtn.dataset.profileBlocked==='1';
+  // Fuel button has a dynamic label in 3-run mode.
+  const writeMap=document.getElementById('writeMapBtn');
+  if(writeMap)writeMap.textContent=(typeof state!=='undefined'&&state.threeRun?.active)?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
+
+  for(const sel of selectors){
+    delete sel.dataset.ioBusy;
+    if(sel.id==='mapSelect')sel.disabled=!!(typeof state!=='undefined'&&(state.threeRun?.active||state.ecuPhase==='write1'||state.ecuPhase==='write2'));
+    else if(sel.id==='idleLimitBankSelect')sel.disabled=false;
+    else if(sel.id==='redBankSelect')sel.disabled=false;
   }
+  try{applyProfileUi()}catch(_e){}
   return true;
+}
+
+function captureMapIo(id,kind,handler,labelFn){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.addEventListener('click',async e=>{
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    const label=typeof labelFn==='function'?labelFn():labelFn;
+    if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP'))return;
+    try{
+      await handler(e);
+    }catch(x){
+      err(x);
+      taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);
+      notice('error','ECU REAL',x&&x.message||String(x));
+    }finally{
+      setEcuMapIoUiBusy(null,null,false);
+    }
+  },true);
 }
 
 function notice(type,title,detail){
@@ -3266,39 +3315,48 @@ function installUI(){
   ['idleMotor','solenoid','sideStand','startRelay','tpsVoltDisp','tempVoltDisp','injColor','realData','mapVoltDisp'].forEach(k=>{const e=document.querySelector('[data-ecutoggle="'+k+'"]');if(e){e.dataset.localOnly='1';const small=e.parentElement?.querySelector('small');if(small&&!small.textContent.includes('LOCAL'))small.textContent+=' · LOCAL';}});
   const spare=document.querySelector('[data-feature="spare"]');if(spare){spare.disabled=true;spare.title='Firmware 9.1X thay Spare bằng AutoClutch + password block.';}
 
-  capture('redReadBtn',async()=>{const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');await readFeaturePageReal(id,state.activeMap);notice('success','ĐỌC TRANG ECU OK',(id||currentSource())+' · page riêng')});
-  capture('redWriteBtn',async()=>{const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');await writeFeatureReal(id)});
-  capture('idleLimitReadBtn',async()=>{await readIdlePageReal(state.activeMap);notice('success','IDLE/LIMIT READ','MAP No.'+state.activeMap+' · page riêng')});
-  capture('idleLimitWriteBtn',writeIdleReal);
+  // Every MAP editor now uses one shared SINGLE-FLIGHT UI transaction.
+  // This covers Fuel, Injection Angle, Ignition Angle, Dwell, AFR, compensation
+  // tables and Idle/Limit. Repeated taps are dropped at the UI layer instead of
+  // being queued behind the protocol mutex.
+  captureMapIo('redReadBtn','read',async()=>{
+    const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');
+    await readFeaturePageReal(id,state.activeMap);
+    notice('success','ĐỌC TRANG ECU OK',(id||currentSource())+' · page riêng');
+  },()=>currentFeatureId()||currentSource()||'MAP');
+
+  captureMapIo('redWriteBtn','write',async()=>{
+    const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');
+    await writeFeatureReal(id);
+  },()=>currentFeatureId()||currentSource()||'MAP');
+
+  captureMapIo('idleLimitReadBtn','read',async()=>{
+    await readIdlePageReal(state.activeMap);
+    notice('success','IDLE/LIMIT READ','MAP No.'+state.activeMap+' · page riêng');
+  },'IDLE/LIMIT');
+
+  captureMapIo('idleLimitWriteBtn','write',writeIdleReal,'IDLE/LIMIT');
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
-  capture('readMapBtn',async()=>{
-    if(!setMapIoUiBusy('read',true))return;
-    try{
-      if(state.threeRun?.active){
-        notice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','ĐỌC HIỆN TẠI bị chặn để không ghi đè MAP đang dùng cho lượt '+state.threeRun.pass+'/3. Hãy kết thúc hoặc hủy phiên trước.');
-        return;
-      }
-      const R=await readCurrentFuelBank(state.activeMap);
-      notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
-    }finally{
-      setMapIoUiBusy(null,false);
+  captureMapIo('readMapBtn','read',async()=>{
+    if(state.threeRun?.active){
+      notice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','ĐỌC HIỆN TẠI bị chặn để không ghi đè MAP đang dùng cho lượt '+state.threeRun.pass+'/3. Hãy kết thúc hoặc hủy phiên trước.');
+      return;
     }
-  });
-  capture('writeMapBtn',async()=>{
-    if(!setMapIoUiBusy('write',true))return;
-    try{
-      if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
-      const R=await writeCurrentFuelAndVerify(state.activeMap);
-      notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
-    }finally{
-      setMapIoUiBusy(null,false);
-    }
-  });
-  capture('applyCorrectedBtn',async()=>{
+    const R=await readCurrentFuelBank(state.activeMap);
+    notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
+  },'THỜI GIAN PHUN');
+
+  captureMapIo('writeMapBtn','write',async()=>{
+    if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
+    const R=await writeCurrentFuelAndVerify(state.activeMap);
+    notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
+  },'THỜI GIAN PHUN');
+
+  captureMapIo('applyCorrectedBtn','write',async()=>{
     if(typeof applyCorrectedAndWrite==='function'){await applyCorrectedAndWrite();return;}
     throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
-  });
+  },'MAP ĐÃ BÙ');
   capture('studyTpsBtn',tpsStudyReal);
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>b.addEventListener('click',protect(async()=>{
