@@ -177,6 +177,10 @@ class ServerCallbacks : public BLEServerCallbacks {
   }
   void onDisconnect(BLEServer *s) override {
     deviceConnected = false;
+    if (bleOtaActive) {
+      Serial.println("BLE disconnected during OTA; aborting partial update");
+      abortBleOta(nullptr);
+    }
     // Drop any half-assembled request so a reconnect cannot resume stale bytes.
     noInterrupts();
     transactionReady = false;
