@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.48';
+  window.BLINK_PB_VERSION = '3.49';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1883,7 +1883,30 @@ async function startFuelWrite(opts={}){
 
   setEcuTaskStatus('loading','ĐÃ NHẬN NÚT LƯU HIỆN TẠI · ĐANG KIỂM TRA...');
   if(!state.ecuConnected){showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi ghi.',0);return false;}
-  if(state.ecuPhase!=='live'){showEcuNotice('error','ECU ĐANG BẬN','Trạng thái hiện tại: '+state.ecuPhase+'. Chờ Live ổn định rồi thử lại.',0);return false;}
+
+  // BLE REDLEO REAL has its own atomic transport mutex. Do not use ecuPhase as
+  // a transport lock: ecuPhase is shared with the old/native state machine and
+  // can remain "identified"/"write1"/"write2" after a UI/error transition even
+  // while the real BLE transport is already idle. That was the source of the
+  // repeated false "ECU ĐANG BẬN" message while READ CURRENT still worked.
+  const realApiNow=window.BlinkRealProtocol;
+  if(realApiNow&&window.blinkCommandChar&&window.blinkMapChar){
+    if(realApiNow.isBusy){
+      showEcuNotice('info','ECU ĐANG XỬ LÝ','Đang có một transaction ECU thật sự. Nút đã được khóa; chờ thao tác hiện tại hoàn tất.',2600);
+      return false;
+    }
+    if(state.ecuPhase==='handshake'||state.ecuPhase==='online'||state.ecuPhase==='idle'||state.ecuPhase==='profile-locked'){
+      showEcuNotice('error','ECU CHƯA SẴN SÀNG','Trạng thái hiện tại: '+state.ecuPhase+'. Hãy đợi ECU nhận diện xong.',3500);
+      return false;
+    }
+    // Self-heal stale UI phases once the real protocol mutex is idle.
+    if(state.ecuPhase!=='live')state.ecuPhase='live';
+  }else if(state.ecuPhase!=='live'){
+    // Keep the legacy/native path conservative.
+    showEcuNotice('error','ECU ĐANG BẬN','Trạng thái hiện tại: '+state.ecuPhase+'. Chờ Live ổn định rồi thử lại.',0);
+    return false;
+  }
+
   if(!await ensureActiveEcuAxes(true))return false;
 
   let min=Infinity,max=-Infinity;
