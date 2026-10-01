@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.31';
+  window.BLINK_PB_VERSION = '3.32';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2930,6 +2930,7 @@ window.addEventListener('beforeunload',save);
 
   async function writeCommand(cmd){
     if(!commandChar)throw new Error('BLE chưa kết nối.');
+    if(otaBleTransferActive)throw new Error('OTA ESP32 đang chạy.');
     const bytes=enc.encode(cmd);
     if(bytes.length>64)throw new Error('Lệnh BLE quá dài.');
     if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(bytes);
@@ -2942,6 +2943,7 @@ window.addEventListener('beforeunload',save);
   let otaCurrentVersionCache='';
   let otaManifestCache=null;
   let otaBleTransferActive=false;
+  window.blinkOtaTransferActive=()=>otaBleTransferActive;
   const otaStatusWaiters=[];
   const otaWifiRx=new Map();
 
@@ -3125,7 +3127,10 @@ window.addEventListener('beforeunload',save);
       setOtaControlsBusy(false);
       setOtaInfo('Đã hủy cập nhật firmware.','error');
     }else if(text==='OTA:BUSY'){
-      setOtaInfo('ESP32 đang xử lý lệnh OTA hiện tại...');
+      // A stale REDLEO live packet may arrive just as OTA begins. During an
+      // active firmware transfer this is expected and must not replace the
+      // progress UI or compete for user attention.
+      if(!otaBleTransferActive)setOtaInfo('ESP32 đang xử lý lệnh OTA hiện tại...');
     }else if(text.startsWith('OTA:ERR=')){
       setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
@@ -3268,17 +3273,17 @@ window.addEventListener('beforeunload',save);
 
     let chunkSize=160;
     let offset=0;
-    let burstBytes=0;
+    let burstPackets=0;
     while(offset<bin.byteLength){
       const count=Math.min(chunkSize,bin.byteLength-offset);
       try{
         await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count));
         offset+=count;
-        burstBytes+=count;
+        burstPackets++;
       }catch(e){
         if(chunkSize>12){
           chunkSize=chunkSize>100?100:chunkSize>60?60:chunkSize>20?20:12;
-          burstBytes=0;
+          burstPackets=0;
           await new Promise(r=>setTimeout(r,20));
           continue;
         }
@@ -3288,10 +3293,12 @@ window.addEventListener('beforeunload',save);
       const pct=Math.floor(offset*100/bin.byteLength);
       if($('otaProgress'))$('otaProgress').value=pct;
 
-      // Let the iOS BLE stack drain every ~4 KB so packets are not overrun.
-      if(burstBytes>=4096){
-        burstBytes=0;
-        await new Promise(r=>setTimeout(r,12));
+      // iOS/Bluefy is much faster with write-without-response, but flooding
+      // hundreds of packets at once can silently drop ATT writes. Limit each
+      // burst to 8 packets, then briefly yield so the controller can drain.
+      if(burstPackets>=8){
+        burstPackets=0;
+        await new Promise(r=>setTimeout(r,8));
       }
     }
 
@@ -3323,11 +3330,17 @@ window.addEventListener('beforeunload',save);
       const actualSha=bytesToHex(digest);
       if(actualSha!==otaManifestCache.sha256)throw new Error('SHA-256 firmware không khớp manifest.');
 
-      setOtaInfo('Firmware hợp lệ · đang truyền '+Math.round(buf.byteLength/1024)+' KB qua BLE...');
+      setOtaInfo('Firmware hợp lệ · đang dừng Live ECU để dành toàn bộ BLE cho OTA...');
+      if(window.BlinkRealProtocol&&typeof window.BlinkRealProtocol.pauseForOta==='function'){
+        await window.BlinkRealProtocol.pauseForOta();
+      }
+      setOtaInfo('Đang truyền '+Math.round(buf.byteLength/1024)+' KB qua BLE tốc độ cao...');
       await transferFirmwareBle(new Uint8Array(buf),actualSha);
+      setTimeout(()=>{try{window.BlinkRealProtocol?.resumeAfterOta?.()}catch(_e){}},1800);
     }catch(e){
       otaBleTransferActive=false;
       try{if(state.ecuConnected)await writeOtaCommand(OTA_BLE_ABORT,new Uint8Array(0));}catch(_e){}
+      try{window.BlinkRealProtocol?.resumeAfterOta?.()}catch(_e){}
       setOtaControlsBusy(false);
       setOtaInfo('Cập nhật thất bại: '+String(e&&e.message||e),'error');
       setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
