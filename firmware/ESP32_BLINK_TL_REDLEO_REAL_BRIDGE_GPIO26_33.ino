@@ -987,7 +987,7 @@ static bool writeBleOtaChunk(uint32_t offset, const uint8_t *data, size_t len) {
     return false;
   }
 
-  const size_t wrote = Update.write(data, len);
+  const size_t wrote = Update.write((uint8_t *)data, len);
   if (wrote != len) {
     abortBleOta("OTA:ERR=FLASH");
     return false;
