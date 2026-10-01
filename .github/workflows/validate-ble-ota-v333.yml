@@ -1,0 +1,25 @@
+name: Validate BLE OTA v3.33
+on:
+  push:
+    branches:
+      - test/ota-fast-barrier-v333
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --check redleo_real_protocol.js
+      - run: |
+          python3 - <<'PY'
+          import re, pathlib
+          html=pathlib.Path('index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          out=pathlib.Path('/tmp/scripts');out.mkdir(exist_ok=True)
+          for i,code in enumerate(scripts):
+              (out/f'script_{i}.js').write_text(code,encoding='utf-8')
+          PY
+          for f in /tmp/scripts/*.js; do node --check "$f"; done
+      - run: |
+          grep -q "window.BLINK_PB_VERSION = '3.33'" index.html
+          grep -q 'writeValueWithResponse' index.html
+          grep -q 'pauseForOta' redleo_real_protocol.js
