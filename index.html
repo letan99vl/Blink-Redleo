@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.33';
+  window.BLINK_PB_VERSION = '3.34';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2933,9 +2933,61 @@ window.addEventListener('beforeunload',save);
     if(otaBleTransferActive)throw new Error('OTA ESP32 đang chạy.');
     const bytes=enc.encode(cmd);
     if(bytes.length>64)throw new Error('Lệnh BLE quá dài.');
-    if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(bytes);
-    else await commandChar.writeValue(bytes);
+    // PING is a safety handshake. Send it reliably; normal high-rate commands
+    // keep the previous no-response path.
+    if(cmd==='PING'){
+      if(typeof commandChar.writeValueWithResponse==='function')await commandChar.writeValueWithResponse(bytes);
+      else if(typeof commandChar.writeValue==='function')await commandChar.writeValue(bytes);
+      else if(typeof commandChar.writeValueWithoutResponse==='function')await commandChar.writeValueWithoutResponse(bytes);
+      else throw new Error('BLE COMMAND không hỗ trợ ghi.');
+      return;
+    }
+    if(typeof commandChar.writeValueWithoutResponse==='function')await commandChar.writeValueWithoutResponse(bytes);
+    else if(typeof commandChar.writeValueWithResponse==='function')await commandChar.writeValueWithResponse(bytes);
+    else if(typeof commandChar.writeValue==='function')await commandChar.writeValue(bytes);
+    else throw new Error('BLE COMMAND không hỗ trợ ghi.');
   }
+
+  function acceptBridgePong(text){
+    text=String(text||'').replace(/\0/g,'').trim();
+    if(!/^PONG\b/i.test(text))return false;
+    window.blinkBridgeFirmwareStatus=text;
+    const fw=text.replace(/^PONG\s*/i,'').trim()||'FW cũ';
+    const otaVer=text.replace(/^PONG\s*FW/i,'').trim();
+    if(otaVer){
+      otaCurrentVersionCache=otaVer;
+      if($('otaCurrentVersion'))$('otaCurrentVersion').value=otaVer;
+    }
+    $('ecuDiag').textContent='BLE STATUS: '+text+' · Bridge '+fw;
+    return true;
+  }
+
+  async function ensureBridgeFirmwareStatus(retries=3){
+    if(/^PONG\b/i.test(String(window.blinkBridgeFirmwareStatus||'')))return window.blinkBridgeFirmwareStatus;
+    let lastErr=null;
+    for(let attempt=0;attempt<retries;attempt++){
+      try{
+        await writeCommand('PING');
+      }catch(e){lastErr=e;}
+      for(let i=0;i<6;i++){
+        if(/^PONG\b/i.test(String(window.blinkBridgeFirmwareStatus||'')))return window.blinkBridgeFirmwareStatus;
+        await new Promise(r=>setTimeout(r,50));
+      }
+      // STATUS is readable as well as notifiable. Bluefy/iOS can occasionally
+      // miss the notification immediately after connect, so read it back.
+      try{
+        if(statusChar&&typeof statusChar.readValue==='function'){
+          const d=await statusChar.readValue();
+          const text=dec.decode(d).replace(/\0/g,'').trim();
+          if(acceptBridgePong(text))return window.blinkBridgeFirmwareStatus;
+        }
+      }catch(e){lastErr=e;}
+      await new Promise(r=>setTimeout(r,80));
+    }
+    if(lastErr)console.warn('Bridge PING verify',lastErr);
+    return '';
+  }
+  window.ensureBlinkBridgeFirmwareStatus=ensureBridgeFirmwareStatus;
 
   const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_BLE_BEGIN=0x04,OTA_BLE_END=0x05,OTA_BLE_ABORT=0x06,OTA_SCAN_MARKER=0xE4,OTA_BLE_DATA_MARKER=0xE5,OTA_CHUNK=12;
   let otaUpdateReady=false;
@@ -3212,8 +3264,7 @@ window.addEventListener('beforeunload',save);
       $('otaProgress').value=0;
       setOtaControlsBusy(true);
       setOtaInfo('Đang đọc phiên bản hiện tại từ ESP32...');
-      await writeCommand('PING');
-      await new Promise(r=>setTimeout(r,180));
+      await ensureBridgeFirmwareStatus(3);
 
       let current=otaCurrentVersionCache||String($('otaCurrentVersion').value||'').trim();
       if(!/^\d+(\.\d+)*/.test(current))current='1.3';
@@ -3445,14 +3496,8 @@ window.addEventListener('beforeunload',save);
       mapRx.active=false;saveSoon();
       showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
     }else if(text.startsWith('PONG')){
-      window.blinkBridgeFirmwareStatus=text;
+      acceptBridgePong(text);
       const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
-      const otaVer=text.replace(/^PONG\s*FW/i,'').trim();
-      if(otaVer){
-        otaCurrentVersionCache=otaVer;
-        if($('otaCurrentVersion'))$('otaCurrentVersion').value=otaVer;
-      }
-      $('ecuDiag').textContent='BLE STATUS: '+text+' · Bridge '+fw;
       showEcuNotice('success','ECU Blink BLE OK','Kết nối hai chiều hoạt động · Bridge '+fw+'.');
     }else if(text.startsWith('TPS_OK')){
       showEcuNotice('success','TPS STUDY TEST',text);
@@ -3499,7 +3544,8 @@ window.addEventListener('beforeunload',save);
       $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
       $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
-      await writeCommand('PING');
+      const bridgeFw=await ensureBridgeFirmwareStatus(3);
+      if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);
