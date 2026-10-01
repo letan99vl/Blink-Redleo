@@ -191,8 +191,10 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
         notifyStatus("OTA:ERR=HEADER");
         return;
       }
+      // Ignore duplicate OTA writes while the current OTA command is already
+      // queued/running. Web Bluetooth stacks can occasionally replay the final
+      // write; reporting BUSY here produces a false error in the UI.
       if (otaBusy || otaCommandReady) {
-        notifyStatus("OTA:BUSY");
         return;
       }
       const uint8_t cmd = p[1];
@@ -677,16 +679,16 @@ static bool otaNetworkPreflight() {
 static bool fetchManifest(String &version, String &url, String &sha256) {
   otaManifestHttpCode = 0;
 
-  for (uint8_t attempt = 1; attempt <= 3; ++attempt) {
+  for (uint8_t attempt = 1; attempt <= 2; ++attempt) {
     WiFiClientSecure client;
     client.setInsecure();
-    client.setHandshakeTimeout(30);
-    client.setTimeout(15000);
+    client.setHandshakeTimeout(8);
+    client.setTimeout(8000);
 
     HTTPClient http;
     http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    http.setConnectTimeout(20000);
-    http.setTimeout(15000);
+    http.setConnectTimeout(8000);
+    http.setTimeout(8000);
     http.setReuse(false);
 
     Serial.printf("OTA manifest try=%u heap=%u max=%u\n",
@@ -726,7 +728,7 @@ static bool fetchManifest(String &version, String &url, String &sha256) {
     }
 
     http.end();
-    delay(500);
+    delay(250);
     yield();
   }
 
