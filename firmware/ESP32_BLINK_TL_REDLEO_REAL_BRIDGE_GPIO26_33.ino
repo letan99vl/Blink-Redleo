@@ -676,36 +676,53 @@ static bool otaNetworkPreflight() {
 
 static bool fetchManifest(String &version, String &url, String &sha256) {
   otaManifestHttpCode = 0;
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(15);
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  http.setTimeout(15000);
 
-  if (!http.begin(client, OTA_MANIFEST_URL)) {
-    otaManifestHttpCode = -1000;
-    Serial.printf("OTA manifest begin failed, heap=%u\n", ESP.getFreeHeap());
-    return false;
-  }
+  for (uint8_t attempt = 1; attempt <= 3; ++attempt) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(30);
+    client.setTimeout(15000);
 
-  const int code = http.GET();
-  otaManifestHttpCode = code;
-  Serial.printf("OTA manifest HTTP=%d heap=%u\n", code, ESP.getFreeHeap());
-  if (code != HTTP_CODE_OK) {
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+    http.setConnectTimeout(20000);
+    http.setTimeout(15000);
+    http.setReuse(false);
+
+    Serial.printf("OTA manifest try=%u heap=%u max=%u\n",
+                  attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+    if (!http.begin(client, OTA_MANIFEST_URL)) {
+      otaManifestHttpCode = -1000;
+      Serial.printf("OTA manifest begin failed try=%u\n", attempt);
+      delay(350);
+      continue;
+    }
+
+    const int code = http.GET();
+    otaManifestHttpCode = code;
+    Serial.printf("OTA manifest HTTP=%d try=%u heap=%u max=%u\n",
+                  code, attempt, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+    if (code == HTTP_CODE_OK) {
+      const String json = http.getString();
+      http.end();
+
+      const bool parsed =
+        jsonStringValue(json, "version", version) &&
+        jsonStringValue(json, "url", url) &&
+        jsonStringValue(json, "sha256", sha256);
+
+      if (!parsed) otaManifestHttpCode = -1001;
+      return parsed;
+    }
+
     http.end();
-    return false;
+    delay(500);
+    yield();
   }
 
-  const String json = http.getString();
-  http.end();
-  const bool parsed =
-    jsonStringValue(json, "version", version) &&
-    jsonStringValue(json, "url", url) &&
-    jsonStringValue(json, "sha256", sha256);
-
-  if (!parsed) otaManifestHttpCode = -1001;
-  return parsed;
+  return false;
 }
 
 static String sha256Hex(const uint8_t digest[32]) {
