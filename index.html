@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.32';
+  window.BLINK_PB_VERSION = '3.33';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2943,6 +2943,7 @@ window.addEventListener('beforeunload',save);
   let otaCurrentVersionCache='';
   let otaManifestCache=null;
   let otaBleTransferActive=false;
+  let otaBleFatalError='';
   window.blinkOtaTransferActive=()=>otaBleTransferActive;
   const otaStatusWaiters=[];
   const otaWifiRx=new Map();
@@ -3132,6 +3133,13 @@ window.addEventListener('beforeunload',save);
       // progress UI or compete for user attention.
       if(!otaBleTransferActive)setOtaInfo('ESP32 đang xử lý lệnh OTA hiện tại...');
     }else if(text.startsWith('OTA:ERR=')){
+      // Preserve the FIRST OTA error. After a sequence failure there may still
+      // be already-queued write-without-response packets arriving; those can
+      // produce a secondary DATA error which must not hide the real cause.
+      if(otaBleTransferActive){
+        if(otaBleFatalError)return;
+        otaBleFatalError=text;
+      }
       setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
       const code=text.slice(8);
@@ -3245,16 +3253,31 @@ window.addEventListener('beforeunload',save);
     return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
   }
 
-  async function writeBleFirmwareChunk(offset,bytes){
+  async function writeBleFirmwareChunk(offset,bytes,reliable=false){
     const pkt=new Uint8Array(5+bytes.length);
     pkt[0]=OTA_BLE_DATA_MARKER;
     pkt[1]=offset&255;pkt[2]=(offset>>>8)&255;pkt[3]=(offset>>>16)&255;pkt[4]=(offset>>>24)&255;
     pkt.set(bytes,5);
-    // Firmware streaming should use write-without-response whenever available.
-    // Waiting for a GATT response for every packet makes a ~1.8 MB image take
-    // tens of minutes on iOS/Bluefy.
-    if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(pkt);
-    else await commandChar.writeValue(pkt);
+
+    // Fast path: most packets are ATT Write Commands (no response).
+    // Every 8th packet is deliberately sent WITH response as a flow-control
+    // barrier. That confirms ESP32 has drained the preceding burst before the
+    // browser queues more data, avoiding Bluefy/iOS queue overflow.
+    if(reliable){
+      if(typeof commandChar.writeValueWithResponse==='function'){
+        await commandChar.writeValueWithResponse(pkt);return;
+      }
+      if(typeof commandChar.writeValue==='function'){
+        await commandChar.writeValue(pkt);return;
+      }
+    }
+    if(typeof commandChar.writeValueWithoutResponse==='function'){
+      await commandChar.writeValueWithoutResponse(pkt);return;
+    }
+    if(typeof commandChar.writeValueWithResponse==='function'){
+      await commandChar.writeValueWithResponse(pkt);return;
+    }
+    await commandChar.writeValue(pkt);
   }
 
   async function transferFirmwareBle(bin,shaHex){
@@ -3273,33 +3296,39 @@ window.addEventListener('beforeunload',save);
 
     let chunkSize=160;
     let offset=0;
-    let burstPackets=0;
+    let packetNo=0;
+    otaBleFatalError='';
+
     while(offset<bin.byteLength){
+      if(otaBleFatalError)throw new Error(otaBleFatalError);
+
       const count=Math.min(chunkSize,bin.byteLength-offset);
+      const reliable=((packetNo+1)%8===0) || (offset+count>=bin.byteLength);
       try{
-        await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count));
+        await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count),reliable);
         offset+=count;
-        burstPackets++;
+        packetNo++;
       }catch(e){
-        if(chunkSize>12){
+        // If the negotiated ATT size is smaller than expected, step down.
+        // Restarting from the same offset is safe because the failed GATT write
+        // was not accepted by ESP32.
+        if(chunkSize>12 && !otaBleFatalError){
           chunkSize=chunkSize>100?100:chunkSize>60?60:chunkSize>20?20:12;
-          burstPackets=0;
+          packetNo=0;
           await new Promise(r=>setTimeout(r,20));
           continue;
         }
         throw e;
       }
 
+      if(otaBleFatalError)throw new Error(otaBleFatalError);
+
       const pct=Math.floor(offset*100/bin.byteLength);
       if($('otaProgress'))$('otaProgress').value=pct;
 
-      // iOS/Bluefy is much faster with write-without-response, but flooding
-      // hundreds of packets at once can silently drop ATT writes. Limit each
-      // burst to 8 packets, then briefly yield so the controller can drain.
-      if(burstPackets>=8){
-        burstPackets=0;
-        await new Promise(r=>setTimeout(r,8));
-      }
+      // A tiny yield between packets keeps Bluefy responsive. The actual hard
+      // flow-control point is every 8th with-response packet above.
+      if(!reliable)await new Promise(r=>setTimeout(r,2));
     }
 
     const doneWait=waitOtaStatus(t=>t==='OTA:DONE'||t.startsWith('OTA:ERR='),12000);
@@ -3315,6 +3344,7 @@ window.addEventListener('beforeunload',save);
       if(!confirm('Cập nhật ESP32 lên FW '+otaManifestCache.version+' ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
 
       otaUpdateReady=false;
+      otaBleFatalError='';
       $('otaInstallBtn').disabled=true;
       setOtaControlsBusy(true);
       setOtaInfo('Điện thoại đang tải firmware '+otaManifestCache.version+'...');
@@ -3339,10 +3369,12 @@ window.addEventListener('beforeunload',save);
       setTimeout(()=>{try{window.BlinkRealProtocol?.resumeAfterOta?.()}catch(_e){}},1800);
     }catch(e){
       otaBleTransferActive=false;
+      const firstOtaError=otaBleFatalError;
       try{if(state.ecuConnected)await writeOtaCommand(OTA_BLE_ABORT,new Uint8Array(0));}catch(_e){}
+      otaBleFatalError='';
       try{window.BlinkRealProtocol?.resumeAfterOta?.()}catch(_e){}
       setOtaControlsBusy(false);
-      setOtaInfo('Cập nhật thất bại: '+String(e&&e.message||e),'error');
+      setOtaInfo('Cập nhật thất bại: '+String(firstOtaError||e&&e.message||e),'error');
       setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
     }
   }
