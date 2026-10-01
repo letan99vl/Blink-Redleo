@@ -3106,7 +3106,14 @@ function installUI(){
   capture('idleLimitWriteBtn',writeIdleReal);
 
   // Fuel editor: REDLEO "Read Current" is 0x9A + current fuel page.
-  capture('readMapBtn',async()=>{const R=await readCurrentFuelBank(state.activeMap);notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B')});
+  capture('readMapBtn',async()=>{
+    if(state.threeRun?.active){
+      notice('info','MODE 3 LƯỢT ĐANG HOẠT ĐỘNG','ĐỌC HIỆN TẠI bị chặn để không ghi đè MAP đang dùng cho lượt '+state.threeRun.pass+'/3. Hãy kết thúc hoặc hủy phiên trước.');
+      return;
+    }
+    const R=await readCurrentFuelBank(state.activeMap);
+    notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
+  });
   capture('writeMapBtn',async()=>{
     if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
     const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
