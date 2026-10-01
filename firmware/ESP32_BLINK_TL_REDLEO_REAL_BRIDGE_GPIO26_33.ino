@@ -45,7 +45,7 @@
 #endif
 
 static const char *OTA_MANIFEST_URL =
-  "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/manifest.json";
+  "https://cdn.jsdelivr.net/gh/letan99vl/Blink-Redleo@main/ota/manifest.json";
 
 static const uint32_t ECU_BAUD = 38400;
 static const char *DEVICE_NAME  = "BLINK-REDLEO";
@@ -645,26 +645,40 @@ static bool connectOtaWifi() {
   return true;
 }
 
+static int otaManifestHttpCode = 0;
+
 static bool fetchManifest(String &version, String &url, String &sha256) {
+  otaManifestHttpCode = 0;
   WiFiClientSecure client;
-  // V1 intentionally keeps certificate maintenance simple; the downloaded
-  // firmware is still checked against the SHA-256 in the manifest.
-  // For locked commercial distribution, sign the manifest in a later hardening step.
   client.setInsecure();
+  client.setTimeout(15);
   HTTPClient http;
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   http.setTimeout(15000);
-  if (!http.begin(client, OTA_MANIFEST_URL)) return false;
+
+  if (!http.begin(client, OTA_MANIFEST_URL)) {
+    otaManifestHttpCode = -1000;
+    Serial.printf("OTA manifest begin failed, heap=%u\n", ESP.getFreeHeap());
+    return false;
+  }
+
   const int code = http.GET();
+  otaManifestHttpCode = code;
+  Serial.printf("OTA manifest HTTP=%d heap=%u\n", code, ESP.getFreeHeap());
   if (code != HTTP_CODE_OK) {
     http.end();
     return false;
   }
+
   const String json = http.getString();
   http.end();
-  return jsonStringValue(json, "version", version) &&
-         jsonStringValue(json, "url", url) &&
-         jsonStringValue(json, "sha256", sha256);
+  const bool parsed =
+    jsonStringValue(json, "version", version) &&
+    jsonStringValue(json, "url", url) &&
+    jsonStringValue(json, "sha256", sha256);
+
+  if (!parsed) otaManifestHttpCode = -1001;
+  return parsed;
 }
 
 static String sha256Hex(const uint8_t digest[32]) {
@@ -711,7 +725,9 @@ static bool checkOtaManifest() {
   String version, url, sha256;
   const bool ok = fetchManifest(version, url, sha256);
   if (!ok) {
-    notifyStatus("OTA:ERR=MANIFEST");
+    if (otaManifestHttpCode == -1000) notifyStatus("OTA:ERR=TLS_BEGIN");
+    else if (otaManifestHttpCode == -1001) notifyStatus("OTA:ERR=JSON");
+    else notifyStatus(String("OTA:HTTP=") + otaManifestHttpCode);
     otaWifiOff();
     return false;
   }
