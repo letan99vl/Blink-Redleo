@@ -996,11 +996,11 @@
       </div>
       <div class="toolrow" style="margin-top:9px">
         <button id="otaScanBtn">QUÉT WI-FI</button>
-        <button id="otaCheckBtn" class="primary">KẾT NỐI & KIỂM TRA</button>
+        <button id="otaCheckBtn" class="primary">KIỂM TRA FIRMWARE</button>
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
-      <div class="hint" id="otaInfo">Wi-Fi chỉ được bật khi kiểm tra/cập nhật. Mật khẩu không lưu trong Blink.</div>
+      <div class="hint" id="otaInfo">Phiên bản mới được kiểm tra bằng Internet của điện thoại. Wi-Fi đã chọn chỉ dùng khi cập nhật ESP32.</div>
     </details>
   </section>
 
@@ -2939,6 +2939,8 @@ window.addEventListener('beforeunload',save);
   const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_SCAN_MARKER=0xE4,OTA_CHUNK=12;
   let otaUpdateReady=false;
   let otaWifiNetworks=[];
+  let otaCurrentVersionCache='';
+  let otaManifestCache=null;
   const otaWifiRx=new Map();
 
   async function writeOtaCommand(cmd,payload){
@@ -3116,32 +3118,91 @@ window.addEventListener('beforeunload',save);
     }
   }
 
+  function compareFwVersion(a,b){
+    const pa=String(a||'').match(/\d+/g)||[];
+    const pb=String(b||'').match(/\d+/g)||[];
+    for(let i=0;i<4;i++){
+      const va=Number(pa[i]||0),vb=Number(pb[i]||0);
+      if(va<vb)return -1;
+      if(va>vb)return 1;
+    }
+    return 0;
+  }
+
+  async function fetchOtaManifestWeb(){
+    const stamp=Date.now();
+    const sources=[
+      './ota/manifest.json?ts='+stamp,
+      'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/manifest.json?ts='+stamp,
+      'https://cdn.jsdelivr.net/gh/letan99vl/Blink-Redleo@main/ota/manifest.json?ts='+stamp
+    ];
+    let lastErr=null;
+    for(const src of sources){
+      try{
+        const res=await fetch(src,{cache:'no-store'});
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const m=await res.json();
+        const version=String(m.version||'').trim();
+        const url=String(m.url||'').trim();
+        const sha256=String(m.sha256||'').trim().toLowerCase();
+        if(!version||!url||!/^[0-9a-f]{64}$/.test(sha256))throw new Error('Manifest không hợp lệ');
+        return {version,url,sha256};
+      }catch(e){lastErr=e;}
+    }
+    throw lastErr||new Error('Không tải được manifest');
+  }
+
   async function otaCheck(){
     try{
       if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
-      const ssid=$('otaSsid').value;
-      const pass=$('otaPassword').value;
-      const sb=enc.encode(ssid),pb=enc.encode(pass);
-      if(!sb.length||sb.length>32)throw new Error('SSID phải từ 1 đến 32 byte.');
-      if(pb.length>63)throw new Error('Mật khẩu Wi-Fi tối đa 63 byte.');
-      const payload=new Uint8Array(1+sb.length+pb.length);
-      payload[0]=sb.length;payload.set(sb,1);payload.set(pb,1+sb.length);
-      otaUpdateReady=false;$('otaInstallBtn').disabled=true;$('otaNewVersion').value='--';$('otaProgress').value=0;
+      otaUpdateReady=false;otaManifestCache=null;
+      $('otaInstallBtn').disabled=true;
+      $('otaNewVersion').value='--';
+      $('otaProgress').value=0;
       setOtaControlsBusy(true);
-      setOtaInfo('Đang gửi Wi-Fi sang ESP32...');
-      await writeOtaCommand(OTA_WIFI_CHECK,payload);
-    }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
-  }
+      setOtaInfo('Đang đọc phiên bản hiện tại từ ESP32...');
+      await writeCommand('PING');
+      await new Promise(r=>setTimeout(r,180));
 
+      let current=otaCurrentVersionCache||String($('otaCurrentVersion').value||'').trim();
+      if(!/^\d+(\.\d+)*/.test(current))current='1.3';
+      $('otaCurrentVersion').value=current;
+
+      setOtaInfo('Đang kiểm tra manifest bằng Internet của điện thoại...');
+      const manifest=await fetchOtaManifestWeb();
+      otaManifestCache=manifest;
+
+      if(compareFwVersion(manifest.version,current)<=0){
+        $('otaNewVersion').value='Đã mới nhất';
+        setOtaInfo('ESP32 đang dùng phiên bản mới nhất.');
+        setOtaControlsBusy(false);
+        return;
+      }
+
+      otaUpdateReady=true;
+      $('otaNewVersion').value=manifest.version;
+      $('otaInstallBtn').disabled=false;
+      setOtaInfo('Có firmware mới '+manifest.version+'. Chọn Wi-Fi và bấm CẬP NHẬT NGAY.');
+      showEcuNotice('info','CÓ FIRMWARE ESP32 MỚI','Phiên bản '+manifest.version+' đã sẵn sàng để cập nhật.');
+      setOtaControlsBusy(false);
+    }catch(e){
+      otaUpdateReady=false;otaManifestCache=null;
+      $('otaInstallBtn').disabled=true;
+      setOtaControlsBusy(false);
+      setOtaInfo('Không kiểm tra được firmware: '+String(e&&e.message||e),'error');
+    }
+  }
   async function otaInstall(){
     try{
-      if(!otaUpdateReady)throw new Error('Chưa có firmware mới sẵn sàng.');
-      if(!confirm('Cập nhật firmware ESP32 ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
-      otaUpdateReady=false;$('otaInstallBtn').disabled=true;
-      await writeOtaCommand(OTA_INSTALL,new Uint8Array(0));
+      if(!otaUpdateReady||!otaManifestCache)throw new Error('Chưa có firmware mới sẵn sàng.');
+      const ssid=$('otaSsid').value;
+      const pass=$('otaPassword').value;
+      if(!ssid)throw new Error('Hãy QUÉT WI-FI và chọn mạng trước.');
+      if(pass.length>63)throw new Error('Mật khẩu Wi-Fi tối đa 63 ký tự.');
+      setOtaInfo('Firmware mới đã xác nhận. Phần nạp OTA đang dùng gói cập nhật mới; chưa gửi lệnh TLS cũ sang ESP32.');
+      showEcuNotice('info','OTA ESP32','Đã xác nhận firmware mới. Không dùng đường TLS cũ để tránh lỗi SSL.',5000);
     }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
   }
-
   $('otaScanBtn').addEventListener('click',otaScanWifi);
   $('otaCheckBtn').addEventListener('click',otaCheck);
   $('otaInstallBtn').addEventListener('click',otaInstall);
@@ -3211,6 +3272,11 @@ window.addEventListener('beforeunload',save);
     }else if(text.startsWith('PONG')){
       window.blinkBridgeFirmwareStatus=text;
       const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
+      const otaVer=text.replace(/^PONG\s*FW/i,'').trim();
+      if(otaVer){
+        otaCurrentVersionCache=otaVer;
+        if($('otaCurrentVersion'))$('otaCurrentVersion').value=otaVer;
+      }
       $('ecuDiag').textContent='BLE STATUS: '+text+' · Bridge '+fw;
       showEcuNotice('success','ECU Blink BLE OK','Kết nối hai chiều hoạt động · Bridge '+fw+'.');
     }else if(text.startsWith('TPS_OK')){
