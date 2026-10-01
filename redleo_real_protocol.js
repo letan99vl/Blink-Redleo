@@ -2339,6 +2339,49 @@ function v11StoreMatrix(id,bank,fallback){
   }catch(_e){}
   return fallback.map(r=>r.slice());
 }
+function v11MatrixChanged(a,b){
+  if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length)return true;
+  for(let r=0;r<a.length;r++){
+    if(!Array.isArray(a[r])||!Array.isArray(b[r])||a[r].length!==b[r].length)return true;
+    for(let c=0;c<a[r].length;c++)if(v11ValueChanged(a[r][c],b[r][c]))return true;
+  }
+  return false;
+}
+function v11PatchEncodedBlock(raw,edited,base,encode,label){
+  const out=new Uint8Array(raw||[]);
+  const prev=encode(base),next=encode(edited);
+  if(prev.length!==out.length||next.length!==out.length)throw new Error('ATE V11 '+label+' encode length không khớp baseline.');
+  for(let i=0;i<out.length;i++)if((next[i]&255)!==(prev[i]&255))out[i]=next[i]&255;
+  return out;
+}
+function v11BuildPage6Payload(bank){
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank),cached=new Uint8Array(pageCache.get(pg)||[]);
+  if(cached.length<43)throw new Error('ATE V11 SEND/COPY cần đọc trực tiếp page 6 của MAP No.'+bank+' đủ 43B trước.');
+
+  const out=new Uint8Array(cached.slice(0,43));
+  const baseIdle=decodeV11Idle12(cached.slice(0,12));
+  const baseShift=decodeV11AutoShift9(cached.slice(12,21));
+  const mode=v11IdleMotorMode(false);
+  const baseMotor=decodeV11EctMotor22(cached.slice(21,43),mode);
+
+  const idle=v11StoreMatrix('idle_limit',bank,baseIdle);
+  const shift=v11StoreMatrix('auto_shift',bank,baseShift);
+  const motor=v11StoreMatrix('ect_idle_motor',bank,baseMotor);
+
+  out.set(v11PatchEncodedBlock(cached.slice(0,12),idle,baseIdle,encodeV11Idle12,'Idle/Limit'),0);
+  out.set(v11PatchEncodedBlock(cached.slice(12,21),shift,baseShift,encodeV11AutoShift9,'AutoShift'),12);
+
+  if(mode.known){
+    out.set(v11PatchEncodedBlock(
+      cached.slice(21,43),motor,baseMotor,
+      m=>encodeV11EctMotor22(m,mode),'ECT Motor'
+    ),21);
+  }else if(v11MatrixChanged(motor,baseMotor)){
+    throw new Error('ATE V11 không xác định được Stepper/Solenoid từ handshake; không thể ghi thay đổi ECT Motor an toàn.');
+  }
+  return out;
+}
 function v11FuelMatrix(bank,fallback){
   try{
     const d=state&&state.mapBanks&&state.mapBanks[bank-1]&&state.mapBanks[bank-1].inject;
@@ -2432,7 +2475,7 @@ function v11BuildFullWritePlan(){
   allPlan.push({pg:0x82,payload:new Uint8Array(ectIgnRaw),baseline:new Uint8Array(C.ectIgnRaw),label:'ECT IGN'});
   allPlan.push({pg:0x92,payload:new Uint8Array(mapInjRaw),baseline:new Uint8Array(C.mapInjRaw),label:'MAP INJ'});
 
-  const bankExpected=[];
+  const bankExpected=[],page6Expected=[];
   for(let b=1;b<=4;b++){
     const old=C.banks[b-1];
     const inj=v11FuelMatrix(b,old.inj);
@@ -2445,18 +2488,23 @@ function v11BuildFullWritePlan(){
     const ignTimeRaw=patchRowsBytePreserve(old.ignTimeRaw,dwell,old.ignTime,encMainDwell);
     const afRaw=new Uint8Array(old.afRaw);
     const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
+    const page6Base=new Uint8Array(pageCache.get(page(6,b))||[]);
+    if(page6Base.length<43)throw new Error('ATE V11 SEND ALL thiếu baseline page 6 trực tiếp của MAP No.'+b+'.');
+    const page6Payload=v11BuildPage6Payload(b);
     const low=pageLow(b);
     allPlan.push({pg:0x10|low,payload:injRaw.slice(0,420),baseline:new Uint8Array(old.injRaw.slice(0,420)),label:'MAP '+b+' FUEL 1/2'});
     allPlan.push({pg:0x10|low|1,payload:injRaw.slice(420),baseline:new Uint8Array(old.injRaw.slice(420)),label:'MAP '+b+' FUEL 2/2'});
     allPlan.push({pg:page(2,b),payload:injDegreeRaw,baseline:new Uint8Array(old.injDegreeRaw),label:'MAP '+b+' INJ ANGLE'});
     allPlan.push({pg:page(3,b),payload:ignDegreeRaw,baseline:new Uint8Array(old.ignDegreeRaw),label:'MAP '+b+' IGN'});
     allPlan.push({pg:page(4,b),payload:ignTimeRaw,baseline:new Uint8Array(old.ignTimeRaw),label:'MAP '+b+' DWELL'});
-    // AFR / Idle / Aux / ECT Motor are preserved from Read All and are only
-    // verified. Blink does not rewrite these unsupported V11 blocks.
+    allPlan.push({pg:page(6,b),payload:page6Payload,baseline:page6Base.slice(0,43),label:'MAP '+b+' IDLE/AUTOSHIFT/ECT MOTOR'});
+    // Original ATE AFR map stays outside Blink by design and is preserved byte-for-byte.
+    // Page 6 is now a verified V11 writer: Idle + AutoShift + ECT Motor.
     bankExpected.push({injRaw,injDegreeRaw,ignDegreeRaw,ignTimeRaw,afRaw,idleRaw,auxRaw,ectMotorRaw});
+    page6Expected.push(new Uint8Array(page6Payload));
   }
   const plan=allPlan.filter(x=>!bytesEqual(x.payload,x.baseline));
-  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected};
+  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected,page6Expected};
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
@@ -2465,13 +2513,17 @@ function verifyV11FullWrite(C,E){
   if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
   if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
-  for(let b=1;b<=4;b++)assertV11BankMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
+  for(let b=1;b<=4;b++)assertV11MainAndAfrMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
 }
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
   if(!pageCache.get(0xA2)||pageCache.get(0xA2).length<V11_A2.LEN)await readA2SensorPageReal(false);
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B cho các bank và page A2 trực tiếp 272B cho Options/AUX. Chỉ byte đã sửa mới thay đổi và tất cả page sẽ được verify.\n\nGiữ nguồn ECU ổn định.'))return;
+  for(let b=1;b<=4;b++){
+    const p6=pageCache.get(page(6,b));
+    if(!p6||p6.length<43)await readIdlePageReal(b,false);
+  }
+  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + A2 trực tiếp 272B + page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; Idle, AutoShift và ECT Motor cũng được đưa vào Full Write. AFR map gốc ATE vẫn giữ nguyên.\n\nGiữ nguồn ECU ổn định.'))return;
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2487,7 +2539,11 @@ async function sendAllV11Real(){
     verifyV11FullWrite(C,E);
     const A=await readA2SensorPageReal(false);
     if(!bytesEqual(A.data,E.a2))throw new Error('VERIFY Full Write sai page A2 direct 272B.');
-    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 direct 272B VERIFY byte-level.');
+    for(let b=1;b<=4;b++){
+      const P=await readIdlePageReal(b,false);
+      if(!bytesEqual(P.data.slice(0,43),E.page6Expected[b-1]))throw new Error('VERIFY Full Write sai page 6 trực tiếp MAP No.'+b+'.');
+    }
+    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 272B + Page6 43B/MAP VERIFY byte-level · AFR gốc giữ nguyên.');
     return C;
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
@@ -2519,6 +2575,14 @@ function v11BankSnapshot(B){
     ectMotorRaw:new Uint8Array(B.ectMotorRaw||[])
   };
 }
+function assertV11MainAndAfrMatch(B,S,label){
+  const pairs=[
+    ['Fuel',B.injRaw,S.injRaw],['INJ angle',B.injDegreeRaw,S.injDegreeRaw],
+    ['IGN angle',B.ignDegreeRaw,S.ignDegreeRaw],['Dwell',B.ignTimeRaw,S.ignTimeRaw],
+    ['AFR raw',B.afRaw,S.afRaw]
+  ];
+  for(const [name,a,b] of pairs)if(!bytesEqual(a,b))throw new Error('VERIFY '+label+' sai block '+name);
+}
 function assertV11BankMatch(B,S,label){
   const pairs=[
     ['Fuel',B.injRaw,S.injRaw],['INJ angle',B.injDegreeRaw,S.injDegreeRaw],
@@ -2535,6 +2599,9 @@ async function copyBankV11Real(dest){
   const dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[clamp(Number(dest),1,4)];
   if(dests.includes(src)&&dests.length===1)return notice('info','COPY MAP','MAP nguồn và MAP đích giống nhau.');
   const srcBase=readCache.banks[src-1];
+  const srcPg6=page(6,src);
+  if(!pageCache.get(srcPg6)||pageCache.get(srcPg6).length<43)await readIdlePageReal(src,false);
+  const srcPage6=v11BuildPage6Payload(src);
   const srcInj=v11FuelMatrix(src,srcBase.inj);
   const srcInjAngle=v11StoreMatrix('inj_degree',src,srcBase.injDegree);
   const srcIgn=v11StoreMatrix('ign_degree',src,srcBase.ignDegree);
@@ -2545,15 +2612,17 @@ async function copyBankV11Real(dest){
     ignDegreeRaw:patchRowsBytePreserve(srcBase.ignDegreeRaw,srcIgn,srcBase.ignDegree,encMainIgn),
     ignTimeRaw:patchRowsBytePreserve(srcBase.ignTimeRaw,srcDwell,srcBase.ignTime,encMainDwell)
   };
-  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30){
-    throw new Error('ATE V11 source bank chưa đủ 4 block tune chính để Copy an toàn.');
+  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30||srcPage6.length!==43){
+    throw new Error('ATE V11 source bank chưa đủ các block tune/page6 để Copy an toàn.');
   }
   const hiddenBefore={};
   for(const d of dests){
     const D=v11BankSnapshot(readCache.banks[d-1]);
-    hiddenBefore[d]={afRaw:D.afRaw,idleRaw:D.idleRaw,auxRaw:D.auxRaw,ectMotorRaw:D.ectMotorRaw};
+    const p6=page(6,d);
+    if(!pageCache.get(p6)||pageCache.get(p6).length<43)await readIdlePageReal(d,false);
+    hiddenBefore[d]={afRaw:D.afRaw};
   }
-  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nChỉ copy 4 bảng đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell. AFR/Idle/Aux/ECT Motor của MAP đích được giữ nguyên và VERIFY không đổi.'))return;
+  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 7 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + Idle/Limit + AutoShift + ECT Motor. AFR map gốc ATE của MAP đích được giữ nguyên và VERIFY không đổi.'))return;
 
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2565,6 +2634,7 @@ async function copyBankV11Real(dest){
       await writePageChecked(page(2,d),S.injDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(3,d),S.ignDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(4,d),S.ignTimeRaw,false,1,'mainWrite');
+      await writePageChecked(page(6,d),srcPage6,false,1,'mainWrite');
       await new Promise(r=>setTimeout(r,140));
     }
     const C=await readAll();
@@ -2575,11 +2645,11 @@ async function copyBankV11Real(dest){
       if(!bytesEqual(B.injDegreeRaw,S.injDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc phun');
       if(!bytesEqual(B.ignDegreeRaw,S.ignDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc lửa');
       if(!bytesEqual(B.ignTimeRaw,S.ignTimeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Dwell');
-      if(!bytesEqual(B.afRaw,H.afRaw)||!bytesEqual(B.idleRaw,H.idleRaw)||!bytesEqual(B.auxRaw,H.auxRaw)||!bytesEqual(B.ectMotorRaw,H.ectMotorRaw)){
-        throw new Error('VERIFY COPY MAP '+d+' phát hiện block ẩn bị thay đổi ngoài ý muốn.');
-      }
+      if(!bytesEqual(B.afRaw,H.afRaw))throw new Error('VERIFY COPY MAP '+d+' phát hiện AFR map gốc bị thay đổi ngoài ý muốn.');
+      const P=await readIdlePageReal(d,false);
+      if(!bytesEqual(P.data.slice(0,43),srcPage6))throw new Error('VERIFY COPY MAP '+d+' sai page 6 Idle/AutoShift/ECT Motor.');
     }
-    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · 4 bảng tune đã copy · block ẩn giữ nguyên.');
+    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · 7 nhóm tune/page6 đã copy + verify · AFR gốc giữ nguyên.');
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
   }
