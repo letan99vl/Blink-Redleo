@@ -1,0 +1,37 @@
+name: Validate fast BLE OTA web
+on:
+  push:
+    branches:
+      - test/ota-fast-web-v332
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check real protocol JavaScript
+        run: node --check redleo_real_protocol.js
+      - name: Check inline JavaScript
+        run: |
+          python3 - <<'PY'
+          import re, pathlib
+          html=pathlib.Path('index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          out=pathlib.Path('/tmp/blink_scripts'); out.mkdir(exist_ok=True)
+          count=0
+          for i,code in enumerate(scripts):
+              if 'document.write' in code:
+                  # The literal closing script escape is valid in HTML but can
+                  # confuse extraction only if malformed; node still parses it.
+                  pass
+              p=out/f'script_{i}.js'
+              p.write_text(code,encoding='utf-8')
+              count+=1
+          print('scripts',count)
+          PY
+          for f in /tmp/blink_scripts/*.js; do node --check "$f"; done
+      - name: Verify OTA release metadata
+        run: |
+          grep -q "window.BLINK_PB_VERSION = '3.32'" index.html
+          grep -q '"version": "1.4"' ota/manifest.json
+          grep -q 'pauseForOta' redleo_real_protocol.js
+          grep -q 'writeValueWithoutResponse' index.html
