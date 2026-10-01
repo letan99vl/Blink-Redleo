@@ -824,7 +824,7 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.33</span></div></div>
+      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.34</span></div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
     <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ECU BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
@@ -871,10 +871,10 @@
     <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
-    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ CON TRỎ LIVE</button></div>
+    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
     
-    <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span><span id="autoFollowInfo">CON TRỎ LIVE: ON</span></div>
+    <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span><span id="autoFollowInfo">TỰ CUỘN LIVE: ON</span></div>
   </section>
 
 
@@ -925,7 +925,7 @@
     <div class="screenHeader redEditorHead"><button class="backBtn" id="redEditorBack" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="redEditorTitle">REDLEO MAP</div><div class="screenSub" id="redEditorSub">—</div></div><div class="miniStatus" id="redEditorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="redEditorTools"><button id="redReadBtn" class="good">↓ ĐỌC ECU</button><button id="redWriteBtn" class="danger">▣ GHI ECU</button><select id="redBankSelect"><option value="1">MAP NO.1</option><option value="2">MAP NO.2</option><option value="3">MAP NO.3</option><option value="4">MAP NO.4</option></select><select id="redAxisMode" class="wide" style="display:none"><option value="tps">TRỤC TPS</option><option value="rpm">TRỤC RPM</option></select><button id="redAfrOn" class="good" style="display:none">AFR ON · Ô CHỌN</button><button id="redAfrOff" class="danger" style="display:none">AFR OFF · Ô CHỌN</button><button id="redSmoothBtn" class="ghost wide">≈ LÀM MƯỢT TỰ ĐỘNG</button></div>
     <div class="redMeta"><span class="metaChip">Tên REDLEO: <b id="redSourceName">—</b></span><span class="metaChip">Kích thước: <b id="redSize">—</b></span><span class="metaChip">Đơn vị: <b id="redUnit">—</b></span></div>
-    <div class="redStep"><span style="font-size:9px;color:#858a93">Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button><button id="redMinus">−</button><button id="redPlus">＋</button><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ LIVE</button><span class="spacer"></span><button id="redCopyBtn">COPY</button><button id="redPasteBtn">PASTE</button></div>
+    <div class="redStep"><span style="font-size:9px;color:#858a93">Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button><button id="redMinus">−</button><button id="redPlus">＋</button><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ TỰ CUỘN LIVE</button><span class="spacer"></span><button id="redCopyBtn">COPY</button><button id="redPasteBtn">PASTE</button></div>
     <div class="redTableWrap"><table class="redTable" id="redFeatureTable"></table></div>
     <div class="redEditorFoot"><span id="redSelectionInfo">Chạm một ô để chọn</span><span id="redIoStatus">Dữ liệu cục bộ</span></div>
   </section>
@@ -1429,29 +1429,42 @@ async function ensureActiveEcuAxes(showUi=false){
 }
 let mapAutoFollowPauseUntil=0;
 let mapAutoFollowLastKey='';
-let liveCursorEnabled=localStorage.getItem('blinkLiveCursorEnabled')!=='0';
+let redAutoFollowPauseUntil=0;
+let redAutoFollowLastKey='';
+// Cursor is always visible. This switch controls only automatic table scrolling.
+// Migrate the old preference once so existing users keep their previous ON/OFF choice.
+let liveAutoFollowEnabled=localStorage.getItem('blinkLiveAutoFollowEnabled');
+if(liveAutoFollowEnabled==null)liveAutoFollowEnabled=localStorage.getItem('blinkLiveCursorEnabled');
+liveAutoFollowEnabled=liveAutoFollowEnabled!=='0';
 function syncLiveCursorButtons(){
-  const txt=liveCursorEnabled?'ON':'OFF';
+  const txt=liveAutoFollowEnabled?'ON':'OFF';
   const a=document.getElementById('mapLiveCursorToggle'),b=document.getElementById('redLiveCursorToggle'),info=document.getElementById('autoFollowInfo');
-  if(a){a.classList.toggle('on',liveCursorEnabled);a.textContent='◎ CON TRỎ LIVE: '+txt;}
-  if(b){b.classList.toggle('primary',liveCursorEnabled);b.textContent='◎ LIVE: '+txt;}
-  if(info)info.textContent='CON TRỎ LIVE: '+txt;
+  if(a){a.classList.toggle('on',liveAutoFollowEnabled);a.textContent='◎ TỰ CUỘN LIVE: '+txt;}
+  if(b){b.classList.toggle('primary',liveAutoFollowEnabled);b.textContent='◎ TỰ CUỘN LIVE: '+txt;}
+  if(info)info.textContent='TỰ CUỘN THEO CON TRỎ: '+txt;
 }
-function setLiveCursorEnabled(on){
-  liveCursorEnabled=!!on;
-  localStorage.setItem('blinkLiveCursorEnabled',liveCursorEnabled?'1':'0');
-  if(!liveCursorEnabled)mapAutoFollowLastKey='';
+function setLiveAutoFollowEnabled(on){
+  liveAutoFollowEnabled=!!on;
+  localStorage.setItem('blinkLiveAutoFollowEnabled',liveAutoFollowEnabled?'1':'0');
+  mapAutoFollowLastKey='';
+  redAutoFollowLastKey='';
   syncLiveCursorButtons();
+  // Repaint cursor immediately; cursor itself never turns off.
   highlightCurrent();
   try{window.highlightRedLiveCell?.()}catch(_e){}
 }
-window.setLiveCursorEnabled=setLiveCursorEnabled;
-window.isLiveCursorEnabled=()=>liveCursorEnabled;
+window.setLiveAutoFollowEnabled=setLiveAutoFollowEnabled;
+window.isLiveAutoFollowEnabled=()=>liveAutoFollowEnabled;
+// Backward-compatible aliases: old callers now control auto-follow, not cursor visibility.
+window.setLiveCursorEnabled=setLiveAutoFollowEnabled;
+window.isLiveCursorEnabled=()=>true;
 function pauseMapAutoFollow(ms=3000){mapAutoFollowPauseUntil=performance.now()+ms;mapAutoFollowLastKey='';}
+function pauseRedAutoFollow(ms=3000){redAutoFollowPauseUntil=performance.now()+ms;redAutoFollowLastKey='';}
 function autoFollowCurrentCell(td,cur){
   const wrap=document.getElementById('mapWrap');
   const screenEl=document.getElementById('mapEditorScreen');
   if(!td||!wrap||!screenEl||!screenEl.classList.contains('active'))return;
+  if(!liveAutoFollowEnabled)return;
   if(document.activeElement&&document.activeElement.isContentEditable)return;
   if(performance.now()<mapAutoFollowPauseUntil)return;
   if(cur.key===mapAutoFollowLastKey)return;
@@ -1482,7 +1495,6 @@ function autoFollowCurrentCell(td,cur){
 }
 function highlightCurrent(){
   document.querySelectorAll('#mapTable td.current').forEach(x=>x.classList.remove('current'));
-  if(!liveCursorEnabled){mapAutoFollowLastKey='';try{window.highlightRedLiveCell?.()}catch(_e){};return;}
   const cur=currentCell();
   const td=document.querySelector(`#mapTable td[data-r="${cur.r}"][data-c="${cur.c}"]`);
   if(td){
@@ -3269,13 +3281,37 @@ function updateRedSelectionVisual(){
   const d=featureData(currentFeature,state.activeMap),count=(b.r1-b.r0+1)*(b.c1-b.c0+1);
   document.getElementById('redSelectionInfo').textContent=count===1?'Ô '+(b.r0+1)+','+(b.c0+1)+' · '+fmtV(d[b.r0][b.c0])+' '+(currentFeature.unit||''):'Đã chọn '+(b.r1-b.r0+1)+' × '+(b.c1-b.c0+1)+' = '+count+' ô';
 }
+function autoFollowRedLiveCell(td,cur){
+  const wrap=document.querySelector('#redleoEditorScreen .redTableWrap');
+  const screenEl=document.getElementById('redleoEditorScreen');
+  if(!td||!wrap||!screenEl||!screenEl.classList.contains('active'))return;
+  if(!liveAutoFollowEnabled)return;
+  if(document.activeElement&&document.activeElement.isContentEditable)return;
+  if(performance.now()<redAutoFollowPauseUntil)return;
+  if(cur.key===redAutoFollowLastKey)return;
+  redAutoFollowLastKey=cur.key;
+  const wr=wrap.getBoundingClientRect(),tr=td.getBoundingClientRect();
+  if(wr.width<40||wr.height<40)return;
+  const leftSafe=wr.left+Math.min(120,wr.width*.18);
+  const rightSafe=wr.right-Math.min(190,wr.width*.28);
+  const topSafe=wr.top+Math.min(72,wr.height*.18);
+  const bottomSafe=wr.bottom-Math.min(90,wr.height*.24);
+  let dx=0,dy=0;
+  if(tr.right>rightSafe)dx=tr.left-(wr.left+wr.width*.58);
+  else if(tr.left<leftSafe)dx=tr.left-(wr.left+wr.width*.22);
+  if(tr.bottom>bottomSafe)dy=tr.top-(wr.top+wr.height*.55);
+  else if(tr.top<topSafe)dy=tr.top-(wr.top+wr.height*.25);
+  if(Math.abs(dx)>2||Math.abs(dy)>2){
+    const left=Math.max(0,wrap.scrollLeft+dx),top=Math.max(0,wrap.scrollTop+dy);
+    try{wrap.scrollTo({left,top,behavior:'auto'})}catch(_e){wrap.scrollTo(left,top)}
+  }
+}
 function highlightRedLiveCell(){
   const t=document.getElementById('redFeatureTable');if(!t)return;
   t.querySelectorAll('.redCell.current').forEach(x=>x.classList.remove('current'));
-  if(!(window.isLiveCursorEnabled?.()))return;
   if(!currentFeature||currentFeature.rows!==14||currentFeature.cols!==30||!currentFeature.banked)return;
   const cur=currentCell(),td=t.querySelector('.redCell[data-rr="'+cur.r+'"][data-rc="'+cur.c+'"]');
-  if(td)td.classList.add('current');
+  if(td){td.classList.add('current');autoFollowRedLiveCell(td,cur);}
 }
 window.highlightRedLiveCell=highlightRedLiveCell;
 function renderFeature(){
@@ -3324,11 +3360,16 @@ document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>showScreen('maps'));document.getElementById('redEditorBack')?.addEventListener('click',()=>showScreen('maps'));
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>openOurEditor(e.dataset.autoTab,true)));
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
-document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveCursorEnabled?.(!(window.isLiveCursorEnabled?.())));document.getElementById('redPlus')?.addEventListener('click',()=>bump(redStep));document.getElementById('redMinus')?.addEventListener('click',()=>bump(-redStep));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
+document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redPlus')?.addEventListener('click',()=>bump(redStep));document.getElementById('redMinus')?.addEventListener('click',()=>bump(-redStep));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
 document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>document.getElementById('backupFile').click());document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
 document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());document.getElementById('studyTpsTile')?.addEventListener('click',()=>document.getElementById('studyTpsBtn')?.click());
 
 const redTableWrap=document.querySelector('#redleoEditorScreen .redTableWrap');
+if(redTableWrap){
+  redTableWrap.addEventListener('pointerdown',()=>pauseRedAutoFollow(3000),{passive:true});
+  redTableWrap.addEventListener('touchstart',()=>pauseRedAutoFollow(3000),{passive:true});
+  redTableWrap.addEventListener('wheel',()=>pauseRedAutoFollow(3000),{passive:true});
+}
 let redPointer=null;
 function redCellFromPoint(x,y){const el=document.elementFromPoint(x,y);return el?.closest?.('.redCell')||null}
 redTableWrap?.addEventListener('pointerdown',e=>{if(!redScanMode)return;const td=e.target.closest('.redCell');if(!td)return;e.preventDefault();redPointer=e.pointerId;redSel={r0:+td.dataset.rr,c0:+td.dataset.rc,r1:+td.dataset.rr,c1:+td.dataset.rc};redTableWrap.classList.add('scanMode');try{redTableWrap.setPointerCapture(e.pointerId)}catch(_e){}updateRedSelectionVisual()},{passive:false});
@@ -3336,7 +3377,7 @@ redTableWrap?.addEventListener('pointermove',e=>{if(!redScanMode||redPointer!==e
 function endRedScan(e){if(redPointer!==e.pointerId)return;redPointer=null;try{redTableWrap.releasePointerCapture(e.pointerId)}catch(_e){};if(!redScanMode)redTableWrap?.classList.remove('scanMode');updateRedSelectionVisual()}
 redTableWrap?.addEventListener('pointerup',endRedScan);redTableWrap?.addEventListener('pointercancel',endRedScan);
 
-document.getElementById('mapLiveCursorToggle')?.addEventListener('click',()=>window.setLiveCursorEnabled?.(!(window.isLiveCursorEnabled?.())));
+document.getElementById('mapLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));
 syncLiveCursorButtons();
 loadOptions();syncBanks();setInterval(syncMirrors,120);syncMirrors();showScreen('dashboard');
 })();
@@ -3435,6 +3476,6 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.33"></script>
+<script src="redleo_real_protocol.js?v=3.34"></script>
 </body>
 </html>
