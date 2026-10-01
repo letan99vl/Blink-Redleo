@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.43';
+  window.BLINK_PB_VERSION = '3.44';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1189,7 +1189,22 @@ function load(){
       if(s.mode==='normal'||s.mode==='three')state.mode=s.mode;
       if(Array.isArray(s.threeRunHistory))state.threeRunHistory=s.threeRunHistory.slice(0,12);
       try{const h=JSON.parse(localStorage.getItem('afrAutoTune3RunHistoryV1')||'null');if(Array.isArray(h))state.threeRunHistory=h.slice(0,12);}catch(_e){}
-      if(s.threeRun&&typeof s.threeRun==='object'){Object.assign(state.threeRun,s.threeRun);if(!Array.isArray(state.threeRun.runs)||state.threeRun.runs.length!==3)state.threeRun.runs=[null,null,null];state.threeRun.cancelRequested=!!state.threeRun.cancelRequested;if(state.threeRun.active&&state.threeRun.phase==='recording')state.threeRun.phase='paused';}
+      if(s.threeRun&&typeof s.threeRun==='object'){
+        Object.assign(state.threeRun,s.threeRun);
+        if(!Array.isArray(state.threeRun.runs)||state.threeRun.runs.length!==3)state.threeRun.runs=[null,null,null];
+
+        // Never resume an unfinished 3-run session across a page/app restart.
+        // Android WebView keeps localStorage between launches, so restoring
+        // active=true made READ CURRENT look broken on the next app start.
+        // A fresh launch must require the operator to deliberately start 3-run again.
+        if(state.threeRun.active){
+          state.threeRun={active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};
+          state.mode='normal';
+          try{localStorage.setItem('blinkThreeRunRecovered','1')}catch(_e){}
+        }else{
+          state.threeRun.cancelRequested=false;
+        }
+      }
       if(Array.isArray(s.mapBanks)&&s.mapBanks.length===4){
         for(let i=0;i<4;i++){
           const b=s.mapBanks[i]||{};
