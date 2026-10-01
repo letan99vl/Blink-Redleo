@@ -1,0 +1,54 @@
+name: Build classic ESP32 OTA test
+
+on:
+  push:
+    branches:
+      - test/ota-1.4-build
+    paths:
+      - "firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino"
+      - ".github/workflows/build-esp32-ota-test.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core 3.3.12
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+
+      - name: Prepare sketch
+        run: |
+          mkdir -p build/BlinkClassicESP32
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+
+      - name: Compile ESP32 Dev Module with OTA partition
+        run: |
+          mkdir -p build/out
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=default \
+            --output-dir build/out \
+            build/BlinkClassicESP32
+          ls -lah build/out
+          sha256sum build/out/*.bin
+
+      - name: Prepare OTA artifact
+        run: |
+          cp build/out/BlinkClassicESP32.ino.bin build/out/blink_esp32.bin
+          sha256sum build/out/blink_esp32.bin > build/out/blink_esp32.bin.sha256
+
+      - name: Upload OTA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blink-esp32-ota-test
+          path: |
+            build/out/blink_esp32.bin
+            build/out/blink_esp32.bin.sha256
