@@ -757,10 +757,18 @@ function parseLiveReal(a){
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
-  // Verified from V10 / Ultra proRT_Dat: actual injection SUM is byte 14..15,
-  // scaled raw/640. Keep all other profiles on their previously verified path.
-  if(ecuProfile&&ecuProfile.key==='MODERN_V10')state.live.pw=u16be(a,14)/640;
+  // Verified directly from original V10/Ultra and ATE V11 proRT_Dat:
+  // actual injection SUM is byte 14..15 and uses the raw/640 live conversion.
+  if((ecuProfile&&ecuProfile.key==='MODERN_V10')||isV11Profile())state.live.pw=u16be(a,14)/640;
   else state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
+  if(isV11Profile()){
+    // Keep the original ATE V11 live breakdown available for diagnostics/UI.
+    // These are all direct proRT_Dat fields with the same live injection codec.
+    state.live.injTab=u16be(a,16)/640;
+    state.live.injEct=u16be(a,18)/640;
+    state.live.injIat=u16be(a,20)/640;
+    state.live.injMap=u16be(a,22)/640;
+  }
   state.live.ign=decLiveIgn(u16be(a,28));
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
@@ -768,7 +776,10 @@ function parseLiveReal(a){
     const aux=currentAuxAxes();
     state.live.ect=curveVoltageToAxis(decVolt(a[2]),liveCal.vEct,aux.ect);
     state.live.iat=curveVoltageToAxis(decVolt(a[3]),liveCal.vIat,aux.iat);
-    state.live.mapKpa=curveVoltageToAxis(liveVolt10(u16be(a,4)),liveCal.vMap,aux.map);
+    // ATE V11 NumberToVoltage is raw*5/256 for the 16-bit MAP field.
+    // V10/Ultra uses raw*5/1024 here; do not share the scale.
+    const mapV=isV11Profile()?decVolt(u16be(a,4)):liveVolt10(u16be(a,4));
+    state.live.mapKpa=curveVoltageToAxis(mapV,liveCal.vMap,aux.map);
   }else{
     state.live.ect=NaN;
     state.live.iat=NaN;
