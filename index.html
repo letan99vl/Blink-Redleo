@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.55';
+  window.BLINK_PB_VERSION = '3.56';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1952,7 +1952,7 @@ async function startFuelWrite(opts={}){
       state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
       onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
-      showEcuNotice('error','GHI / VERIFY MAP THẤT BẠI',String(e&&e.message||e),0);
+      showEcuNotice('error','GHI MAP THẤT BẠI',String(e&&e.message||e),0);
       return false;
     }
   }
@@ -1972,7 +1972,7 @@ async function startFuelWrite(opts={}){
   state.ecuWriteSnapshot=cloneMatrix(state.inject);
   $('mapSelect').disabled=true;
   state.ecuWriteQueued=true;
-  state.ecuVerifyAfterWrite=true;
+  state.ecuVerifyAfterWrite=false;
   $('ecuBadge').textContent='ECU: CHỜ GHI MAP';
   $('ecuBadge').className='badge';
   return true;
@@ -2028,7 +2028,7 @@ async function applyCorrectedAndWrite(){
     'Ô có AFR đo: dùng giá trị đã bù.\\n'+
     'Ô chưa đo: GIỮ NGUYÊN map ECU hiện tại.\\n'+
     'Số ô thay đổi: '+changed.length+' / 420.\\n\\n'+
-    'Sau khi ghi tool sẽ tự ĐỌC HIỆN TẠI để VERIFY đúng 420/420 ô.'
+    'Sau khi ECU ACK đủ 2 phần, tool sẽ báo GHI OK và không tự đọc lại MAP.'
   );
   if(!ok)return;
 
@@ -2132,13 +2132,13 @@ function completeThreeRunSession(){
   state.threeRunHistory.unshift(session);state.threeRunHistory=state.threeRunHistory.slice(0,12);saveThreeRunHistory();
   tr.active=false;tr.phase='complete';tr.runPw=null;tr.pendingNextPass=0;tr.cancelRequested=false;
   $('mapSelect').disabled=false;renderThreeRunUi();renderThreeRunHistory();save();
-  showEcuNotice('success','HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo,'Đã chỉnh MAP đủ 3 lần. FINAL MAP đã ghi + VERIFY 420/420 ô và lưu PW + AFR + số mẫu của cả 3 lượt.',6500);
-  alert('HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo+'\n\nĐã chỉnh MAP đủ 3 lần.\nLần cuối sau LƯỢT 3 đã được ghi + VERIFY ECU.\nĐã lưu PW + AFR + số mẫu của cả 3 lượt vào lịch sử.');
+  showEcuNotice('success','HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo,'Đã chỉnh MAP đủ 3 lần. FINAL MAP đã ghi và ECU ACK và lưu PW + AFR + số mẫu của cả 3 lượt.',6500);
+  alert('HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo+'\n\nĐã chỉnh MAP đủ 3 lần.\nLần cuối sau LƯỢT 3 đã được ghi và ECU ACK.\nĐã lưu PW + AFR + số mẫu của cả 3 lượt vào lịch sử.');
 }
 function threeRunStatusText(){
   const tr=state.threeRun;
-  if(!tr.active){const last=state.threeRunHistory[0];return last?'<b>Mode chạy 3 lượt:</b> sẵn sàng · phiên gần nhất MAP No.'+last.mapNo+' hoàn tất '+new Date(last.completedAt).toLocaleString():'<b>Mode chạy 3 lượt:</b> chưa bắt đầu. 3 lượt chạy = 3 lần chỉnh MAP; kết thúc lượt 3 sẽ ghi FINAL và verify ECU.';}
-  const phase=tr.cancelRequested?'ĐANG HỦY · CHỜ GHI ECU XONG':tr.phase==='recording'?'ĐANG GHI AFR':tr.phase==='paused'?'TẠM DỪNG':tr.phase==='writing'?'ĐANG GHI + VERIFY ECU':tr.phase==='error'?'LỖI / CHỜ XỬ LÝ':tr.phase.toUpperCase();
+  if(!tr.active){const last=state.threeRunHistory[0];return last?'<b>Mode chạy 3 lượt:</b> sẵn sàng · phiên gần nhất MAP No.'+last.mapNo+' hoàn tất '+new Date(last.completedAt).toLocaleString():'<b>Mode chạy 3 lượt:</b> chưa bắt đầu. 3 lượt chạy = 3 lần chỉnh MAP; kết thúc lượt 3 sẽ ghi FINAL vào ECU.';}
+  const phase=tr.cancelRequested?'ĐANG HỦY · CHỜ GHI ECU XONG':tr.phase==='recording'?'ĐANG GHI AFR':tr.phase==='paused'?'TẠM DỪNG':tr.phase==='writing'?'ĐANG GHI ECU':tr.phase==='error'?'LỖI / CHỜ XỬ LÝ':tr.phase.toUpperCase();
   let extra='';
   if(tr.phase==='writing'&&tr.pendingNextPass===4&&tr.finalAdaptiveStats){const x=tr.finalAdaptiveStats;extra=' · FINAL: 2 điểm '+x.response2Point+' ô · fallback L3 '+x.fallbackRun3+' · AFR3 sàn giữ nguyên '+x.ignoredRun3Floor;}
   else if(tr.lastAdaptiveStats){const x=tr.lastAdaptiveStats;extra=' · L2→L3: 2 điểm '+x.response2Point+' ô · bỏ AFR1≤'+state.cal.afrFloor.toFixed(2)+': '+x.ignoredRun1Floor+' · fallback lượt 2: '+x.fallbackRun2+' · AFR2 sàn giữ nguyên: '+x.ignoredRun2Floor;}
@@ -2216,16 +2216,16 @@ function resetThreeRunCancelled(msg='ĐÃ HỦY PHIÊN 3 LƯỢT'){
 }
 function onFuelWriteVerified(mapNo){
   const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
-  if(tr.cancelRequested){resetThreeRunCancelled('VERIFY OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
+  if(tr.cancelRequested){resetThreeRunCancelled('GHI ACK OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
   if(!tr.pendingNextPass)return;
   const next=tr.pendingNextPass;tr.pendingNextPass=0;
   if(next===4){completeThreeRunSession();return;}
-  if(!state.afrPort||!state.afrKeepReading){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('VERIFY OK · kết nối lại AFR để chạy LƯỢT '+next);return;}
-  beginThreeRunPass(next,false);flashSave('VERIFY OK · tự bắt đầu LƯỢT '+next+'/3');
+  if(!state.afrPort||!state.afrKeepReading){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · kết nối lại AFR để chạy LƯỢT '+next);return;}
+  beginThreeRunPass(next,false);flashSave('GHI ACK OK · tự bắt đầu LƯỢT '+next+'/3');
 }
 function onFuelWriteVerifyFailed(mapNo,cmp){
   const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
-  if(tr.cancelRequested){resetThreeRunCancelled('GHI/VERIFY LỖI · PHIÊN 3 LƯỢT ĐÃ HỦY');return;}
+  if(tr.cancelRequested){resetThreeRunCancelled('GHI ECU LỖI · PHIÊN 3 LƯỢT ĐÃ HỦY');return;}
   tr.phase='error';tr.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();
 }
 function cancelThreeRun(){
@@ -2237,8 +2237,8 @@ function cancelThreeRun(){
 
   if(writeInProgress){
     if(tr.cancelRequested)return;
-    if(!confirm('ECU đang GHI MAP. Hủy phiên ngay sau khi ghi/verify hiện tại hoàn tất?\n\nApp sẽ không cắt ngang frame đang ghi để tránh MAP bị ghi dở. Sau đó sẽ dừng, KHÔNG chạy lượt tiếp theo.'))return;
-    setRecording(false);tr.cancelRequested=true;renderThreeRunUi();saveSoon();flashSave('ĐÃ YÊU CẦU HỦY · chờ ghi/verify ECU xong...');return;
+    if(!confirm('ECU đang GHI MAP. Hủy phiên ngay sau khi ghi hiện tại hoàn tất?\n\nApp sẽ không cắt ngang frame đang ghi để tránh MAP bị ghi dở. Sau đó sẽ dừng, KHÔNG chạy lượt tiếp theo.'))return;
+    setRecording(false);tr.cancelRequested=true;renderThreeRunUi();saveSoon();flashSave('ĐÃ YÊU CẦU HỦY · chờ ghi ECU xong...');return;
   }
 
   if(!confirm('Hủy phiên MODE CHẠY 3 LƯỢT hiện tại? Dữ liệu phiên chưa hoàn tất sẽ không đưa vào lịch sử.'))return;
@@ -2251,7 +2251,7 @@ function cancelThreeRun(){
     if(state.tab==='inject'||state.tab==='corrected')render();
   }
 
-  // Nếu đã ghi xong và chỉ đang read-back VERIFY thì có thể hủy phiên ngay;
+  // Nếu đã ghi xong thì có thể hủy phiên ngay;
   // việc đọc/verify còn lại được phép hoàn tất độc lập, không khởi động lượt kế tiếp.
   resetThreeRunCancelled();
 }
@@ -2690,16 +2690,16 @@ async function serviceEcuFrames(){
       f=extractWriteAck(base+1);
       if(!f){if(state.ecuNative){const mapNo=state.ecuWriteMapNo,page=base+1;$('ecuBadge').textContent='MAP No.'+mapNo+': GHI 2/2 KHÔNG ACK';$('ecuBadge').className='badge bad';showEcuNotice('error','GHI MAP No.'+mapNo+' THẤT BẠI','ECU không xác nhận frame ghi 2/2 (CD 0x'+page.toString(16).toUpperCase()+').',0);state.ecuWriteFrames=null;state.ecuWriteSnapshot=null;state.ecuVerifyAfterWrite=false;$('mapSelect').disabled=state.threeRun.active;onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});await sendLiveRequest();}return;}
 
-      $('ecuBadge').textContent='ECU: GHI OK · VERIFY MAP No.'+state.ecuWriteMapNo;
+      const mapNo=state.ecuWriteMapNo;
+      $('ecuBadge').textContent='MAP No.'+mapNo+': GHI OK · ECU ACK';
       $('ecuBadge').className='badge ok';
-
-      if(state.ecuVerifyAfterWrite){
-        state.ecuVerifyAfterWrite=false;
-        await sendReadCurrentRequest(state.ecuWriteMapNo);
-      }else{
-        $('mapSelect').disabled=false;
-        await sendLiveRequest();
-      }
+      state.ecuVerifyAfterWrite=false;
+      state.ecuWriteSnapshot=null;
+      $('mapSelect').disabled=state.threeRun.active;
+      flashSave('MAP No.'+mapNo+' GHI OK · ECU ACK');
+      showEcuNotice('success','GHI MAP No.'+mapNo+' THÀNH CÔNG','ECU đã ACK đủ 2 phần. Không đọc lại MAP.',3500);
+      onFuelWriteVerified(mapNo);
+      await sendLiveRequest();
       continue;
     }
 

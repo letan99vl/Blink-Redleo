@@ -2253,6 +2253,42 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
   }
   throw lastErr||new Error('Ghi page 0x'+pg.toString(16).toUpperCase()+' thất bại');
 }
+function cloneAckCacheValue(v){
+  if(v instanceof Uint8Array)return v.slice();
+  if(Array.isArray(v))return v.map(cloneAckCacheValue);
+  return v;
+}
+function cacheAckedPage(pg,payload){
+  pg&=255;
+  const u=payload instanceof Uint8Array?payload.slice():Uint8Array.from(payload||[]);
+  pageCache.set(pg,u);
+
+  // Read-back is intentionally disabled after normal MAP writes. Keep the
+  // local baseline synchronized with the ACKed payload so a later partial write
+  // preserves the bytes changed by this write instead of restoring stale cache.
+  if(pg===0xA2){
+    try{
+      const C=isV11Profile()?parseV11A2Data(u):
+        (ecuProfile&&ecuProfile.key==='MODERN_V10'?parseModernA2Prefix(u):parseA2Data(u));
+      sensorCalCache=C;
+      sensorCalIdentity=handshakeInfo?[
+        ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
+      ].join('|'):sensorCalIdentity;
+
+      if(readCache){
+        const keys=[
+          'tpsRaw','tpsPct','rpmRaw','rpmAxis','vAfrRaw','vEct','vIat','vMap',
+          'iatInj','iatInjRaw','mapMotor','mapMotorRaw','bitfield','autoStart','auto',
+          'password','optionRaw','optionRawV11','ateOptions','configRaw','autoClutch',
+          'ectStartRaw','ectStart','globalAuxRaw','alternateRaw','alternateTable',
+          'externalRaw','external','chgRaw','chg'
+        ];
+        for(const k of keys)if(C[k]!==undefined)readCache[k]=cloneAckCacheValue(C[k]);
+      }
+    }catch(e){log('local A2 ACK cache update skipped',String(e&&e.message||e));}
+  }
+  return u;
+}
 function idlePayload(bank,fromUI=true){
   if(!readCache)throw new Error('Cần ĐỌC TOÀN BỘ trước để bảo toàn dữ liệu page Idle');
   const b=readCache.banks[bank-1],vals=b.idle.slice();
@@ -2299,14 +2335,9 @@ async function writeV11AutoShift(bank){
   payload.set(shift,12);
   taskUi('loading','ATE V11 · GHI AUTOSHIFT MAP NO.'+bank+' · GIỮ NGUYÊN IDLE + ECT MOTOR');
   await writePageChecked(pg,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  const R=await readIdlePageReal(bank,true);
-  if(R.data.length<payload.length)throw new Error('VERIFY AutoShift V11 thiếu dữ liệu.');
-  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY AutoShift V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  notice('success','GHI + VERIFY AUTOSHIFT ATE V11 OK','MAP No.'+bank+' · 9B AutoShift đã ghi · 34B Idle/ECT Motor giữ nguyên · '+v11AutoShiftConfigText(shift[0])+'.');
-  return R;
+  cacheAckedPage(pg,payload);
+  notice('success','GHI AUTOSHIFT ATE V11 OK','MAP No.'+bank+' · ECU ACK · 9B AutoShift đã ghi · 34B Idle/ECT Motor giữ nguyên · '+v11AutoShiftConfigText(shift[0])+'.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
 async function writeV11AfrMap(bank){
@@ -2322,14 +2353,9 @@ async function writeV11AfrMap(bank){
   payload.set(afrRaw,0);
   taskUi('loading','ATE V11 · GHI AFR MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
   await writePageChecked(pg,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  const R=await readFeaturePageReal('afr_map',bank,true);
-  if(R.data.length!==payload.length)throw new Error('VERIFY AFR sai kích thước · ghi '+payload.length+'B đọc '+R.data.length+'B');
-  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY AFR MAP '+bank+' sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  notice('success','GHI + VERIFY AFR ATE V11 OK','MAP No.'+bank+' · 420 ô + ON/OFF đã verify byte-level.');
-  return R;
+  cacheAckedPage(pg,payload);
+  notice('success','GHI AFR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 420 ô + ON/OFF đã gửi.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
 async function writeV11EctMotor(bank){
@@ -2345,14 +2371,9 @@ async function writeV11EctMotor(bank){
   payload.set(motor,21);
   taskUi('loading','ATE V11 · GHI ECT MOTOR MAP NO.'+bank+' · '+mode.label+' · GIỮ NGUYÊN IDLE + AUTOSHIFT');
   await writePageChecked(pg,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  const R=await readIdlePageReal(bank,true);
-  if(R.data.length<payload.length)throw new Error('VERIFY ECT Motor V11 thiếu dữ liệu.');
-  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY ECT Motor V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  notice('success','GHI + VERIFY ECT MOTOR ATE V11 OK','MAP No.'+bank+' · 22B ECT Motor đã ghi · 21B Idle/AutoShift giữ nguyên byte-for-byte · '+mode.label+'.');
-  return R;
+  cacheAckedPage(pg,payload);
+  notice('success','GHI ECT MOTOR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 22B ECT Motor đã ghi · 21B Idle/AutoShift giữ nguyên · '+mode.label+'.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
 async function writeV11IdleLimit(bank){
@@ -2368,14 +2389,9 @@ async function writeV11IdleLimit(bank){
   payload.set(idle,0);
   taskUi('loading','ATE V11 · GHI IDLE/LIMIT MAP NO.'+bank+' · GIỮ NGUYÊN AUTOSHIFT + ECT MOTOR');
   await writePageChecked(pg,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  const R=await readIdlePageReal(bank,true);
-  if(R.data.length<payload.length)throw new Error('VERIFY Idle V11 thiếu dữ liệu.');
-  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY Idle V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  notice('success','GHI + VERIFY IDLE ATE V11 OK','MAP No.'+bank+' · 12B Idle đã ghi · 31B AutoShift/ECT Motor giữ nguyên byte-for-byte.');
-  return R;
+  cacheAckedPage(pg,payload);
+  notice('success','GHI IDLE ATE V11 OK','MAP No.'+bank+' · ECU ACK · 12B Idle đã ghi · 31B AutoShift/ECT Motor giữ nguyên.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
 async function writeV11EctStart(){
@@ -2389,16 +2405,9 @@ async function writeV11EctStart(){
   payload.set(raw44,L.ECT_START);
   taskUi('loading','ATE V11 · GHI ECT START 44B · GIỮ NGUYÊN A2 CÒN LẠI');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY ECT Start đọc lại thất bại: '+String(e&&e.message||e));}
-  if(!R.cache||!R.cache.ectStartRaw||R.cache.ectStartRaw.length!==44)throw new Error('VERIFY ECT Start không đọc đủ 44 byte.');
-  for(let i=0;i<L.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY ECT Start sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  notice('success','GHI + VERIFY ECT START ATE V11 OK','44 byte · '+L.NAME+' · toàn page '+L.LEN+'B đã verify.');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI ECT START ATE V11 OK','ECU ACK · 44 byte · '+L.NAME+'.');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeV11AlternateTable(){
@@ -2414,23 +2423,11 @@ async function writeV11AlternateTable(){
   const raw=Uint8Array.from(vals,v=>clamp(Math.round(Number(v)),0,255));
   const payload=new Uint8Array(cached);
   payload.set(raw,L.GLOBAL_AUX);
-  taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN 263 BYTE A2 KHÁC');
+  taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Alternate Table đọc lại thất bại: '+String(e&&e.message||e));}
-  if(!R.data||R.data.length<L.LEN)throw new Error('VERIFY Alternate Table không đọc đủ '+L.NAME+'.');
-  for(let i=0;i<L.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
-    throw new Error('VERIFY Alternate Table sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
-  }
-  if(readCache&&readCache.v11Decoded){
-    readCache.globalAuxRaw=new Uint8Array(raw);
-    readCache.alternateRaw=new Uint8Array(raw);
-    readCache.alternateTable=[Array.from(raw,x=>Number(x))];
-  }
-  notice('success','GHI + VERIFY ALTERNATE TABLE V11 OK','9 byte raw · '+L.NAME+' · toàn page '+L.LEN+'B đã verify.');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI ALTERNATE TABLE V11 OK','ECU ACK · 9 byte raw · '+L.NAME+'.');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeV11Options20(){
@@ -2447,17 +2444,9 @@ async function writeV11Options20(){
   payload.set(expected30,L.OPTION);
   taskUi('loading','ATE V11 · GHI OPTIONS 20 MỤC · GIỮ NGUYÊN AFR/O2 + RESERVED');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Options đọc lại thất bại: '+String(e&&e.message||e));}
-  const got=R.cache&&R.cache.optionRawV11;
-  if(!got||got.length!==30)throw new Error('VERIFY Options không đọc đủ 30 byte.');
-  for(let i=0;i<30;i++)if((got[i]&255)!==(expected30[i]&255)){
-    throw new Error('VERIFY Options sai byte '+i+' · ghi '+expected30[i]+' đọc '+got[i]);
-  }
-  notice('success','GHI + VERIFY ATE OPTIONS V11 OK','20 byte Option đã chỉnh · 7 byte AFR/O2 + 3 byte reserved giữ nguyên byte-for-byte.');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI ATE OPTIONS V11 OK','ECU ACK · 20 byte Option đã chỉnh · AFR/O2 + reserved giữ nguyên.');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeV11Chg(){
@@ -2469,22 +2458,11 @@ async function writeV11Chg(){
   const raw=encV11Chg8(m);
   const payload=new Uint8Array(cached);
   payload.set(raw,L.CHG);
-  taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 264 BYTE A2 KHÁC');
+  taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY CHG đọc lại thất bại: '+String(e&&e.message||e));}
-  if(!R.cache||!R.cache.chgRaw||R.cache.chgRaw.length!==8)throw new Error('VERIFY CHG không đọc đủ 8 byte.');
-  for(let i=0;i<8;i++)if((R.cache.chgRaw[i]&255)!==(raw[i]&255)){
-    throw new Error('VERIFY CHG sai byte '+i+' · ghi '+raw[i]+' đọc '+R.cache.chgRaw[i]);
-  }
-  if(readCache&&readCache.v11Decoded){
-    readCache.chgRaw=new Uint8Array(R.cache.chgRaw);
-    readCache.chg=R.cache.chg.map(r=>r.slice());
-  }
-  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · '+L.NAME+' · các byte khác giữ nguyên.');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI CHG ATE V11 OK','ECU ACK · 8 byte Charger Parameters · '+L.NAME+'.');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeV11AutoClutch(){
@@ -2501,21 +2479,9 @@ async function writeV11AutoClutch(){
   payload.set(expected,L.CONFIG);
   taskUi('loading','ATE V11 · GHI AUTOMATIC CLUTCH · GIỮ NGUYÊN ENABLE + PIN');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Automatic Clutch đọc lại thất bại: '+String(e&&e.message||e));}
-  const got=R.cache&&R.cache.configRaw;
-  if(!got||got.length!==11)throw new Error('VERIFY Automatic Clutch không đọc đủ configRaw 11B.');
-  for(let i=0;i<11;i++)if((got[i]&255)!==(expected[i]&255)){
-    throw new Error('VERIFY Automatic Clutch sai config byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
-  }
-  if(readCache&&readCache.v11Decoded){
-    readCache.configRaw=new Uint8Array(got);
-    readCache.autoClutch=R.cache.autoClutch.map(r=>r.slice());
-  }
-  notice('success','GHI + VERIFY AUTOMATIC CLUTCH ATE V11 OK','6 byte Dgv_Dzfm đã ghi · config enable và 4 byte password cũ được giữ nguyên.');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI AUTOMATIC CLUTCH ATE V11 OK','ECU ACK · 6 byte Dgv_Dzfm đã ghi · enable + password cũ giữ nguyên.');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeV11ExternalAdjust(){
@@ -2526,23 +2492,13 @@ async function writeV11ExternalAdjust(){
   const m=matrixFromRedTable(2,15);
   if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa có đủ dữ liệu 2 × 15.');
   const payload=Array.from(cached);
-  const expected=[];
-  // Original ATE proUartDgvNum serializes row 1 first (IGN), then row 0 (INJ %).
-  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[L.EXTERNAL+c]=raw;expected.push(raw);}
-  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[L.EXTERNAL+15+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++)payload[L.EXTERNAL+c]=encV11ExtIgn(m[1][c]);
+  for(let c=0;c<15;c++)payload[L.EXTERNAL+15+c]=encV11ExtPct(m[0][c]);
   taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,240));
-  const R=await readA2SensorPageReal(true);
-  if(!R.cache||!R.cache.externalRaw||R.cache.externalRaw.length!==30)throw new Error('ECU đã ACK A2 nhưng VERIFY External Adjustment không đọc đủ 30 byte.');
-  const got=Array.from(R.cache.externalRaw);
-  for(let i=0;i<30;i++)if(got[i]!==expected[i])throw new Error('VERIFY External Adjustment sai byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
-  if(readCache&&readCache.v11Decoded){
-    readCache.externalRaw=new Uint8Array(got);
-    readCache.external=R.cache.external.map(r=>r.slice());
-  }
-  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · '+L.NAME+' · 30 byte · các byte A2 khác được giữ nguyên');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI EXTERNAL ADJUSTMENT ATE V11 OK','ECU ACK · '+L.NAME+' · 30 byte · byte A2 khác giữ nguyên.');
+  return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
 
 function v11A2PatchSpec(id,L=V11_A2){
@@ -2566,18 +2522,12 @@ async function writeV11A2KnownFeature(id){
   const vals=m[0]||[];
   if(vals.length!==11||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Bảng '+id+' chưa có đủ 11 giá trị hợp lệ.');
   const payload=Array.from(cached);
-  const expected=[];
-  for(let i=0;i<11;i++){const raw=clamp(Math.round(spec.enc(vals[i])),0,255);payload[spec.off+i]=raw;expected.push(raw);}
+  for(let i=0;i<11;i++)payload[spec.off+i]=clamp(Math.round(spec.enc(vals[i])),0,255);
   taskUi('loading','ATE V11 · GHI '+spec.label+' · GIỮ NGUYÊN BYTE ẨN');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await new Promise(r=>setTimeout(r,220));
-  let R;
-  try{R=await readA2SensorPageReal(true);}
-  catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
-  const got=Array.from(R.cache.raw.slice(spec.off,spec.off+11));
-  for(let i=0;i<11;i++)if(got[i]!==expected[i])throw new Error('VERIFY '+id+' không khớp byte '+i+' · ghi '+expected[i]+' đọc '+got[i]);
-  notice('success','GHI + VERIFY ATE V11 OK',spec.label+' · page A2 · 11 byte · byte ẩn được bảo toàn');
-  return R;
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI ATE V11 OK',spec.label+' · page A2 · ECU ACK · 11 byte · byte ẩn giữ nguyên.');
+  return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
@@ -2595,49 +2545,41 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='alternate_table')return writeV11AlternateTable();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
+
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
     if(expectedPage==null||!pageCache.has(expectedPage)){
       throw new Error('Hãy ĐỌC bảng '+id+' của MAP hiện tại thành công trước khi GHI để tránh ghi dữ liệu trống.');
     }
-    let m,pg,payload,enc;
+
+    let m,pg,payload;
     switch(id){
-      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);enc=encMainInjAngle;payload=encodeRowsByte(m,enc);break;
-      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);enc=encMainIgn;payload=encodeRowsByte(m,enc);break;
-      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);enc=encMainDwell;payload=encodeRowsByte(m,enc);break;
-      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;enc=encPct;payload=encodeRowsByte(m,enc);break;
-      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;enc=isV11Profile()?encMainIgn:encEctIgn;payload=encodeRowsByte(m,enc);break;
-      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;enc=encMapInj;payload=encodeRowsByte(m,enc);break;
+      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encMainInjAngle);break;
+      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
+      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encMainDwell);break;
+      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=encodeRowsByte(m,encPct);break;
+      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=encodeRowsByte(m,isV11Profile()?encMainIgn:encEctIgn);break;
+      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=encodeRowsByte(m,encMapInj);break;
+      default:throw new Error('Chưa có page ghi trực tiếp cho '+id);
     }
+
     const resumeLive=liveRunning;
     stopLiveLoop();
     try{
-      // Live is stopped first. Wait for any already-running transaction to
-      // finish, then give the ECU a short quiet gap. rawExchange() itself owns
-      // the atomic transport mutex; never force-clear that mutex from here.
       await waitForEcuIdle(16000);
-      await new Promise(r=>setTimeout(r,260));
+      await new Promise(r=>setTimeout(r,120));
       await writePageChecked(pg,payload,false,1,'mainWrite');
-      await new Promise(r=>setTimeout(r,360));
-      let R;
-      try{R=await readFeaturePageReal(id,bank,true);}
-      catch(e){throw new Error('ECU đã ACK ghi '+id+' nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
-      const verifyPayload=encodeRowsByte(R.matrix,enc);
-      if(verifyPayload.length!==payload.length)throw new Error('VERIFY '+id+' sai kích thước');
-      for(let i=0;i<payload.length;i++){
-        if(verifyPayload[i]!==payload[i])throw new Error('VERIFY '+id+' không khớp tại byte '+i+' · ghi '+payload[i]+' đọc '+verifyPayload[i]);
-      }
-      notice('success','GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
-      return R;
+      cacheAckedPage(pg,payload);
+      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK');
+      return {ack:true,page:pg,payload:Uint8Array.from(payload)};
     }finally{
-      // readFeaturePageReal sees Live already stopped, so it will not create its
-      // own resume timer. Resume only once after the whole write+verify sequence.
-      if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(450);
+      if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(380);
     }
   }
 
   requireProfile('fullWrite','Ghi bảng '+id);
-  if(!readCache)await readAll();let m,pg,payload;
+  if(!readCache)await readAll();
+  let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
     case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
@@ -2650,10 +2592,32 @@ async function writeFeatureReal(id){
     case 'spare':throw new Error('Spare là bảng firmware <9.0; ECU 9.1X dùng AutoClutch/Password thay thế. Không ghi để tránh hỏng A-page.');
     default:throw new Error('Chưa có page thật cho '+id);
   }
-  await writePageChecked(pg,payload);await readAll();notice('success','ECU REAL · GHI OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · đã Read All verify');
+  await writePageChecked(pg,payload);
+  cacheAckedPage(pg,payload);
+  notice('success','ECU REAL · GHI OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK');
+  return {ack:true,page:pg,payload:Uint8Array.from(payload)};
 }
-async function writeIdleReal(){requireProfile('fullWrite','Ghi Idle/Limit');assertSafeWriteLayout();if(!readCache)await readAll();const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);await writePageChecked(pg,idlePayload(bank,true));await readAll();notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase())}
-async function writeOptionsReal(){requireProfile('fullWrite','Ghi Options');assertSafeWriteLayout();if(!readCache)await readAll();await writePageChecked(0xA2,a2Payload());await readAll();notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 đã verify')}
+async function writeIdleReal(){
+  requireProfile('fullWrite','Ghi Idle/Limit');
+  assertSafeWriteLayout();
+  if(!readCache)await readAll();
+  const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);
+  const payload=idlePayload(bank,true);
+  await writePageChecked(pg,payload);
+  cacheAckedPage(pg,payload);
+  notice('success','IDLE/LIMIT GHI OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK');
+  return {ack:true,page:pg,payload:Uint8Array.from(payload)};
+}
+async function writeOptionsReal(){
+  requireProfile('fullWrite','Ghi Options');
+  assertSafeWriteLayout();
+  if(!readCache)await readAll();
+  const payload=a2Payload();
+  await writePageChecked(0xA2,payload);
+  cacheAckedPage(0xA2,payload);
+  notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 · ECU ACK');
+  return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
+}
 
 async function writeFuelBank(bank){
   requireProfile('fuelWrite','Ghi MAP thời gian phun');
@@ -2698,9 +2662,7 @@ async function writeCurrentFuelAndVerify(bank){
 
   const wholeWriteStarted=performance.now();
 
-  // Fuel page serialization is always 14x30 and does not depend on A2 axis
-  // bytes. V11 may legally use an A2 build whose axis bytes need fallback, so
-  // never block a fuel write on another hidden A2 transaction.
+  // Keep V11 axis fallback logic, but normal save no longer performs a readback.
   if(ecuProfile&&ecuProfile.key==='MODERN_V11'){
     if(sensorCalCache&&validDynamicAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis)){
       publishEcuAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis,'WRITE CACHE A2 ECU · '+ecuProfile.short);
@@ -2719,36 +2681,17 @@ async function writeCurrentFuelAndVerify(bank){
   if(mapSelect)mapSelect.disabled=true;
   taskUi('loading','ĐANG GHI HIỆN TẠI · MAP NO.'+bank);
   try{
-    const intended=state.mapBanks[bank-1].inject.map(r=>r.map(Number));
-    const expectedRaw=encodeFuelVerifyRaw(intended);
     await writeFuelBank(bank);
-    // Let ECU finish its flash/page commit before the 0x9A read-back.
-    taskUi('loading','ECU ĐÃ ACK · ĐANG VERIFY MAP NO.'+bank);
-    await new Promise(r=>setTimeout(r,260));
-    let R;
-    try{
-      R=await readCurrentFuelBankRetry(bank);
-    }catch(e){
-      throw new Error('ECU đã ACK ghi MAP nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));
-    }
-    const gotRaw=R.rawPayload instanceof Uint8Array?R.rawPayload:new Uint8Array(R.rawPayload||[]);
-    if(gotRaw.length!==expectedRaw.length)throw new Error('VERIFY MAP sai kích thước raw · ghi '+expectedRaw.length+'B đọc '+gotRaw.length+'B');
-    for(let i=0;i<expectedRaw.length;i++){
-      if(gotRaw[i]!==expectedRaw[i]){
-        const bytesPerCell=ecuProfile&&ecuProfile.family==='v8'?1:2;
-        const cell=Math.floor(i/bytesPerCell),wireRow=Math.floor(cell/30),c=cell%30,r=13-wireRow;
-        throw new Error('VERIFY MAP raw sai tại TPS row '+(r+1)+', RPM col '+(c+1)+' · byte '+i+' · ghi '+expectedRaw[i]+' đọc '+gotRaw[i]);
-      }
-    }
+    fuelPagePrimed.delete(bank);
     const wholeMs=Math.round(performance.now()-wholeWriteStarted);
-    taskUi('success','GHI + VERIFY RAW · MAP NO.'+bank+' · 420/420 Ô OK · '+(wholeMs/1000).toFixed(1)+'s');
-    log('fuel write+verify total',wholeMs+'ms','MAP',bank);
-    return R;
+    taskUi('success','GHI MAP NO.'+bank+' OK · ECU ACK · '+(wholeMs/1000).toFixed(1)+'s');
+    log('fuel write ACK-only total',wholeMs+'ms','MAP',bank);
+    return {ack:true,bank,elapsedMs:wholeMs};
   }finally{
     if(typeof state!=='undefined')state.ecuPhase=(previousPhase==='write1'||previousPhase==='write2')?'live':previousPhase;
     if(mapSelect)mapSelect.disabled=!!(typeof state!=='undefined'&&state.threeRun&&state.threeRun.active);
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
-      scheduleLiveResume(450);
+      scheduleLiveResume(380);
     }
   }
 }
@@ -3502,8 +3445,8 @@ function installUI(){
 
   captureMapIo('writeMapBtn','write',async()=>{
     if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
-    const R=await writeCurrentFuelAndVerify(state.activeMap);
-    notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · GHI + VERIFY RAW · '+R.frame.length+'B');
+    await writeCurrentFuelAndVerify(state.activeMap);
+    notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · ECU ACK · KHÔNG ĐỌC LẠI');
   },'THỜI GIAN PHUN');
 
   captureMapIo('applyCorrectedBtn','write',async()=>{
@@ -3517,7 +3460,7 @@ function installUI(){
     if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
     if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
     if(cmd==='SEND_ALL'){await sendAllReal();return;}
-    if(cmd==='SEND_CURRENT'){taskUi('loading','ĐÃ NHẬN NÚT GỬI HIỆN TẠI · MAP NO.'+state.activeMap);const R=await writeCurrentFuelAndVerify(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · VERIFY 0x9A · '+R.frame.length+'B');return;}
+    if(cmd==='SEND_CURRENT'){taskUi('loading','ĐÃ NHẬN NÚT GỬI HIỆN TẠI · MAP NO.'+state.activeMap);await writeCurrentFuelAndVerify(state.activeMap);notice('success','GHI HIỆN TẠI OK','MAP No.'+state.activeMap+' · ECU ACK · KHÔNG ĐỌC LẠI');return;}
     if(cmd==='RESTORE'){await restoreReal();return;}
     if(cmd==='TPS_TEST'){await tpsStudyReal();return;}
     if(cmd==='TEST_INJ'){await testInjectorReal();return;}
