@@ -3155,11 +3155,11 @@ window.addEventListener('beforeunload',save);
       if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
       const payload=makeOtaWifiPayload();
       otaUpdateReady=false;$('otaInstallBtn').disabled=true;$('otaNewVersion').value='--';$('otaProgress').value=0;
-      otaPendingMode='check';otaExpectedRestart=false;
+      otaPendingMode='check';otaExpectedRestart=true;
       setOtaControlsBusy(true);
       setOtaInfo('Đang gửi Wi-Fi sang ESP32...');
       await writeOtaCommand(OTA_WIFI_CHECK,payload);
-    }catch(e){setOtaControlsBusy(false);setOtaInfo(String(e&&e.message||e),'error');}
+    }catch(e){otaExpectedRestart=false;otaPendingMode='';setOtaControlsBusy(false);setOtaInfo(String(e&&e.message||e),'error');}
   }
 
   async function otaInstall(){
@@ -3168,11 +3168,11 @@ window.addEventListener('beforeunload',save);
       if(!confirm('Cập nhật firmware ESP32 ngay? ESP32 sẽ tự khởi động lại và tạm ngắt BLE. Không tắt nguồn.'))return;
       const payload=makeOtaWifiPayload();
       otaUpdateReady=false;$('otaInstallBtn').disabled=true;
-      otaPendingMode='install';otaExpectedRestart=false;
+      otaPendingMode='install';otaExpectedRestart=true;
       setOtaControlsBusy(true);
       setOtaInfo('Đang chuẩn bị chế độ OTA...');
       await writeOtaCommand(OTA_INSTALL,payload);
-    }catch(e){setOtaControlsBusy(false);setOtaInfo(String(e&&e.message||e),'error');}
+    }catch(e){otaExpectedRestart=false;otaPendingMode='';setOtaControlsBusy(false);setOtaInfo(String(e&&e.message||e),'error');}
   }
 
   $('otaScanBtn').addEventListener('click',otaScanWifi);
