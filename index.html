@@ -989,13 +989,14 @@
 
     <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
       <div class="settingsGrid">
-        <div class="field"><label>Wi-Fi SSID</label><input id="otaSsid" type="text" maxlength="32" autocomplete="off" placeholder="Tên Wi-Fi"></div>
+        <div class="field"><label>Mạng Wi-Fi</label><select id="otaSsid"><option value="">Bấm QUÉT WI-FI để chọn mạng</option></select></div>
         <div class="field"><label>Mật khẩu Wi-Fi</label><input id="otaPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Mật khẩu"></div>
         <div class="field"><label>Firmware hiện tại</label><input id="otaCurrentVersion" value="--" readonly></div>
         <div class="field"><label>Firmware mới</label><input id="otaNewVersion" value="--" readonly></div>
       </div>
       <div class="toolrow" style="margin-top:9px">
-        <button id="otaCheckBtn" class="primary">KẾT NỐI WI-FI & KIỂM TRA</button>
+        <button id="otaScanBtn">QUÉT WI-FI</button>
+        <button id="otaCheckBtn" class="primary">KẾT NỐI & KIỂM TRA</button>
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
@@ -2935,8 +2936,10 @@ window.addEventListener('beforeunload',save);
     else await commandChar.writeValue(bytes);
   }
 
-  const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_CHUNK=12;
+  const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_SCAN_MARKER=0xE4,OTA_CHUNK=12;
   let otaUpdateReady=false;
+  let otaWifiNetworks=[];
+  const otaWifiRx=new Map();
 
   async function writeOtaCommand(cmd,payload){
     if(!commandChar)throw new Error('BLE chưa kết nối.');
@@ -2968,11 +2971,72 @@ window.addEventListener('beforeunload',save);
     if(kind==='error')showEcuNotice('error','OTA ESP32',text,0);
   }
 
+  function renderOtaWifiNetworks(){
+    const sel=$('otaSsid');if(!sel)return;
+    const selected=sel.value;
+    const strongest=new Map();
+    for(const n of otaWifiNetworks){
+      const old=strongest.get(n.ssid);
+      if(!old||n.rssi>old.rssi)strongest.set(n.ssid,n);
+    }
+    const rows=[...strongest.values()].sort((a,b)=>b.rssi-a.rssi);
+    sel.innerHTML='<option value="">Chọn mạng Wi-Fi...</option>';
+    for(const n of rows){
+      const o=document.createElement('option');
+      o.value=n.ssid;
+      const bars=n.rssi>=-55?'▮▮▮▮':n.rssi>=-67?'▮▮▮':n.rssi>=-75?'▮▮':'▮';
+      o.textContent=(n.secure?'🔒 ':'')+n.ssid+' · '+bars+' '+n.rssi+' dBm';
+      sel.appendChild(o);
+    }
+    if(rows.some(n=>n.ssid===selected))sel.value=selected;
+  }
+
+  function parseOtaWifiScan(v){
+    if(v.byteLength<6)return;
+    const idx=v.getUint8(1),flags=v.getUint8(2),total=v.getUint8(3),off=v.getUint8(4),rssi=v.getInt8(5);
+    if(!total||total>32||off>=total)return;
+    const count=Math.min(v.byteLength-6,total-off);
+    let rx=otaWifiRx.get(idx);
+    if(!rx||rx.total!==total||(flags&1)){
+      rx={total,rssi,secure:!!(flags&4),bytes:new Uint8Array(total),seen:new Uint8Array(total)};
+      otaWifiRx.set(idx,rx);
+    }
+    rx.rssi=rssi;rx.secure=!!(flags&4);
+    for(let i=0;i<count;i++){rx.bytes[off+i]=v.getUint8(6+i);rx.seen[off+i]=1;}
+    if(flags&2){
+      let complete=true;for(let i=0;i<total;i++)if(!rx.seen[i]){complete=false;break;}
+      if(complete){
+        const ssid=dec.decode(rx.bytes).replace(/\0/g,'').trim();
+        if(ssid){
+          otaWifiNetworks=otaWifiNetworks.filter(n=>n.idx!==idx);
+          otaWifiNetworks.push({idx,ssid,rssi:rx.rssi,secure:rx.secure});
+          renderOtaWifiNetworks();
+        }
+      }
+    }
+  }
+
+  async function otaScanWifi(){
+    try{
+      if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
+      otaWifiNetworks=[];otaWifiRx.clear();
+      const sel=$('otaSsid');if(sel)sel.innerHTML='<option value="">Đang quét Wi-Fi...</option>';
+      setOtaInfo('ESP32 đang quét các mạng Wi-Fi gần đây...');
+      await writeOtaCommand(OTA_WIFI_SCAN,new Uint8Array(0));
+    }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
+  }
+
   function handleOtaStatus(text){
     const cur=$('otaCurrentVersion'),next=$('otaNewVersion'),btn=$('otaInstallBtn'),prog=$('otaProgress');
     if(text.startsWith('OTA:CUR=')){
       if(cur)cur.value=text.slice(8)||'--';
       setOtaInfo('Đang kiểm tra firmware mới...');
+    }else if(text==='OTA:SCAN'){
+      setOtaInfo('ESP32 đang quét Wi-Fi...');
+    }else if(text.startsWith('OTA:SCAN_DONE=')){
+      const n=Number(text.slice(14))||0;
+      renderOtaWifiNetworks();
+      setOtaInfo(n?'Đã tìm thấy '+n+' mạng. Chọn Wi-Fi rồi nhập mật khẩu.':'Không tìm thấy mạng Wi-Fi nào.');
     }else if(text==='OTA:WIFI'){
       setOtaInfo('ESP32 đang kết nối Wi-Fi...');
     }else if(text==='OTA:WIFI_OK'){
@@ -3015,7 +3079,8 @@ window.addEventListener('beforeunload',save);
         SIZE:'Firmware không có kích thước hợp lệ.',
         ECU_BUSY:'ECU đang có giao dịch. Chờ xong rồi cập nhật.',
         WIFI_DATA:'SSID/mật khẩu Wi-Fi không hợp lệ.',
-        NO_WIFI:'Chưa nhập Wi-Fi.'
+        NO_WIFI:'Chưa chọn Wi-Fi.',
+        SCAN:'Không quét được Wi-Fi. Hãy thử lại.'
       }[code]||('Lỗi OTA: '+code);
       setOtaInfo(msg,'error');setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
     }
@@ -3046,6 +3111,7 @@ window.addEventListener('beforeunload',save);
     }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
   }
 
+  $('otaScanBtn').addEventListener('click',otaScanWifi);
   $('otaCheckBtn').addEventListener('click',otaCheck);
   $('otaInstallBtn').addEventListener('click',otaInstall);
 
@@ -3087,6 +3153,7 @@ window.addEventListener('beforeunload',save);
   function parseMap(ev){
     const d=ev.target.value;if(!d||d.byteLength<2)return;
     const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+    if(v.getUint8(0)===OTA_SCAN_MARKER){parseOtaWifiScan(v);return;}
     if(v.getUint8(0)===0xB2){if(typeof window.onBlinkFeaturePacket==='function')window.onBlinkFeaturePacket(v);return;}
     if(d.byteLength<6||v.getUint8(0)!==0xB1)return;
     const mapNo=v.getUint8(1),r=v.getUint8(2),c0=v.getUint8(3),count=v.getUint8(4);
