@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.42';
+  window.BLINK_PB_VERSION = '3.43';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1815,16 +1815,57 @@ function prepareFuelWriteFrames(mapNo=state.activeMap){
 
 function cloneMatrix(m){return m.map(row=>row.map(v=>v==null?null:Number(v)));}
 
+// In-app confirmation dialog used for safety-critical ECU writes.
+// Do not depend on window.confirm(): Android WebView launchers may suppress
+// JavaScript dialogs when their WebChromeClient does not implement them.
+function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
+  return new Promise(resolve=>{
+    try{document.getElementById('blinkConfirmOverlay')?.remove()}catch(_e){}
+    const ov=document.createElement('div');
+    ov.id='blinkConfirmOverlay';
+    ov.setAttribute('role','dialog');
+    ov.setAttribute('aria-modal','true');
+    ov.style.cssText='position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));box-sizing:border-box;';
+    const box=document.createElement('div');
+    box.style.cssText='width:min(520px,100%);background:#11151d;border:2px solid #ff4059;border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.65);padding:18px;box-sizing:border-box;color:#fff;font-family:inherit;';
+    const h=document.createElement('div');
+    h.textContent=String(title||'XÁC NHẬN');
+    h.style.cssText='font-size:18px;font-weight:900;letter-spacing:.2px;margin:0 0 12px;';
+    const p=document.createElement('div');
+    p.textContent=String(message||'');
+    p.style.cssText='font-size:14px;line-height:1.5;white-space:pre-line;color:#e7e9ee;margin-bottom:18px;';
+    const row=document.createElement('div');
+    row.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;';
+    const cancel=document.createElement('button');
+    cancel.type='button';
+    cancel.textContent=cancelText;
+    cancel.style.cssText='min-height:48px;border-radius:12px;border:1px solid #555;background:#20242d;color:#fff;font-weight:800;font-size:14px;';
+    const ok=document.createElement('button');
+    ok.type='button';
+    ok.textContent=okText;
+    ok.style.cssText='min-height:48px;border-radius:12px;border:1px solid #ff5168;background:#b71931;color:#fff;font-weight:900;font-size:14px;';
+    let done=false;
+    const finish=v=>{if(done)return;done=true;try{ov.remove()}catch(_e){}resolve(!!v)};
+    cancel.addEventListener('click',()=>finish(false),{once:true});
+    ok.addEventListener('click',()=>finish(true),{once:true});
+    ov.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();finish(false)}});
+    row.append(cancel,ok);box.append(h,p,row);ov.append(box);document.body.append(ov);
+    setTimeout(()=>{try{ok.focus()}catch(_e){}},0);
+  });
+}
+
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
 
   // Manual SAVE must remain clickable even while a 3-run session is active.
   // Internal 3-run writes use skipConfirm=true and continue normally.
   if(state.threeRun.active&&!skipConfirm){
-    const ok=confirm(
-      'MODE CHẠY 3 LƯỢT đang hoạt động (lượt '+state.threeRun.pass+'/3).\n\n'+
-      'Để GHI HIỆN TẠI bằng tay, app phải hủy phiên 3 lượt đang chạy để tránh hai luồng cùng ghi ECU.\n\n'+
-      'HỦY PHIÊN 3 LƯỢT VÀ CHUYỂN SANG GHI TAY?'
+    const ok=await blinkConfirm(
+      'MODE CHẠY 3 LƯỢT',
+      'Đang ở lượt '+state.threeRun.pass+'/3.\n\n'+
+      'Để GHI HIỆN TẠI bằng tay, app phải hủy phiên 3 lượt đang chạy để tránh hai luồng cùng ghi ECU.',
+      'HỦY 3 LƯỢT + GHI TAY',
+      'GIỮ PHIÊN'
     );
     if(!ok){
       showEcuNotice('info','GHI TAY ĐANG KHÓA BỞI MODE 3 LƯỢT','Hãy kết thúc/hủy phiên 3 lượt nếu muốn ghi MAP thủ công.',4200);
@@ -1857,12 +1898,14 @@ async function startFuelWrite(opts={}){
 
   if(!skipConfirm){
     const profile=realApi?.profile?.label||'REDLEO';
-    const ok=confirm(
-      'GHI MAP PHUN No.'+mapNo+' VÀO ECU?\n\n'+
-      profile+'\n'+
+    const ok=await blinkConfirm(
+      'XÁC NHẬN GHI ECU · MAP No.'+mapNo,
+      profile+'\n\n'+
       '420 ô · '+min.toFixed(2)+'–'+max.toFixed(2)+' ms\n'+
       'Tool sẽ GHI theo đúng profile ECU, sau đó ĐỌC HIỆN TẠI để VERIFY 420/420 ô.\n\n'+
-      'Chỉ tiếp tục khi điện nguồn ECU ổn định.'
+      'Chỉ tiếp tục khi điện nguồn ECU ổn định.',
+      'GHI VÀO ECU',
+      'HỦY'
     );
     if(!ok)return false;
   }
