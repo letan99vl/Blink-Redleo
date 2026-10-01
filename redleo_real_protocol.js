@@ -41,6 +41,7 @@ const FEAT={
   'Intake pressure compensation idle motor':'map_idle_motor',
   'Temperature-idle motor relationship':'ect_idle_motor',
   'External adjustment':'external_adjust',
+  'Air fuel ratio map':'afr_map',
   'Automatic shift':'auto_shift',
   'Automatic clutch':'auto_clutch',
   'Charger Parameters':'chg_params',
@@ -52,7 +53,7 @@ const FEAT={
   'IAT - Voltage Relation':'v_iat',
   'MAP - Voltage Relation':'v_map'
 };
-const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20,ect_start:21,alternate_table:22};
+const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_inj:7,ect_ign:8,map_inj:9,iat_inj:10,map_idle_motor:11,external_adjust:12,auto_clutch:13,spare:14,v_ect:15,v_iat:16,v_map:17,auto_shift:18,chg_params:19,ate_options:20,ect_start:21,alternate_table:22,afr_map:23};
 
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
@@ -175,6 +176,7 @@ function mainFeaturePage(id,bank){
   if(id==='inj_degree')return page(2,bank);
   if(id==='ign_degree')return page(3,bank);
   if(id==='ign_time')return page(4,bank);
+  if(ecuProfile&&ecuProfile.family==='v11'&&id==='afr_map')return page(5,bank);
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
@@ -184,7 +186,7 @@ function mainFeaturePage(id,bank){
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
   const pg=mainFeaturePage(id,bank);
@@ -223,7 +225,7 @@ function applyProfileUi(){
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
   const mapSub=document.getElementById('mapsProfileSub');
   if(mapSub){
-    if(p.family==='v11')mapSub.textContent='ATE / REDLEO 11.x · giao diện V11 · AFR/Auto Tune dùng Blink';
+    if(p.family==='v11')mapSub.textContent='ATE / REDLEO 11.x · AFR/O2 map gốc + Auto Tune Blink';
     else if(p.family==='modern')mapSub.textContent=p.label+' · giao diện REDLEO · AFR/Auto Tune dùng Blink';
     else if(p.family==='v8')mapSub.textContent=p.label+' · chỉ hiện các bảng đã xác minh';
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
@@ -232,7 +234,7 @@ function applyProfileUi(){
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
-  const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','afr_map','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');mainFeatureIds.add('alternate_table');}
   let activeFeatureId=null;
   try{activeFeatureId=currentFeatureId();}catch(_e){}
@@ -271,11 +273,11 @@ function applyProfileUi(){
 
   // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
   // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const limited=(p.family==='v8'||p.family==='v11');
-    const v11Only=(id==='auto_shift'||id==='chg_params'||id==='ate_options'||id==='ect_start'||id==='alternate_table');
+    const v11Only=(id==='auto_shift'||id==='afr_map'||id==='chg_params'||id==='ate_options'||id==='ect_start'||id==='alternate_table');
     const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
     setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
     // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
@@ -561,6 +563,54 @@ function decColdStart(raw){return r1((raw*64/50)/20)}
 function encColdStart(v){return clamp(Math.round(Math.max(0,Number(v))*20*50/64),0,255)}
 function decAutoRpm(raw){return raw*50}
 function encAutoRpm(v){return clamp(Math.round(Number(v)/50),0,255)}
+
+function decodeV11Afr420(raw){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<420)throw new Error('ATE V11 AFR cần 420 byte.');
+  const matrix=Array.from({length:14},()=>Array(30).fill(0));
+  const enabled=Array.from({length:14},()=>Array(30).fill(true));
+  let p=0;
+  for(let wr=0;wr<14;wr++){
+    const ur=13-wr;
+    for(let c=0;c<30;c++,p++){
+      const x=(raw[p]&255)/10;
+      const on=x>=9&&x<=18;
+      enabled[ur][c]=on;
+      matrix[ur][c]=r1(on?x:(x<9?x+12.8:x-12.8));
+    }
+  }
+  return {matrix,enabled,raw:raw.slice(0,420)};
+}
+function setV11AfrMeta(bank,decoded){
+  bank=clamp(Math.round(bank),1,4);
+  if(!window.blinkV11AfrMeta)window.blinkV11AfrMeta={};
+  window.blinkV11AfrMeta[bank]={
+    enabled:decoded.enabled.map(r=>r.slice()),
+    baseEnabled:decoded.enabled.map(r=>r.slice()),
+    baseMatrix:decoded.matrix.map(r=>r.slice()),
+    raw:Array.from(decoded.raw||[])
+  };
+}
+function encodeV11AfrChanged(matrix,meta,baselineRaw){
+  if(!Array.isArray(matrix)||matrix.length!==14||matrix.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('ATE V11 AFR cần bảng 14 × 30.');
+  if(!meta||!Array.isArray(meta.enabled)||!Array.isArray(meta.baseEnabled)||!Array.isArray(meta.baseMatrix))throw new Error('ATE V11 AFR chưa có trạng thái ON/OFF từ ECU. Hãy ĐỌC bảng trước.');
+  const out=new Uint8Array(baselineRaw||[]);
+  if(out.length<420)throw new Error('ATE V11 AFR baseline thiếu 420 byte.');
+  let p=0;
+  for(let wr=0;wr<14;wr++){
+    const ur=13-wr;
+    for(let c=0;c<30;c++,p++){
+      const v=Number(matrix[ur][c]),base=Number(meta.baseMatrix[ur][c]);
+      const on=meta.enabled[ur][c]!==false,baseOn=meta.baseEnabled[ur][c]!==false;
+      if(!v11ValueChanged(v,base)&&on===baseOn)continue;
+      if(!Number.isFinite(v)||v<9||v>18)throw new Error('AFR phải trong 9.0–18.0 tại TPS row '+(ur+1)+', RPM col '+(c+1)+' · '+v);
+      let wire=v;
+      if(!on)wire=v>=12.8?v-12.8:v+12.8;
+      out[p]=clamp(Math.round(wire*10),0,255);
+    }
+  }
+  return out;
+}
 
 function decodeRowsByte(a,off,rows,cols,dec=x=>x){
   const out=Array.from({length:rows},()=>Array(cols).fill(0));let p=off;
@@ -1120,7 +1170,9 @@ function parseV11ReadAll9958(f){
     z=decodeRowsByte(f,p,14,30,decMainIgn);B.ignDegree=z.data;p=z.next;
     B.ignTimeRaw=f.slice(p,p+30);
     z=decodeRowsByte(f,p,1,30,decMainDwell);B.ignTime=z.data;p=z.next;
-    B.afRaw=f.slice(p,p+420);p+=420;
+    B.afRaw=f.slice(p,p+420);
+    {const A=decodeV11Afr420(B.afRaw);B.afr=A.matrix;B.afrEnabled=A.enabled;}
+    p+=420;
     B.idleRaw=f.slice(p,p+24);p+=24;
     B.auxRaw=f.slice(p,p+9);p+=9;
     B.ectMotorRaw=f.slice(p,p+11);p+=11;
@@ -1157,6 +1209,10 @@ function syncV11ReadAll(C){
     emitFeature(N.inj_degree,b.injDegree,b.bank);
     emitFeature(N.ign_degree,b.ignDegree,b.bank);
     emitFeature(N.ign_time,b.ignTime,b.bank);
+    if(b.afr&&b.afrEnabled){
+      setV11AfrMeta(b.bank,{matrix:b.afr,enabled:b.afrEnabled,raw:b.afRaw});
+      emitFeature(N.afr_map,b.afr,b.bank);
+    }
   }
   emitFeature(N.ect_inj,C.ectInj);
   emitFeature(N.ect_ign,C.ectIgn);
@@ -1267,7 +1323,7 @@ function syncIdle(bank){
     // V11 stores a 44-byte Idle family per bank (24 Idle + 9 Aux + 11 ECT Motor),
     // not the V9 idle[]/ectMotor structure. Never feed V11 raw bytes into V9 UI.
     const st=document.getElementById('redIoStatus');
-    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · READ-ONLY RAW '+((b.idleRaw?.length||0)+(b.auxRaw?.length||0)+(b.ectMotorRaw?.length||0))+'B';
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · READ ALL RAW SNAPSHOT '+((b.idleRaw?.length||0)+(b.auxRaw?.length||0)+(b.ectMotorRaw?.length||0))+'B · dùng Page 6 trực tiếp để chỉnh/verify';
     return;
   }
   if(!Array.isArray(b.idle)||!Array.isArray(b.ectMotor))return;
@@ -1710,10 +1766,19 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
-  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
+  if(id==='afr_map'){
+    const pg=page(5,bank);
+    const R=await readDirectPageReal(pg,420,'ATE V11 · AFR / O2 TARGET · MAP NO.'+bank,showUi);
+    const A=decodeV11Afr420(R.data.slice(0,420));
+    setV11AfrMeta(bank,A);
+    emitFeature(N.afr_map,A.matrix,bank);
+    if(showUi)taskUi('success','ATE V11 · AFR MAP NO.'+bank+' · 420B OK');
+    return {...R,matrix:A.matrix,enabled:A.enabled,rawPayload:R.data.slice(0,420)};
+  }
 
   let pg=0,rows=0,cols=0,dec=x=>x,n=0,label=id;
   switch(id){
@@ -1897,6 +1962,29 @@ async function writeV11AutoShift(bank){
     throw new Error('VERIFY AutoShift V11 sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
   }
   notice('success','GHI + VERIFY AUTOSHIFT ATE V11 OK','MAP No.'+bank+' · 9B AutoShift đã ghi · 34B Idle/ECT Motor giữ nguyên · '+v11AutoShiftConfigText(shift[0])+'.');
+  return R;
+}
+
+async function writeV11AfrMap(bank){
+  if(!isV11Profile())throw new Error('AFR writer chỉ dùng cho ATE V11.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(5,bank),cached=pageCache.get(pg);
+  if(!cached||cached.length<420)throw new Error('Hãy ĐỌC AFR MAP No.'+bank+' thành công trước khi GHI.');
+  const meta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[bank];
+  if(!meta)throw new Error('Thiếu trạng thái AFR ON/OFF của MAP No.'+bank+'. Hãy ĐỌC lại bảng.');
+  const m=matrixFromRedTable(14,30);
+  const afrRaw=encodeV11AfrChanged(m,meta,cached.slice(0,420));
+  const payload=new Uint8Array(cached);
+  payload.set(afrRaw,0);
+  taskUi('loading','ATE V11 · GHI AFR MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
+  await writePageChecked(pg,payload,false,1,'mainWrite');
+  await new Promise(r=>setTimeout(r,240));
+  const R=await readFeaturePageReal('afr_map',bank,true);
+  if(R.data.length!==payload.length)throw new Error('VERIFY AFR sai kích thước · ghi '+payload.length+'B đọc '+R.data.length+'B');
+  for(let i=0;i<payload.length;i++)if((R.data[i]&255)!==(payload[i]&255)){
+    throw new Error('VERIFY AFR MAP '+bank+' sai byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
+  }
+  notice('success','GHI + VERIFY AFR ATE V11 OK','MAP No.'+bank+' · 420 ô + ON/OFF đã verify byte-level.');
   return R;
 }
 
@@ -2146,6 +2234,7 @@ async function writeFeatureReal(id){
 
   if(isMain){
     if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
+    if(isV11Profile()&&id==='afr_map')return writeV11AfrMap(bank);
     if(isV11Profile()&&id==='auto_shift')return writeV11AutoShift(bank);
     if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
     if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
@@ -2339,6 +2428,49 @@ function v11StoreMatrix(id,bank,fallback){
   }catch(_e){}
   return fallback.map(r=>r.slice());
 }
+function v11MatrixChanged(a,b){
+  if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length)return true;
+  for(let r=0;r<a.length;r++){
+    if(!Array.isArray(a[r])||!Array.isArray(b[r])||a[r].length!==b[r].length)return true;
+    for(let c=0;c<a[r].length;c++)if(v11ValueChanged(a[r][c],b[r][c]))return true;
+  }
+  return false;
+}
+function v11PatchEncodedBlock(raw,edited,base,encode,label){
+  const out=new Uint8Array(raw||[]);
+  const prev=encode(base),next=encode(edited);
+  if(prev.length!==out.length||next.length!==out.length)throw new Error('ATE V11 '+label+' encode length không khớp baseline.');
+  for(let i=0;i<out.length;i++)if((next[i]&255)!==(prev[i]&255))out[i]=next[i]&255;
+  return out;
+}
+function v11BuildPage6Payload(bank){
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank),cached=new Uint8Array(pageCache.get(pg)||[]);
+  if(cached.length<43)throw new Error('ATE V11 SEND/COPY cần đọc trực tiếp page 6 của MAP No.'+bank+' đủ 43B trước.');
+
+  const out=new Uint8Array(cached.slice(0,43));
+  const baseIdle=decodeV11Idle12(cached.slice(0,12));
+  const baseShift=decodeV11AutoShift9(cached.slice(12,21));
+  const mode=v11IdleMotorMode(false);
+  const baseMotor=decodeV11EctMotor22(cached.slice(21,43),mode);
+
+  const idle=v11StoreMatrix('idle_limit',bank,baseIdle);
+  const shift=v11StoreMatrix('auto_shift',bank,baseShift);
+  const motor=v11StoreMatrix('ect_idle_motor',bank,baseMotor);
+
+  out.set(v11PatchEncodedBlock(cached.slice(0,12),idle,baseIdle,encodeV11Idle12,'Idle/Limit'),0);
+  out.set(v11PatchEncodedBlock(cached.slice(12,21),shift,baseShift,encodeV11AutoShift9,'AutoShift'),12);
+
+  if(mode.known){
+    out.set(v11PatchEncodedBlock(
+      cached.slice(21,43),motor,baseMotor,
+      m=>encodeV11EctMotor22(m,mode),'ECT Motor'
+    ),21);
+  }else if(v11MatrixChanged(motor,baseMotor)){
+    throw new Error('ATE V11 không xác định được Stepper/Solenoid từ handshake; không thể ghi thay đổi ECT Motor an toàn.');
+  }
+  return out;
+}
 function v11FuelMatrix(bank,fallback){
   try{
     const d=state&&state.mapBanks&&state.mapBanks[bank-1]&&state.mapBanks[bank-1].inject;
@@ -2432,31 +2564,39 @@ function v11BuildFullWritePlan(){
   allPlan.push({pg:0x82,payload:new Uint8Array(ectIgnRaw),baseline:new Uint8Array(C.ectIgnRaw),label:'ECT IGN'});
   allPlan.push({pg:0x92,payload:new Uint8Array(mapInjRaw),baseline:new Uint8Array(C.mapInjRaw),label:'MAP INJ'});
 
-  const bankExpected=[];
+  const bankExpected=[],page6Expected=[];
   for(let b=1;b<=4;b++){
     const old=C.banks[b-1];
     const inj=v11FuelMatrix(b,old.inj);
     const injAngle=v11StoreMatrix('inj_degree',b,old.injDegree);
     const ign=v11StoreMatrix('ign_degree',b,old.ignDegree);
     const dwell=v11StoreMatrix('ign_time',b,old.ignTime);
+    const afr=v11StoreMatrix('afr_map',b,old.afr);
+    const afrMeta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[b];
+    if(!afrMeta)throw new Error('ATE V11 SEND ALL thiếu AFR ON/OFF baseline MAP No.'+b+'. Hãy READ ALL lại.');
     const injRaw=patchRowsU16Preserve(old.injRaw,inj,old.inj,encOilTab);
     const injDegreeRaw=patchRowsBytePreserve(old.injDegreeRaw,injAngle,old.injDegree,encMainInjAngle);
     const ignDegreeRaw=patchRowsBytePreserve(old.ignDegreeRaw,ign,old.ignDegree,encMainIgn);
     const ignTimeRaw=patchRowsBytePreserve(old.ignTimeRaw,dwell,old.ignTime,encMainDwell);
-    const afRaw=new Uint8Array(old.afRaw);
+    const afRaw=encodeV11AfrChanged(afr,afrMeta,old.afRaw);
     const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
+    const page6Base=new Uint8Array(pageCache.get(page(6,b))||[]);
+    if(page6Base.length<43)throw new Error('ATE V11 SEND ALL thiếu baseline page 6 trực tiếp của MAP No.'+b+'.');
+    const page6Payload=v11BuildPage6Payload(b);
     const low=pageLow(b);
     allPlan.push({pg:0x10|low,payload:injRaw.slice(0,420),baseline:new Uint8Array(old.injRaw.slice(0,420)),label:'MAP '+b+' FUEL 1/2'});
     allPlan.push({pg:0x10|low|1,payload:injRaw.slice(420),baseline:new Uint8Array(old.injRaw.slice(420)),label:'MAP '+b+' FUEL 2/2'});
     allPlan.push({pg:page(2,b),payload:injDegreeRaw,baseline:new Uint8Array(old.injDegreeRaw),label:'MAP '+b+' INJ ANGLE'});
     allPlan.push({pg:page(3,b),payload:ignDegreeRaw,baseline:new Uint8Array(old.ignDegreeRaw),label:'MAP '+b+' IGN'});
     allPlan.push({pg:page(4,b),payload:ignTimeRaw,baseline:new Uint8Array(old.ignTimeRaw),label:'MAP '+b+' DWELL'});
-    // AFR / Idle / Aux / ECT Motor are preserved from Read All and are only
-    // verified. Blink does not rewrite these unsupported V11 blocks.
+    allPlan.push({pg:page(5,b),payload:afRaw,baseline:new Uint8Array(old.afRaw),label:'MAP '+b+' AFR/O2 TARGET'});
+    allPlan.push({pg:page(6,b),payload:page6Payload,baseline:page6Base.slice(0,43),label:'MAP '+b+' IDLE/AUTOSHIFT/ECT MOTOR'});
+    // ATE V11 AFR/O2 target map and Page 6 are verified writers; unrelated bytes stay byte-identical.
     bankExpected.push({injRaw,injDegreeRaw,ignDegreeRaw,ignTimeRaw,afRaw,idleRaw,auxRaw,ectMotorRaw});
+    page6Expected.push(new Uint8Array(page6Payload));
   }
   const plan=allPlan.filter(x=>!bytesEqual(x.payload,x.baseline));
-  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected};
+  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected,page6Expected};
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
@@ -2465,13 +2605,17 @@ function verifyV11FullWrite(C,E){
   if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
   if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
-  for(let b=1;b<=4;b++)assertV11BankMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
+  for(let b=1;b<=4;b++)assertV11MainAndAfrMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
 }
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
   if(!pageCache.get(0xA2)||pageCache.get(0xA2).length<V11_A2.LEN)await readA2SensorPageReal(false);
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B cho các bank và page A2 trực tiếp 272B cho Options/AUX. Chỉ byte đã sửa mới thay đổi và tất cả page sẽ được verify.\n\nGiữ nguồn ECU ổn định.'))return;
+  for(let b=1;b<=4;b++){
+    const p6=pageCache.get(page(6,b));
+    if(!p6||p6.length<43)await readIdlePageReal(b,false);
+  }
+  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + A2 trực tiếp 272B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2487,7 +2631,11 @@ async function sendAllV11Real(){
     verifyV11FullWrite(C,E);
     const A=await readA2SensorPageReal(false);
     if(!bytesEqual(A.data,E.a2))throw new Error('VERIFY Full Write sai page A2 direct 272B.');
-    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 direct 272B VERIFY byte-level.');
+    for(let b=1;b<=4;b++){
+      const P=await readIdlePageReal(b,false);
+      if(!bytesEqual(P.data.slice(0,43),E.page6Expected[b-1]))throw new Error('VERIFY Full Write sai page 6 trực tiếp MAP No.'+b+'.');
+    }
+    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 272B + AFR Page5 + Page6 43B/MAP VERIFY byte-level.');
     return C;
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
@@ -2519,6 +2667,14 @@ function v11BankSnapshot(B){
     ectMotorRaw:new Uint8Array(B.ectMotorRaw||[])
   };
 }
+function assertV11MainAndAfrMatch(B,S,label){
+  const pairs=[
+    ['Fuel',B.injRaw,S.injRaw],['INJ angle',B.injDegreeRaw,S.injDegreeRaw],
+    ['IGN angle',B.ignDegreeRaw,S.ignDegreeRaw],['Dwell',B.ignTimeRaw,S.ignTimeRaw],
+    ['AFR raw',B.afRaw,S.afRaw]
+  ];
+  for(const [name,a,b] of pairs)if(!bytesEqual(a,b))throw new Error('VERIFY '+label+' sai block '+name);
+}
 function assertV11BankMatch(B,S,label){
   const pairs=[
     ['Fuel',B.injRaw,S.injRaw],['INJ angle',B.injDegreeRaw,S.injDegreeRaw],
@@ -2535,6 +2691,13 @@ async function copyBankV11Real(dest){
   const dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[clamp(Number(dest),1,4)];
   if(dests.includes(src)&&dests.length===1)return notice('info','COPY MAP','MAP nguồn và MAP đích giống nhau.');
   const srcBase=readCache.banks[src-1];
+  const srcPg6=page(6,src);
+  if(!pageCache.get(srcPg6)||pageCache.get(srcPg6).length<43)await readIdlePageReal(src,false);
+  const srcPage6=v11BuildPage6Payload(src);
+  const srcAfr=v11StoreMatrix('afr_map',src,srcBase.afr);
+  const srcAfrMeta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[src];
+  if(!srcAfrMeta)throw new Error('ATE V11 COPY thiếu AFR ON/OFF baseline MAP nguồn. Hãy READ ALL lại.');
+  const srcAfRaw=encodeV11AfrChanged(srcAfr,srcAfrMeta,srcBase.afRaw);
   const srcInj=v11FuelMatrix(src,srcBase.inj);
   const srcInjAngle=v11StoreMatrix('inj_degree',src,srcBase.injDegree);
   const srcIgn=v11StoreMatrix('ign_degree',src,srcBase.ignDegree);
@@ -2543,17 +2706,17 @@ async function copyBankV11Real(dest){
     injRaw:patchRowsU16Preserve(srcBase.injRaw,srcInj,srcBase.inj,encOilTab),
     injDegreeRaw:patchRowsBytePreserve(srcBase.injDegreeRaw,srcInjAngle,srcBase.injDegree,encMainInjAngle),
     ignDegreeRaw:patchRowsBytePreserve(srcBase.ignDegreeRaw,srcIgn,srcBase.ignDegree,encMainIgn),
-    ignTimeRaw:patchRowsBytePreserve(srcBase.ignTimeRaw,srcDwell,srcBase.ignTime,encMainDwell)
+    ignTimeRaw:patchRowsBytePreserve(srcBase.ignTimeRaw,srcDwell,srcBase.ignTime,encMainDwell),
+    afRaw:srcAfRaw
   };
-  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30){
-    throw new Error('ATE V11 source bank chưa đủ 4 block tune chính để Copy an toàn.');
+  if(S.injRaw.length!==840||S.injDegreeRaw.length!==420||S.ignDegreeRaw.length!==420||S.ignTimeRaw.length!==30||S.afRaw.length!==420||srcPage6.length!==43){
+    throw new Error('ATE V11 source bank chưa đủ các block tune/page6 để Copy an toàn.');
   }
-  const hiddenBefore={};
   for(const d of dests){
-    const D=v11BankSnapshot(readCache.banks[d-1]);
-    hiddenBefore[d]={afRaw:D.afRaw,idleRaw:D.idleRaw,auxRaw:D.auxRaw,ectMotorRaw:D.ectMotorRaw};
+    const p6=page(6,d);
+    if(!pageCache.get(p6)||pageCache.get(p6).length<43)await readIdlePageReal(d,false);
   }
-  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nChỉ copy 4 bảng đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell. AFR/Idle/Aux/ECT Motor của MAP đích được giữ nguyên và VERIFY không đổi.'))return;
+  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 8 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + AFR/O2 target + Idle/Limit + AutoShift + ECT Motor.'))return;
 
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2565,21 +2728,23 @@ async function copyBankV11Real(dest){
       await writePageChecked(page(2,d),S.injDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(3,d),S.ignDegreeRaw,false,1,'mainWrite');
       await writePageChecked(page(4,d),S.ignTimeRaw,false,1,'mainWrite');
+      await writePageChecked(page(5,d),S.afRaw,false,1,'mainWrite');
+      await writePageChecked(page(6,d),srcPage6,false,1,'mainWrite');
       await new Promise(r=>setTimeout(r,140));
     }
     const C=await readAll();
     if(!C.v11Decoded)throw new Error('COPY đã ACK nhưng Read All VERIFY không trả layout ATE V11 9958B.');
     for(const d of dests){
-      const B=C.banks[d-1],H=hiddenBefore[d];
+      const B=C.banks[d-1];
       if(!bytesEqual(B.injRaw,S.injRaw))throw new Error('VERIFY COPY MAP '+d+' sai Fuel');
       if(!bytesEqual(B.injDegreeRaw,S.injDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc phun');
       if(!bytesEqual(B.ignDegreeRaw,S.ignDegreeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Góc lửa');
       if(!bytesEqual(B.ignTimeRaw,S.ignTimeRaw))throw new Error('VERIFY COPY MAP '+d+' sai Dwell');
-      if(!bytesEqual(B.afRaw,H.afRaw)||!bytesEqual(B.idleRaw,H.idleRaw)||!bytesEqual(B.auxRaw,H.auxRaw)||!bytesEqual(B.ectMotorRaw,H.ectMotorRaw)){
-        throw new Error('VERIFY COPY MAP '+d+' phát hiện block ẩn bị thay đổi ngoài ý muốn.');
-      }
+      if(!bytesEqual(B.afRaw,S.afRaw))throw new Error('VERIFY COPY MAP '+d+' sai AFR/O2 target.');
+      const P=await readIdlePageReal(d,false);
+      if(!bytesEqual(P.data.slice(0,43),srcPage6))throw new Error('VERIFY COPY MAP '+d+' sai page 6 Idle/AutoShift/ECT Motor.');
     }
-    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · 4 bảng tune đã copy · block ẩn giữ nguyên.');
+    notice('success','COPY MAP ATE V11 OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+' · 8 nhóm tune/page5/page6 đã copy + verify.');
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
   }
