@@ -69,6 +69,8 @@ jobs:
           sed -i '/s.setCacheMode(WebSettings.LOAD_NO_CACHE);/a\            try { webView.clearCache(true); webView.clearHistory(); } catch (Throwable ignored) {}' "$SRC"
           echo "===== ANDROID BLE SOURCE DIAGNOSTIC ====="
           grep -n -C 8 -E "connectGatt|onConnectionStateChange|onServicesDiscovered|onMtuChanged|writeCharacteristic|WRITE_TYPE_" "$SRC" || true
+          echo "===== NATIVE BRIDGE JS DIAGNOSTIC ====="
+          grep -n -C 10 -E "writeValueWithResponse|writeValueWithoutResponse|writeValue|AndroidBLE|Promise|queue" android-build/app/src/main/assets/native_bridge.js || true
 
       - name: Build signed release APK
         working-directory: android-build
