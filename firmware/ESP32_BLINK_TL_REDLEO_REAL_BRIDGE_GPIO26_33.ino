@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.3"
+#define FW_VERSION "1.4"
 #endif
 
 static const char *OTA_MANIFEST_URL =
