@@ -231,16 +231,27 @@ function applyProfileUi(){
   const loginBtn=document.querySelector('[data-ecucmd="LOGIN"]');
   const logoutBtn=document.querySelector('[data-ecucmd="LOGOUT"]');
   const changePwBtn=document.querySelector('[data-ecucmd="CHANGE_PASSWORD"]');
+  const optionsReadBtn=document.querySelector('[data-ecucmd="OPTIONS_READ"]');
+  const optionsWriteBtn=document.querySelector('[data-ecucmd="OPTIONS_WRITE"]');
   if(loginBtn)loginBtn.textContent=p.family==='v11'?'XÁC NHẬN PIN ECU':'ĐĂNG NHẬP ECU';
   if(logoutBtn)logoutBtn.textContent=p.family==='v11'?'XÓA XÁC NHẬN PIN':'ĐĂNG XUẤT';
   if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
+  if(optionsReadBtn){
+    if(p.family==='v11')optionsReadBtn.textContent='ĐỌC A2 / TÙY CHỌN ATE';
+    else if(p.key==='MODERN_V10')optionsReadBtn.textContent='ĐỌC A2 / TRỤC + SENSOR';
+    else optionsReadBtn.textContent='ĐỌC TÙY CHỌN';
+  }
+  if(optionsWriteBtn)optionsWriteBtn.style.display=p.key==='MODERN_V9'?'':'none';
+  const legacyOptionsPanel=document.getElementById('legacyEcuOptionsPanel');
+  if(legacyOptionsPanel)legacyOptionsPanel.style.display=p.key==='MODERN_V9'?'':'none';
   const sub=document.querySelector('#ecuScreen .screenSub');
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
   const mapSub=document.getElementById('mapsProfileSub');
   if(mapSub){
-    if(p.family==='v11')mapSub.textContent='ATE / REDLEO 11.x · AFR/O2 map gốc + Auto Tune Blink';
-    else if(p.family==='modern')mapSub.textContent=p.label+' · giao diện REDLEO · AFR/Auto Tune dùng Blink';
-    else if(p.family==='v8')mapSub.textContent=p.label+' · chỉ hiện các bảng đã xác minh';
+    const fw=String(handshakeInfo&&handshakeInfo.firmware||'').trim();
+    if(p.family==='v11')mapSub.textContent='ATE '+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
+    else if(p.family==='modern')mapSub.textContent=p.label+(fw?' · FW '+fw:'')+' · giao diện REDLEO thích nghi';
+    else if(p.family==='v8')mapSub.textContent=p.label+' · ECU_MODE '+(handshakeInfo?.ecuMode??'—')+' · chỉ hiện bảng đã xác minh';
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
   }
   document.body.dataset.ecuProfile=p.key||'UNKNOWN';
