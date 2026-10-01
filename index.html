@@ -3057,7 +3057,12 @@ window.addEventListener('beforeunload',save);
       setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
       const code=text.slice(9);
-      setOtaInfo('ESP32 không tải được manifest · HTTP/TLS '+code+'.','error');
+      setOtaInfo('ESP32 không tải được manifest · HTTP '+code+'.','error');
+    }else if(text.startsWith('OTA:SSL=')){
+      setOtaControlsBusy(false);
+      otaUpdateReady=false;if(btn)btn.disabled=true;
+      const code=text.slice(8);
+      setOtaInfo('ESP32 không mở được kết nối TLS · SSL '+code+'.','error');
     }else if(text.startsWith('OTA:NEW=')){
       setOtaControlsBusy(false);
       const v=text.slice(8)||'--';
