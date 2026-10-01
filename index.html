@@ -3271,8 +3271,8 @@ window.addEventListener('beforeunload',save);
         await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count));
         offset+=count;
       }catch(e){
-        if(chunkSize>20){
-          chunkSize=chunkSize>100?100:chunkSize>60?60:20;
+        if(chunkSize>12){
+          chunkSize=chunkSize>100?100:chunkSize>60?60:chunkSize>20?20:12;
           continue;
         }
         throw e;
