@@ -3044,6 +3044,10 @@ window.addEventListener('beforeunload',save);
     }else if(text==='OTA:WIFI_FAIL'){
       otaUpdateReady=false;if(btn)btn.disabled=true;
       setOtaInfo('Không kết nối được Wi-Fi. Kiểm tra SSID/mật khẩu.','error');
+    }else if(text.startsWith('OTA:HTTP=')){
+      otaUpdateReady=false;if(btn)btn.disabled=true;
+      const code=text.slice(9);
+      setOtaInfo('ESP32 không tải được manifest · HTTP/TLS '+code+'.','error');
     }else if(text.startsWith('OTA:NEW=')){
       const v=text.slice(8)||'--';
       otaUpdateReady=true;if(next)next.value=v;if(btn)btn.disabled=false;
@@ -3070,6 +3074,8 @@ window.addEventListener('beforeunload',save);
       const code=text.slice(8);
       const msg={
         MANIFEST:'Không đọc được manifest OTA trên GitHub.',
+        TLS_BEGIN:'Không khởi tạo được kết nối HTTPS tới máy chủ cập nhật.',
+        JSON:'Manifest tải được nhưng nội dung không hợp lệ.',
         CHECK_FIRST:'Hãy kiểm tra firmware mới trước.',
         PARTITION:'Partition hiện tại không hỗ trợ OTA hoặc không đủ chỗ.',
         HASH:'Firmware tải về sai SHA-256. Đã hủy cập nhật.',
