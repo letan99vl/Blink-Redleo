@@ -1661,7 +1661,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success',v11?'ATE V11 · AXIS + SENSOR · OK':(v10?'V10/ULTRA · AXIS + SENSOR · OK':'CẢM BIẾN / OPTIONS · OK'));
+    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · AXIS + SENSOR · OK'):(v10?'V10/ULTRA · AXIS + SENSOR · OK':'CẢM BIẾN / OPTIONS · OK'));
   }
   return {...R,cache:C};
 }
@@ -2689,12 +2689,13 @@ function v11BuildFullWritePlan(){
     page6Expected.push(new Uint8Array(page6Payload));
   }
   const plan=allPlan.filter(x=>!bytesEqual(x.payload,x.baseline));
-  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected,page6Expected};
+  const a2Layout=v11A2LayoutOf(a2Base);
+  return {plan,totalCandidates:allPlan.length,a2:new Uint8Array(a2),a2Layout,ectRaw:new Uint8Array(ectRaw),ectIgnRaw:new Uint8Array(ectIgnRaw),mapInjRaw:new Uint8Array(mapInjRaw),bankExpected,page6Expected};
 }
 function verifyV11FullWrite(C,E){
   if(!C||!C.v11Decoded||C.sourceLength!==9958)throw new Error('VERIFY Full Write không nhận được Read All V11 9958B.');
-  // A2 direct page has a different 272B layout from the compact Read-All partition.
-  // It is verified separately with a direct 0xA2 read after this Read-All check.
+  // Direct A2 (272B or 286B depending on V11 build) differs from the compact
+  // Read-All partition and is verified separately after this Read-All check.
   if(!bytesEqual(C.ectInjRaw,E.ectRaw))throw new Error('VERIFY Full Write sai ECT INJ.');
   if(!bytesEqual(C.ectIgnRaw,E.ectIgnRaw))throw new Error('VERIFY Full Write sai ECT IGN.');
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
@@ -2703,12 +2704,13 @@ function verifyV11FullWrite(C,E){
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
-  if(!pageCache.get(0xA2)||pageCache.get(0xA2).length<V11_A2.LEN)await readA2SensorPageReal(false);
+  if(!pageCache.get(0xA2)||pageCache.get(0xA2).length<272)await readA2SensorPageReal(false);
   for(let b=1;b<=4;b++){
     const p6=pageCache.get(page(6,b));
     if(!p6||p6.length<43)await readIdlePageReal(b,false);
   }
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + A2 trực tiếp 272B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
+  const currentA2Layout=v11A2LayoutOf(pageCache.get(0xA2));
+  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + '+currentA2Layout.NAME+' trực tiếp '+currentA2Layout.LEN+'B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -2723,12 +2725,12 @@ async function sendAllV11Real(){
     const C=await readAll();
     verifyV11FullWrite(C,E);
     const A=await readA2SensorPageReal(false);
-    if(!bytesEqual(A.data,E.a2))throw new Error('VERIFY Full Write sai page A2 direct 272B.');
+    if(!bytesEqual(A.data,E.a2))throw new Error('VERIFY Full Write sai '+E.a2Layout.NAME+' direct '+E.a2Layout.LEN+'B.');
     for(let b=1;b<=4;b++){
       const P=await readIdlePageReal(b,false);
       if(!bytesEqual(P.data.slice(0,43),E.page6Expected[b-1]))throw new Error('VERIFY Full Write sai page 6 trực tiếp MAP No.'+b+'.');
     }
-    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + A2 272B + AFR Page5 + Page6 43B/MAP VERIFY byte-level.');
+    notice('success','GỬI TOÀN BỘ ATE V11 OK',E.plan.length+' page thay đổi / '+E.totalCandidates+' page hỗ trợ · Read All + '+E.a2Layout.NAME+' '+E.a2Layout.LEN+'B + AFR Page5 + Page6 43B/MAP VERIFY byte-level.');
     return C;
   }finally{
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),320);
