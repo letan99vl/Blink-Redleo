@@ -1098,6 +1098,11 @@ async function rawExchange(bytes,timeout=12000){
   const myEpoch=transportEpoch;
   try{
     const id=(sid=(sid%250)+1),data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),total=data.length;
+
+    // This is the first truthful point at which the command owns the ECU
+    // transport. UI may have acknowledged the tap earlier, but only now should
+    // it say ĐANG ĐỌC / ĐANG GHI.
+    markEcuMapTransportStarted(data[0],data);
     // Register the pending SID before TX so an extremely fast reply cannot be
     // missed, but DO NOT start the ECU-reply timeout yet. Large 0xCD writes are
     // split into many ATT write-with-response chunks; Android/WebView can spend
@@ -3225,9 +3230,31 @@ const ECU_MAP_IO_BUTTON_IDS=[
 const ECU_MAP_IO_SELECT_IDS=['mapSelect','redBankSelect','idleLimitBankSelect'];
 let ecuMapIoUiBusy=false;
 let ecuMapIoUiToken=0;
+let ecuMapIoActiveId='';
+let ecuMapIoKind='';
+let ecuMapIoLabel='';
+let ecuMapIoTransportStarted=false;
 
 function mapIoButtons(){
   return ECU_MAP_IO_BUTTON_IDS.map(id=>document.getElementById(id)).filter(Boolean);
+}
+function updateActiveMapIoText(text){
+  const active=ecuMapIoActiveId?document.getElementById(ecuMapIoActiveId):null;
+  if(active&&active.dataset.ioBusy==='1')active.textContent=text;
+}
+function markEcuMapTransportStarted(cmd,data){
+  if(!ecuMapIoUiBusy||ecuMapIoTransportStarted)return;
+  // Only commands belonging to the active MAP user action should promote the
+  // button from CHỜ to ĐANG ĐỌC/GHI. Handshake/live traffic must not do it.
+  const isWrite=cmd===0xCD;
+  const isRead=cmd===0x9A||cmd===0xAB||cmd===0x8B;
+  if(ecuMapIoKind==='write'&&!isWrite)return;
+  if(ecuMapIoKind==='read'&&!isRead)return;
+
+  ecuMapIoTransportStarted=true;
+  const what=String(ecuMapIoLabel||'MAP').toUpperCase();
+  updateActiveMapIoText(ecuMapIoKind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...');
+  taskUi('loading',(ecuMapIoKind==='read'?'ĐANG ĐỌC ECU · ':'ĐANG GHI ECU · ')+what);
 }
 function setEcuMapIoUiBusy(activeId,kind,on,label=''){
   const buttons=mapIoButtons();
@@ -3238,7 +3265,11 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
     // current one. The protocol mutex is the last safety net, not a click queue.
     if(ecuMapIoUiBusy)return false;
     ecuMapIoUiBusy=true;
-    const token=++ecuMapIoUiToken;
+    ecuMapIoActiveId=activeId||'';
+    ecuMapIoKind=kind||'';
+    ecuMapIoLabel=label||'MAP';
+    ecuMapIoTransportStarted=false;
+    ++ecuMapIoUiToken;
 
     for(const btn of buttons){
       if(btn.dataset.ioBusy!=='1')btn.dataset.ioIdleText=btn.textContent;
@@ -3252,25 +3283,28 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
 
     const active=document.getElementById(activeId);
     if(active){
-      active.textContent=kind==='read'?'✓ ĐÃ NHẬN · ĐỌC':'✓ ĐÃ NHẬN · GHI';
+      // This is only a tap acknowledgement. It deliberately does NOT say
+      // "ĐANG GHI" yet. That state is promoted by rawExchange only after the
+      // real ECU transport mutex has been acquired.
+      active.textContent=kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...';
       try{
         active.animate(
           [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.95)',filter:'brightness(1.5)'},{transform:'scale(1)',filter:'brightness(1)'}],
           {duration:220,easing:'ease-out'}
         );
       }catch(_e){}
-      setTimeout(()=>{
-        if(!ecuMapIoUiBusy||ecuMapIoUiToken!==token||active.dataset.ioBusy!=='1')return;
-        active.textContent=kind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...';
-      },220);
     }
 
     const what=String(label||'MAP').toUpperCase();
-    taskUi('loading',(kind==='read'?'✓ ĐÃ NHẬN LỆNH ĐỌC · ':'✓ ĐÃ NHẬN LỆNH GHI · ')+what+' · ĐANG XỬ LÝ...');
+    taskUi('loading',(kind==='read'?'ĐÃ NHẤN ĐỌC · ':'ĐÃ NHẤN GHI · ')+what+' · ĐANG CHỜ ECU...');
     return true;
   }
 
   ecuMapIoUiBusy=false;
+  ecuMapIoActiveId='';
+  ecuMapIoKind='';
+  ecuMapIoLabel='';
+  ecuMapIoTransportStarted=false;
   ++ecuMapIoUiToken;
 
   for(const btn of buttons){
@@ -3298,6 +3332,11 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
 function captureMapIo(id,kind,handler,labelFn){
   const el=document.getElementById(id);
   if(!el)return;
+  // The base page and BLE-test shim both assign legacy onclick handlers to
+  // these same controls. REAL ECU mode is the sole owner here; removing the
+  // stale onclick prevents two independent state machines from reacting to one tap.
+  el.onclick=null;
+  el.dataset.realIoOwner='1';
   el.addEventListener('click',async e=>{
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
     const label=typeof labelFn==='function'?labelFn():labelFn;
