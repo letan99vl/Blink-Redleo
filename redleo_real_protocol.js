@@ -1085,6 +1085,9 @@ async function writeRawBleChunk(cur,pkt,reliable){
   throw new Error('BLE characteristic không hỗ trợ ghi RAW');
 }
 
+function rejectPending(p,err){
+  try{p&&p.reject&&p.reject(err);}catch(_e){}
+}
 async function rawExchange(bytes,timeout=12000){
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive())){
     throw new Error('OTA ESP32 đang chạy');
@@ -1095,15 +1098,18 @@ async function rawExchange(bytes,timeout=12000){
   const myEpoch=transportEpoch;
   try{
     const id=(sid=(sid%250)+1),data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),total=data.length;
+    // Register the pending SID before TX so an extremely fast reply cannot be
+    // missed, but DO NOT start the ECU-reply timeout yet. Large 0xCD writes are
+    // split into many ATT write-with-response chunks; Android/WebView can spend
+    // several seconds uploading those chunks before the ESP32 even has the full
+    // frame. Counting that upload time as ECU response time caused false
+    // "ECU timeout cmd 0xCD" while reads (single BLE chunk) worked normally.
     const response=new Promise((resolve,reject)=>{
-      const to=setTimeout(()=>{
-        pending.delete(id);
-        reject(new Error('ECU timeout cmd 0x'+data[0].toString(16).toUpperCase()));
-      },timeout);
-      pending.set(id,{resolve,reject,to,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
+      pending.set(id,{resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
     });
     try{
       const reliableChunks=total>RAW_CHUNK;
+      const txStarted=performance.now();
       for(let off=0;off<total;off+=RAW_CHUNK){
         if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
         const cur=cmdChar();if(!cur)throw new Error('BLE đã ngắt');
@@ -1114,9 +1120,20 @@ async function rawExchange(bytes,timeout=12000){
         // long frames so Bluefy/iOS can service notifications/UI between chunks.
         if(reliableChunks&&((off/RAW_CHUNK+1)%12===0))await new Promise(r=>setTimeout(r,2));
       }
+      const txMs=Math.round(performance.now()-txStarted);
+      const p=pending.get(id);
+      if(p){
+        p.to=setTimeout(()=>{
+          const q=pending.get(id);
+          if(q!==p)return;
+          pending.delete(id);
+          rejectPending(p,new Error('ECU timeout cmd 0x'+data[0].toString(16).toUpperCase()+' sau khi TX xong'));
+        },timeout);
+      }
+      log('TX BLE complete',total+'B',txMs+'ms','cmd 0x'+data[0].toString(16).toUpperCase());
     }catch(e){
       const p=pending.get(id);
-      if(p){clearTimeout(p.to);pending.delete(id);}
+      if(p){if(p.to)clearTimeout(p.to);pending.delete(id);}
       throw e;
     }
     const rx=await response;
