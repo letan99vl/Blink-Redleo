@@ -1053,6 +1053,42 @@ async function waitForEcuIdle(maxWait=16000){
     await new Promise(r=>setTimeout(r,40));
   }
 }
+
+let manualMapIoDepth=0;
+let manualMapIoResumeLive=false;
+async function beginManualMapIo(label='MAP'){
+  manualMapIoDepth++;
+  if(manualMapIoDepth>1)return {nested:true,resumeLive:false};
+
+  // Manual READ/WRITE always has priority over background live polling.
+  // Stop scheduling new 0x69 packets first, then wait only for the one that is
+  // already in flight. Never reject a user action merely because it landed in
+  // the middle of a live sample.
+  manualMapIoResumeLive=!!(liveRunning||liveResumeTimer);
+  stopLiveLoop();
+
+  const t0=performance.now();
+  if(busy){
+    updateActiveMapIoText('⏳ CHỜ LIVE NHẢ ECU...');
+    taskUi('loading','ĐANG CHỜ LIVE KẾT THÚC · '+String(label||'MAP').toUpperCase());
+  }
+  await waitForEcuIdle(8000);
+  const waited=Math.round(performance.now()-t0);
+  if(waited>60)log('manual MAP I/O waited for background transaction',waited+'ms',label);
+
+  return {nested:false,resumeLive:manualMapIoResumeLive,waitedMs:waited};
+}
+function endManualMapIo(ctx){
+  if(manualMapIoDepth>0)manualMapIoDepth--;
+  if(manualMapIoDepth>0)return;
+
+  const shouldResume=!!(ctx&&ctx.resumeLive)||manualMapIoResumeLive;
+  manualMapIoResumeLive=false;
+  if(shouldResume&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
+    scheduleLiveResume(380);
+  }
+}
+
 async function acquireEcuTransaction(maxWait=16000){
   const t0=performance.now();
   while(true){
@@ -3401,13 +3437,16 @@ function captureMapIo(id,kind,handler,labelFn){
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
     const label=typeof labelFn==='function'?labelFn():labelFn;
     if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP'))return;
+    let manualCtx=null;
     try{
+      manualCtx=await beginManualMapIo(label||'MAP');
       await handler(e);
     }catch(x){
       err(x);
       taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);
       notice('error','ECU REAL',x&&x.message||String(x));
     }finally{
+      try{endManualMapIo(manualCtx)}catch(_e){}
       setEcuMapIoUiBusy(null,null,false);
     }
   },true);
@@ -3541,6 +3580,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();

@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.53';
+  window.BLINK_PB_VERSION = '3.54';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1893,15 +1893,14 @@ async function startFuelWrite(opts={}){
   // repeated false "ECU ĐANG BẬN" message while READ CURRENT still worked.
   const realApiNow=window.BlinkRealProtocol;
   if(realApiNow&&window.blinkCommandChar&&window.blinkMapChar){
-    if(realApiNow.isBusy){
-      showEcuNotice('info','ECU ĐANG XỬ LÝ','Đang có một transaction ECU thật sự. Nút đã được khóa; chờ thao tác hiện tại hoàn tất.',2600);
-      return false;
-    }
+    // Do NOT reject when realApiNow.isBusy. A background Live 0x69 may be the
+    // current owner for a fraction of a second. captureMapIo has already stopped
+    // future Live polls and waited for the in-flight transaction to finish.
     if(state.ecuPhase==='handshake'||state.ecuPhase==='online'||state.ecuPhase==='idle'||state.ecuPhase==='profile-locked'){
       showEcuNotice('error','ECU CHƯA SẴN SÀNG','Trạng thái hiện tại: '+state.ecuPhase+'. Hãy đợi ECU nhận diện xong.',3500);
       return false;
     }
-    // Self-heal stale UI phases once the real protocol mutex is idle.
+    // Self-heal stale UI phases once manual I/O has priority.
     if(state.ecuPhase!=='live')state.ecuPhase='live';
   }else if(state.ecuPhase!=='live'){
     // Keep the legacy/native path conservative.
