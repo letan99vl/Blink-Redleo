@@ -14,6 +14,13 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
       - name: Download exact validated 1.4 artifact
         uses: actions/download-artifact@v4
         with:
@@ -30,17 +37,10 @@ jobs:
           echo "actual=$ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
 
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: true
-
       - name: Publish binary and manifest
         run: |
           mkdir -p ota
-          cp "$GITHUB_WORKSPACE/artifact/blink_esp32.bin" ota/blink_esp32.bin
+          cp artifact/blink_esp32.bin ota/blink_esp32.bin
           cat > ota/manifest.json <<'JSON'
           {
             "version": "1.4",
