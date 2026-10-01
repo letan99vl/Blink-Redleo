@@ -87,30 +87,52 @@ const V11_A2_286=Object.freeze({
   IAT_INJ:132,MAP_MOTOR:143,CONFIG:154,OPTION:165,
   ECT_START:195,GLOBAL_AUX:239,EXTERNAL:248,CHG:278
 });
+function normalizeV11AxisOrder(tpsPct,rpmAxis){
+  let t=Array.from(tpsPct||[],Number),r=Array.from(rpmAxis||[],Number);
+  // Some V11 serializers expose the same breakpoints in reverse display order.
+  // Normalize only a fully descending axis; never sort arbitrary/corrupt data.
+  if(t.length===14&&t.every(Number.isFinite)&&t[0]>t[t.length-1]){
+    let desc=true;for(let i=1;i<t.length;i++)if(t[i]>t[i-1]){desc=false;break;}
+    if(desc)t=t.slice().reverse();
+  }
+  if(r.length===30&&r.every(Number.isFinite)&&r[0]>r[r.length-1]){
+    let desc=true;for(let i=1;i<r.length;i++)if(r[i]>=r[i-1]){desc=false;break;}
+    if(desc)r=r.slice().reverse();
+  }
+  return {tpsPct:t,rpmAxis:r,axesValid:validDynamicAxes(t,r)};
+}
 function v11AxesForLayout(data,L){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data||[]);
   if(!L||data.length<L.RPM+60)return null;
   const tpsRaw=data.slice(L.TPS,L.TPS+14);
-  const tpsPct=Array.from(tpsRaw,x=>Number(x)/2);
+  const tpsDecoded=Array.from(tpsRaw,x=>Number(x)/2);
   const rpmRaw=data.slice(L.RPM,L.RPM+60);
-  const rpmAxis=[];for(let i=0;i<60;i+=2)rpmAxis.push(u16be(rpmRaw,i)*20);
-  return {tpsRaw,tpsPct,rpmRaw,rpmAxis};
+  const rpmDecoded=[];for(let i=0;i<60;i+=2)rpmDecoded.push(u16be(rpmRaw,i)*20);
+  const N=normalizeV11AxisOrder(tpsDecoded,rpmDecoded);
+  return {tpsRaw,tpsPct:N.tpsPct,rpmRaw,rpmAxis:N.rpmAxis,axesValid:N.axesValid,rawTpsPct:tpsDecoded,rawRpmAxis:rpmDecoded};
 }
 function detectV11A2Layout(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data||[]);
+  const layouts=[V11_A2,V11_A2_286];
+
+  // A checksum-valid direct A2 frame with an exact verified wire length is
+  // authoritative for layout selection. Axis bytes are useful metadata, but
+  // must not make the whole V11 page unreadable on an ECU build with fixed or
+  // differently encoded breakpoints.
+  const exactL=layouts.find(L=>data.length===L.LEN);
+  if(exactL){
+    const A=v11AxesForLayout(data,exactL);
+    if(A)return {L:exactL,A,axesValid:!!A.axesValid,match:'length'};
+  }
+
   const candidates=[];
-  for(const L of [V11_A2,V11_A2_286]){
+  for(const L of layouts){
     if(data.length<L.LEN)continue;
     const A=v11AxesForLayout(data,L);
-    if(A&&validDynamicAxes(A.tpsPct,A.rpmAxis))candidates.push({L,A});
+    if(A&&A.axesValid)candidates.push({L,A,axesValid:true,match:'axes'});
   }
   if(!candidates.length)return null;
-  // Exact wire length is authoritative when available.
-  const exact=candidates.find(x=>data.length===x.L.LEN);
-  if(exact)return exact;
   if(candidates.length===1)return candidates[0];
-  // If a longer frame validates both layouts, prefer the layout whose known
-  // serializer length is closest to the received page length.
   candidates.sort((a,b)=>Math.abs(data.length-a.L.LEN)-Math.abs(data.length-b.L.LEN));
   return candidates[0];
 }
@@ -118,7 +140,7 @@ function requireV11A2Layout(data){
   const d=detectV11A2Layout(data);
   if(d)return d;
   const n=data&&data.length||0;
-  throw new Error('ATE V11 A2 '+n+'B nhưng không khớp trục TPS/RPM của layout 272B hoặc 286B đã xác minh.');
+  throw new Error('ATE V11 A2 '+n+'B không khớp layout trực tiếp 272B/286B đã xác minh.');
 }
 function v11A2LayoutOf(data){return requireV11A2Layout(data).L;}
 
@@ -1495,7 +1517,8 @@ function parseV11A2Data(data){
   const autoClutch=decodeV11AutoClutch(configRaw);
   const C={
     tpsRaw,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,autoClutch,
-    v11PrefixLength:L.OPTION,v11A2Layout:L.NAME,v11A2LayoutDef:L,raw:data.slice()
+    v11PrefixLength:L.OPTION,v11A2Layout:L.NAME,v11A2LayoutDef:L,
+    v11AxesValid:!!D.axesValid,v11A2LayoutMatch:D.match||'axes',raw:data.slice()
   };
   if(Number.isFinite(L.TPS_VOLT)){
     const vr=data.slice(L.TPS_VOLT,L.TPS_VOLT+14);
@@ -1625,8 +1648,15 @@ async function readA2SensorPageReal(showUi=true){
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
   ].join('|'):null;
 
-  if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
+  const a2AxesOk=Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis);
+  if(a2AxesOk){
     publishEcuAxes(C.tpsPct,C.rpmAxis,v11?'A2 ECU · V11':'A2 ECU · V10/ULTRA');
+  }else if(v11&&C.v11A2Layout){
+    // A valid V11 direct A2 page may come from a build whose breakpoint bytes
+    // are fixed/differently encoded. Keep all verified A2 sensor/options data
+    // and use Blink's proven 14x30 standard axes instead of blocking the ECU.
+    publishProfileAxisFallback('ATE V11 · '+C.v11A2Layout+' · AXIS FALLBACK');
+    log('ATE V11 A2 axis fallback',C.v11A2Layout,'len',R.data.length);
   }else if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
     publishProfileAxisFallback('ECU V9 · AXIS CỐ ĐỊNH');
   }
@@ -1661,7 +1691,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · AXIS + SENSOR · OK'):(v10?'V10/ULTRA · AXIS + SENSOR · OK':'CẢM BIẾN / OPTIONS · OK'));
+    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10?'V10/ULTRA · AXIS + SENSOR · OK':'CẢM BIẾN / OPTIONS · OK'));
   }
   return {...R,cache:C};
 }
@@ -1674,12 +1704,20 @@ async function ensureEcuAxesReal(showUi=false){
     if(sensorCalCache&&validDynamicAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis)){
       return publishEcuAxes(sensorCalCache.tpsPct,sensorCalCache.rpmAxis,'CACHE A2 ECU · '+ecuProfile.short);
     }
+    if(ecuProfile.key==='MODERN_V11'&&sensorCalCache&&sensorCalCache.v11A2Layout){
+      return publishProfileAxisFallback('CACHE '+sensorCalCache.v11A2Layout+' · AXIS FALLBACK');
+    }
     // V11 Read All 9958 has its own compact layout and is reconciled separately.
-    // Direct page A2 is authoritative for V10/Ultra/V11 TPS/RPM breakpoints.
+    // Direct page A2 is authoritative for V10/Ultra/V11 sensor/options layout.
+    // Dynamic axes are preferred, but an exact verified V11 A2 wire length may
+    // safely fall back to the standard 14x30 axes without blocking map access.
     const R=await readA2SensorPageReal(showUi);
     const C=R&&R.cache;
-    if(!C||!validDynamicAxes(C.tpsPct,C.rpmAxis))throw new Error(ecuProfile.label+' · không đọc được trục TPS/RPM hợp lệ từ A2.');
-    return window.blinkEcuAxes;
+    if(C&&validDynamicAxes(C.tpsPct,C.rpmAxis))return window.blinkEcuAxes;
+    if(ecuProfile.key==='MODERN_V11'&&C&&C.v11A2Layout){
+      return publishProfileAxisFallback('A2 '+C.v11A2Layout+' · AXIS FALLBACK');
+    }
+    throw new Error(ecuProfile.label+' · không đọc được trục TPS/RPM hợp lệ từ A2.');
   }
   return publishProfileAxisFallback('SAFE FALLBACK');
 }
