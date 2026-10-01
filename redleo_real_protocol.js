@@ -1225,6 +1225,30 @@ function findValidCommandFrame(a,start,minLen=3){
   }
   return null;
 }
+
+// Some ATE V11 direct 0x9A table replies use the same protected trailer shape
+// as the page serializer: [complement-of-sum, sum, length-low-byte].
+// Example: a 420-byte table becomes exactly 424 bytes:
+//   1 page byte + 420 data + 3 trailer bytes.
+// Keep this as a second STRICT validator; never accept an unchecked RX buffer.
+function findValidLengthPageFrame(a,start,minData=0){
+  if(!(a instanceof Uint8Array))a=new Uint8Array(a||[]);
+  const minLen=1+Math.max(0,Number(minData)||0)+3;
+  for(let i=0;i<a.length;i++){
+    if(a[i]!==start)continue;
+    for(let end=a.length-1;end>=i+minLen-1;end--){
+      const n=end-i+1;
+      if(a[end]!==((n)&255))continue;
+      const sumIndex=end-1,compIndex=end-2;
+      let sum=0;
+      for(let p=i;p<compIndex;p++)sum=(sum+a[p])&255;
+      if(a[sumIndex]!==sum)continue;
+      if(((a[compIndex]+a[sumIndex])&255)!==255)continue;
+      return a.slice(i,end+1);
+    }
+  }
+  return null;
+}
 function parseV11ReadAll9958(f){
   if(!(f instanceof Uint8Array))f=new Uint8Array(f||[]);
   if(f.length!==9958||f[0]!==0xAE&&f[0]!==0xAB&&f[0]!==0x8B)throw new Error('ATE V11 Read All phải 9958B');
@@ -1626,13 +1650,30 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   pg&=255;
   if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
   const rx=await exchangePage9A(pg,label,3,260,10000,showUi);
-  const f=findValidCommandFrame(rx,pg,minData+3);
-  if(!f)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B');
-  const data=f.slice(1,-2);
+
+  // REDLEO legacy/most pages: [page + data + checksum + complement(page)].
+  let f=findValidCommandFrame(rx,pg,minData+3);
+  let trailer=2,frameFormat='reply-checksum';
+
+  // ATE V11 direct grid pages can instead be [page + data + comp(sum) + sum + len].
+  // RX 424B for a 420-cell IGN/INJ-angle table is the exact expected size.
+  if(!f&&isV11Profile()){
+    f=findValidLengthPageFrame(rx,pg,minData);
+    if(f){trailer=3;frameFormat='page-length';}
+  }
+
+  if(!f){
+    const head=Array.from(rx.slice(0,8),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    const tail=Array.from(rx.slice(Math.max(0,rx.length-8)),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B · head '+head+' · tail '+tail);
+  }
+
+  const data=f.slice(1,-trailer);
   if(data.length<minData)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' thiếu dữ liệu '+data.length+'B / '+minData+'B');
   pageCache.set(pg,data.slice());
+  log('READ DIRECT page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',f.length,'data',data.length,'format',frameFormat);
   try{applyProfileUi();}catch(_e){}
-  return {page:pg,frame:f,data,rxLength:rx.length};
+  return {page:pg,frame:f,data,rxLength:rx.length,frameFormat};
 }
 async function readA2SensorPageReal(showUi=true){
   requireProfile('optionsRead','Đọc Options/Voltage');
