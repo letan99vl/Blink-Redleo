@@ -785,6 +785,7 @@ async function initializeRealSession(){
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
+    publishProfileAxisFallback(ecuProfile&&ecuProfile.family==='v8'?'V8 · AXIS CỐ ĐỊNH':(ecuProfile&&ecuProfile.key==='MODERN_V9'?'V9 · AXIS CỐ ĐỊNH':'CHỜ A2 AXIS · '+(ecuProfile?.short||'ECU')));
     const newCalIdentity=[
       ecuProfile?.key||'UNKNOWN',info.ident||'',info.firmware||'',info.ecuId||1
     ].join('|');
