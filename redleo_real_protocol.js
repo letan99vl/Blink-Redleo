@@ -260,16 +260,25 @@ function applyProfileUi(){
   const loginBtn=document.querySelector('[data-ecucmd="LOGIN"]');
   const logoutBtn=document.querySelector('[data-ecucmd="LOGOUT"]');
   const changePwBtn=document.querySelector('[data-ecucmd="CHANGE_PASSWORD"]');
+  const optionsReadBtn=document.querySelector('[data-ecucmd="OPTIONS_READ"]');
+  const optionsWriteBtn=document.querySelector('[data-ecucmd="OPTIONS_WRITE"]');
   if(loginBtn)loginBtn.textContent=p.family==='v11'?'XÁC NHẬN PIN ECU':'ĐĂNG NHẬP ECU';
   if(logoutBtn)logoutBtn.textContent=p.family==='v11'?'XÓA XÁC NHẬN PIN':'ĐĂNG XUẤT';
   if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
+  if(optionsReadBtn){
+    if(p.family==='v11')optionsReadBtn.textContent='ĐỌC A2 / TÙY CHỌN ATE';
+    else if(p.key==='MODERN_V10')optionsReadBtn.textContent='ĐỌC A2 / TRỤC + SENSOR';
+    else optionsReadBtn.textContent='ĐỌC TÙY CHỌN';
+  }
+  if(optionsWriteBtn)optionsWriteBtn.style.display=p.key==='MODERN_V9'?'':'none';
   const sub=document.querySelector('#ecuScreen .screenSub');
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
   const mapSub=document.getElementById('mapsProfileSub');
   if(mapSub){
-    if(p.family==='v11')mapSub.textContent='ATE / REDLEO 11.x · AFR/O2 map gốc + Auto Tune Blink';
-    else if(p.family==='modern')mapSub.textContent=p.label+' · giao diện REDLEO · AFR/Auto Tune dùng Blink';
-    else if(p.family==='v8')mapSub.textContent=p.label+' · chỉ hiện các bảng đã xác minh';
+    const fw=String(handshakeInfo&&handshakeInfo.firmware||'').trim();
+    if(p.family==='v11')mapSub.textContent='ATE '+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
+    else if(p.family==='modern')mapSub.textContent=p.label+(fw?' · FW '+fw:'')+' · giao diện REDLEO thích nghi';
+    else if(p.family==='v8')mapSub.textContent=p.label+' · ECU_MODE '+(handshakeInfo?.ecuMode??'—')+' · chỉ hiện bảng đã xác minh';
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
   }
   document.body.dataset.ecuProfile=p.key||'UNKNOWN';
@@ -321,9 +330,12 @@ function applyProfileUi(){
   // editor that can only fail after the user taps READ.
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
+    const pending=p.key==='UNKNOWN'||p.key==='LEGACY_PROBE';
     const supported=profileSupportsFeature(id,p);
     setProfileDisabled(el,!supported,!supported?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
-    el.style.display=supported?'':'none';
+    // Before identification keep the menu visible but disabled; after identification
+    // remove cards that do not belong to the detected ECU profile.
+    el.style.display=(pending||supported)?'':'none';
   });
 }
 function setEcuProfile(p){
