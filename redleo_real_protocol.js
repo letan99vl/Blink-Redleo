@@ -20,6 +20,32 @@ let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
 let sensorCalCache=null;     // populated by lightweight A2 page read
 let sensorCalIdentity=null;   // prevents calibration from a different ECU being reused
+const V11_SENSOR_CACHE_KEY='blinkAteV11SensorCalV1';
+function validV11PersistedSensorCal(c){
+  if(!c||typeof c!=='object')return false;
+  for(const k of ['vEct','vIat','vMap']){
+    if(!Array.isArray(c[k])||c[k].length!==11)return false;
+    if(c[k].some(v=>!Number.isFinite(Number(v))||Number(v)<0||Number(v)>5.5))return false;
+  }
+  return true;
+}
+function loadV11PersistedSensorCal(identity){
+  if(!identity||typeof localStorage==='undefined')return null;
+  try{
+    const all=JSON.parse(localStorage.getItem(V11_SENSOR_CACHE_KEY)||'{}');
+    const c=all&&all[identity];
+    if(!validV11PersistedSensorCal(c))return null;
+    return {vEct:c.vEct.map(Number),vIat:c.vIat.map(Number),vMap:c.vMap.map(Number),persistedSensorOnly:true};
+  }catch(_e){return null}
+}
+function saveV11PersistedSensorCal(identity,c){
+  if(!identity||!validV11PersistedSensorCal(c)||typeof localStorage==='undefined')return;
+  try{
+    const all=JSON.parse(localStorage.getItem(V11_SENSOR_CACHE_KEY)||'{}')||{};
+    all[identity]={vEct:Array.from(c.vEct,Number),vIat:Array.from(c.vIat,Number),vMap:Array.from(c.vMap,Number),savedAt:Date.now()};
+    localStorage.setItem(V11_SENSOR_CACHE_KEY,JSON.stringify(all));
+  }catch(_e){}
+}
 let pageCache=new Map();     // page-specific lazy reads
 let fuelPagePrimed=new Set();// banks whose large INJ VE page has read successfully this BLE session
 let loginState=false;
@@ -844,6 +870,14 @@ async function initializeRealSession(){
       sensorCalIdentity=null;
       log('sensor calibration cache cleared: ECU identity changed');
     }
+    if(isV11Profile()&&!sensorCalCache){
+      const saved=loadV11PersistedSensorCal(newCalIdentity);
+      if(saved){
+        sensorCalCache=saved;
+        sensorCalIdentity=newCalIdentity;
+        log('ATE V11 sensor calibration restored from ECU-specific cache');
+      }
+    }
 
     // Profiles explicitly advertising live support enter the live pipeline.
     // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
@@ -1544,6 +1578,7 @@ async function readA2SensorPageReal(showUi=true){
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
   ].join('|'):null;
+  if(v11&&sensorCalIdentity)saveV11PersistedSensorCal(sensorCalIdentity,C);
 
   if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
     publishEcuAxes(C.tpsPct,C.rpmAxis,v11?'A2 ECU · V11':'A2 ECU · V10/ULTRA');
@@ -2795,6 +2830,7 @@ async function tpsStudyReal(){
     const C=parseV11A2Data(f.slice(1,-2));
     sensorCalCache=C;
     sensorCalIdentity=handshakeInfo?[ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
+    if(sensorCalIdentity)saveV11PersistedSensorCal(sensorCalIdentity,C);
     const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
     if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
       state.cal.tpsMin=min;state.cal.tpsMax=max;
