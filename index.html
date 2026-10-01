@@ -3245,8 +3245,11 @@ window.addEventListener('beforeunload',save);
     pkt[0]=OTA_BLE_DATA_MARKER;
     pkt[1]=offset&255;pkt[2]=(offset>>>8)&255;pkt[3]=(offset>>>16)&255;pkt[4]=(offset>>>24)&255;
     pkt.set(bytes,5);
-    if(commandChar.writeValue)await commandChar.writeValue(pkt);
-    else await commandChar.writeValueWithoutResponse(pkt);
+    // Firmware streaming should use write-without-response whenever available.
+    // Waiting for a GATT response for every packet makes a ~1.8 MB image take
+    // tens of minutes on iOS/Bluefy.
+    if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(pkt);
+    else await commandChar.writeValue(pkt);
   }
 
   async function transferFirmwareBle(bin,shaHex){
@@ -3265,21 +3268,31 @@ window.addEventListener('beforeunload',save);
 
     let chunkSize=160;
     let offset=0;
+    let burstBytes=0;
     while(offset<bin.byteLength){
       const count=Math.min(chunkSize,bin.byteLength-offset);
       try{
         await writeBleFirmwareChunk(offset,bin.subarray(offset,offset+count));
         offset+=count;
+        burstBytes+=count;
       }catch(e){
         if(chunkSize>12){
           chunkSize=chunkSize>100?100:chunkSize>60?60:chunkSize>20?20:12;
+          burstBytes=0;
+          await new Promise(r=>setTimeout(r,20));
           continue;
         }
         throw e;
       }
+
       const pct=Math.floor(offset*100/bin.byteLength);
       if($('otaProgress'))$('otaProgress').value=pct;
-      if((offset&0x3fff)<chunkSize)await new Promise(r=>setTimeout(r,0));
+
+      // Let the iOS BLE stack drain every ~4 KB so packets are not overrun.
+      if(burstBytes>=4096){
+        burstBytes=0;
+        await new Promise(r=>setTimeout(r,12));
+      }
     }
 
     const doneWait=waitOtaStatus(t=>t==='OTA:DONE'||t.startsWith('OTA:ERR='),12000);
