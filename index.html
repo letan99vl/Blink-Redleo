@@ -983,8 +983,24 @@
       <div class="settingTile"><div class="menuIcon">⌁</div><h3>Điện áp</h3><p>TPS / AFR của Blink</p><span class="tiny">SYS_02</span></div>
       <button class="settingTile" id="studyTpsTile"><div class="menuIcon">◎</div><h3>Học TPS</h3><p>Calibration bướm ga</p><span class="tiny">SYS_03</span></button>
       <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
+      <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>ESP32 OTA qua Wi-Fi</p><span class="tiny">SYS_05</span></div>
     </div>
     <details class="settings" open><summary>THÔNG SỐ AUTO TUNE / TPS</summary><div class="settingsGrid"><div class="field"><label>TPS Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>TPS Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="50" value="350"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">LẤY TPS MIN</button><button id="learnMax">LẤY TPS MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · BLE</button></div><div class="hint" id="studyTpsInfo">Chưa chạy TPS Study.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
+
+    <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
+      <div class="settingsGrid">
+        <div class="field"><label>Wi-Fi SSID</label><input id="otaSsid" type="text" maxlength="32" autocomplete="off" placeholder="Tên Wi-Fi"></div>
+        <div class="field"><label>Mật khẩu Wi-Fi</label><input id="otaPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Mật khẩu"></div>
+        <div class="field"><label>Firmware hiện tại</label><input id="otaCurrentVersion" value="--" readonly></div>
+        <div class="field"><label>Firmware mới</label><input id="otaNewVersion" value="--" readonly></div>
+      </div>
+      <div class="toolrow" style="margin-top:9px">
+        <button id="otaCheckBtn" class="primary">KẾT NỐI WI-FI & KIỂM TRA</button>
+        <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
+      </div>
+      <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
+      <div class="hint" id="otaInfo">Wi-Fi chỉ được bật khi kiểm tra/cập nhật. Mật khẩu không lưu trong Blink.</div>
+    </details>
   </section>
 
   <nav class="bottomNav"><button class="navBtn active" data-nav="dashboard"><span class="ico">◉</span>TRANG CHỦ</button><button class="navBtn" data-nav="maps"><span class="ico">▦</span>BẢN ĐỒ</button><button class="navBtn" data-nav="tune"><span class="ico">✦</span>AUTO TUNE</button><button class="navBtn" data-nav="ecu"><span class="ico">◆</span>ECU</button><button class="navBtn" data-nav="settings"><span class="ico">⚙</span>THIẾT LẬP</button></nav>
@@ -2919,6 +2935,121 @@ window.addEventListener('beforeunload',save);
     else await commandChar.writeValue(bytes);
   }
 
+  const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_CHUNK=12;
+  let otaUpdateReady=false;
+
+  async function writeOtaCommand(cmd,payload){
+    if(!commandChar)throw new Error('BLE chưa kết nối.');
+    payload=payload||new Uint8Array(0);
+    const total=payload.length;
+    if(total>100)throw new Error('Dữ liệu OTA quá dài.');
+    if(total===0){
+      const pkt=new Uint8Array([OTA_MARKER,cmd,0x03,0,0,0,0]);
+      if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(pkt);
+      else await commandChar.writeValue(pkt);
+      return;
+    }
+    for(let off=0;off<total;off+=OTA_CHUNK){
+      const count=Math.min(OTA_CHUNK,total-off);
+      const flags=(off===0?1:0)|((off+count)>=total?2:0);
+      const pkt=new Uint8Array(7+count);
+      pkt[0]=OTA_MARKER;pkt[1]=cmd;pkt[2]=flags;
+      pkt[3]=total&255;pkt[4]=(total>>8)&255;
+      pkt[5]=off&255;pkt[6]=(off>>8)&255;
+      pkt.set(payload.subarray(off,off+count),7);
+      if(commandChar.writeValueWithoutResponse)await commandChar.writeValueWithoutResponse(pkt);
+      else await commandChar.writeValue(pkt);
+      await new Promise(r=>setTimeout(r,8));
+    }
+  }
+
+  function setOtaInfo(text,kind){
+    const e=$('otaInfo');if(e)e.textContent=text;
+    if(kind==='error')showEcuNotice('error','OTA ESP32',text,0);
+  }
+
+  function handleOtaStatus(text){
+    const cur=$('otaCurrentVersion'),next=$('otaNewVersion'),btn=$('otaInstallBtn'),prog=$('otaProgress');
+    if(text.startsWith('OTA:CUR=')){
+      if(cur)cur.value=text.slice(8)||'--';
+      setOtaInfo('Đang kiểm tra firmware mới...');
+    }else if(text==='OTA:WIFI'){
+      setOtaInfo('ESP32 đang kết nối Wi-Fi...');
+    }else if(text==='OTA:WIFI_OK'){
+      setOtaInfo('Wi-Fi OK · đang đọc manifest trên GitHub...');
+    }else if(text==='OTA:WIFI_FAIL'){
+      otaUpdateReady=false;if(btn)btn.disabled=true;
+      setOtaInfo('Không kết nối được Wi-Fi. Kiểm tra SSID/mật khẩu.','error');
+    }else if(text.startsWith('OTA:NEW=')){
+      const v=text.slice(8)||'--';
+      otaUpdateReady=true;if(next)next.value=v;if(btn)btn.disabled=false;
+      setOtaInfo('Có firmware mới '+v+'. Có thể bấm CẬP NHẬT NGAY.');
+      showEcuNotice('info','CÓ FIRMWARE ESP32 MỚI','Phiên bản '+v+' đã sẵn sàng để cập nhật.');
+    }else if(text==='OTA:NO_UPDATE'){
+      otaUpdateReady=false;if(btn)btn.disabled=true;if(next)next.value='Đã mới nhất';
+      setOtaInfo('ESP32 đang dùng phiên bản mới nhất.');
+    }else if(text==='OTA:START'){
+      if(btn)btn.disabled=true;if(prog)prog.value=0;
+      setOtaInfo('Đang tải firmware từ GitHub. Không tắt nguồn ESP32.');
+      setEcuTaskStatus('loading','ĐANG CẬP NHẬT ESP32...');
+    }else if(text.startsWith('OTA:P=')){
+      const p=Math.max(0,Math.min(100,Number(text.slice(6))||0));
+      if(prog)prog.value=p;setOtaInfo('Đang cập nhật firmware · '+p+'%');
+    }else if(text==='OTA:DONE'){
+      if(prog)prog.value=100;
+      setOtaInfo('Cập nhật xong. ESP32 đang khởi động lại...');
+      setEcuTaskStatus('success','UPDATE ESP32 · XONG');
+    }else if(text==='OTA:BUSY'){
+      setOtaInfo('ESP32 đang bận. Thử lại sau.','error');
+    }else if(text.startsWith('OTA:ERR=')){
+      otaUpdateReady=false;if(btn)btn.disabled=true;
+      const code=text.slice(8);
+      const msg={
+        MANIFEST:'Không đọc được manifest OTA trên GitHub.',
+        CHECK_FIRST:'Hãy kiểm tra firmware mới trước.',
+        PARTITION:'Partition hiện tại không hỗ trợ OTA hoặc không đủ chỗ.',
+        HASH:'Firmware tải về sai SHA-256. Đã hủy cập nhật.',
+        DOWNLOAD:'Tải firmware bị gián đoạn. Đã hủy cập nhật.',
+        FLASH:'Ghi firmware thất bại.',
+        HTTP:'Không tải được firmware từ GitHub.',
+        SIZE:'Firmware không có kích thước hợp lệ.',
+        ECU_BUSY:'ECU đang có giao dịch. Chờ xong rồi cập nhật.',
+        WIFI_DATA:'SSID/mật khẩu Wi-Fi không hợp lệ.',
+        NO_WIFI:'Chưa nhập Wi-Fi.'
+      }[code]||('Lỗi OTA: '+code);
+      setOtaInfo(msg,'error');setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
+    }
+  }
+
+  async function otaCheck(){
+    try{
+      if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
+      const ssid=$('otaSsid').value;
+      const pass=$('otaPassword').value;
+      const sb=enc.encode(ssid),pb=enc.encode(pass);
+      if(!sb.length||sb.length>32)throw new Error('SSID phải từ 1 đến 32 byte.');
+      if(pb.length>63)throw new Error('Mật khẩu Wi-Fi tối đa 63 byte.');
+      const payload=new Uint8Array(1+sb.length+pb.length);
+      payload[0]=sb.length;payload.set(sb,1);payload.set(pb,1+sb.length);
+      otaUpdateReady=false;$('otaInstallBtn').disabled=true;$('otaNewVersion').value='--';$('otaProgress').value=0;
+      setOtaInfo('Đang gửi Wi-Fi sang ESP32...');
+      await writeOtaCommand(OTA_WIFI_CHECK,payload);
+    }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
+  }
+
+  async function otaInstall(){
+    try{
+      if(!otaUpdateReady)throw new Error('Chưa có firmware mới sẵn sàng.');
+      if(!confirm('Cập nhật firmware ESP32 ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
+      otaUpdateReady=false;$('otaInstallBtn').disabled=true;
+      await writeOtaCommand(OTA_INSTALL,new Uint8Array(0));
+    }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
+  }
+
+  $('otaCheckBtn').addEventListener('click',otaCheck);
+  $('otaInstallBtn').addEventListener('click',otaInstall);
+
+
   function parseLive(ev){
     const d=ev.target.value;
     if(!d||d.byteLength<2)return;
@@ -2975,6 +3106,7 @@ window.addEventListener('beforeunload',save);
   function parseStatus(ev){
     const text=dec.decode(ev.target.value).replace(/\0/g,'').trim();if(!text)return;
     $('ecuDiag').textContent='BLE STATUS: '+text;if(typeof window.onBlinkStatus==='function')window.onBlinkStatus(text);
+    if(text.startsWith('OTA:')){handleOtaStatus(text);return;}
     if(text.startsWith('MAP_DONE')){
       mapRx.active=false;saveSoon();
       showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
@@ -3038,6 +3170,7 @@ window.addEventListener('beforeunload',save);
   }
 
   function onDisconnected(){
+    otaUpdateReady=false;if($('otaInstallBtn'))$('otaInstallBtn').disabled=true;
     liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
     setBleUi(false);
     setEcuTaskStatus('offline','ECU ĐÃ NGẮT KẾT NỐI',5000);
