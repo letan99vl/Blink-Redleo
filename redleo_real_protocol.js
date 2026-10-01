@@ -271,6 +271,8 @@ function applyProfileUi(){
     else optionsReadBtn.textContent='ĐỌC TÙY CHỌN';
   }
   if(optionsWriteBtn)optionsWriteBtn.style.display=p.key==='MODERN_V9'?'':'none';
+  const legacyOptionsPanel=document.getElementById('legacyEcuOptionsPanel');
+  if(legacyOptionsPanel)legacyOptionsPanel.style.display=p.key==='MODERN_V9'?'':'none';
   const sub=document.querySelector('#ecuScreen .screenSub');
   if(sub)sub.textContent='AUTO ECU PROFILE · '+p.label;
   const mapSub=document.getElementById('mapsProfileSub');
