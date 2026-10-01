@@ -120,6 +120,7 @@ function requireV11A2Layout(data){
   const n=data&&data.length||0;
   throw new Error('ATE V11 A2 '+n+'B nhưng không khớp trục TPS/RPM của layout 272B hoặc 286B đã xác minh.');
 }
+function v11A2LayoutOf(data){return requireV11A2Layout(data).L;}
 
 function firmwareNumbers(info=handshakeInfo){
   const txt=(String(info&&info.firmware||'')+' '+String(info&&info.ident||'')).toUpperCase();
@@ -2122,11 +2123,12 @@ async function writeV11IdleLimit(bank){
 async function writeV11EctStart(){
   if(!isV11Profile())throw new Error('ECT Start writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC ECT Start thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC ECT Start thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const m=matrixFromRedTable(4,11);
   const raw44=encodeV11EctStart44(m);
   const payload=new Uint8Array(cached);
-  payload.set(raw44,V11_A2.ECT_START);
+  payload.set(raw44,L.ECT_START);
   taskUi('loading','ATE V11 · GHI ECT START 44B · GIỮ NGUYÊN A2 CÒN LẠI');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -2134,17 +2136,18 @@ async function writeV11EctStart(){
   try{R=await readA2SensorPageReal(true);}
   catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY ECT Start đọc lại thất bại: '+String(e&&e.message||e));}
   if(!R.cache||!R.cache.ectStartRaw||R.cache.ectStartRaw.length!==44)throw new Error('VERIFY ECT Start không đọc đủ 44 byte.');
-  for(let i=0;i<V11_A2.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
+  for(let i=0;i<L.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
     throw new Error('VERIFY ECT Start sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
   }
-  notice('success','GHI + VERIFY ECT START ATE V11 OK','44 byte · A2 offset 181..224 · toàn page A2 272B đã verify.');
+  notice('success','GHI + VERIFY ECT START ATE V11 OK','44 byte · '+L.NAME+' · toàn page '+L.LEN+'B đã verify.');
   return R;
 }
 
 async function writeV11AlternateTable(){
   if(!isV11Profile())throw new Error('Alternate Table writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC Alternate Table thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Alternate Table thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const m=matrixFromRedTable(1,9),vals=m[0]||[];
   if(vals.length!==9||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Alternate Table V11 chưa có đủ 9 giá trị hợp lệ.');
   let bad=-1;
@@ -2152,15 +2155,15 @@ async function writeV11AlternateTable(){
   if(bad>=0)throw new Error('Alternate Table chỉ chấp nhận raw 0–255 · cột '+(bad+1)+' = '+vals[bad]);
   const raw=Uint8Array.from(vals,v=>clamp(Math.round(Number(v)),0,255));
   const payload=new Uint8Array(cached);
-  payload.set(raw,V11_A2.GLOBAL_AUX);
+  payload.set(raw,L.GLOBAL_AUX);
   taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN 263 BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
   let R;
   try{R=await readA2SensorPageReal(true);}
   catch(e){throw new Error('ECU đã ACK A2 nhưng VERIFY Alternate Table đọc lại thất bại: '+String(e&&e.message||e));}
-  if(!R.data||R.data.length<V11_A2.LEN)throw new Error('VERIFY Alternate Table không đọc đủ A2 272B.');
-  for(let i=0;i<V11_A2.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
+  if(!R.data||R.data.length<L.LEN)throw new Error('VERIFY Alternate Table không đọc đủ '+L.NAME+'.');
+  for(let i=0;i<L.LEN;i++)if((R.data[i]&255)!==(payload[i]&255)){
     throw new Error('VERIFY Alternate Table sai A2 byte '+i+' · ghi '+payload[i]+' đọc '+R.data[i]);
   }
   if(readCache&&readCache.v11Decoded){
@@ -2168,21 +2171,22 @@ async function writeV11AlternateTable(){
     readCache.alternateRaw=new Uint8Array(raw);
     readCache.alternateTable=[Array.from(raw,x=>Number(x))];
   }
-  notice('success','GHI + VERIFY ALTERNATE TABLE V11 OK','9 byte raw · A2 offset 225..233 · toàn page A2 272B đã verify.');
+  notice('success','GHI + VERIFY ALTERNATE TABLE V11 OK','9 byte raw · '+L.NAME+' · toàn page '+L.LEN+'B đã verify.');
   return R;
 }
 
 async function writeV11Options20(){
   if(!isV11Profile())throw new Error('ATE Options writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC ATE Options thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC ATE Options thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const C=parseV11A2Data(cached);
   const m=matrixFromRedTable(1,20);
   const raw20=encV11Options20(m,C.vEct);
   const expected30=new Uint8Array(C.optionRawV11);
   expected30.set(raw20,0);
   const payload=new Uint8Array(cached);
-  payload.set(expected30,V11_A2.OPTION);
+  payload.set(expected30,L.OPTION);
   taskUi('loading','ATE V11 · GHI OPTIONS 20 MỤC · GIỮ NGUYÊN AFR/O2 + RESERVED');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -2201,11 +2205,12 @@ async function writeV11Options20(){
 async function writeV11Chg(){
   if(!isV11Profile())throw new Error('CHG writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const m=matrixFromRedTable(1,8);
   const raw=encV11Chg8(m);
   const payload=new Uint8Array(cached);
-  payload.set(raw,V11_A2.CHG);
+  payload.set(raw,L.CHG);
   taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN 264 BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -2220,21 +2225,22 @@ async function writeV11Chg(){
     readCache.chgRaw=new Uint8Array(R.cache.chgRaw);
     readCache.chg=R.cache.chg.map(r=>r.slice());
   }
-  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · offset A2 264..271 · các byte khác giữ nguyên.');
+  notice('success','GHI + VERIFY CHG ATE V11 OK','8 byte Charger Parameters · '+L.NAME+' · các byte khác giữ nguyên.');
   return R;
 }
 
 async function writeV11AutoClutch(){
   if(!isV11Profile())throw new Error('Automatic Clutch writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const m=matrixFromRedTable(1,6),vals=m[0]||[];
   if(vals.length!==6||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch V11 chưa có đủ 6 giá trị hợp lệ.');
-  const config=new Uint8Array(cached.slice(V11_A2.CONFIG,V11_A2.CONFIG+11));
+  const config=new Uint8Array(cached.slice(L.CONFIG,L.CONFIG+11));
   const expected=new Uint8Array(config);
   for(let i=0;i<6;i++)expected[1+i]=encV11Dzfm(i,vals[i]);
   const payload=new Uint8Array(cached);
-  payload.set(expected,V11_A2.CONFIG);
+  payload.set(expected,L.CONFIG);
   taskUi('loading','ATE V11 · GHI AUTOMATIC CLUTCH · GIỮ NGUYÊN ENABLE + PIN');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -2257,14 +2263,15 @@ async function writeV11AutoClutch(){
 async function writeV11ExternalAdjust(){
   if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
   const m=matrixFromRedTable(2,15);
   if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa có đủ dữ liệu 2 × 15.');
   const payload=Array.from(cached);
   const expected=[];
   // Original ATE proUartDgvNum serializes row 1 first (IGN), then row 0 (INJ %).
-  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[V11_A2.EXTERNAL+c]=raw;expected.push(raw);}
-  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[V11_A2.EXTERNAL+15+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++){const raw=encV11ExtIgn(m[1][c]);payload[L.EXTERNAL+c]=raw;expected.push(raw);}
+  for(let c=0;c<15;c++){const raw=encV11ExtPct(m[0][c]);payload[L.EXTERNAL+15+c]=raw;expected.push(raw);}
   taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await new Promise(r=>setTimeout(r,240));
@@ -2276,26 +2283,27 @@ async function writeV11ExternalAdjust(){
     readCache.externalRaw=new Uint8Array(got);
     readCache.external=R.cache.external.map(r=>r.slice());
   }
-  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · A2 offset 234..263 · 30 byte · các byte A2 khác được giữ nguyên');
+  notice('success','GHI + VERIFY ATE V11 OK','External Adjustment · '+L.NAME+' · 30 byte · các byte A2 khác được giữ nguyên');
   return R;
 }
 
-function v11A2PatchSpec(id){
+function v11A2PatchSpec(id,L=V11_A2){
   switch(id){
-    case 'v_ect':return {off:V11_A2.VECT,enc:encVolt,label:'ECT VOLTAGE'};
-    case 'v_iat':return {off:V11_A2.VIAT,enc:encVolt,label:'IAT VOLTAGE'};
-    case 'v_map':return {off:V11_A2.VMAP,enc:encVolt,label:'MAP VOLTAGE'};
-    case 'iat_inj':return {off:V11_A2.IAT_INJ,enc:v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255),label:'IAT COMP INJ'};
-    case 'map_idle_motor':return {off:V11_A2.MAP_MOTOR,enc:v=>clamp(Math.round(Number(v)),0,255),label:'MAP IDLE MOTOR'};
+    case 'v_ect':return {off:L.VECT,enc:encVolt,label:'ECT VOLTAGE'};
+    case 'v_iat':return {off:L.VIAT,enc:encVolt,label:'IAT VOLTAGE'};
+    case 'v_map':return {off:L.VMAP,enc:encVolt,label:'MAP VOLTAGE'};
+    case 'iat_inj':return {off:L.IAT_INJ,enc:v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255),label:'IAT COMP INJ'};
+    case 'map_idle_motor':return {off:L.MAP_MOTOR,enc:v=>clamp(Math.round(Number(v)),0,255),label:'MAP IDLE MOTOR'};
     default:return null;
   }
 }
 async function writeV11A2KnownFeature(id){
   if(!isV11Profile())throw new Error('A2 partial writer chỉ dùng cho ATE V11.');
-  const spec=v11A2PatchSpec(id);
-  if(!spec)throw new Error('ATE V11 chưa có A2 patch spec cho '+id);
   const cached=pageCache.get(0xA2);
-  if(!cached||cached.length<V11_A2.LEN)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI đủ page A2 272B.');
+  if(!cached||cached.length<272)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI page A2.');
+  const L=v11A2LayoutOf(cached);
+  const spec=v11A2PatchSpec(id,L);
+  if(!spec)throw new Error('ATE V11 chưa có A2 patch spec cho '+id);
   const m=matrixFromRedTable(1,11);
   const vals=m[0]||[];
   if(vals.length!==11||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Bảng '+id+' chưa có đủ 11 giá trị hợp lệ.');
@@ -2588,34 +2596,34 @@ function v11PatchExternalRaw(raw,edited,base){
 }
 function v11BuildA2Payload(){
   const base=pageCache.get(0xA2);
-  if(!base||base.length<V11_A2.LEN)throw new Error('ATE V11 SEND ALL cần đọc trực tiếp page A2 đủ 272B trước.');
-  const C=parseV11A2Data(base);
-  if(C.v11A2KnownLength!==V11_A2.LEN)throw new Error('ATE V11 A2 direct layout chưa đủ 272B.');
+  if(!base||base.length<272)throw new Error('ATE V11 SEND ALL cần đọc trực tiếp page A2 trước.');
+  const C=parseV11A2Data(base),L=C.v11A2LayoutDef||v11A2LayoutOf(base);
+  if(C.v11A2KnownLength!==L.LEN)throw new Error('ATE V11 A2 direct layout chưa đủ '+L.LEN+'B.');
   const out=new Uint8Array(base);
 
   const vEct=v11OneRow('v_ect',C.vEct),vIat=v11OneRow('v_iat',C.vIat),vMap=v11OneRow('v_map',C.vMap);
   const iat=v11OneRow('iat_inj',C.iatInj),mapMotor=v11OneRow('map_idle_motor',C.mapMotor);
-  out.set(patchLinearPreserve(out.slice(V11_A2.VECT,V11_A2.VECT+11),vEct,C.vEct,encVolt),V11_A2.VECT);
-  out.set(patchLinearPreserve(out.slice(V11_A2.VIAT,V11_A2.VIAT+11),vIat,C.vIat,encVolt),V11_A2.VIAT);
-  out.set(patchLinearPreserve(out.slice(V11_A2.VMAP,V11_A2.VMAP+11),vMap,C.vMap,encVolt),V11_A2.VMAP);
-  out.set(patchLinearPreserve(out.slice(V11_A2.IAT_INJ,V11_A2.IAT_INJ+11),iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),V11_A2.IAT_INJ);
-  out.set(patchLinearPreserve(out.slice(V11_A2.MAP_MOTOR,V11_A2.MAP_MOTOR+11),mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255)),V11_A2.MAP_MOTOR);
+  out.set(patchLinearPreserve(out.slice(L.VECT,L.VECT+11),vEct,C.vEct,encVolt),L.VECT);
+  out.set(patchLinearPreserve(out.slice(L.VIAT,L.VIAT+11),vIat,C.vIat,encVolt),L.VIAT);
+  out.set(patchLinearPreserve(out.slice(L.VMAP,L.VMAP+11),vMap,C.vMap,encVolt),L.VMAP);
+  out.set(patchLinearPreserve(out.slice(L.IAT_INJ,L.IAT_INJ+11),iat,C.iatInj,v=>clamp(Math.round(Math.max(0,Number(v))*20),0,255)),L.IAT_INJ);
+  out.set(patchLinearPreserve(out.slice(L.MAP_MOTOR,L.MAP_MOTOR+11),mapMotor,C.mapMotor,v=>clamp(Math.round(Number(v)),0,255)),L.MAP_MOTOR);
 
   const clutch=v11StoreMatrix('auto_clutch',0,C.autoClutch);
   if(Array.isArray(clutch)&&clutch.length===1&&clutch[0].length===6){
-    for(let i=0;i<6;i++)if(v11ValueChanged(clutch[0][i],C.autoClutch[0][i]))out[V11_A2.CONFIG+1+i]=encV11Dzfm(i,clutch[0][i]);
+    for(let i=0;i<6;i++)if(v11ValueChanged(clutch[0][i],C.autoClutch[0][i]))out[L.CONFIG+1+i]=encV11Dzfm(i,clutch[0][i]);
   }
 
   const opts=v11StoreMatrix('ate_options',0,C.ateOptions);
   if(Array.isArray(opts)&&opts.length===1&&opts[0].length===20){
     const raw20=encV11Options20(opts,vEct);
-    for(let i=0;i<20;i++)if(v11ValueChanged(opts[0][i],C.ateOptions[0][i]))out[V11_A2.OPTION+i]=raw20[i];
+    for(let i=0;i<20;i++)if(v11ValueChanged(opts[0][i],C.ateOptions[0][i]))out[L.OPTION+i]=raw20[i];
   }
 
   const start=v11StoreMatrix('ect_start',0,C.ectStart);
   if(Array.isArray(start)&&start.length===4&&start.every(r=>Array.isArray(r)&&r.length===11)){
     const raw44=encodeV11EctStart44(start);
-    for(let i=0;i<44;i++)if(v11ValueChanged(raw44[i],C.ectStartRaw[i],0))out[V11_A2.ECT_START+i]=raw44[i];
+    for(let i=0;i<44;i++)if(v11ValueChanged(raw44[i],C.ectStartRaw[i],0))out[L.ECT_START+i]=raw44[i];
   }
 
   const alternate=v11StoreMatrix('alternate_table',0,C.alternateTable);
@@ -2623,14 +2631,14 @@ function v11BuildA2Payload(){
     for(let i=0;i<9;i++){
       const v=Number(alternate[0][i]);
       if(!Number.isFinite(v)||v<0||v>255)throw new Error('Alternate Table SEND ALL chỉ chấp nhận raw 0–255 tại cột '+(i+1)+'.');
-      if(v11ValueChanged(v,C.alternateTable[0][i]))out[V11_A2.GLOBAL_AUX+i]=clamp(Math.round(v),0,255);
+      if(v11ValueChanged(v,C.alternateTable[0][i]))out[L.GLOBAL_AUX+i]=clamp(Math.round(v),0,255);
     }
   }
 
   const external=v11StoreMatrix('external_adjust',0,C.external);
-  out.set(v11PatchExternalRaw(C.externalRaw,external,C.external),V11_A2.EXTERNAL);
+  out.set(v11PatchExternalRaw(C.externalRaw,external,C.external),L.EXTERNAL);
   const chg=v11StoreMatrix('chg_params',0,C.chg);
-  out.set(v11PatchChgRaw(C.chgRaw,chg,C.chg),V11_A2.CHG);
+  out.set(v11PatchChgRaw(C.chgRaw,chg,C.chg),L.CHG);
   return out;
 }
 function v11BuildFullWritePlan(){
@@ -2638,7 +2646,7 @@ function v11BuildFullWritePlan(){
   const C=readCache;
   const allPlan=[];
   const a2Base=new Uint8Array(pageCache.get(0xA2)||[]);
-  if(a2Base.length<V11_A2.LEN)throw new Error('ATE V11 SEND ALL thiếu baseline A2 direct 272B.');
+  if(a2Base.length<272)throw new Error('ATE V11 SEND ALL thiếu baseline A2 direct.');
   const a2=v11BuildA2Payload();
   const ect=v11StoreMatrix('ect_inj',0,C.ectInj),ectIgn=v11StoreMatrix('ect_ign',0,C.ectIgn),mapInj=v11StoreMatrix('map_inj',0,C.mapInj);
   const ectRaw=patchRowsBytePreserve(C.ectInjRaw,ect,C.ectInj,encPct);
