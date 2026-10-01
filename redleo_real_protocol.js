@@ -35,14 +35,18 @@ function loadV11PersistedSensorCal(identity){
     const all=JSON.parse(localStorage.getItem(V11_SENSOR_CACHE_KEY)||'{}');
     const c=all&&all[identity];
     if(!validV11PersistedSensorCal(c))return null;
-    return {vEct:c.vEct.map(Number),vIat:c.vIat.map(Number),vMap:c.vMap.map(Number),persistedSensorOnly:true};
+    const out={vEct:c.vEct.map(Number),vIat:c.vIat.map(Number),vMap:c.vMap.map(Number),persistedSensorOnly:true};
+    if(Array.isArray(c.vAfrRaw)&&c.vAfrRaw.length===11&&c.vAfrRaw.every(v=>Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=255))out.vAfrRaw=c.vAfrRaw.map(v=>Number(v)&255);
+    return out;
   }catch(_e){return null}
 }
 function saveV11PersistedSensorCal(identity,c){
   if(!identity||!validV11PersistedSensorCal(c)||typeof localStorage==='undefined')return;
   try{
     const all=JSON.parse(localStorage.getItem(V11_SENSOR_CACHE_KEY)||'{}')||{};
-    all[identity]={vEct:Array.from(c.vEct,Number),vIat:Array.from(c.vIat,Number),vMap:Array.from(c.vMap,Number),savedAt:Date.now()};
+    const out={vEct:Array.from(c.vEct,Number),vIat:Array.from(c.vIat,Number),vMap:Array.from(c.vMap,Number),savedAt:Date.now()};
+    if(c.vAfrRaw&&Array.from(c.vAfrRaw).length===11)out.vAfrRaw=Array.from(c.vAfrRaw,v=>Number(v)&255);
+    all[identity]=out;
     localStorage.setItem(V11_SENSOR_CACHE_KEY,JSON.stringify(all));
   }catch(_e){}
 }
@@ -376,6 +380,34 @@ function bridgeRawWriteSafe(){
 // ----- REDLEO conversions (EXE TrueFalse / macroReckon) -----
 function decVolt(raw){return r2(raw*20/1024)}
 function encVolt(v){return clamp(Math.round(Number(v)*1024/20),0,255)}
+function v11LerpClamped(x0,y0,x1,y1,x){
+  x0=Number(x0);y0=Number(y0);x1=Number(x1);y1=Number(y1);x=Number(x);
+  if(![x0,y0,x1,y1,x].every(Number.isFinite))return NaN;
+  if(x0===x1||y0===y1)return y0;
+  const y=y0+((x-x0)*(y1-y0))/(x1-x0);
+  return Math.max(Math.min(y0,y1),Math.min(Math.max(y0,y1),y));
+}
+function v11AfrFromLive(raw16,external,cal){
+  // ECU Pro 11 proAFR_VoltageToDat: Rd2Byte(12)/4 -> NumberToVoltage.
+  const voltage=liveVolt10(raw16);
+  const raw=cal&&cal.vAfrRaw?Array.from(cal.vAfrRaw,Number):null;
+  if(!raw||raw.length!==11||raw.some(v=>!Number.isFinite(v)||v<0||v>255))return {voltage,afr:NaN};
+  const v=raw.map(decVolt);
+  if(!external){
+    // OEM O2 path: last vAFR cell is the OEM stoichiometric datum.
+    const oem=v[10];
+    const afr=voltage>oem
+      ?v11LerpClamped(oem,14.7,1.2,9.0,voltage)
+      :v11LerpClamped(oem,14.7,0.1,18.0,voltage);
+    return {voltage,afr:r2(afr)};
+  }
+  // External O2 path: exact AFR_VoltageToDat segment walk.
+  for(let j=0;j<10;j++){
+    if(voltage<v[j+1])continue;
+    return {voltage,afr:r2(v11LerpClamped(v[j],18-j,v[j+1],17-j,voltage))};
+  }
+  return {voltage,afr:9};
+}
 function decOil(raw){return r2((raw/20)*(64/50))} // Oil_EcuToPc(raw,1), Ver78_Time=2
 function encOil(v){return clamp(Math.round(Math.max(0,Number(v))*20*(50/64)),0,255)}
 function decOilTab(raw){return r2(raw/500)} // verified on REDLEO 9.1X visible INJ VE: raw/500 = ms
@@ -754,6 +786,37 @@ function parseLiveReal(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   if(a.length!==53||a[0]!==0xA1||!validFrame(a))throw new Error('Live frame 0xA1 không hợp lệ · '+a.length+'B');
   if(typeof state==='undefined')return;
+  const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
+  if(isV11Profile()){
+    // ECU Pro 11 proRTuart: byte 50 is the runtime status bitfield.
+    const status=a[50]&255;
+    const rt=!!(status&(1<<2));
+    const externalO2=!!(status&(1<<3));
+    const o2Feature=!!(handshakeInfo&&Number.isFinite(handshakeInfo.features)&&(handshakeInfo.features&(1<<2)));
+    state.live.ateStatusRaw=status;
+    state.live.ateIdle=!!(status&1);
+    state.live.ateRtData=rt;
+    state.live.ateExternalO2=externalO2;
+    state.live.ateNeedPassword=!!(status&(1<<4));
+    state.live.ateInjAdjMode=!!(status&(1<<5));
+    state.live.ateEcuId=rt?(a[49]&255):NaN;
+    const afrCal=readCache||sensorCalCache;
+    const afrInfo=v11AfrFromLive(u16be(a,12),externalO2,afrCal);
+    state.live.ecuAfrV=afrInfo.voltage;
+    state.live.ecuAfr=(!o2Feature&&!externalO2)?9:afrInfo.afr;
+    put('ateLiveStatus','0x'+status.toString(16).toUpperCase().padStart(2,'0'));
+    put('ateLiveIdle',state.live.ateIdle?'ON':'OFF');
+    put('ateLiveRt',rt?'ON':'OFF');
+    put('ateLiveO2Source',(!o2Feature&&!externalO2)?'OFF':(externalO2?'EXTERNAL':'OEM ECU'));
+    put('ateLiveNeedPassword',state.live.ateNeedPassword?'YES':'NO');
+    put('ateLiveInjAdjMode',state.live.ateInjAdjMode?'1':'0');
+    put('ateLiveEcuId',Number.isFinite(state.live.ateEcuId)?String(state.live.ateEcuId):'—');
+    put('ateLiveEcuAfr',Number.isFinite(state.live.ecuAfr)?state.live.ecuAfr.toFixed(2):'—');
+    put('ateLiveEcuO2V',Number.isFinite(state.live.ecuAfrV)?state.live.ecuAfrV.toFixed(3)+' V':'—');
+    // Original V11 only enters proRT_Dat when status bit2 is set.
+    // Ignore record/non-realtime A1 payloads instead of decoding them as live sensors.
+    if(!rt)return;
+  }
   const rawTps=a[1]*4+(a[47]&3);
   state.live.tpsV=liveVolt10(rawTps);
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
@@ -771,7 +834,6 @@ function parseLiveReal(a){
     state.live.injEct=u16be(a,18)/500;
     state.live.injIat=u16be(a,20)/500;
     state.live.injMap=u16be(a,22)/500;
-    state.live.ecuAfrV=liveVolt10(u16be(a,12));
     state.live.ignTab=decLiveIgn(u16be(a,30));
     state.live.ignEct=decLiveIgn(u16be(a,32));
     state.live.ignAfr=decLiveIgn(u16be(a,34));
@@ -798,7 +860,6 @@ function parseLiveReal(a){
     state.live.iat=NaN;
     state.live.mapKpa=NaN;
   }
-  const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
   put('ectLive',Number.isFinite(state.live.ect)?r1(state.live.ect).toFixed(1)+' °C':'--');
   put('iatLive',Number.isFinite(state.live.iat)?r1(state.live.iat).toFixed(1)+' °C':'--');
   put('mapKpaLive',Number.isFinite(state.live.mapKpa)?r1(state.live.mapKpa).toFixed(1)+' kPa':'--');
