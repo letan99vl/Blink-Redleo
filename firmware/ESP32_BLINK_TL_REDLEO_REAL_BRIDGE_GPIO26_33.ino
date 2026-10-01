@@ -67,6 +67,8 @@ static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
 static const uint8_t OTA_TX_MARKER = 0xE3;
 static const uint8_t OTA_CMD_WIFI_CHECK = 0x01;
 static const uint8_t OTA_CMD_INSTALL = 0x02;
+static const uint8_t OTA_CMD_WIFI_SCAN = 0x03;
+static const uint8_t OTA_WIFI_SCAN_MARKER = 0xE4;
 static const size_t OTA_PAYLOAD_PER_PACKET = 12;
 static const size_t OTA_MAX_PAYLOAD = 100;
 
@@ -565,6 +567,59 @@ static void otaWifiOff() {
   WiFi.mode(WIFI_OFF);
 }
 
+static void sendWifiScanNetwork(uint8_t index, const String &ssid, int32_t rssi, bool secure) {
+  if (!deviceConnected || !mapChar || !ssid.length()) return;
+  const uint8_t total = (uint8_t)min((size_t)32, (size_t)ssid.length());
+  const uint8_t chunkMax = 13; // 6-byte header + 13 bytes = 19 ATT-safe bytes.
+  for (uint8_t off = 0; off < total && deviceConnected; off += chunkMax) {
+    const uint8_t count = (uint8_t)min((uint8_t)chunkMax, (uint8_t)(total - off));
+    uint8_t pkt[6 + chunkMax];
+    pkt[0] = OTA_WIFI_SCAN_MARKER;
+    pkt[1] = index;
+    pkt[2] = (off == 0 ? 0x01 : 0x00) |
+             ((off + count >= total) ? 0x02 : 0x00) |
+             (secure ? 0x04 : 0x00);
+    pkt[3] = total;
+    pkt[4] = off;
+    pkt[5] = (uint8_t)(int8_t)max(-127, min(0, rssi));
+    memcpy(&pkt[6], ssid.c_str() + off, count);
+    mapChar->setValue(pkt, 6 + count);
+    mapChar->notify();
+    delay(9);
+    yield();
+  }
+}
+
+static bool scanOtaWifi() {
+  notifyStatus("OTA:SCAN");
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false, true);
+  delay(120);
+
+  const int found = WiFi.scanNetworks(false, false);
+  if (found < 0) {
+    notifyStatus("OTA:ERR=SCAN");
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    return false;
+  }
+
+  uint8_t sent = 0;
+  const int limit = min(found, 20);
+  for (int i = 0; i < limit && deviceConnected; ++i) {
+    const String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue;
+    const bool secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    sendWifiScanNetwork(sent, ssid, WiFi.RSSI(i), secure);
+    ++sent;
+  }
+
+  WiFi.scanDelete();
+  WiFi.mode(WIFI_OFF);
+  notifyStatus(String("OTA:SCAN_DONE=") + sent);
+  return true;
+}
+
 static bool connectOtaWifi() {
   if (!otaSsid.length()) {
     notifyStatus("OTA:ERR=NO_WIFI");
@@ -816,7 +871,9 @@ static void processOtaCommand() {
   }
 
   otaBusy = true;
-  if (cmd == OTA_CMD_WIFI_CHECK) {
+  if (cmd == OTA_CMD_WIFI_SCAN) {
+    scanOtaWifi();
+  } else if (cmd == OTA_CMD_WIFI_CHECK) {
     if (len < 2) {
       notifyStatus("OTA:ERR=WIFI_DATA");
     } else {
