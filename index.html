@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.54';
+  window.BLINK_PB_VERSION = '3.55';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3580,6 +3580,10 @@ window.addEventListener('beforeunload',save);
   function parseStatus(ev){
     const text=dec.decode(ev.target.value).replace(/\0/g,'').trim();if(!text)return;
     $('ecuDiag').textContent='BLE STATUS: '+text;if(typeof window.onBlinkStatus==='function')window.onBlinkStatus(text);
+    // FW1.5 diagnostic: the bridge has fully assembled one RAW request.
+    // The REAL protocol layer consumes this internally for timing/diagnostics.
+    // Do not overwrite the user-facing footer with RAWREADY xx.
+    if(text.startsWith('RAWREADY '))return;
     if(text.startsWith('OTA:')){handleOtaStatus(text);return;}
     if(text.startsWith('MAP_DONE')){
       mapRx.active=false;saveSoon();
