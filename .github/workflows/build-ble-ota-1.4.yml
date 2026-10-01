@@ -1,0 +1,33 @@
+name: Build BLE OTA 1.4
+on:
+  push:
+    branches:
+      - release/ble-ota-1.4
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core 3.3.8
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+      - name: Build firmware 1.4
+        run: |
+          mkdir -p build/BlinkClassicESP32 build/out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build/BlinkClassicESP32/BlinkClassicESP32.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs --output-dir build/out build/BlinkClassicESP32
+          cp build/out/BlinkClassicESP32.ino.bin build/out/blink_esp32.bin
+          sha256sum build/out/blink_esp32.bin | awk '{print $1}' > build/out/blink_esp32.bin.sha256
+          ls -lh build/out/blink_esp32.bin
+          cat build/out/blink_esp32.bin.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blink-esp32-ble-ota-1.4
+          path: |
+            build/out/blink_esp32.bin
+            build/out/blink_esp32.bin.sha256
