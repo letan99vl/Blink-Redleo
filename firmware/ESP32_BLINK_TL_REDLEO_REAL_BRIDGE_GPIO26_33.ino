@@ -72,7 +72,11 @@ static const uint8_t OTA_TX_MARKER = 0xE3;
 static const uint8_t OTA_CMD_WIFI_CHECK = 0x01;
 static const uint8_t OTA_CMD_INSTALL = 0x02;
 static const uint8_t OTA_CMD_WIFI_SCAN = 0x03;
+static const uint8_t OTA_CMD_BLE_BEGIN = 0x04;
+static const uint8_t OTA_CMD_BLE_END = 0x05;
+static const uint8_t OTA_CMD_BLE_ABORT = 0x06;
 static const uint8_t OTA_WIFI_SCAN_MARKER = 0xE4;
+static const uint8_t OTA_BLE_DATA_MARKER = 0xE5;
 static const size_t OTA_PAYLOAD_PER_PACKET = 12;
 static const size_t OTA_MAX_PAYLOAD = 100;
 
@@ -129,7 +133,24 @@ String otaAvailableVersion;
 String otaAvailableUrl;
 String otaAvailableSha256;
 
+bool bleOtaActive = false;
+bool bleOtaShaActive = false;
+uint32_t bleOtaExpectedSize = 0;
+uint32_t bleOtaWritten = 0;
+uint8_t bleOtaExpectedSha[32] = {0};
+mbedtls_sha256_context bleOtaSha;
+int bleOtaLastPct = -1;
+
+static bool writeBleOtaChunk(uint32_t offset, const uint8_t *data, size_t len);
+static void abortBleOta(const char *status);
+
 static uint16_t le16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
+static uint32_t le32(const uint8_t *p) {
+  return (uint32_t)p[0] |
+         ((uint32_t)p[1] << 8) |
+         ((uint32_t)p[2] << 16) |
+         ((uint32_t)p[3] << 24);
+}
 static void put16le(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v & 0xFF); p[1] = (uint8_t)(v >> 8); }
 
 static void notifyStatus(const String &msg) {
@@ -186,6 +207,18 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     const size_t n = raw.length();
     if (!n) return;
     const uint8_t *p = (const uint8_t *)raw.c_str();
+
+    // BLE OTA firmware stream.
+    // Packet: 0xE5 + offsetLE32 + firmware bytes.
+    if (p[0] == OTA_BLE_DATA_MARKER) {
+      if (n < 6) {
+        notifyStatus("OTA:ERR=DATA");
+        return;
+      }
+      const uint32_t off = le32(&p[1]);
+      writeBleOtaChunk(off, &p[5], n - 5);
+      return;
+    }
 
     // OTA control frames: 7-byte header + up to 12 payload bytes.
     // Header: marker, command, flags, totalLE16, offsetLE16.
@@ -246,6 +279,11 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "PING") notifyStatus(String("PONG FW") + FW_VERSION);
+      return;
+    }
+
+    if (bleOtaActive) {
+      notifyStatus("OTA:BUSY");
       return;
     }
 
@@ -880,6 +918,122 @@ static void shaFinish(mbedtls_sha256_context &ctx, uint8_t digest[32]) {
   mbedtls_sha256_free(&ctx);
 }
 
+static void abortBleOta(const char *status) {
+  if (bleOtaActive) Update.abort();
+  if (bleOtaShaActive) {
+    mbedtls_sha256_free(&bleOtaSha);
+    bleOtaShaActive = false;
+  }
+  bleOtaActive = false;
+  bleOtaExpectedSize = 0;
+  bleOtaWritten = 0;
+  bleOtaLastPct = -1;
+  if (status) notifyStatus(status);
+}
+
+static bool beginBleOta(const uint8_t *payload, uint16_t len) {
+  if (!payload || len != 36) {
+    notifyStatus("OTA:ERR=BEGIN");
+    return false;
+  }
+
+  abortBleOta(nullptr);
+  const uint32_t total = le32(payload);
+  if (!total) {
+    notifyStatus("OTA:ERR=SIZE");
+    return false;
+  }
+
+  if (!Update.begin((size_t)total, U_FLASH)) {
+    notifyStatus("OTA:ERR=PARTITION");
+    return false;
+  }
+
+  memcpy(bleOtaExpectedSha, payload + 4, 32);
+  bleOtaExpectedSize = total;
+  bleOtaWritten = 0;
+  bleOtaLastPct = -1;
+  shaStart(bleOtaSha);
+  bleOtaShaActive = true;
+  bleOtaActive = true;
+
+  Serial.printf("BLE OTA begin size=%u heap=%u max=%u\n",
+                (unsigned)bleOtaExpectedSize, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  notifyStatus("OTA:BSTART");
+  return true;
+}
+
+static bool writeBleOtaChunk(uint32_t offset, const uint8_t *data, size_t len) {
+  if (!bleOtaActive || !data || !len) {
+    notifyStatus("OTA:ERR=DATA");
+    return false;
+  }
+
+  // A retry of an already acknowledged packet is harmless. This makes
+  // browser-side retries safe if a GATT response is lost.
+  if (offset < bleOtaWritten) {
+    if ((uint64_t)offset + len <= bleOtaWritten) return true;
+    abortBleOta("OTA:ERR=SEQ");
+    return false;
+  }
+
+  if (offset != bleOtaWritten ||
+      (uint64_t)bleOtaWritten + len > bleOtaExpectedSize) {
+    abortBleOta("OTA:ERR=SEQ");
+    return false;
+  }
+
+  const size_t wrote = Update.write(data, len);
+  if (wrote != len) {
+    abortBleOta("OTA:ERR=FLASH");
+    return false;
+  }
+
+  shaUpdate(bleOtaSha, data, len);
+  bleOtaWritten += (uint32_t)len;
+
+  const int pct = (int)(((uint64_t)bleOtaWritten * 100ULL) / bleOtaExpectedSize);
+  if (pct == 100 || pct >= bleOtaLastPct + 5) {
+    bleOtaLastPct = pct;
+    notifyStatus(String("OTA:P=") + pct);
+  }
+  return true;
+}
+
+static bool finishBleOta() {
+  if (!bleOtaActive || !bleOtaShaActive) {
+    notifyStatus("OTA:ERR=BEGIN");
+    return false;
+  }
+  if (bleOtaWritten != bleOtaExpectedSize) {
+    abortBleOta("OTA:ERR=SIZE");
+    return false;
+  }
+
+  uint8_t digest[32];
+  shaFinish(bleOtaSha, digest);
+  bleOtaShaActive = false;
+
+  if (memcmp(digest, bleOtaExpectedSha, 32) != 0) {
+    Update.abort();
+    bleOtaActive = false;
+    notifyStatus("OTA:ERR=HASH");
+    return false;
+  }
+
+  if (!Update.end(true)) {
+    bleOtaActive = false;
+    notifyStatus("OTA:ERR=FLASH");
+    return false;
+  }
+
+  bleOtaActive = false;
+  notifyStatus("OTA:DONE");
+  delay(650);
+  ESP.restart();
+  return true;
+}
+
 static bool checkOtaManifest() {
   notifyStatus(String("OTA:CUR=") + FW_VERSION);
   if (!connectOtaWifi()) return false;
@@ -1083,6 +1237,12 @@ static void processOtaCommand() {
     }
   } else if (cmd == OTA_CMD_INSTALL) {
     installOtaFirmware();
+  } else if (cmd == OTA_CMD_BLE_BEGIN) {
+    beginBleOta(otaBuf, len);
+  } else if (cmd == OTA_CMD_BLE_END) {
+    finishBleOta();
+  } else if (cmd == OTA_CMD_BLE_ABORT) {
+    abortBleOta("OTA:ABORT");
   } else {
     notifyStatus("OTA:ERR=CMD");
   }
@@ -1129,6 +1289,7 @@ void setup() {
 #endif
 
   BLEDevice::init(DEVICE_NAME);
+  BLEDevice::setMTU(185);
   bleServer = BLEDevice::createServer();
   bleServer->setCallbacks(new ServerCallbacks());
   BLEService *svc = bleServer->createService(SERVICE_UUID);
@@ -1157,9 +1318,9 @@ void setup() {
 
 void loop() {
   processOtaCommand();
-  if (!otaBusy) processTransaction();
+  if (!otaBusy && !bleOtaActive) processTransaction();
   const uint32_t now = millis();
-  if (!otaBusy && deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
+  if (!otaBusy && !bleOtaActive && deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
     lastAfrMs = now;
     sendAfrPacket();
   }
