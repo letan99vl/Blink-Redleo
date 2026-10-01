@@ -30,6 +30,9 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
+// Large 0xCD upload pacing: FW1.5 uses a fast first attempt; any retry falls
+// back to the proven conservative timing.
+let rawWritePacingMode='safe';
 
 const FEAT={
   'Idle and limit':'idle_limit',
@@ -410,12 +413,15 @@ function validateOutgoingPageFrame(tx,pg,payloadLen){
   if(tx[tx.length-2]!==sum||(((tx[tx.length-3]+sum)&255)!==255))throw new Error('WRITE FRAME sai checksum.');
   return true;
 }
-function bridgeRawWriteSafe(){
+function bridgeFirmwareAtLeast(reqMajor,reqMinor){
   const t=String(window.blinkBridgeFirmwareStatus||'');
   const m=t.match(/FW\s*(\d+)\.(\d+)/i);
   if(!m)return false;
   const major=Number(m[1]),minor=Number(m[2]);
-  return major>1||(major===1&&minor>=1);
+  return major>reqMajor||(major===reqMajor&&minor>=reqMinor);
+}
+function bridgeRawWriteSafe(){
+  return bridgeFirmwareAtLeast(1,1);
 }
 
 // ----- REDLEO conversions (EXE TrueFalse / macroReckon) -----
@@ -1184,21 +1190,24 @@ async function rawExchange(bytes,timeout=12000){
         pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
         await writeRawBleChunk(cur,pkt,reliableChunks);
 
-        // GATT write-with-response only confirms the platform write operation.
-        // Android WebView/Bluefy can still deliver callbacks to the ESP32 faster
-        // than its application task consumes a long 0xCD frame. A small,
-        // deterministic per-chunk gap prevents one missing assembler chunk,
-        // which otherwise leaves the bridge waiting forever for txGot==txExpected.
+        // FW1.5 hardened the BLE assembler. Use a quick first-path for normal
+        // saves, but keep the old conservative pacing for retries. This avoids
+        // paying the full reliability penalty on every successful write.
         if(isWritePage){
-          await new Promise(r=>setTimeout(r,8));
-          if(((off/RAW_CHUNK+1)%8)===0)await new Promise(r=>setTimeout(r,12));
+          if(rawWritePacingMode==='fast'){
+            await new Promise(r=>setTimeout(r,2));
+            if(((off/RAW_CHUNK+1)%10)===0)await new Promise(r=>setTimeout(r,4));
+          }else{
+            await new Promise(r=>setTimeout(r,8));
+            if(((off/RAW_CHUNK+1)%8)===0)await new Promise(r=>setTimeout(r,12));
+          }
         }else if(reliableChunks&&((off/RAW_CHUNK+1)%12===0)){
           await new Promise(r=>setTimeout(r,2));
         }
       }
-      // Give the bridge loop one scheduler turn to observe transactionReady
-      // before starting the ECU reply timeout.
-      if(isWritePage)await new Promise(r=>setTimeout(r,25));
+      // Fast path needs only a tiny scheduler yield. Safe retries keep the
+      // longer pause that was proven stable on older/mobile BLE stacks.
+      if(isWritePage)await new Promise(r=>setTimeout(r,rawWritePacingMode==='fast'?4:25));
       const txDoneNow=performance.now();
       const txMs=Math.round(txDoneNow-txStarted);
       const p=pending.get(id);
@@ -2226,8 +2235,15 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
         updateActiveMapIoText('⟳ ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
       }
-      taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
-      const rx=await rawExchange(tx,12000);
+      const fastFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5));
+      rawWritePacingMode=fastFirst?'fast':'safe';
+      taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+(fastFirst?' · FAST':''));
+      let rx;
+      try{
+        rx=await rawExchange(tx,12000);
+      }finally{
+        rawWritePacingMode='safe';
+      }
       const elapsed=Math.round(performance.now()-attemptStarted);
       if(hasWriteAck(rx,pg)){
         const meta=lastExchangeMeta;
@@ -2648,7 +2664,7 @@ async function writeFuelBank(bank){
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
     await writePageChecked(0x10|low|h,payload,false,1);
-    if(h===0)await new Promise(r=>setTimeout(r,120));
+    if(h===0)await new Promise(r=>setTimeout(r,60));
   }
 }
 async function readCurrentFuelBankRetry(bank){
