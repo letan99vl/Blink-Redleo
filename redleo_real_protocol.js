@@ -2479,10 +2479,10 @@ async function writeFeatureReal(id){
     const resumeLive=liveRunning;
     stopLiveLoop();
     try{
-      await acquireEcuTransaction(16000);
-      // We only use the lock here as a barrier against a live transaction that
-      // may already have started; rawExchange below acquires it normally.
-      busy=false;
+      // Live is stopped first. Wait for any already-running transaction to
+      // finish, then give the ECU a short quiet gap. rawExchange() itself owns
+      // the atomic transport mutex; never force-clear that mutex from here.
+      await waitForEcuIdle(16000);
       await new Promise(r=>setTimeout(r,260));
       await writePageChecked(pg,payload,false,1,'mainWrite');
       await new Promise(r=>setTimeout(r,360));
@@ -2499,7 +2499,6 @@ async function writeFeatureReal(id){
     }finally{
       // readFeaturePageReal sees Live already stopped, so it will not create its
       // own resume timer. Resume only once after the whole write+verify sequence.
-      if(busy)busy=false;
       if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(450);
     }
   }
