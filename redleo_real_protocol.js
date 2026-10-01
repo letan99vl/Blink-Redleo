@@ -74,22 +74,52 @@ const OLD_IAT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>i*6));
 const NEW_IAT_AXIS=Object.freeze(Array.from({length:11},(_,i)=>-14+i*7));
 const MAP_KPA_AXIS=Object.freeze(Array.from({length:11},(_,i)=>i*12));
 const V11_A2=Object.freeze({
-  LEN:272,
-  TPS:0,
-  RPM:14,
-  VAFR:74,
-  VECT:85,
-  VIAT:96,
-  VMAP:107,
-  IAT_INJ:118,
-  MAP_MOTOR:129,
-  CONFIG:140,
-  OPTION:151,
-  ECT_START:181,
-  GLOBAL_AUX:225,
-  EXTERNAL:234,
-  CHG:264
+  NAME:'A2-272',LEN:272,
+  TPS:0,RPM:14,VAFR:74,VECT:85,VIAT:96,VMAP:107,
+  IAT_INJ:118,MAP_MOTOR:129,CONFIG:140,OPTION:151,
+  ECT_START:181,GLOBAL_AUX:225,EXTERNAL:234,CHG:264
 });
+// Some ATE V11 builds expose the older 286-byte direct A2 serializer:
+// 14B TPS-voltage + 14B TPS-% + 60B RPM, then the same logical blocks.
+const V11_A2_286=Object.freeze({
+  NAME:'A2-286',LEN:286,
+  TPS_VOLT:0,TPS:14,RPM:28,VAFR:88,VECT:99,VIAT:110,VMAP:121,
+  IAT_INJ:132,MAP_MOTOR:143,CONFIG:154,OPTION:165,
+  ECT_START:195,GLOBAL_AUX:239,EXTERNAL:248,CHG:278
+});
+function v11AxesForLayout(data,L){
+  if(!(data instanceof Uint8Array))data=new Uint8Array(data||[]);
+  if(!L||data.length<L.RPM+60)return null;
+  const tpsRaw=data.slice(L.TPS,L.TPS+14);
+  const tpsPct=Array.from(tpsRaw,x=>Number(x)/2);
+  const rpmRaw=data.slice(L.RPM,L.RPM+60);
+  const rpmAxis=[];for(let i=0;i<60;i+=2)rpmAxis.push(u16be(rpmRaw,i)*20);
+  return {tpsRaw,tpsPct,rpmRaw,rpmAxis};
+}
+function detectV11A2Layout(data){
+  if(!(data instanceof Uint8Array))data=new Uint8Array(data||[]);
+  const candidates=[];
+  for(const L of [V11_A2,V11_A2_286]){
+    if(data.length<L.LEN)continue;
+    const A=v11AxesForLayout(data,L);
+    if(A&&validDynamicAxes(A.tpsPct,A.rpmAxis))candidates.push({L,A});
+  }
+  if(!candidates.length)return null;
+  // Exact wire length is authoritative when available.
+  const exact=candidates.find(x=>data.length===x.L.LEN);
+  if(exact)return exact;
+  if(candidates.length===1)return candidates[0];
+  // If a longer frame validates both layouts, prefer the layout whose known
+  // serializer length is closest to the received page length.
+  candidates.sort((a,b)=>Math.abs(data.length-a.L.LEN)-Math.abs(data.length-b.L.LEN));
+  return candidates[0];
+}
+function requireV11A2Layout(data){
+  const d=detectV11A2Layout(data);
+  if(d)return d;
+  const n=data&&data.length||0;
+  throw new Error('ATE V11 A2 '+n+'B nhưng không khớp trục TPS/RPM của layout 272B hoặc 286B đã xác minh.');
+}
 
 function firmwareNumbers(info=handshakeInfo){
   const txt=(String(info&&info.firmware||'')+' '+String(info&&info.ident||'')).toUpperCase();
@@ -1451,45 +1481,43 @@ function encodeFuelVerifyRaw(matrix){
 
 function parseV11A2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
-  // Direct A2 page, reconstructed from ATE 11.1 ECU->PC and PC->ECU serializers:
-  // TPS 14B + RPM 60B + 6 x 11B sensor/comp blocks + Config 11B = 151B,
-  // then Option 30B + ECT Start 44B + Alternate 9B + External 30B + CHG 8B.
-  if(data.length<V11_A2.CONFIG+11)throw new Error('ATE V11 page A2 thiếu dữ liệu · '+data.length+'B / cần tối thiểu 151B');
-  const tpsRaw=data.slice(V11_A2.TPS,V11_A2.TPS+14);
-  const tpsPct=Array.from(tpsRaw,x=>Number(x)/2);
-  const rpmRaw=data.slice(V11_A2.RPM,V11_A2.RPM+60);
-  const rpmAxis=[];for(let i=0;i<60;i+=2)rpmAxis.push(u16be(rpmRaw,i)*20);
-  const vAfrRaw=data.slice(V11_A2.VAFR,V11_A2.VAFR+11);
-  const vEct=Array.from(data.slice(V11_A2.VECT,V11_A2.VECT+11),decVolt);
-  const vIat=Array.from(data.slice(V11_A2.VIAT,V11_A2.VIAT+11),decVolt);
-  const vMap=Array.from(data.slice(V11_A2.VMAP,V11_A2.VMAP+11),decVolt);
-  const iatInj=Array.from(data.slice(V11_A2.IAT_INJ,V11_A2.IAT_INJ+11),x=>r2(Number(x)/20));
-  const mapMotor=Array.from(data.slice(V11_A2.MAP_MOTOR,V11_A2.MAP_MOTOR+11),x=>Number(x));
-  const configRaw=data.slice(V11_A2.CONFIG,V11_A2.CONFIG+11);
+  if(data.length<151)throw new Error('ATE V11 page A2 thiếu dữ liệu · '+data.length+'B');
+  const D=requireV11A2Layout(data),L=D.L;
+  const {tpsRaw,tpsPct,rpmRaw,rpmAxis}=D.A;
+  const vAfrRaw=data.slice(L.VAFR,L.VAFR+11);
+  const vEct=Array.from(data.slice(L.VECT,L.VECT+11),decVolt);
+  const vIat=Array.from(data.slice(L.VIAT,L.VIAT+11),decVolt);
+  const vMap=Array.from(data.slice(L.VMAP,L.VMAP+11),decVolt);
+  const iatInj=Array.from(data.slice(L.IAT_INJ,L.IAT_INJ+11),x=>r2(Number(x)/20));
+  const mapMotor=Array.from(data.slice(L.MAP_MOTOR,L.MAP_MOTOR+11),x=>Number(x));
+  const configRaw=data.slice(L.CONFIG,L.CONFIG+11);
   const autoClutch=decodeV11AutoClutch(configRaw);
   const C={
     tpsRaw,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,iatInj,mapMotor,configRaw,autoClutch,
-    v11PrefixLength:V11_A2.OPTION,raw:data.slice()
+    v11PrefixLength:L.OPTION,v11A2Layout:L.NAME,v11A2LayoutDef:L,raw:data.slice()
   };
-  if(data.length>=V11_A2.LEN){
-    C.optionRawV11=data.slice(V11_A2.OPTION,V11_A2.OPTION+30);
+  if(Number.isFinite(L.TPS_VOLT)){
+    const vr=data.slice(L.TPS_VOLT,L.TPS_VOLT+14);
+    C.tpsVoltRaw=vr;C.tpsVolt=Array.from(vr,decVolt);
+  }
+  if(data.length>=L.LEN){
+    C.optionRawV11=data.slice(L.OPTION,L.OPTION+30);
     C.ateOptions=decodeV11Options20(C.optionRawV11,C.vEct);
-    C.ectStartRaw=data.slice(V11_A2.ECT_START,V11_A2.ECT_START+44);
+    C.ectStartRaw=data.slice(L.ECT_START,L.ECT_START+44);
     C.ectStart=decodeV11EctStart44(C.ectStartRaw);
-    C.globalAuxRaw=data.slice(V11_A2.GLOBAL_AUX,V11_A2.GLOBAL_AUX+9);
+    C.globalAuxRaw=data.slice(L.GLOBAL_AUX,L.GLOBAL_AUX+9);
     C.alternateRaw=C.globalAuxRaw.slice();
     C.alternateTable=[Array.from(C.alternateRaw,x=>Number(x))];
-    C.externalRaw=data.slice(V11_A2.EXTERNAL,V11_A2.EXTERNAL+30);
+    C.externalRaw=data.slice(L.EXTERNAL,L.EXTERNAL+30);
     C.external=[Array(15).fill(0),Array(15).fill(0)];
     for(let c=0;c<15;c++)C.external[1][c]=decV11ExtIgn(C.externalRaw[c]);
     for(let c=0;c<15;c++)C.external[0][c]=decV11ExtPct(C.externalRaw[15+c]);
-    C.chgRaw=data.slice(V11_A2.CHG,V11_A2.CHG+8);
+    C.chgRaw=data.slice(L.CHG,L.CHG+8);
     C.chg=decodeV11Chg8(C.chgRaw);
-    C.v11A2KnownLength=V11_A2.LEN;
+    C.v11A2KnownLength=L.LEN;
   }
   return C;
 }
-
 function parseModernA2Prefix(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
   // V10 / Ultra original parser: 14 one-byte TPS breakpoints (raw/2),
