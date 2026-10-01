@@ -1,0 +1,72 @@
+name: Build ESP32 Bridge Firmware
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - '.github/workflows/build-esp32-firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+
+      - name: Prepare sketch
+        run: |
+          mkdir -p build-sketch/BLINK_FW
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
+
+      - name: Compile OTA app
+        run: |
+          mkdir -p build-out
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
+            --output-dir build-out \
+            build-sketch/BLINK_FW
+          test -s build-out/BLINK_FW.ino.bin
+
+      - name: Update OTA binary and manifest
+        run: |
+          cp build-out/BLINK_FW.ino.bin ota/blink_esp32.bin
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          bin_path = Path('ota/blink_esp32.bin')
+          manifest_path = Path('ota/manifest.json')
+          sha = hashlib.sha256(bin_path.read_bytes()).hexdigest()
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest['version'] = '1.5'
+          manifest['url'] = 'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin'
+          manifest['sha256'] = sha
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print('FW 1.5 sha256', sha)
+          PY
+
+      - name: Commit OTA firmware
+        run: |
+          if git diff --quiet -- ota/blink_esp32.bin ota/manifest.json; then
+            echo "OTA firmware already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ota/blink_esp32.bin ota/manifest.json
+          git commit -m "Build ESP32 bridge FW 1.5 OTA binary"
+          git push
