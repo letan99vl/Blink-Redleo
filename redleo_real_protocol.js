@@ -1913,7 +1913,13 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
   const tx=pageFrame(pg,payload);
   validateOutgoingPageFrame(tx,pg,payload.length);
   if(tx.length>RAW_CHUNK&&!bridgeRawWriteSafe()){
-    throw new Error('ESP32 bridge chưa xác nhận FW1.1+ an toàn cho RAW multi-chunk. Hãy nạp firmware bridge mới và kết nối lại; PING phải hiện FW1.1 hoặc mới hơn.');
+    // Self-heal a missed PONG notification before blocking a safe multi-chunk write.
+    if(typeof window.ensureBlinkBridgeFirmwareStatus==='function'){
+      try{await window.ensureBlinkBridgeFirmwareStatus(3)}catch(_e){}
+    }
+    if(!bridgeRawWriteSafe()){
+      throw new Error('ESP32 bridge chưa xác nhận FW1.1+ an toàn cho RAW multi-chunk. Đã thử PING lại nhưng chưa nhận được PONG FW...; hãy ngắt/kết nối BLE rồi thử lại.');
+    }
   }
   let lastErr=null;
   for(let attempt=0;attempt<=retries;attempt++){
