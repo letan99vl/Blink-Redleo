@@ -1388,7 +1388,9 @@ function parseCurrentFuelFrame(a,bank){
       const uiRow=13-wireRow;
       for(let c=0;c<30;c++)out[uiRow][c]=r2(f[p++]/20);
     }
-    return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,f.length-2)};
+    // Verify only the 420 map-cell bytes consumed above. Some REDLEO V8
+    // replies carry an extra protocol byte before checksum/tail.
+    return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,1+420)};
   }
 
   // V9+ fuel uses uint16 BE cells: No.1=0x12, No.2=0x14, No.3=0x16, No.4=0x18.
@@ -1405,7 +1407,10 @@ function parseCurrentFuelFrame(a,bank){
       out[uiRow][c]=decOilTab(raw);
     }
   }
-  return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,f.length-2)};
+  // Verify exactly the 420 x uint16 map cells consumed above (840 bytes).
+  // REDLEO 9.1 can return one additional protocol byte before checksum/tail;
+  // it is not part of the fuel table and must not enter byte-for-byte verify.
+  return {frame:f,matrix:out,page:pg,rawPayload:f.slice(1,1+840)};
 }
 function encodeFuelVerifyRaw(matrix){
   if(!Array.isArray(matrix)||matrix.length!==14||matrix.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('MAP verify cần ma trận 14x30.');
