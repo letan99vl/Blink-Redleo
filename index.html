@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.39';
+  window.BLINK_PB_VERSION = '3.40';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1817,8 +1817,25 @@ function cloneMatrix(m){return m.map(row=>row.map(v=>v==null?null:Number(v)));}
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
-  if(!state.ecuConnected){alert('Hãy kết nối ECU trước.');return false;}
-  if(state.ecuPhase!=='live'){alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');return false;}
+
+  // Manual SAVE must remain clickable even while a 3-run session is active.
+  // Internal 3-run writes use skipConfirm=true and continue normally.
+  if(state.threeRun.active&&!skipConfirm){
+    const ok=confirm(
+      'MODE CHẠY 3 LƯỢT đang hoạt động (lượt '+state.threeRun.pass+'/3).\n\n'+
+      'Để GHI HIỆN TẠI bằng tay, app phải hủy phiên 3 lượt đang chạy để tránh hai luồng cùng ghi ECU.\n\n'+
+      'HỦY PHIÊN 3 LƯỢT VÀ CHUYỂN SANG GHI TAY?'
+    );
+    if(!ok){
+      showEcuNotice('info','GHI TAY ĐANG KHÓA BỞI MODE 3 LƯỢT','Hãy kết thúc/hủy phiên 3 lượt nếu muốn ghi MAP thủ công.',4200);
+      return false;
+    }
+    resetThreeRunCancelled('ĐÃ HỦY MODE 3 LƯỢT · CHUYỂN SANG GHI TAY');
+  }
+
+  setEcuTaskStatus('loading','ĐÃ NHẬN NÚT LƯU HIỆN TẠI · ĐANG KIỂM TRA...');
+  if(!state.ecuConnected){showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi ghi.',0);return false;}
+  if(state.ecuPhase!=='live'){showEcuNotice('error','ECU ĐANG BẬN','Trạng thái hiện tại: '+state.ecuPhase+'. Chờ Live ổn định rồi thử lại.',0);return false;}
   if(!await ensureActiveEcuAxes(true))return false;
 
   let min=Infinity,max=-Infinity;
@@ -2065,7 +2082,14 @@ function threeRunStatusText(){
 }
 function renderThreeRunUi(){
   const isThree=state.mode==='three';$('threeRunPanel').hidden=!isThree;$('recordBtn').style.display=isThree?'none':'';$('clearMeasured').style.display=isThree?'none':'';
-  $('applyCorrectedBtn').disabled=state.threeRun.active;$('writeMapBtn').disabled=state.threeRun.active;$('readMapBtn').disabled=state.threeRun.active;$('mapSelect').disabled=state.threeRun.active||(state.ecuPhase==='write1'||state.ecuPhase==='write2');
+  $('applyCorrectedBtn').disabled=state.threeRun.active;
+  // Do not hard-disable READ/SAVE during 3-run: a disabled HTML button cannot
+  // emit a click, which previously made LƯU HIỆN TẠI look completely dead.
+  // The handlers now show a clear safety message/prompt instead.
+  $('writeMapBtn').disabled=$('writeMapBtn').dataset.profileBlocked==='1';
+  $('readMapBtn').disabled=$('readMapBtn').dataset.profileBlocked==='1';
+  $('writeMapBtn').textContent=state.threeRun.active?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
+  $('mapSelect').disabled=state.threeRun.active||(state.ecuPhase==='write1'||state.ecuPhase==='write2');
   $('threeRunStartBtn').disabled=state.threeRun.active;$('threeRunCancelBtn').disabled=!state.threeRun.active;$('threeRunCancelBtn').textContent=state.threeRun.cancelRequested?'ĐANG HỦY...':'HỦY PHIÊN';$('threeRunStepBtn').disabled=!state.threeRun.active||state.threeRun.phase==='writing'||state.threeRun.phase==='error'||state.threeRun.cancelRequested;
   if(state.threeRun.active){if(state.threeRun.phase==='paused')$('threeRunStepBtn').textContent='TIẾP TỤC GHI LƯỢT '+state.threeRun.pass;else if(state.threeRun.pass<3)$('threeRunStepBtn').textContent='KẾT THÚC LƯỢT '+state.threeRun.pass+' → TÍNH + GHI ECU';else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT 3 → TÍNH + GHI FINAL';}else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT';
   $('threeRunStatus').innerHTML=threeRunStatusText();
