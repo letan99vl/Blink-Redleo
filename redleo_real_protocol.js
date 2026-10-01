@@ -239,6 +239,18 @@ function setProfileDisabled(el,blocked,reason=''){
     if(el.title&&el.title.includes('ECU Profile'))el.title='';
   }
 }
+const PROFILE_FEATURES=Object.freeze({
+  LEGACY_V8:new Set(['inj_ve','inj_degree','ign_degree','ign_time']),
+  MODERN_V9:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map']),
+  MODERN_V10:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','v_ect','v_iat','v_map']),
+  MODERN_V11:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map','ect_inj','ect_ign','map_inj','iat_inj','ect_start','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_shift','auto_clutch','chg_params','ate_options','alternate_table','v_ect','v_iat','v_map']),
+  LEGACY_PROBE:new Set(),
+  UNKNOWN:new Set()
+});
+function profileSupportsFeature(id,p=ecuProfile){
+  const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
+  return set.has(id);
+}
 function applyProfileUi(){
   const p=ecuProfile||ECU_PROFILE_DEFS.UNKNOWN;
   document.querySelectorAll('[data-ecuprofile]').forEach(e=>e.textContent=p.label);
@@ -273,11 +285,12 @@ function applyProfileUi(){
   const canRedWrite=mainFeatureIds.has(activeFeatureId)
     ?mainFeatureReady(activeFeatureId,(typeof state!=='undefined'&&state.activeMap)||1)
     :profileCap('fullWrite');
-  setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite,reason);
+  const activeFeatureSupported=!activeFeatureId||profileSupportsFeature(activeFeatureId,p);
+  setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite||!activeFeatureSupported,reason);
   setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
-  setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead'),reason);
-  setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead'),reason);
-  setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead'),reason);
+  setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead')||!profileSupportsFeature('inj_ve',p),reason);
+  setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead')||!activeFeatureSupported,reason);
+  setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead')||!profileSupportsFeature('idle_limit',p),reason);
 
   document.querySelectorAll('[data-ecucmd]').forEach(b=>{
     const c=b.dataset.ecucmd;
@@ -303,20 +316,14 @@ function applyProfileUi(){
     setProfileDisabled(b,blocked,blocked?'ECU Profile: '+p.label+' · ECU_MODE này chỉ có một MAP.':'');
   });
 
-  // V8 and V11 MAIN TUNE intentionally expose only page families whose exact
-  // page mapping, byte width and unit conversion were verified from their EXEs.
-  const limitedMain=new Set(['inj_ve','idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
+  // Adapt the visible editor cards to the exact parser/writer surface verified
+  // for each ECU profile. Unsupported cards are hidden instead of opening an
+  // editor that can only fail after the user taps READ.
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
-    const limited=(p.family==='v8'||p.family==='v11');
-    const v11Only=(id==='auto_shift'||id==='afr_map'||id==='chg_params'||id==='ate_options'||id==='ect_start'||id==='alternate_table');
-    const blocked=(limited&&!limitedMain.has(id))||(v11Only&&p.family!=='v11')||(id==='auto_clutch'&&p.family==='v8');
-    setProfileDisabled(el,blocked,blocked?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
-    // Clean profile-specific UI: V11-only cards do not appear on REDLEO V8/V9/V10.
-    if(v11Only)el.style.display=p.family==='v11'?'':'none';
-    // Spare is a pre-9.x concept and is not part of the verified ATE V11 UI.
-    if(id==='spare'&&p.family==='v11')el.style.display='none';
-    else if(id==='spare'&&p.family!=='v11')el.style.display='';
+    const supported=profileSupportsFeature(id,p);
+    setProfileDisabled(el,!supported,!supported?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
+    el.style.display=supported?'':'none';
   });
 }
 function setEcuProfile(p){
