@@ -679,7 +679,7 @@ static bool otaNetworkPreflight() {
 static bool fetchManifest(String &version, String &url, String &sha256) {
   otaManifestHttpCode = 0;
 
-  for (uint8_t attempt = 1; attempt <= 2; ++attempt) {
+  for (uint8_t attempt = 1; attempt <= 1; ++attempt) {
     WiFiClientSecure client;
     client.setInsecure();
     client.setHandshakeTimeout(8);
