@@ -6,7 +6,11 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-<title>BLINK TL · P.b v1.2</title>
+<script>
+  // BLINK PB VERSION — edit only this value for the next release.
+  window.BLINK_PB_VERSION = '3.31';
+  document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
+</script>
 <meta name="theme-color" content="#07111d" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -824,7 +828,7 @@
 
   <section id="dashboardScreen" class="screen active scrollScreen">
     <div class="dashTop">
-      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v3.30</span></div></div>
+      <div><div class="logoLockup"><b>BLINK</b> TL</div><div class="logoSub">ECU PERFORMANCE · <span id="appBuildLabel">P.b v—</span></div></div>
       <div class="mapChip"><span>MAP</span><select id="mapSelect"><option value="1">NO.1</option><option value="2">NO.2</option><option value="3">NO.3</option><option value="4">NO.4</option></select></div>
     </div>
     <div class="dashConnect"><button id="connectEcuBtn" class="primary">KẾT NỐI ECU BLINK</button><button id="disconnectEcuBtn" class="ghost">NGẮT</button><button id="fullscreenBtn" class="ghost" type="button">⛶</button></div>
@@ -3471,6 +3475,14 @@ updateMapControls();
 })();
 </script>
 
-<script src="redleo_real_protocol.js?v=3.29"></script>
+<script>
+  (function(){
+    const v=String(window.BLINK_PB_VERSION||'0');
+    const label=document.getElementById('appBuildLabel');
+    if(label)label.textContent='P.b v'+v;
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v);
+    document.write('<script src="'+src+'"><\/script>');
+  })();
+</script>
 </body>
 </html>
