@@ -257,6 +257,8 @@ function applyProfileUi(){
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
   }
   document.body.dataset.ecuProfile=p.key||'UNKNOWN';
+  const ateLiveDiag=document.getElementById('ateV11LiveDiag');
+  if(ateLiveDiag)ateLiveDiag.style.display=p.family==='v11'?'':'none';
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
@@ -757,17 +759,28 @@ function parseLiveReal(a){
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
-  // Verified directly from original V10/Ultra and ATE V11 proRT_Dat:
-  // actual injection SUM is byte 14..15 and uses the raw/640 live conversion.
-  if((ecuProfile&&ecuProfile.key==='MODERN_V10')||isV11Profile())state.live.pw=u16be(a,14)/640;
+  // Original EXE live paths are profile-specific:
+  // V10/Ultra OilSum = Rd2Byte(14)/32 -> Oil_EcuToPc(false) = raw/640.
+  // ATE V11 OilSum = Rd2Byte(14)/32 -> __Inj_PcECU_64us(false) = raw/500.
+  if(ecuProfile&&ecuProfile.key==='MODERN_V10')state.live.pw=u16be(a,14)/640;
+  else if(isV11Profile())state.live.pw=u16be(a,14)/500;
   else state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
   if(isV11Profile()){
-    // Keep the original ATE V11 live breakdown available for diagnostics/UI.
-    // These are all direct proRT_Dat fields with the same live injection codec.
-    state.live.injTab=u16be(a,16)/640;
-    state.live.injEct=u16be(a,18)/640;
-    state.live.injIat=u16be(a,20)/640;
-    state.live.injMap=u16be(a,22)/640;
+    // Directly verified from ATE V11 UartDatRx.proRT_Dat.
+    state.live.injTab=u16be(a,16)/500;
+    state.live.injEct=u16be(a,18)/500;
+    state.live.injIat=u16be(a,20)/500;
+    state.live.injMap=u16be(a,22)/500;
+    state.live.ecuAfrV=liveVolt10(u16be(a,12));
+    state.live.ignTab=decLiveIgn(u16be(a,30));
+    state.live.ignEct=decLiveIgn(u16be(a,32));
+    state.live.ignAfr=decLiveIgn(u16be(a,34));
+    // V11 proRT_Dat: Rd2Byte(36) - Refit_Datum(128) + 64, then __Ign_To_PcEcu(false).
+    state.live.ignExt=r2((u16be(a,36)-128)*0.28125);
+    state.live.motorSum=a[38]*2;
+    state.live.motorTab=a[39]*2;
+    state.live.motorAuto=a[40]-128;
+    state.live.motorMap=a[41];
   }
   state.live.ign=decLiveIgn(u16be(a,28));
   state.live.batt=u16be(a,42)*55/1024;
@@ -792,6 +805,26 @@ function parseLiveReal(a){
   if(Number.isFinite(state.live.ign))put('ignLive',r1(state.live.ign).toFixed(1)+'°');
   if(Number.isFinite(state.live.batt))put('battLive',r1(state.live.batt).toFixed(1)+' V');
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
+  if(isV11Profile()){
+    const ms=v=>Number.isFinite(v)?Number(v).toFixed(3)+' ms':'—';
+    const deg=v=>Number.isFinite(v)?Number(v).toFixed(2)+'°':'—';
+    const num=v=>Number.isFinite(v)?String(Math.round(Number(v))):'—';
+    put('ateLiveInjSum',ms(state.live.pw));
+    put('ateLiveInjTab',ms(state.live.injTab));
+    put('ateLiveInjEct',ms(state.live.injEct));
+    put('ateLiveInjIat',ms(state.live.injIat));
+    put('ateLiveInjMap',ms(state.live.injMap));
+    put('ateLiveIgnSum',deg(state.live.ign));
+    put('ateLiveIgnTab',deg(state.live.ignTab));
+    put('ateLiveIgnEct',deg(state.live.ignEct));
+    put('ateLiveIgnAfr',deg(state.live.ignAfr));
+    put('ateLiveIgnExt',deg(state.live.ignExt));
+    put('ateLiveMotorSum',num(state.live.motorSum));
+    put('ateLiveMotorTab',num(state.live.motorTab));
+    put('ateLiveMotorAuto',num(state.live.motorAuto));
+    put('ateLiveMotorMap',num(state.live.motorMap));
+    put('ateLiveEcuO2V',Number.isFinite(state.live.ecuAfrV)?state.live.ecuAfrV.toFixed(3)+' V':'—');
+  }
   try{updateLive();highlightCurrent();syncMirrors();}catch(_e){}
 }
 function installAfrListener(){
