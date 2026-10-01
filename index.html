@@ -2971,6 +2971,12 @@ window.addEventListener('beforeunload',save);
     if(kind==='error')showEcuNotice('error','OTA ESP32',text,0);
   }
 
+  function setOtaControlsBusy(busy){
+    const scan=$('otaScanBtn'),check=$('otaCheckBtn');
+    if(scan)scan.disabled=!!busy;
+    if(check)check.disabled=!!busy;
+  }
+
   function renderOtaWifiNetworks(){
     const sel=$('otaSsid');if(!sel)return;
     const selected=sel.value;
@@ -3021,6 +3027,7 @@ window.addEventListener('beforeunload',save);
       if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
       otaWifiNetworks=[];otaWifiRx.clear();
       const sel=$('otaSsid');if(sel)sel.innerHTML='<option value="">Đang quét Wi-Fi...</option>';
+      setOtaControlsBusy(true);
       setOtaInfo('ESP32 đang quét các mạng Wi-Fi gần đây...');
       await writeOtaCommand(OTA_WIFI_SCAN,new Uint8Array(0));
     }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
@@ -3035,6 +3042,7 @@ window.addEventListener('beforeunload',save);
       setOtaInfo('ESP32 đang quét Wi-Fi...');
     }else if(text.startsWith('OTA:SCAN_DONE=')){
       const n=Number(text.slice(14))||0;
+      setOtaControlsBusy(false);
       renderOtaWifiNetworks();
       setOtaInfo(n?'Đã tìm thấy '+n+' mạng. Chọn Wi-Fi rồi nhập mật khẩu.':'Không tìm thấy mạng Wi-Fi nào.');
     }else if(text==='OTA:WIFI'){
@@ -3042,18 +3050,22 @@ window.addEventListener('beforeunload',save);
     }else if(text==='OTA:WIFI_OK'){
       setOtaInfo('Wi-Fi OK · đang đọc manifest trên GitHub...');
     }else if(text==='OTA:WIFI_FAIL'){
+      setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
       setOtaInfo('Không kết nối được Wi-Fi. Kiểm tra SSID/mật khẩu.','error');
     }else if(text.startsWith('OTA:HTTP=')){
+      setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
       const code=text.slice(9);
       setOtaInfo('ESP32 không tải được manifest · HTTP/TLS '+code+'.','error');
     }else if(text.startsWith('OTA:NEW=')){
+      setOtaControlsBusy(false);
       const v=text.slice(8)||'--';
       otaUpdateReady=true;if(next)next.value=v;if(btn)btn.disabled=false;
       setOtaInfo('Có firmware mới '+v+'. Có thể bấm CẬP NHẬT NGAY.');
       showEcuNotice('info','CÓ FIRMWARE ESP32 MỚI','Phiên bản '+v+' đã sẵn sàng để cập nhật.');
     }else if(text==='OTA:NO_UPDATE'){
+      setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;if(next)next.value='Đã mới nhất';
       setOtaInfo('ESP32 đang dùng phiên bản mới nhất.');
     }else if(text==='OTA:START'){
@@ -3068,8 +3080,9 @@ window.addEventListener('beforeunload',save);
       setOtaInfo('Cập nhật xong. ESP32 đang khởi động lại...');
       setEcuTaskStatus('success','UPDATE ESP32 · XONG');
     }else if(text==='OTA:BUSY'){
-      setOtaInfo('ESP32 đang bận. Thử lại sau.','error');
+      setOtaInfo('ESP32 đang xử lý lệnh OTA hiện tại...');
     }else if(text.startsWith('OTA:ERR=')){
+      setOtaControlsBusy(false);
       otaUpdateReady=false;if(btn)btn.disabled=true;
       const code=text.slice(8);
       const msg={
@@ -3106,6 +3119,7 @@ window.addEventListener('beforeunload',save);
       const payload=new Uint8Array(1+sb.length+pb.length);
       payload[0]=sb.length;payload.set(sb,1);payload.set(pb,1+sb.length);
       otaUpdateReady=false;$('otaInstallBtn').disabled=true;$('otaNewVersion').value='--';$('otaProgress').value=0;
+      setOtaControlsBusy(true);
       setOtaInfo('Đang gửi Wi-Fi sang ESP32...');
       await writeOtaCommand(OTA_WIFI_CHECK,payload);
     }catch(e){setOtaInfo(String(e&&e.message||e),'error');}
