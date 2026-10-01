@@ -16,6 +16,7 @@ let installedChar=null;
 let busy=false;
 let liveTimer=null;
 let liveRunning=false;
+let liveResumeTimer=null;
 let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
 let sensorCalCache=null;     // populated by lightweight A2 page read
@@ -894,9 +895,26 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
-  if(liveRunning)return;liveRunning=true;clearInterval(liveTimer);liveTimer=setInterval(()=>{liveOnce();},180);
+  if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
+  if(liveRunning)return;
+  liveRunning=true;
+  clearInterval(liveTimer);
+  liveTimer=setInterval(()=>{liveOnce();},180);
 }
-function stopLiveLoop(){liveRunning=false;if(liveTimer){clearInterval(liveTimer);liveTimer=null;}}
+function stopLiveLoop(){
+  liveRunning=false;
+  if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
+  // Cancel a delayed restart left by the previous read/write. Without this,
+  // that stale timer can restart 0x69 in the middle of the next manual command.
+  if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
+}
+function scheduleLiveResume(ms=350){
+  if(liveResumeTimer)clearTimeout(liveResumeTimer);
+  liveResumeTimer=setTimeout(()=>{
+    liveResumeTimer=null;
+    if(cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused)startLiveLoop();
+  },ms);
+}
 
 async function pauseForOta(){
   otaPaused=true;
@@ -1035,6 +1053,18 @@ async function waitForEcuIdle(maxWait=16000){
     await new Promise(r=>setTimeout(r,40));
   }
 }
+async function acquireEcuTransaction(maxWait=16000){
+  const t0=performance.now();
+  while(true){
+    if(!cmdChar()||!mapChar())throw new Error('BLE đã ngắt trong khi chờ ECU');
+    // Check + set occurs in one JS turn before any await, so only one caller
+    // can acquire the transport. This closes the race between Live 0x69 and
+    // READ/WRITE buttons that existed in waitForEcuIdle()+busy=true.
+    if(!busy){busy=true;return true;}
+    if(performance.now()-t0>maxWait)throw new Error('ECU bận quá lâu; transaction trước chưa hoàn tất');
+    await new Promise(r=>setTimeout(r,25));
+  }
+}
 
 async function writeRawBleChunk(cur,pkt,reliable){
   // ESP32 bridge assembles RAW chunks strictly by offset. For multi-chunk frames
@@ -1061,8 +1091,7 @@ async function rawExchange(bytes,timeout=12000){
   }
   if(!installRawListener())throw new Error('Chưa có BLE MAP characteristic');
   const ch=cmdChar();if(!ch)throw new Error('Chưa kết nối ECU Blink BLE');
-  await waitForEcuIdle(Math.max(4000,timeout+1500));
-  busy=true;
+  await acquireEcuTransaction(Math.max(4000,timeout+1500));
   const myEpoch=transportEpoch;
   try{
     const id=(sid=(sid%250)+1),data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),total=data.length;
@@ -1610,7 +1639,7 @@ function parseA2Data(data){
   for(let c=0;c<15;c++)C.external[0][c]=decExtPct(data[118+c]);
   return C;
 }
-async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000,showUi=true){
+async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000,showUi=true,validateRx=null){
   pg&=255;
   const resumeLive=liveRunning;
   stopLiveLoop();
@@ -1626,6 +1655,10 @@ async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeo
       try{
         if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · LẦN '+attempt+'/'+attempts);
         const rx=await rawExchange(req5(0x9A,pg),replyTimeout);
+        if(typeof validateRx==='function'){
+          const ok=validateRx(rx);
+          if(ok===false)throw new Error(label+' · RX chưa đạt kiểm tra frame');
+        }
         return rx;
       }catch(e){
         lastErr=e;
@@ -1640,34 +1673,42 @@ async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeo
     throw lastErr||new Error('ECU không trả lời page 0x'+pg.toString(16).toUpperCase());
   }finally{
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
-      setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},320);
+      scheduleLiveResume(380);
     }
   }
 }
 
-async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
-  requireProfile('pageRead','Đọc page 0x9A');
+function selectDirectPageFrame(rx,pg,minData=0){
   pg&=255;
-  if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  const rx=await exchangePage9A(pg,label,3,260,10000,showUi);
-
-  // REDLEO legacy/most pages: [page + data + checksum + complement(page)].
   let f=findValidCommandFrame(rx,pg,minData+3);
   let trailer=2,frameFormat='reply-checksum';
-
-  // ATE V11 direct grid pages can instead be [page + data + comp(sum) + sum + len].
-  // RX 424B for a 420-cell IGN/INJ-angle table is the exact expected size.
   if(!f&&isV11Profile()){
     f=findValidLengthPageFrame(rx,pg,minData);
     if(f){trailer=3;frameFormat='page-length';}
   }
-
-  if(!f){
-    const head=Array.from(rx.slice(0,8),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    const tail=Array.from(rx.slice(Math.max(0,rx.length-8)),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-    throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' không có frame hợp lệ · RX '+rx.length+'B · head '+head+' · tail '+tail);
-  }
-
+  if(!f)return null;
+  const dataLen=f.length-1-trailer;
+  if(dataLen<minData)return null;
+  return {f,trailer,frameFormat,dataLen};
+}
+function directPageFrameError(rx,pg,label,minData){
+  const head=Array.from(rx.slice(0,8),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  const tail=Array.from(rx.slice(Math.max(0,rx.length-8)),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  return new Error(label+' · page 0x'+(pg&255).toString(16).toUpperCase()+' frame chưa hợp lệ · RX '+rx.length+'B · cần data ≥'+minData+'B · head '+head+' · tail '+tail);
+}
+async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
+  requireProfile('pageRead','Đọc page 0x9A');
+  pg&=255;
+  if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
+  const validate=rx=>{
+    const s=selectDirectPageFrame(rx,pg,minData);
+    if(!s)throw directPageFrameError(rx,pg,label,minData);
+    return true;
+  };
+  const rx=await exchangePage9A(pg,label,3,300,12000,showUi,validate);
+  const selected=selectDirectPageFrame(rx,pg,minData);
+  if(!selected)throw directPageFrameError(rx,pg,label,minData);
+  const {f,trailer,frameFormat}=selected;
   const data=f.slice(1,-trailer);
   if(data.length<minData)throw new Error(label+' · page 0x'+pg.toString(16).toUpperCase()+' thiếu dữ liệu '+data.length+'B / '+minData+'B');
   pageCache.set(pg,data.slice());
@@ -1973,13 +2014,15 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   // First INJ VE read after a fresh BLE session is measurably slower on this ECU.
   // Give the ECU enough quiet/compute time and keep the browser timeout longer
   // than the bridge UART timeout. Once one read succeeds, return to normal timing.
+  const fuelValidate=rx=>{parseCurrentFuelFrame(rx,bank);return true;};
   const rx=await exchangePage9A(
     pg,
     'MAP NO.'+bank,
-    first ? (isV8?3:4) : 2,
-    first ? (isV8?450:900) : 260,
+    first ? (isV8?3:4) : 3,
+    first ? (isV8?450:900) : 320,
     18000,
-    showUi
+    showUi,
+    fuelValidate
   );
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
@@ -2060,16 +2103,19 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
     }
   }
   let lastErr=null;
-  for(let attempt=0;attempt<=retries;attempt++){
+  const maxRetries=isV11Profile()?Math.max(retries,2):retries;
+  for(let attempt=0;attempt<=maxRetries;attempt++){
     try{
-      const rx=await rawExchange(tx,10000);
+      const rx=await rawExchange(tx,12000);
       if(hasWriteAck(rx,pg))return true;
       throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
     }catch(e){
       lastErr=e;
-      if(attempt>=retries)break;
+      if(attempt>=maxRetries)break;
       log('retry write page 0x'+pg.toString(16).toUpperCase(),attempt+1,String(e&&e.message||e));
-      await new Promise(r=>setTimeout(r,220));
+      // V11 flash/page commit can be slower than a normal live transaction.
+      // Re-sending the same full page is idempotent, so retry after a real quiet gap.
+      await new Promise(r=>setTimeout(r,420+attempt*220));
     }
   }
   throw lastErr||new Error('Ghi page 0x'+pg.toString(16).toUpperCase()+' thất bại');
@@ -2430,18 +2476,32 @@ async function writeFeatureReal(id){
       case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;enc=isV11Profile()?encMainIgn:encEctIgn;payload=encodeRowsByte(m,enc);break;
       case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;enc=encMapInj;payload=encodeRowsByte(m,enc);break;
     }
-    await writePageChecked(pg,payload,false,1,'mainWrite');
-    await new Promise(r=>setTimeout(r,220));
-    let R;
-    try{R=await readFeaturePageReal(id,bank,true);}
-    catch(e){throw new Error('ECU đã ACK ghi '+id+' nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
-    const verifyPayload=encodeRowsByte(R.matrix,enc);
-    if(verifyPayload.length!==payload.length)throw new Error('VERIFY '+id+' sai kích thước');
-    for(let i=0;i<payload.length;i++){
-      if(verifyPayload[i]!==payload[i])throw new Error('VERIFY '+id+' không khớp tại byte '+i+' · ghi '+payload[i]+' đọc '+verifyPayload[i]);
+    const resumeLive=liveRunning;
+    stopLiveLoop();
+    try{
+      await acquireEcuTransaction(16000);
+      // We only use the lock here as a barrier against a live transaction that
+      // may already have started; rawExchange below acquires it normally.
+      busy=false;
+      await new Promise(r=>setTimeout(r,260));
+      await writePageChecked(pg,payload,false,1,'mainWrite');
+      await new Promise(r=>setTimeout(r,360));
+      let R;
+      try{R=await readFeaturePageReal(id,bank,true);}
+      catch(e){throw new Error('ECU đã ACK ghi '+id+' nhưng VERIFY đọc lại thất bại: '+String(e&&e.message||e));}
+      const verifyPayload=encodeRowsByte(R.matrix,enc);
+      if(verifyPayload.length!==payload.length)throw new Error('VERIFY '+id+' sai kích thước');
+      for(let i=0;i<payload.length;i++){
+        if(verifyPayload[i]!==payload[i])throw new Error('VERIFY '+id+' không khớp tại byte '+i+' · ghi '+payload[i]+' đọc '+verifyPayload[i]);
+      }
+      notice('success','GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
+      return R;
+    }finally{
+      // readFeaturePageReal sees Live already stopped, so it will not create its
+      // own resume timer. Resume only once after the whole write+verify sequence.
+      if(busy)busy=false;
+      if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(450);
     }
-    notice('success','GHI + VERIFY OK',id+' · page 0x'+pg.toString(16).toUpperCase());
-    return R;
   }
 
   requireProfile('fullWrite','Ghi bảng '+id);
@@ -2556,7 +2616,7 @@ async function writeCurrentFuelAndVerify(bank){
     if(typeof state!=='undefined')state.ecuPhase=(previousPhase==='write1'||previousPhase==='write2')?'live':previousPhase;
     if(mapSelect)mapSelect.disabled=!!(typeof state!=='undefined'&&state.threeRun&&state.threeRun.active);
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo){
-      setTimeout(()=>{if(cmdChar()&&mapChar()&&handshakeInfo)startLiveLoop();},350);
+      scheduleLiveResume(450);
     }
   }
 }
