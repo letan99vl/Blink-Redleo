@@ -757,8 +757,10 @@ function parseLiveReal(a){
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
-  // Injection table contribution and ignition angle use REDLEO live conversion.
-  state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
+  // Verified from V10 / Ultra proRT_Dat: actual injection SUM is byte 14..15,
+  // scaled raw/640. Keep all other profiles on their previously verified path.
+  if(ecuProfile&&ecuProfile.key==='MODERN_V10')state.live.pw=u16be(a,14)/640;
+  else state.live.pw=u16be(a,16)/(ecuProfile&&ecuProfile.family==='v8'?640:500);
   state.live.ign=decLiveIgn(u16be(a,28));
   state.live.batt=u16be(a,42)*55/1024;
   const liveCal=readCache||sensorCalCache;
