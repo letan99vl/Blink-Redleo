@@ -581,7 +581,10 @@ static void sendWifiScanNetwork(uint8_t index, const String &ssid, int32_t rssi,
              (secure ? 0x04 : 0x00);
     pkt[3] = total;
     pkt[4] = off;
-    pkt[5] = (uint8_t)(int8_t)max(-127, min(0, rssi));
+    int32_t rssiClamped = rssi;
+    if (rssiClamped > 0) rssiClamped = 0;
+    if (rssiClamped < -127) rssiClamped = -127;
+    pkt[5] = (uint8_t)(int8_t)rssiClamped;
     memcpy(&pkt[6], ssid.c_str() + off, count);
     mapChar->setValue(pkt, 6 + count);
     mapChar->notify();
