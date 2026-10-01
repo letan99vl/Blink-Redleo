@@ -3,6 +3,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <esp_bt.h>
+#include "esp32-hal-bt.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -998,6 +1000,23 @@ void setup() {
 #if AFR_INPUT_ENABLED
   pinMode(AFR_ADC_PIN, INPUT);
   analogReadResolution(12);
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32
+  // This product uses BLE only. Free the unused Bluetooth Classic controller
+  // + host memory before BLE starts, then start the controller explicitly in
+  // BLE-only mode. This leaves substantially more contiguous internal RAM for
+  // mbedTLS/HTTPS during OTA.
+  Serial.printf("Heap before BLE-only prep: free=%u max=%u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  const esp_err_t classicRelease = esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
+  Serial.printf("Release BT Classic memory: %d free=%u max=%u\n",
+                (int)classicRelease, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  if (!btStartMode(BT_MODE_BLE)) {
+    Serial.println("ERROR: failed to start Bluetooth controller in BLE-only mode");
+  }
+  Serial.printf("BLE-only controller ready: free=%u max=%u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 #endif
 
   BLEDevice::init(DEVICE_NAME);
