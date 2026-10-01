@@ -1109,6 +1109,7 @@ async function rawExchange(bytes,timeout=12000){
     });
     try{
       const reliableChunks=total>RAW_CHUNK;
+      const isWritePage=data[0]===0xCD&&total>RAW_CHUNK;
       const txStarted=performance.now();
       for(let off=0;off<total;off+=RAW_CHUNK){
         if(myEpoch!==transportEpoch)throw new Error('BLE transport đã thay đổi');
@@ -1116,10 +1117,22 @@ async function rawExchange(bytes,timeout=12000){
         const n=Math.min(RAW_CHUNK,total-off),pkt=new Uint8Array(7+n);
         pkt[0]=RAW_TX;pkt[1]=id;pkt[2]=(off===0?1:0)|((off+n>=total)?2:0);pkt[3]=total&255;pkt[4]=(total>>8)&255;pkt[5]=off&255;pkt[6]=(off>>8)&255;pkt.set(data.subarray(off,off+n),7);
         await writeRawBleChunk(cur,pkt,reliableChunks);
-        // With-response already provides flow control. Keep only a tiny yield on
-        // long frames so Bluefy/iOS can service notifications/UI between chunks.
-        if(reliableChunks&&((off/RAW_CHUNK+1)%12===0))await new Promise(r=>setTimeout(r,2));
+
+        // GATT write-with-response only confirms the platform write operation.
+        // Android WebView/Bluefy can still deliver callbacks to the ESP32 faster
+        // than its application task consumes a long 0xCD frame. A small,
+        // deterministic per-chunk gap prevents one missing assembler chunk,
+        // which otherwise leaves the bridge waiting forever for txGot==txExpected.
+        if(isWritePage){
+          await new Promise(r=>setTimeout(r,8));
+          if(((off/RAW_CHUNK+1)%8)===0)await new Promise(r=>setTimeout(r,12));
+        }else if(reliableChunks&&((off/RAW_CHUNK+1)%12===0)){
+          await new Promise(r=>setTimeout(r,2));
+        }
       }
+      // Give the bridge loop one scheduler turn to observe transactionReady
+      // before starting the ECU reply timeout.
+      if(isWritePage)await new Promise(r=>setTimeout(r,25));
       const txMs=Math.round(performance.now()-txStarted);
       const p=pending.get(id);
       if(p){
@@ -1127,7 +1140,9 @@ async function rawExchange(bytes,timeout=12000){
           const q=pending.get(id);
           if(q!==p)return;
           pending.delete(id);
-          rejectPending(p,new Error('ECU timeout cmd 0x'+data[0].toString(16).toUpperCase()+' sau khi TX xong'));
+          const cmdHex=data[0].toString(16).toUpperCase();
+          const hint=(data[0]===0xCD&&data.length>RAW_CHUNK)?' · bridge không trả RAW_RX sau frame '+data.length+'B':'';
+          rejectPending(p,new Error('ECU timeout cmd 0x'+cmdHex+' sau khi TX xong'+hint));
         },timeout);
       }
       log('TX BLE complete',total+'B',txMs+'ms','cmd 0x'+data[0].toString(16).toUpperCase());

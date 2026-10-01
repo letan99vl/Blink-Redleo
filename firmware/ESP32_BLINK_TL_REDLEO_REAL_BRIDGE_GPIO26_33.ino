@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.4"
+#define FW_VERSION "1.5"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -111,8 +111,13 @@ uint16_t txGot = 0;
 uint8_t txSid = 0;
 bool txEndSeen = false;
 volatile bool transactionReady = false;
+volatile bool transactionBusy = false;
 uint16_t transactionLen = 0;
 uint8_t transactionSid = 0;
+uint8_t activeTransactionSid = 0;
+uint8_t lastProcessedSid = 0;
+uint32_t lastProcessedMs = 0;
+uint32_t lastRawChunkMs = 0;
 
 uint32_t lastAfrMs = 0;
 bool uartReady = false;
@@ -184,8 +189,13 @@ class ServerCallbacks : public BLEServerCallbacks {
     // Drop any half-assembled request so a reconnect cannot resume stale bytes.
     noInterrupts();
     transactionReady = false;
+    transactionBusy = false;
     transactionLen = 0;
     transactionSid = 0;
+    activeTransactionSid = 0;
+    lastProcessedSid = 0;
+    lastProcessedMs = 0;
+    lastRawChunkMs = 0;
     txExpected = 0;
     txGot = 0;
     txEndSeen = false;
@@ -202,6 +212,7 @@ static void resetAssembler(uint8_t sid, uint16_t total) {
   txExpected = total;
   txGot = 0;
   txEndSeen = false;
+  lastRawChunkMs = millis();
   memset(txSeen, 0, sizeof(txSeen));
 }
 
@@ -306,14 +317,33 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
       return;
     }
 
-    // Start a new frame only when SID/length changes, or when START arrives for
-    // a frame that has not collected any bytes yet. Do NOT reset merely because
-    // a duplicate START chunk is delivered by Bluefy/iOS.
-    if (sid != txSid || total != txExpected) {
+    // Once a SID is executing on UART, late/duplicate BLE chunks for that SID
+    // must never create a second ECU write. This is especially important when
+    // mobile BLE stacks replay the final write-with-response packet.
+    if (transactionBusy) {
+      if (sid == activeTransactionSid) return;
+      notifyStatus("RAW BUSY");
+      return;
+    }
+
+    // Ignore a very late duplicate of a transaction that just completed.
+    if (sid == lastProcessedSid && (uint32_t)(millis() - lastProcessedMs) < 3000U) {
+      return;
+    }
+
+    // If a partial assembler has been abandoned for >3 s, allow a START chunk
+    // with the same SID to restart it cleanly.
+    const bool stalePartial = txExpected && txGot < txExpected &&
+                              (uint32_t)(millis() - lastRawChunkMs) > 3000U;
+
+    // Start a new frame only when SID/length changes, when a truly empty START
+    // arrives, or when the previous partial frame is stale.
+    if (sid != txSid || total != txExpected || stalePartial) {
       resetAssembler(sid, total);
     } else if ((flags & 0x01) && txGot == 0) {
       resetAssembler(sid, total);
     }
+    lastRawChunkMs = millis();
 
     // Offset-addressed reassembly. BLE stacks may duplicate or reorder writes;
     // copy each byte into its declared position and count only first receipt.
@@ -333,6 +363,8 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
       transactionSid = txSid;
       transactionLen = txExpected;
       transactionReady = true;
+      // Diagnostic/app-level acknowledgement: BLE frame is fully assembled.
+      notifyStatus(String("RAWREADY ") + transactionSid);
     }
   }
 };
@@ -519,16 +551,20 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
 }
 
 static void processTransaction() {
-  if (!transactionReady) return;
+  if (!transactionReady || transactionBusy) return;
   noInterrupts();
   const uint16_t n = transactionLen;
   const uint8_t sid = transactionSid;
   transactionReady = false;
+  transactionBusy = true;
+  activeTransactionSid = sid;
   interrupts();
 
   if (!uartReady) {
     notifyStatus("ERR SET ECU PINS");
     sendRawResponse(sid, nullptr, 0);
+    lastProcessedSid = sid; lastProcessedMs = millis();
+    transactionBusy = false; activeTransactionSid = 0;
     return;
   }
 
@@ -536,6 +572,8 @@ static void processTransaction() {
     Serial.printf("BLOCK BAD WRITE sid=%u len=%u\n", sid, n);
     notifyStatus("ERR TX FRAME");
     sendRawResponse(sid, nullptr, 0);
+    lastProcessedSid = sid; lastProcessedMs = millis();
+    transactionBusy = false; activeTransactionSid = 0;
     return;
   }
 
@@ -545,6 +583,8 @@ static void processTransaction() {
                   (unsigned)RX_MAX, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     notifyStatus("ERR ECU RAM");
     sendRawResponse(sid, nullptr, 0);
+    lastProcessedSid = sid; lastProcessedMs = millis();
+    transactionBusy = false; activeTransactionSid = 0;
     return;
   }
 
@@ -561,6 +601,14 @@ static void processTransaction() {
   }
   sendRawResponse(sid, rxBuf, (uint16_t)got);
   free(rxBuf);
+
+  // Mark completion only after RAW_RX has been emitted. Late duplicate BLE
+  // chunks with this SID are ignored for a short window, preventing duplicate
+  // flash writes while still allowing normal SID wrap much later.
+  lastProcessedSid = sid;
+  lastProcessedMs = millis();
+  transactionBusy = false;
+  activeTransactionSid = 0;
 }
 
 static void sendAfrPacket() {
