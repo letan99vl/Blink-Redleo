@@ -1088,6 +1088,28 @@ async function writeRawBleChunk(cur,pkt,reliable){
 function rejectPending(p,err){
   try{p&&p.reject&&p.reject(err);}catch(_e){}
 }
+
+let lastExchangeMeta=null;
+const previousBlinkStatusHandler=typeof window.onBlinkStatus==='function'?window.onBlinkStatus:null;
+window.onBlinkStatus=function(text){
+  const s=String(text||'').trim();
+  const m=s.match(/^RAWREADY\s+(\d+)$/i);
+  if(m){
+    const id=Number(m[1])&255;
+    const p=pending.get(id);
+    if(p){
+      p.bridgeReadyAt=performance.now();
+      const dt=p.txDoneAt?Math.max(0,Math.round(p.bridgeReadyAt-p.txDoneAt)):0;
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+        taskUi('loading','BLE ĐÃ RÁP ĐỦ FRAME'+(dt?' · '+dt+' ms':'')+' · ECU ĐANG XỬ LÝ...');
+      }
+    }
+  }
+  if(previousBlinkStatusHandler){
+    try{previousBlinkStatusHandler(text)}catch(_e){}
+  }
+};
+
 async function rawExchange(bytes,timeout=12000){
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive())){
     throw new Error('OTA ESP32 đang chạy');
@@ -1109,8 +1131,11 @@ async function rawExchange(bytes,timeout=12000){
     // several seconds uploading those chunks before the ESP32 even has the full
     // frame. Counting that upload time as ECU response time caused false
     // "ECU timeout cmd 0xCD" while reads (single BLE chunk) worked normally.
+    let pendingState=null;
+    const exchangeStarted=performance.now();
     const response=new Promise((resolve,reject)=>{
-      pending.set(id,{resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch});
+      pendingState={resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0};
+      pending.set(id,pendingState);
     });
     try{
       const reliableChunks=total>RAW_CHUNK;
@@ -1138,9 +1163,11 @@ async function rawExchange(bytes,timeout=12000){
       // Give the bridge loop one scheduler turn to observe transactionReady
       // before starting the ECU reply timeout.
       if(isWritePage)await new Promise(r=>setTimeout(r,25));
-      const txMs=Math.round(performance.now()-txStarted);
+      const txDoneNow=performance.now();
+      const txMs=Math.round(txDoneNow-txStarted);
       const p=pending.get(id);
       if(p){
+        p.txDoneAt=txDoneNow;
         p.to=setTimeout(()=>{
           const q=pending.get(id);
           if(q!==p)return;
@@ -1158,7 +1185,18 @@ async function rawExchange(bytes,timeout=12000){
     }
     const rx=await response;
     if(myEpoch!==transportEpoch)throw new Error('BLE transport đã đổi trước khi nhận xong ECU');
-    log('TX',data.length,'0x'+data[0].toString(16),'RX',rx.length);
+    const doneAt=performance.now();
+    lastExchangeMeta={
+      sid:id,
+      cmd:data[0],
+      bytes:data.length,
+      totalMs:Math.round(doneAt-exchangeStarted),
+      txMs:pendingState&&pendingState.txDoneAt?Math.round(pendingState.txDoneAt-exchangeStarted):null,
+      readyAfterTxMs:pendingState&&pendingState.bridgeReadyAt&&pendingState.txDoneAt?Math.round(pendingState.bridgeReadyAt-pendingState.txDoneAt):null,
+      replyAfterTxMs:pendingState&&pendingState.txDoneAt?Math.round(doneAt-pendingState.txDoneAt):null,
+      rxBytes:rx.length
+    };
+    log('TX',data.length,'0x'+data[0].toString(16),'RX',rx.length,'meta',lastExchangeMeta);
     return rx;
   }finally{
     busy=false;
@@ -2141,17 +2179,39 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
   }
   let lastErr=null;
   const maxRetries=isV11Profile()?Math.max(retries,2):retries;
+  const totalAttempts=maxRetries+1;
+  const phase=(typeof state!=='undefined'&&state.ecuPhase==='write1')?'PHẦN 1/2':
+              (typeof state!=='undefined'&&state.ecuPhase==='write2')?'PHẦN 2/2':
+              ('PAGE 0x'+pg.toString(16).toUpperCase());
   for(let attempt=0;attempt<=maxRetries;attempt++){
+    const tryNo=attempt+1;
+    const attemptStarted=performance.now();
     try{
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+        updateActiveMapIoText('⟳ ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
+      }
+      taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
       const rx=await rawExchange(tx,12000);
-      if(hasWriteAck(rx,pg))return true;
+      const elapsed=Math.round(performance.now()-attemptStarted);
+      if(hasWriteAck(rx,pg)){
+        const meta=lastExchangeMeta;
+        const detail=meta&&Number.isFinite(meta.replyAfterTxMs)?(' · ACK '+meta.replyAfterTxMs+' ms sau TX'):(' · '+elapsed+' ms');
+        taskUi('loading','ECU ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+detail);
+        log('write ACK page 0x'+pg.toString(16).toUpperCase(),'attempt',tryNo+'/'+totalAttempts,'elapsed',elapsed,'meta',meta);
+        return true;
+      }
       throw new Error('ECU không ACK CD '+pg.toString(16).toUpperCase()+' · RX '+rx.length+'B');
     }catch(e){
+      const elapsed=Math.round(performance.now()-attemptStarted);
       lastErr=e;
+      log('write attempt failed page 0x'+pg.toString(16).toUpperCase(),'attempt',tryNo+'/'+totalAttempts,'elapsed',elapsed,String(e&&e.message||e),lastExchangeMeta);
       if(attempt>=maxRetries)break;
-      log('retry write page 0x'+pg.toString(16).toUpperCase(),attempt+1,String(e&&e.message||e));
-      // V11 flash/page commit can be slower than a normal live transaction.
-      // Re-sending the same full page is idempotent, so retry after a real quiet gap.
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+        updateActiveMapIoText('↻ MẤT ACK · THỬ LẠI '+(tryNo+1)+'/'+totalAttempts);
+      }
+      taskUi('loading','MẤT ACK · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+' · '+elapsed+' ms · THỬ LẠI...');
+      // V11 re-sends the exact same page. Keep the retry visible instead of
+      // silently turning a 3 s save into an unexplained 10 s save.
       await new Promise(r=>setTimeout(r,420+attempt*220));
     }
   }
@@ -2600,9 +2660,7 @@ async function writeCurrentFuelAndVerify(bank){
   requireProfile('fuelWrite','Ghi hiện tại MAP thời gian phun');
   bank=normalizeBankForProfile(bank);
 
-  // Acknowledge the tap immediately. Previously V10/V11 could spend several
-  // seconds reading A2 axes before any UI feedback, making SEND CURRENT look dead.
-  taskUi('loading','ĐÃ NHẬN LỆNH GHI · MAP NO.'+bank+' · ĐANG CHUẨN BỊ...');
+  const wholeWriteStarted=performance.now();
 
   // Fuel page serialization is always 14x30 and does not depend on A2 axis
   // bytes. V11 may legally use an A2 build whose axis bytes need fallback, so
@@ -2646,7 +2704,9 @@ async function writeCurrentFuelAndVerify(bank){
         throw new Error('VERIFY MAP raw sai tại TPS row '+(r+1)+', RPM col '+(c+1)+' · byte '+i+' · ghi '+expectedRaw[i]+' đọc '+gotRaw[i]);
       }
     }
-    taskUi('success','GHI + VERIFY RAW · MAP NO.'+bank+' · 420/420 Ô OK');
+    const wholeMs=Math.round(performance.now()-wholeWriteStarted);
+    taskUi('success','GHI + VERIFY RAW · MAP NO.'+bank+' · 420/420 Ô OK · '+(wholeMs/1000).toFixed(1)+'s');
+    log('fuel write+verify total',wholeMs+'ms','MAP',bank);
     return R;
   }finally{
     if(typeof state!=='undefined')state.ecuPhase=(previousPhase==='write1'||previousPhase==='write2')?'live':previousPhase;
