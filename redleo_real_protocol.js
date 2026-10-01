@@ -1323,7 +1323,7 @@ function syncIdle(bank){
     // V11 stores a 44-byte Idle family per bank (24 Idle + 9 Aux + 11 ECT Motor),
     // not the V9 idle[]/ectMotor structure. Never feed V11 raw bytes into V9 UI.
     const st=document.getElementById('redIoStatus');
-    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · READ-ONLY RAW '+((b.idleRaw?.length||0)+(b.auxRaw?.length||0)+(b.ectMotorRaw?.length||0))+'B';
+    if(st)st.textContent='ATE V11 · IDLE MAP '+bank+' · READ ALL RAW SNAPSHOT '+((b.idleRaw?.length||0)+(b.auxRaw?.length||0)+(b.ectMotorRaw?.length||0))+'B · dùng Page 6 trực tiếp để chỉnh/verify';
     return;
   }
   if(!Array.isArray(b.idle)||!Array.isArray(b.ectMotor))return;
