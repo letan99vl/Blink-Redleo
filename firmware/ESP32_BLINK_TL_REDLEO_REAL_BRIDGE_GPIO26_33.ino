@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.7"
+#define FW_VERSION "1.8"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -62,6 +62,7 @@ static const char *STATUS_UUID  = "afaf0005-7c35-4a6d-9f0e-2ea3117f1000";
 // Universal ATT-safe packets: 7-byte chunk header + 12-byte payload = 19 bytes.
 static const uint8_t RAW_TX_MARKER = 0xE1;
 static const uint8_t RAW_RX_MARKER = 0xE2;
+static const uint8_t RX_PROBE_MARKER = 0xE6;
 static const size_t RAW_SAFE_PAYLOAD = 12;
 static const size_t RAW_JUMBO_PAYLOAD = 160;
 static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
@@ -72,6 +73,18 @@ static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
 // Bluefy/WebView/desktop clients byte-for-byte compatible.
 static volatile uint16_t rawRxPayload = RAW_SAFE_PAYLOAD;
 static volatile bool rawRxJumboEnabled = false;
+
+static void sendRxProbe(uint16_t payload) {
+  if (!deviceConnected || !mapChar) return;
+  if (payload < 16 || payload > RAW_JUMBO_PAYLOAD) payload = RAW_SAFE_PAYLOAD;
+  uint8_t pkt[2 + RAW_JUMBO_PAYLOAD];
+  pkt[0] = RX_PROBE_MARKER;
+  pkt[1] = (uint8_t)payload;
+  for (uint16_t i = 0; i < payload; ++i) pkt[2 + i] = (uint8_t)((i * 29U + 7U) & 0xFFU);
+  mapChar->setValue(pkt, 2 + payload);
+  mapChar->notify();
+  Serial.printf("BLE RX probe sent payload=%u total=%u\n", (unsigned)payload, (unsigned)(payload + 2));
+}
 
 // OTA control uses the same BLE command characteristic but a separate marker,
 // so the existing REDLEO raw bridge protocol remains byte-for-byte compatible.
@@ -314,6 +327,9 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
       String text = raw;
       if (text == "PING") {
         notifyStatus(String("PONG FW") + FW_VERSION);
+      } else if (text.startsWith("RXPROBE:")) {
+        const int requested = text.substring(8).toInt();
+        sendRxProbe((uint16_t)requested);
       } else if (text.startsWith("RXJUMBO:")) {
         const int requested = text.substring(8).toInt();
         if (requested >= 64 && requested <= (int)RAW_JUMBO_PAYLOAD) {

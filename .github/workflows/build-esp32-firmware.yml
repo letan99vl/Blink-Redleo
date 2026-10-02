@@ -52,11 +52,11 @@ jobs:
           manifest_path = Path('ota/manifest.json')
           sha = hashlib.sha256(bin_path.read_bytes()).hexdigest()
           manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          manifest['version'] = '1.7'
+          manifest['version'] = '1.8'
           manifest['url'] = 'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin'
           manifest['sha256'] = sha
           manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          print('FW 1.7 sha256', sha)
+          print('FW 1.8 sha256', sha)
           PY
 
       - name: Commit OTA firmware
@@ -68,6 +68,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ota/blink_esp32.bin ota/manifest.json
-          git commit -m "Build ESP32 bridge FW 1.7 OTA binary"
+          git commit -m "Build ESP32 bridge FW 1.8 OTA binary"
           git pull --rebase origin main
           git push

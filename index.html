@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.67';
+  window.BLINK_PB_VERSION = '3.68';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3118,29 +3118,52 @@ window.addEventListener('beforeunload',save);
     if(typeof commandChar.writeValueWithoutResponse==='function'){await commandChar.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,30));return;}
     throw new Error('BLE COMMAND không hỗ trợ control write.');
   }
+  let rxProbeResolve=null;
+  function bleClientKind(){
+    const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+    if(/BLINK-REDLEO-ANDROID\//i.test(ua))return 'LAUNCHER_ANDROID';
+    if(/EdgA|EdgiOS|Edg\//i.test(ua))return 'EDGE';
+    if(/Chrome|CriOS/i.test(ua))return 'CHROME';
+    if(/iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||(platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1))return 'APPLE_WEBBLE';
+    return 'WEB_BLUETOOTH';
+  }
+  async function probeBrowserJumbo(payload=160,timeoutMs=1200){
+    if(!mapChar)return false;
+    const result=new Promise(resolve=>{
+      const to=setTimeout(()=>{if(rxProbeResolve===done)rxProbeResolve=null;resolve(false);},timeoutMs);
+      function done(ok){clearTimeout(to);if(rxProbeResolve===done)rxProbeResolve=null;resolve(!!ok);}
+      rxProbeResolve=done;
+    });
+    try{await writeBridgeControl('RXPROBE:'+payload);}catch(_e){
+      if(rxProbeResolve){const r=rxProbeResolve;rxProbeResolve=null;r(false);}
+    }
+    return await result;
+  }
   async function configureFastBridgeRx(bridgeStatus){
     window.blinkBridgeRxPayload=12;
+    window.blinkBleClientKind=bleClientKind();
     if(!bridgeStatusAtLeast(bridgeStatus,1,7))return false;
 
-    const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
-    const nativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(ua);
-    const apple=/iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||(platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+    const nativeAndroid=window.blinkBleClientKind==='LAUNCHER_ANDROID';
+    let ok=false,mtu=Number(window.__androidBleMtu||0);
 
-    let mtu=Number(window.__androidBleMtu||0);
     if(nativeAndroid){
       for(let i=0;i<8&&mtu<170;i++){
         await new Promise(r=>setTimeout(r,80));
         mtu=Number(window.__androidBleMtu||0);
       }
-      if(mtu<170)return false;
-    }else if(!apple){
-      return false;
+      ok=mtu>=170;
+    }else if(bridgeStatusAtLeast(bridgeStatus,1,8)){
+      ok=await probeBrowserJumbo(160,1200);
+    }else{
+      // FW1.7 compatibility: Apple/Bluefy path was already validated in practice.
+      ok=window.blinkBleClientKind==='APPLE_WEBBLE';
     }
 
-    await writeBridgeControl('RXJUMBO:160');
-    window.blinkBridgeRxPayload=160;
-    console.log('[BLINK] ESP32 -> phone jumbo RX enabled · 160B payload'+(nativeAndroid?' · MTU '+mtu:' · Apple/Bluefy'));
-    return true;
+    await writeBridgeControl(ok?'RXJUMBO:160':'RXJUMBO:0');
+    window.blinkBridgeRxPayload=ok?160:12;
+    console.log('[BLINK] BLE client='+window.blinkBleClientKind+' · RX payload='+window.blinkBridgeRxPayload+(nativeAndroid?' · MTU '+mtu:''));
+    return ok;
   }
   window.configureBlinkFastBridgeRx=configureFastBridgeRx;
 
@@ -3626,6 +3649,17 @@ window.addEventListener('beforeunload',save);
   function parseMap(ev){
     const d=ev.target.value;if(!d||d.byteLength<2)return;
     const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+    if(v.getUint8(0)===0xE6){
+      const expected=v.getUint8(1),full=d.byteLength===expected+2;
+      let valid=full;
+      if(valid){
+        for(let i=0;i<expected;i++){
+          if(v.getUint8(2+i)!==((i*29+7)&255)){valid=false;break;}
+        }
+      }
+      if(rxProbeResolve){const r=rxProbeResolve;rxProbeResolve=null;r(valid);}
+      return;
+    }
     if(v.getUint8(0)===OTA_SCAN_MARKER){parseOtaWifiScan(v);return;}
     if(v.getUint8(0)===0xB2){if(typeof window.onBlinkFeaturePacket==='function')window.onBlinkFeaturePacket(v);return;}
     if(d.byteLength<6||v.getUint8(0)!==0xB1)return;
