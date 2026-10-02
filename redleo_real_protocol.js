@@ -332,6 +332,18 @@ function applyProfileUi(){
   document.body.dataset.ecuProfile=p.key||'UNKNOWN';
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
+  // TPS Study has one UI entry point in Settings. Keep that single button
+  // profile-aware so the user cannot accidentally run a study sequence that
+  // belongs to another ECU family.
+  const studyTpsBtn=document.getElementById('studyTpsBtn');
+  if(studyTpsBtn){
+    if(p.key==='MODERN_V11')studyTpsBtn.textContent='HỌC TPS ECU · ATE V11';
+    else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
+    else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
+    else studyTpsBtn.textContent='HỌC TPS ECU · CHƯA HỖ TRỢ';
+    setProfileDisabled(studyTpsBtn,!profileCap('tpsStudy'),reason);
+  }
+
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
   const mainFeatureIds=new Set(['idle_limit','ect_idle_motor','auto_shift','afr_map','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map']);
   if(p.family==='v11'){mainFeatureIds.add('auto_clutch');mainFeatureIds.add('chg_params');mainFeatureIds.add('ate_options');mainFeatureIds.add('ect_start');mainFeatureIds.add('alternate_table');}
@@ -3281,7 +3293,11 @@ async function restoreReal(){
 }
 async function tpsStudyReal(){
   requireProfile('tpsStudy','Học TPS');
-  if(isV11Profile()){
+  const profileKey=ecuProfile?.key||'UNKNOWN';
+
+  // ATE V11 returns the extended 0x77 payload whose TPS-voltage calibration
+  // is part of the V11 A2-style layout. It must not be decoded like V9/V10.
+  if(profileKey==='MODERN_V11'){
     if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
     taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
     const rx=await rawExchange(req5(0x77,0x77),38000);
@@ -3289,7 +3305,7 @@ async function tpsStudyReal(){
     if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
     const C=parseV11A2Data(f.slice(1,-2));
     sensorCalCache=C;
-    sensorCalIdentity=handshakeInfo?[ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
+    sensorCalIdentity=handshakeInfo?[profileKey,handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
     const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
     if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
       state.cal.tpsMin=min;state.cal.tpsMax=max;
@@ -3298,13 +3314,22 @@ async function tpsStudyReal(){
     notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
     return C;
   }
-  taskUi('loading','ĐANG HỌC TPS · CHỜ ECU...');
+
+  // Verified REDLEO V9 and V10/Ultra families use the standard 0x77 study
+  // response with TPS Min/Max in bytes 92/93. Keep the branches explicit so
+  // future ECU families cannot silently fall through to the wrong decoder.
+  if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
+    throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
+  }
+  const label=profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9';
+  taskUi('loading',label+' · ĐANG HỌC TPS · CHỜ ECU...');
   const rx=await rawExchange(req5(0x77,0x77),38000);
-  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error('TPS Study 0x77 response không hợp lệ');
+  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ');
   const min=rx[92]*20/1024,max=rx[93]*20/1024;
-  if(!(max>min+.1))throw new Error('TPS Study trả calibration không hợp lệ');
-  state.cal.tpsMin=min;state.cal.tpsMax=max;try{syncControls();saveSoon();}catch(_e){}
-  notice('success','TPS STUDY REAL OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+  if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
+  state.cal.tpsMin=min;state.cal.tpsMax=max;
+  try{syncControls();saveSoon();}catch(_e){}
+  notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
