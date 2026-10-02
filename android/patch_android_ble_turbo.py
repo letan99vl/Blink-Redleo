@@ -14,6 +14,12 @@ b = bridge_path.read_text(encoding="utf-8")
 field_anchor = "    private boolean pickerScanActive = false;\n"
 field_code = r'''    private int negotiatedMtu = 23;
     private boolean serviceDiscoveryStarted = false;
+    private int serviceDiscoveryToken = 0;
+    private int serviceDiscoveryAttempts = 0;
+    private int connectionReadyToken = 0;
+    private boolean nativeBleReady = false;
+    private int gattRecoveryAttempts = 0;
+    private boolean gattRecoveryConnecting = false;
 
     private static final class BleWriteRequest {
         final String uuidText;
@@ -61,6 +67,12 @@ old_connect = '''                gatt = bg;
 new_connect = '''                gatt = bg;
                 negotiatedMtu = 23;
                 serviceDiscoveryStarted = false;
+                serviceDiscoveryToken++;
+                serviceDiscoveryAttempts = 0;
+                connectionReadyToken++;
+                nativeBleReady = false;
+                if (!gattRecoveryConnecting) gattRecoveryAttempts = 0;
+                gattRecoveryConnecting = false;
                 try { bg.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH); } catch (Exception ignored) { }
                 boolean mtuRequested = false;
                 try { mtuRequested = bg.requestMtu(185); } catch (Exception ignored) { }
@@ -105,18 +117,83 @@ if "public void onMtuChanged(BluetoothGatt bg" not in s:
 # Add discoverServicesOnce before callback declaration.
 callback_anchor = "    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {\n"
 discover_helper = r'''    @SuppressLint("MissingPermission")
-    private void discoverServicesOnce(BluetoothGatt bg) {
-        if (bg == null || gatt != bg || serviceDiscoveryStarted) return;
-        serviceDiscoveryStarted = true;
-        try {
-            if (!bg.discoverServices()) {
-                serviceDiscoveryStarted = false;
-                main.postDelayed(() -> discoverServicesOnce(bg), 120);
-            }
-        } catch (Throwable t) {
-            serviceDiscoveryStarted = false;
-            main.postDelayed(() -> discoverServicesOnce(bg), 120);
+    private void failOrRecoverGattConnect(BluetoothGatt bg, String phase) {
+        if (bg == null || gatt != bg || nativeBleReady) return;
+
+        serviceDiscoveryStarted = false;
+        serviceDiscoveryToken++;
+        connectionReadyToken++;
+        notifyQueue.clear();
+        bleWriteQueue.clear();
+        activeBleWrite = null;
+
+        BluetoothDevice retryDevice = null;
+        try { retryDevice = bg.getDevice(); } catch (Throwable ignored) { }
+        try { bg.disconnect(); } catch (Throwable ignored) { }
+        try { bg.close(); } catch (Throwable ignored) { }
+        if (gatt == bg) gatt = null;
+
+        if (retryDevice != null && gattRecoveryAttempts < 1) {
+            gattRecoveryAttempts++;
+            gattRecoveryConnecting = true;
+            connecting = true;
+            final BluetoothDevice deviceToRetry = retryDevice;
+            main.postDelayed(() -> {
+                try {
+                    connectDevice(deviceToRetry);
+                } catch (Throwable t) {
+                    gattRecoveryConnecting = false;
+                    connecting = false;
+                    jsConnectError("Android BLE retry lỗi ở " + phase + ": " + t.getMessage());
+                }
+            }, 260);
+            return;
         }
+
+        gattRecoveryConnecting = false;
+        connecting = false;
+        main.post(() -> jsConnectError(
+                "Android BLE không hoàn tất " + phase +
+                ". Đã reset GATT; hãy bấm KẾT NỐI lại."));
+    }
+
+    @SuppressLint("MissingPermission")
+    private void armConnectionReadyWatchdog(BluetoothGatt bg) {
+        if (bg == null || gatt != bg) return;
+        final int token = ++connectionReadyToken;
+        main.postDelayed(() -> {
+            if (gatt != bg || token != connectionReadyToken || nativeBleReady) return;
+            failOrRecoverGattConnect(bg, "service/notification");
+        }, 5200);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void discoverServicesOnce(BluetoothGatt bg) {
+        if (bg == null || gatt != bg || nativeBleReady || serviceDiscoveryStarted) return;
+        serviceDiscoveryStarted = true;
+        final int token = ++serviceDiscoveryToken;
+
+        boolean accepted = false;
+        try { accepted = bg.discoverServices(); } catch (Throwable ignored) { accepted = false; }
+
+        if (!accepted) {
+            serviceDiscoveryStarted = false;
+            if (++serviceDiscoveryAttempts <= 3) {
+                main.postDelayed(() -> discoverServicesOnce(bg), 140);
+            } else {
+                failOrRecoverGattConnect(bg, "discoverServices");
+            }
+            return;
+        }
+
+        // Android can return true yet never deliver onServicesDiscovered().
+        main.postDelayed(() -> {
+            if (gatt != bg || token != serviceDiscoveryToken || nativeBleReady) return;
+            if (!serviceDiscoveryStarted) return;
+            serviceDiscoveryStarted = false;
+            if (++serviceDiscoveryAttempts <= 3) discoverServicesOnce(bg);
+            else failOrRecoverGattConnect(bg, "discoverServices timeout");
+        }, 1700);
     }
 
 '''
@@ -124,6 +201,30 @@ if "private void discoverServicesOnce(BluetoothGatt bg)" not in s:
     if callback_anchor not in s:
         raise SystemExit("BLE turbo patch: gatt callback anchor not found")
     s = s.replace(callback_anchor, discover_helper + callback_anchor)
+
+# Service discovery returned: cancel its timeout and watch CCC/notification setup.
+plain_services = '''        public void onServicesDiscovered(BluetoothGatt bg, int status) {
+'''
+watched_services = '''        public void onServicesDiscovered(BluetoothGatt bg, int status) {
+            serviceDiscoveryStarted = false;
+            serviceDiscoveryToken++;
+            serviceDiscoveryAttempts = 0;
+            if (status == BluetoothGatt.GATT_SUCCESS) armConnectionReadyWatchdog(bg);
+'''
+if watched_services not in s:
+    if plain_services not in s:
+        raise SystemExit("BLE turbo patch: services watchdog anchor not found")
+    s = s.replace(plain_services, watched_services, 1)
+
+# Mark the connection ready exactly when Java emits the JS connected callback.
+ready_marker = '"window.__androidBleConnected&&window.__androidBleConnected('
+if "nativeBleReady = true; connectionReadyToken++;" not in s:
+    ri = s.find(ready_marker)
+    if ri < 0:
+        raise SystemExit("BLE turbo patch: ready callback marker not found")
+    line_start = s.rfind("\n", 0, ri) + 1
+    indent = re.match(r"[ \t]*", s[line_start:]).group(0)
+    s = s[:line_start] + indent + "nativeBleReady = true; connectionReadyToken++; gattRecoveryAttempts = 0; connecting = false;\n" + s[line_start:]
 
 # Add reliable write queue immediately before legacy writeBle().
 m = re.search(r'\n    @SuppressLint\("MissingPermission"\)\n    private void writeBle\(String uuidText, String base64\) \{', s)
@@ -218,10 +319,73 @@ if "private void enqueueBleWriteWithResponse(" not in s:
     s = s[:m.start()] + "\n" + write_helpers + s[m.start():]
 
 # Clear reliable-write state on every disconnect path.
-s = s.replace("                notifyQueue.clear();\n", "                notifyQueue.clear();\n                bleWriteQueue.clear(); activeBleWrite = null; negotiatedMtu = 23; serviceDiscoveryStarted = false;\n")
-s = s.replace("        notifyQueue.clear();\n", "        notifyQueue.clear();\n        bleWriteQueue.clear(); activeBleWrite = null; negotiatedMtu = 23; serviceDiscoveryStarted = false;\n")
+s = s.replace("                notifyQueue.clear();\n", "                notifyQueue.clear();\n                bleWriteQueue.clear(); activeBleWrite = null; negotiatedMtu = 23; serviceDiscoveryStarted = false; serviceDiscoveryToken++; connectionReadyToken++; nativeBleReady = false; gattRecoveryConnecting = false;\n")
+s = s.replace("        notifyQueue.clear();\n", "        notifyQueue.clear();\n        bleWriteQueue.clear(); activeBleWrite = null; negotiatedMtu = 23; serviceDiscoveryStarted = false; serviceDiscoveryToken++; connectionReadyToken++; nativeBleReady = false; gattRecoveryConnecting = false;\n")
 
 # ---- native_bridge.js: true Promise backed by Android onCharacteristicWrite ----
+# requestDevice fallback: even a broken OEM GATT stack cannot leave the web UI pending forever.
+pending_anchor = "  let pendingResolve=null,pendingReject=null;\n"
+pending_replacement = """  let pendingResolve=null,pendingReject=null,pendingConnectTimer=null;
+  function clearPendingConnectTimer(){
+    if(pendingConnectTimer){clearTimeout(pendingConnectTimer);pendingConnectTimer=null;}
+  }
+"""
+if pending_anchor not in b:
+    raise SystemExit("BLE turbo patch: pending request anchor not found")
+b = b.replace(pending_anchor, pending_replacement, 1)
+
+request_old = """    requestDevice(){
+      return new Promise((resolve,reject)=>{
+        pendingResolve=resolve;pendingReject=reject;
+        try{AndroidBLE.connect();}catch(e){pendingResolve=null;pendingReject=null;reject(e);}
+      });
+    },
+"""
+request_new = """    requestDevice(){
+      return new Promise((resolve,reject)=>{
+        clearPendingConnectTimer();
+        pendingResolve=resolve;pendingReject=reject;
+        pendingConnectTimer=setTimeout(()=>{
+          if(!pendingReject)return;
+          const r=pendingReject;
+          pendingResolve=pendingReject=null;
+          pendingConnectTimer=null;
+          try{AndroidBLE.disconnect();}catch(_e){}
+          r(new Error('Android BLE timeout 12s · GATT chưa sẵn sàng'));
+        },12000);
+        try{AndroidBLE.connect();}
+        catch(e){clearPendingConnectTimer();pendingResolve=pendingReject=null;reject(e);}
+      });
+    },
+"""
+if request_old not in b:
+    raise SystemExit("BLE turbo patch: requestDevice anchor not found")
+b = b.replace(request_old, request_new, 1)
+
+callbacks_old = """  window.__androidBleConnected=function(name){
+    device.name=name||'BLINK-REDLEO';device.gatt.connected=true;server.connected=true;
+    if(pendingResolve){const r=pendingResolve;pendingResolve=pendingReject=null;r(device);}
+  };
+  window.__androidBleConnectError=function(message){
+    const err=new Error(message||'Không kết nối được ESP32-S3.');
+    if(pendingReject){const r=pendingReject;pendingResolve=pendingReject=null;r(err);}
+  };
+"""
+callbacks_new = """  window.__androidBleConnected=function(name){
+    clearPendingConnectTimer();
+    device.name=name||'BLINK-REDLEO';device.gatt.connected=true;server.connected=true;
+    if(pendingResolve){const r=pendingResolve;pendingResolve=pendingReject=null;r(device);}
+  };
+  window.__androidBleConnectError=function(message){
+    clearPendingConnectTimer();
+    const err=new Error(message||'Không kết nối được ESP32.');
+    if(pendingReject){const r=pendingReject;pendingResolve=pendingReject=null;r(err);}
+  };
+"""
+if callbacks_old not in b:
+    raise SystemExit("BLE turbo patch: connected callback anchor not found")
+b = b.replace(callbacks_old, callbacks_new, 1)
+
 bridge_anchor = "  const chars = new Map();\n"
 bridge_helpers = r'''  let nativeWriteSeq=0;
   const nativeWritePending=new Map();
@@ -296,6 +460,17 @@ new_methods = """      // RAW E1 traffic (ECU live/read/write) gets a real Andro
 if old_methods not in b:
     raise SystemExit("BLE turbo patch: native bridge write methods anchor not found")
 b = b.replace(old_methods, new_methods)
+
+old_orientation_hook = """  // The web button still runs its own fullscreen/orientation logic. Native Android
+  // additionally locks the Activity when this button is touched.
+  document.addEventListener('click',function(ev){
+    const t=ev.target&&ev.target.closest?ev.target.closest('#rotateLandscapeBtn'):null;
+    if(t){try{AndroidBLE.setOrientation('landscape')}catch(e){}}
+  },true);
+
+"""
+if old_orientation_hook in b:
+    b = b.replace(old_orientation_hook, "", 1)
 
 java_path.write_text(s, encoding="utf-8")
 bridge_path.write_text(b, encoding="utf-8")

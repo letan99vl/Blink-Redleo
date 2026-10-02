@@ -68,8 +68,21 @@ jobs:
           python3 android/patch_android_ble_turbo.py "$SRC" android-build/app/src/main/assets/native_bridge.js
           sed -i 's#https://letan99vl.github.io/Blink-Redleo/?android=1#https://letan99vl.github.io/Blink-Redleo/?android=1\&v=11#' "$SRC"
           sed -i 's/WebSettings.LOAD_DEFAULT/WebSettings.LOAD_NO_CACHE/' "$SRC"
-          sed -i 's/BLINK-REDLEO-ANDROID\/1.1/BLINK-REDLEO-ANDROID\/1.4-turbo/' "$SRC"
+          sed -Ei 's#BLINK-REDLEO-ANDROID/[0-9A-Za-z._-]+#BLINK-REDLEO-ANDROID/1.5-gattfix#g' "$SRC"
           sed -i '/s.setCacheMode(WebSettings.LOAD_NO_CACHE);/a\            try { webView.clearCache(true); webView.clearHistory(); } catch (Throwable ignored) {}' "$SRC"
+
+      - name: Verify Android GATT watchdog patch
+        run: |
+          SRC=android-build/app/src/main/java/vn/blinkredleo/app/MainActivity.java
+          BRIDGE=android-build/app/src/main/assets/native_bridge.js
+          grep -q "discoverServices timeout" "$SRC"
+          grep -q "armConnectionReadyWatchdog" "$SRC"
+          grep -q "Android BLE timeout 12s" "$BRIDGE"
+          grep -q "BLINK-REDLEO-ANDROID/1.5-gattfix" "$SRC"
+          if grep -q "AndroidBLE.setOrientation('landscape')" "$BRIDGE"; then
+            echo "Legacy native orientation hook still present"
+            exit 1
+          fi
 
       - name: Build signed release APK
         working-directory: android-build
@@ -83,7 +96,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-APK-v12-turbo
+          name: BLINK-REDLEO-APK-v13-gattfix
           path: |
             BLINK-REDLEO.apk
             BLINK-REDLEO.apk.sha256
