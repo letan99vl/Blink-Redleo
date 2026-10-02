@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.73';
+  window.BLINK_PB_VERSION = '3.74';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -995,6 +995,61 @@
       height:34px!important;
       min-height:34px!important;
     }
+  }
+
+
+  /* ===== v13 APP-LEVEL ORIENTATION · independent from device rotation lock ===== */
+  body.appForceLandscape{overflow:hidden!important}
+  body.appForceLandscape #mapEditorScreen.active{
+    display:flex!important;
+    position:fixed!important;
+    inset:auto!important;
+    top:50%!important;
+    left:50%!important;
+    right:auto!important;
+    bottom:auto!important;
+    width:100dvh!important;
+    height:100dvw!important;
+    max-width:none!important;
+    max-height:none!important;
+    margin:0!important;
+    padding-left:0!important;
+    padding-right:0!important;
+    padding-bottom:0!important;
+    transform:translate(-50%,-50%) rotate(90deg)!important;
+    transform-origin:center center!important;
+    z-index:249900!important;
+    background:#050507!important;
+  }
+  body.appForceLandscape #mapEditorScreen .editToolbar{
+    grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  }
+  body.appForceLandscape #mapEditorScreen .editToolbar #applyCorrectedBtn{grid-column:auto!important}
+  body.appForceLandscape #mapEditorScreen #mapWrap{
+    min-height:90px!important;
+    padding-bottom:10px!important;
+  }
+  body.appForceLandscape #mapEditorScreen #mapTable{
+    margin-bottom:32px!important;
+  }
+  body.appForceLandscape #mapEditorScreen #mapTable th,
+  body.appForceLandscape #mapEditorScreen #mapTable td{
+    height:34px!important;
+    min-height:34px!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen{
+    width:100dvh!important;
+    height:100dvw!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapWrap{
+    top:42px!important;
+    left:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:100%!important;
+    height:calc(100% - 42px)!important;
+    min-height:calc(100% - 42px)!important;
+    max-height:calc(100% - 42px)!important;
   }
 
 </style>
@@ -4414,7 +4469,20 @@ document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click
 scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF'});
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
 
-let mapZoomActive=false,mapZoomOwnFullscreen=false;
+let mapZoomActive=false,mapZoomOwnFullscreen=false,mapZoomPrevLandscapeRequest=false;
+let appLandscapeRequested=false;
+function physicalLandscape(){
+  try{return matchMedia('(orientation: landscape)').matches||innerWidth>innerHeight;}catch(_e){return innerWidth>innerHeight;}
+}
+function syncAppOrientation(){
+  const screenEl=document.getElementById('mapEditorScreen');
+  const phys=physicalLandscape();
+  const softwareRotate=appLandscapeRequested&&!phys;
+  document.body.classList.toggle('appForceLandscape',softwareRotate);
+  screenEl?.classList.toggle('landscapeRequested',appLandscapeRequested||phys);
+  syncRotateButton();
+  setTimeout(()=>{try{highlightCurrent()}catch(_e){}},80);
+}
 function isMobileMapClient(){
   const ua=String(navigator.userAgent||'');
   if(/Android|iPhone|iPad|iPod|BLINK-REDLEO-ANDROID/i.test(ua))return true;
@@ -4427,21 +4495,20 @@ async function enterMapZoom(){
     return;
   }
   mapZoomActive=true;
+  mapZoomPrevLandscapeRequest=appLandscapeRequested;
+  appLandscapeRequested=true;
   document.body.classList.add('mapZoomMode');
   const screenEl=document.getElementById('mapEditorScreen');
   screenEl?.classList.add('mapZoomed');
-  const nativeAndroid=!!(window.AndroidBLE&&typeof window.AndroidBLE.setOrientation==='function') || /BLINK-REDLEO-ANDROID/i.test(navigator.userAgent||'');
+  // Fullscreen is optional visual space only. Orientation itself is handled
+  // entirely by Blink's CSS transform and never by Android/iOS rotation APIs.
   try{
-    if(nativeAndroid){
-      try{window.AndroidBLE&&window.AndroidBLE.setOrientation('landscape')}catch(_e){}
-    }else{
-      if(!document.fullscreenElement){
-        const root=document.documentElement,req=root.requestFullscreen||root.webkitRequestFullscreen;
-        if(req){try{await req.call(root);mapZoomOwnFullscreen=true}catch(_e){}}
-      }
-      try{await screen.orientation?.lock?.('landscape')}catch(_e){}
+    if(!document.fullscreenElement){
+      const root=document.documentElement,req=root.requestFullscreen||root.webkitRequestFullscreen;
+      if(req){try{await req.call(root);mapZoomOwnFullscreen=true}catch(_e){}}
     }
   }catch(_e){}
+  syncAppOrientation();
   syncMirrors();
   setTimeout(()=>{try{highlightCurrent()}catch(_e){}},180);
 }
@@ -4450,7 +4517,8 @@ async function exitMapZoom(){
   mapZoomActive=false;
   document.body.classList.remove('mapZoomMode');
   document.getElementById('mapEditorScreen')?.classList.remove('mapZoomed');
-  try{screen.orientation?.unlock?.()}catch(_e){}
+  appLandscapeRequested=mapZoomPrevLandscapeRequest;
+  syncAppOrientation();
   if(mapZoomOwnFullscreen&&document.fullscreenElement){
     try{await document.exitFullscreen?.()}catch(_e){}
   }
@@ -4458,63 +4526,42 @@ async function exitMapZoom(){
   setTimeout(()=>{try{highlightCurrent()}catch(_e){}},120);
 }
 function syncMapZoomOrientation(){
-  if(mapZoomActive&&!matchMedia('(orientation: landscape)').matches)exitMapZoom();
+  // Device auto-rotation may change the physical viewport. Keep zoom active and
+  // simply add/remove Blink's 90° transform so there is never a double rotation.
+  syncAppOrientation();
 }
 document.getElementById('mapZoomBtn')?.addEventListener('click',enterMapZoom);
 document.getElementById('mapZoomExit')?.addEventListener('click',exitMapZoom);
 document.addEventListener('keydown',e=>{if(mapZoomActive&&e.key==='Escape'){e.preventDefault();exitMapZoom();}});
 document.addEventListener('fullscreenchange',()=>{if(mapZoomActive&&mapZoomOwnFullscreen&&!document.fullscreenElement)exitMapZoom();});
 async function requestLandscape(){
-  const screenEl=document.getElementById('mapEditorScreen');
   const btn=document.getElementById('rotateLandscapeBtn');
-  const isLandscape=matchMedia('(orientation: landscape)').matches;
-  const target=isLandscape?'portrait':'landscape';
-  const nativeAndroid=!!(window.AndroidBLE&&typeof window.AndroidBLE.setOrientation==='function') || /BLINK-REDLEO-ANDROID/i.test(navigator.userAgent||'');
-
   if(btn){
     btn.classList.remove('rotateAck');
     void btn.offsetWidth;
     btn.classList.add('rotateAck');
-    btn.textContent=target==='landscape'?'↻ ĐANG XOAY NGANG...':'↻ ĐANG XOAY DỌC...';
   }
-
-  try{
-    if(nativeAndroid){
-      try{window.AndroidBLE&&window.AndroidBLE.setOrientation(target)}catch(_e){}
-      screenEl?.classList.toggle('landscapeRequested',target==='landscape');
-      setTimeout(()=>{syncRotateButton();highlightCurrent();},420);
-      return;
-    }
-
-    if(!document.fullscreenElement && target==='landscape'){
-      const root=document.documentElement;
-      const req=root.requestFullscreen||root.webkitRequestFullscreen;
-      if(req){try{await req.call(root)}catch(_e){}}
-    }
-    let locked=false;
-    if(screen.orientation&&typeof screen.orientation.lock==='function'){
-      try{await screen.orientation.lock(target);locked=true}catch(_e){}
-    }
-    screenEl?.classList.toggle('landscapeRequested',target==='landscape');
-    if(!locked){
-      showEcuNotice('info',target==='landscape'?'XOAY NGANG':'XOAY DỌC','Trình duyệt này không cho website ép hướng. Hãy xoay điện thoại bằng tay.',3200);
-    }
-  }catch(e){
-    showEcuNotice('info','XOAY MÀN HÌNH','Không thể khóa hướng tự động trên trình duyệt này.',3000);
-  }finally{
-    setTimeout(syncRotateButton,500);
-  }
+  // Toggle Blink's own landscape request. We intentionally do NOT call
+  // AndroidBLE.setOrientation() or screen.orientation.lock().
+  appLandscapeRequested=!appLandscapeRequested;
+  syncAppOrientation();
 }
 function syncRotateButton(){
   const btn=document.getElementById('rotateLandscapeBtn');
   if(!btn)return;
   btn.classList.remove('rotateAck');
-  const land=matchMedia('(orientation: landscape)').matches;
-  btn.textContent=land?'↻ XOAY DỌC':'↻ XOAY NGANG';
+  if(appLandscapeRequested){
+    btn.textContent='↻ XOAY DỌC';
+  }else if(physicalLandscape()){
+    btn.textContent='↻ THEO MÁY';
+  }else{
+    btn.textContent='↻ XOAY NGANG';
+  }
 }
 document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
-window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);syncRotateButton();syncMapZoomOrientation();highlightCurrent();},260)});
-syncRotateButton();
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{syncMapZoomOrientation();highlightCurrent();},180)});
+window.addEventListener('resize',()=>{setTimeout(()=>{syncAppOrientation();},80)},{passive:true});
+syncAppOrientation();
 updateMapControls();
 })();
 </script>
