@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.65';
+  window.BLINK_PB_VERSION = '3.66';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3104,6 +3104,46 @@ window.addEventListener('beforeunload',save);
   }
   window.ensureBlinkBridgeFirmwareStatus=ensureBridgeFirmwareStatus;
 
+  function bridgeStatusAtLeast(text,major,minor){
+    const m=String(text||'').match(/\\bFW(\\d+)(?:\\.(\\d+))?/i);
+    if(!m)return false;
+    const a=Number(m[1]||0),b=Number(m[2]||0);
+    return a>major||(a===major&&b>=minor);
+  }
+  async function writeBridgeControl(text){
+    if(!commandChar)throw new Error('BLE chưa kết nối.');
+    const bytes=enc.encode(String(text||''));
+    if(typeof commandChar.writeValueWithResponse==='function'){await commandChar.writeValueWithResponse(bytes);return;}
+    if(typeof commandChar.writeValue==='function'){await commandChar.writeValue(bytes);return;}
+    if(typeof commandChar.writeValueWithoutResponse==='function'){await commandChar.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,30));return;}
+    throw new Error('BLE COMMAND không hỗ trợ control write.');
+  }
+  async function configureFastBridgeRx(bridgeStatus){
+    window.blinkBridgeRxPayload=12;
+    if(!bridgeStatusAtLeast(bridgeStatus,1,7))return false;
+
+    const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+    const nativeAndroid=/BLINK-REDLEO-ANDROID\\//i.test(ua);
+    const apple=/iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||(platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+
+    let mtu=Number(window.__androidBleMtu||0);
+    if(nativeAndroid){
+      for(let i=0;i<8&&mtu<170;i++){
+        await new Promise(r=>setTimeout(r,80));
+        mtu=Number(window.__androidBleMtu||0);
+      }
+      if(mtu<170)return false;
+    }else if(!apple){
+      return false;
+    }
+
+    await writeBridgeControl('RXJUMBO:160');
+    window.blinkBridgeRxPayload=160;
+    console.log('[BLINK] ESP32 -> phone jumbo RX enabled · 160B payload'+(nativeAndroid?' · MTU '+mtu:' · Apple/Bluefy'));
+    return true;
+  }
+  window.configureBlinkFastBridgeRx=configureFastBridgeRx;
+
   const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_BLE_BEGIN=0x04,OTA_BLE_END=0x05,OTA_BLE_ABORT=0x06,OTA_SCAN_MARKER=0xE4,OTA_BLE_DATA_MARKER=0xE5,OTA_CHUNK=12;
   let otaUpdateReady=false;
   let otaWifiNetworks=[];
@@ -3610,6 +3650,13 @@ window.addEventListener('beforeunload',save);
     // The REAL protocol layer consumes this internally for timing/diagnostics.
     // Do not overwrite the user-facing footer with RAWREADY xx.
     if(text.startsWith('RAWREADY '))return;
+    if(text.startsWith('RXJUMBO ')){
+      const n=Number(text.slice(8))||12;
+      window.blinkBridgeRxPayload=n;
+      $('ecuDiag').textContent='BLE STATUS: '+text+' · RX FAST '+n+'B';
+      return;
+    }
+    if(text==='RXJUMBO OFF'){window.blinkBridgeRxPayload=12;return;}
     if(text.startsWith('OTA:')){handleOtaStatus(text);return;}
     if(text.startsWith('MAP_DONE')){
       mapRx.active=false;saveSoon();
@@ -3665,6 +3712,9 @@ window.addEventListener('beforeunload',save);
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
       const bridgeFw=await ensureBridgeFirmwareStatus(3);
       if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
+      else{
+        try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
+      }
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);

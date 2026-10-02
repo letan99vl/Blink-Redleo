@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.6"
+#define FW_VERSION "1.7"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -62,9 +62,16 @@ static const char *STATUS_UUID  = "afaf0005-7c35-4a6d-9f0e-2ea3117f1000";
 // Universal ATT-safe packets: 7-byte chunk header + 12-byte payload = 19 bytes.
 static const uint8_t RAW_TX_MARKER = 0xE1;
 static const uint8_t RAW_RX_MARKER = 0xE2;
-static const size_t RAW_PAYLOAD_PER_PACKET = 12;
+static const size_t RAW_SAFE_PAYLOAD = 12;
+static const size_t RAW_JUMBO_PAYLOAD = 160;
 static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
 static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
+
+// RX is conservative by default. The phone opts into 160-byte notifications
+// only after FW1.7 PING + client-side MTU capability checks. This keeps old
+// Bluefy/WebView/desktop clients byte-for-byte compatible.
+static volatile uint16_t rawRxPayload = RAW_SAFE_PAYLOAD;
+static volatile bool rawRxJumboEnabled = false;
 
 // OTA control uses the same BLE command characteristic but a separate marker,
 // so the existing REDLEO raw bridge protocol remains byte-for-byte compatible.
@@ -82,12 +89,22 @@ static const size_t OTA_MAX_PAYLOAD = 100;
 
 // BLE pacing by response size. INJ VE current-map replies are ~843B and need
 // a slower stream than the smaller one-byte REDLEO pages on iOS/Bluefy.
-static uint16_t rawNotifyDelayFor(uint16_t total) {
+static uint16_t rawNotifyDelayFor(uint16_t total, uint16_t payloadSize) {
+  if (payloadSize > RAW_SAFE_PAYLOAD) {
+    if (total >= 8000) return 4;
+    if (total >= 800) return 3;
+    return 2;
+  }
   if (total >= 800) return 14;
   if (total >= 400) return 9;
   return RAW_NOTIFY_DELAY_MS;
 }
-static uint16_t rawNotifyYieldEveryFor(uint16_t total) {
+static uint16_t rawNotifyYieldEveryFor(uint16_t total, uint16_t payloadSize) {
+  if (payloadSize > RAW_SAFE_PAYLOAD) {
+    if (total >= 8000) return 6;
+    if (total >= 800) return 8;
+    return 12;
+  }
   if (total >= 800) return 12;
   if (total >= 400) return 18;
   return RAW_NOTIFY_YIELD_EVERY;
@@ -196,6 +213,8 @@ class ServerCallbacks : public BLEServerCallbacks {
     lastProcessedSid = 0;
     lastProcessedMs = 0;
     lastRawChunkMs = 0;
+    rawRxPayload = RAW_SAFE_PAYLOAD;
+    rawRxJumboEnabled = false;
     txExpected = 0;
     txGot = 0;
     txEndSeen = false;
@@ -293,7 +312,22 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     // Compatibility / diagnostics.
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
-      if (text == "PING") notifyStatus(String("PONG FW") + FW_VERSION);
+      if (text == "PING") {
+        notifyStatus(String("PONG FW") + FW_VERSION);
+      } else if (text.startsWith("RXJUMBO:")) {
+        const int requested = text.substring(8).toInt();
+        if (requested >= 64 && requested <= (int)RAW_JUMBO_PAYLOAD) {
+          rawRxPayload = (uint16_t)requested;
+          rawRxJumboEnabled = true;
+          notifyStatus(String("RXJUMBO ") + rawRxPayload);
+          Serial.printf("BLE RX jumbo enabled payload=%u\n", (unsigned)rawRxPayload);
+        } else {
+          rawRxPayload = RAW_SAFE_PAYLOAD;
+          rawRxJumboEnabled = false;
+          notifyStatus("RXJUMBO OFF");
+          Serial.println("BLE RX jumbo disabled");
+        }
+      }
       return;
     }
 
@@ -402,6 +436,30 @@ static bool extractValidLive53(uint8_t *rx, size_t got) {
     return true;
   }
   return false;
+}
+
+// For large known replies, checksum + exact known wire length is a stronger
+// completion signal than waiting for a long UART idle gap. Alternate lengths
+// automatically fall back to the legacy idle-gap path below.
+static size_t extractValidKnownFrame(uint8_t *rx, size_t got,
+                                     const uint8_t *starts, size_t startCount,
+                                     const uint16_t *lengths, size_t lengthCount) {
+  if (!rx || !starts || !lengths) return 0;
+  for (size_t i = 0; i < got; ++i) {
+    bool startOk = false;
+    for (size_t s = 0; s < startCount; ++s) {
+      if (rx[i] == starts[s]) { startOk = true; break; }
+    }
+    if (!startOk) continue;
+    for (size_t k = 0; k < lengthCount; ++k) {
+      const size_t n = lengths[k];
+      if (i + n > got) continue;
+      if (!validRedleoFrame(rx + i, n)) continue;
+      if (i != 0) memmove(rx, rx + i, n);
+      return n;
+    }
+  }
+  return 0;
 }
 
 // Match the proven PC bridge timing: Read Current needs a much longer idle
@@ -520,7 +578,25 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
       return 53;
     }
 
-    // FW1.6: a confirmed short write ACK does not need the generic 140ms
+    // Current fuel pages are checksum-protected and have verified V8/V9+
+    // lengths. Finish immediately instead of waiting the 650-950 ms 0x9A idle gap.
+    if (txLen > 1 && tx[0] == 0x9A && isFuelCurrentPage(tx, txLen)) {
+      const uint8_t starts[] = { tx[1] };
+      const uint16_t lengths[] = { 423, 424, 843, 844 };
+      const size_t done = extractValidKnownFrame(rx, got, starts, 1, lengths, 4);
+      if (done) return done;
+    }
+
+    // Known Read All / Restore images can also finish on checksum instead of a
+    // post-frame idle wait. UART wire time still applies (~3 s for ~10 KB).
+    if (txLen > 0 && (tx[0] == 0xAB || tx[0] == 0x8B)) {
+      const uint8_t starts[] = { 0xAB, 0x8B, 0xAE };
+      const uint16_t lengths[] = { 9767, 9895, 9958 };
+      const size_t done = extractValidKnownFrame(rx, got, starts, 3, lengths, 3);
+      if (done) return done;
+    }
+
+    // FW1.6+: a confirmed short write ACK does not need the generic 140ms
     // serial-idle wait. Break here, then run the normal exact TX-echo stripping.
     if (writeAckSettled(tx, txLen, rx, got, lastRx)) {
       break;
@@ -554,16 +630,20 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
     return;
   }
 
-  const uint16_t packetDelay = rawNotifyDelayFor(total);
-  const uint16_t yieldEvery = rawNotifyYieldEveryFor(total);
+  uint16_t payloadSize = rawRxJumboEnabled ? rawRxPayload : (uint16_t)RAW_SAFE_PAYLOAD;
+  if (payloadSize < RAW_SAFE_PAYLOAD || payloadSize > RAW_JUMBO_PAYLOAD) payloadSize = RAW_SAFE_PAYLOAD;
+  const uint16_t packetDelay = rawNotifyDelayFor(total, payloadSize);
+  const uint16_t yieldEvery = rawNotifyYieldEveryFor(total, payloadSize);
   const bool longFrame = total >= 800;
+  const bool jumbo = payloadSize > RAW_SAFE_PAYLOAD;
 
-  // Long 0x9A INJ VE frames need a brief quiet gap before BLE streaming.
-  if (longFrame) delay(40);
+  // Negotiated jumbo needs far fewer ATT notifications, so the pre-stream gap
+  // can be much shorter without overflowing the phone BLE queue.
+  if (longFrame) delay(jumbo ? 8 : 40);
 
-  for (uint16_t off = 0; off < total && deviceConnected; off += RAW_PAYLOAD_PER_PACKET) {
-    const uint8_t count = (uint8_t)min((size_t)RAW_PAYLOAD_PER_PACKET, (size_t)(total - off));
-    uint8_t pkt[7 + RAW_PAYLOAD_PER_PACKET];
+  for (uint16_t off = 0; off < total && deviceConnected; off += payloadSize) {
+    const uint8_t count = (uint8_t)min((size_t)payloadSize, (size_t)(total - off));
+    uint8_t pkt[7 + RAW_JUMBO_PAYLOAD];
     pkt[0] = RAW_RX_MARKER;
     pkt[1] = sid;
     pkt[2] = (off == 0 ? 0x01 : 0x00) | ((off + count >= total) ? 0x02 : 0x00);
@@ -577,14 +657,14 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
     // First and last chunks are critical for browser reassembly. Repeat them
     // on long frames so a single lost notification does not cause 0x9A timeout.
     if (longFrame && (off == 0 || off + count >= total)) {
-      delay(22);
+      delay(jumbo ? 6 : 22);
       mapChar->setValue(pkt, 7 + count);
       mapChar->notify();
     }
 
     delay(packetDelay);
-    if ((((off / RAW_PAYLOAD_PER_PACKET) + 1) % yieldEvery) == 0) {
-      delay(longFrame ? 30 : 18);
+    if ((((off / payloadSize) + 1) % yieldEvery) == 0) {
+      delay(jumbo ? 12 : (longFrame ? 30 : 18));
       yield();
     }
   }
@@ -636,8 +716,10 @@ static void processTransaction() {
   }
   Serial.println();
   if (got >= 800) {
-    Serial.printf("BLE stream sid=%u len=%u pace=%ums long=1\n",
-                  sid, (unsigned)got, (unsigned)rawNotifyDelayFor((uint16_t)got));
+    const uint16_t payloadSize = rawRxJumboEnabled ? rawRxPayload : (uint16_t)RAW_SAFE_PAYLOAD;
+    Serial.printf("BLE stream sid=%u len=%u payload=%u pace=%ums long=1\n",
+                  sid, (unsigned)got, (unsigned)payloadSize,
+                  (unsigned)rawNotifyDelayFor((uint16_t)got, payloadSize));
   }
   sendRawResponse(sid, rxBuf, (uint16_t)got);
   free(rxBuf);
