@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.70';
+  window.BLINK_PB_VERSION = '3.71';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -745,6 +745,108 @@
     overflow:auto!important;
     -webkit-overflow-scrolling:touch!important;
   }
+
+  /* ===== v12 MOBILE LANDSCAPE MAP ZOOM ===== */
+  #mapZoomBtn{display:none}
+  #mapZoomHud{
+    display:none;
+    position:fixed;
+    top:max(6px,env(safe-area-inset-top));
+    right:max(6px,env(safe-area-inset-right));
+    z-index:250010;
+    align-items:center;
+    gap:6px;
+    pointer-events:auto;
+  }
+  #mapZoomHud .zoomStat{
+    min-width:116px;
+    height:38px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    padding:0 10px;
+    border-radius:11px;
+    border:1px solid #7a2530;
+    background:rgba(8,8,11,.94);
+    color:#fff;
+    box-shadow:0 8px 24px #0008;
+    font-size:11px;
+    font-weight:900;
+    white-space:nowrap;
+  }
+  #mapZoomHud .zoomStat b{color:#ff7f8c;font-size:14px}
+  #mapZoomHud button{
+    height:38px;
+    min-width:44px;
+    padding:0 11px;
+    border-radius:11px;
+    border:1px solid #7a2530;
+    background:rgba(16,16,21,.96);
+    color:#fff;
+    box-shadow:0 8px 24px #0008;
+    font-size:11px;
+    font-weight:900;
+  }
+  #mapZoomHud #mapZoomPlus{border-color:#1dbb5b;color:#8affad;background:rgba(7,47,24,.96)}
+  #mapZoomHud #mapZoomMinus{border-color:#e83347;color:#ff9da8;background:rgba(70,10,20,.96)}
+  @media (max-width:1100px), (pointer:coarse){
+    #mapZoomBtn{display:inline-flex!important;align-items:center;justify-content:center}
+  }
+  body.mapZoomMode{overflow:hidden!important}
+  body.mapZoomMode .app{padding:0!important;gap:0!important;height:100dvh!important}
+  body.mapZoomMode #mapEditorScreen{
+    display:flex!important;
+    position:fixed!important;
+    inset:0!important;
+    width:100vw!important;
+    height:100dvh!important;
+    max-width:none!important;
+    z-index:250000!important;
+    padding:0!important;
+    margin:0!important;
+    background:#050507!important;
+  }
+  body.mapZoomMode #mapEditorScreen .screenHeader,
+  body.mapZoomMode #mapEditorScreen .editToolbar,
+  body.mapZoomMode #mapEditorScreen .editorInfo,
+  body.mapZoomMode #mapEditorScreen .editorTabs,
+  body.mapZoomMode #mapEditorScreen .editorStepBar,
+  body.mapZoomMode #mapEditorScreen .editorFooter,
+  body.mapZoomMode .bottomNav{display:none!important}
+  body.mapZoomMode #mapZoomHud{display:flex!important}
+  body.mapZoomMode #mapWrap{
+    position:absolute!important;
+    inset:0!important;
+    width:100vw!important;
+    height:100dvh!important;
+    min-height:100dvh!important;
+    max-height:100dvh!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:auto!important;
+    overscroll-behavior:contain;
+    touch-action:pan-x pan-y;
+    background:#070708!important;
+  }
+  body.mapZoomMode #mapTable{
+    min-width:1650px!important;
+    min-height:100%!important;
+    margin:0!important;
+  }
+  body.mapZoomMode #mapTable th,
+  body.mapZoomMode #mapTable td{
+    height:42px!important;
+    font-size:12px!important;
+  }
+  @media (orientation:landscape) and (max-height:600px){
+    body.mapZoomMode #mapTable th,
+    body.mapZoomMode #mapTable td{height:34px!important;font-size:10px!important}
+    body.mapZoomMode #mapTable{min-width:1500px!important}
+    #mapZoomHud .zoomStat,#mapZoomHud button{height:34px}
+  }
   body.mapEditing #mapTable{
     height:auto!important;
     min-height:0!important;
@@ -881,11 +983,17 @@
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
+    <div id="mapZoomHud" aria-live="polite">
+      <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
+      <button id="mapZoomMinus" type="button" aria-label="Giảm vùng chọn">−</button>
+      <button id="mapZoomPlus" type="button" aria-label="Tăng vùng chọn">＋</button>
+      <button id="mapZoomExit" type="button">THU NHỎ</button>
+    </div>
     
     <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span><span id="autoFollowInfo">TỰ CUỘN LIVE: ON</span></div>
   </section>
@@ -4170,7 +4278,7 @@ function loadOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>e.v
 async function ecuCommand(c){saveOptions();try{await cmd(c);showEcuNotice('info','ĐÃ GỬI LỆNH',c)}catch(e){showEcuNotice('error','BLE',e.message,0)}}
 function exportBackup(){const blob=new Blob([JSON.stringify({version:7,featureStore,optionStore,mapBanks:state.mapBanks,cal:state.cal},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='BLINK_REDLEO_BACKUP_v7.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal)Object.assign(state.cal,j.cal);saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
-function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textContent||'0',tps:document.getElementById('tpsLive')?.textContent||'--%',afr:document.getElementById('afrLive')?.textContent||'--',cell:document.getElementById('cellLive')?.textContent||'--'};document.querySelectorAll('[data-mirror]').forEach(e=>{if(m[e.dataset.mirror]!=null)e.textContent=m[e.dataset.mirror]});const rpmMax=Math.max(1,Number(RPMS[C-1])||15000),rpm=Math.max(0,Math.min(rpmMax,Number((m.rpm||'0').replace(/[^0-9.]/g,''))||0));document.getElementById('rpmGauge')?.style.setProperty('--rpm-angle',(rpm/rpmMax*270)+'deg');const on=!!state.ecuConnected;['mapBleStatus','editorBleStatus','idleLimitBleStatus','redEditorBleStatus','tuneBleStatus','ecuBleStatus','settingsBleStatus'].forEach(id=>{const e=document.getElementById(id);if(!e)return;e.classList.toggle('on',on);const s=e.querySelector('span:last-child');if(s)s.textContent=on?'ON':'OFF'});const db=document.getElementById('dashBleState');if(db){db.textContent=on?'● ON':'● OFF';db.style.color=on?'#86ffa7':''};syncBanks();try{const cur=currentCell(),pw=state.inject?.[cur.r]?.[cur.c];if(!Number.isFinite(Number(state.live.pw)))document.getElementById('dashPw').textContent=Number.isFinite(Number(pw))?Number(pw).toFixed(2)+' ms':'0.00 ms'}catch(e){}}
+function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textContent||'0',tps:document.getElementById('tpsLive')?.textContent||'--%',afr:document.getElementById('afrLive')?.textContent||'--',cell:document.getElementById('cellLive')?.textContent||'--',ect:document.getElementById('ectLive')?.textContent||'-- °C'};document.querySelectorAll('[data-mirror]').forEach(e=>{if(m[e.dataset.mirror]!=null)e.textContent=m[e.dataset.mirror]});const ze=document.getElementById('mapZoomEct');if(ze)ze.textContent=m.ect;const rpmMax=Math.max(1,Number(RPMS[C-1])||15000),rpm=Math.max(0,Math.min(rpmMax,Number((m.rpm||'0').replace(/[^0-9.]/g,''))||0));document.getElementById('rpmGauge')?.style.setProperty('--rpm-angle',(rpm/rpmMax*270)+'deg');const on=!!state.ecuConnected;['mapBleStatus','editorBleStatus','idleLimitBleStatus','redEditorBleStatus','tuneBleStatus','ecuBleStatus','settingsBleStatus'].forEach(id=>{const e=document.getElementById(id);if(!e)return;e.classList.toggle('on',on);const s=e.querySelector('span:last-child');if(s)s.textContent=on?'ON':'OFF'});const db=document.getElementById('dashBleState');if(db){db.textContent=on?'● ON':'● OFF';db.style.color=on?'#86ffa7':''};syncBanks();try{const cur=currentCell(),pw=state.inject?.[cur.r]?.[cur.c];if(!Number.isFinite(Number(state.live.pw)))document.getElementById('dashPw').textContent=Number.isFinite(Number(pw))?Number(pw).toFixed(2)+' ms':'0.00 ms'}catch(e){}}
 
 document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()=>showScreen(e.dataset.nav)));
 document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',()=>{selectMapBank(Number(e.dataset.mapbank),true);syncBanks();if(currentFeature?.banked)renderFeature()}));
@@ -4239,6 +4347,59 @@ document.querySelectorAll('[data-mapstep]').forEach(b=>b.addEventListener('click
 document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click',()=>{mapMode=b.dataset.mapmode;updateMapControls()}));
 scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF'});
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
+
+let mapZoomActive=false,mapZoomOwnFullscreen=false;
+function isMobileMapClient(){
+  const ua=String(navigator.userAgent||'');
+  if(/Android|iPhone|iPad|iPod|BLINK-REDLEO-ANDROID/i.test(ua))return true;
+  try{return matchMedia('(pointer:coarse)').matches||innerWidth<=1100;}catch(_e){return innerWidth<=1100;}
+}
+async function enterMapZoom(){
+  if(mapZoomActive)return;
+  if(!isMobileMapClient()){
+    showEcuNotice('info','PHÓNG TO MAP','Chế độ này dành cho điện thoại/tablet.',2500);
+    return;
+  }
+  mapZoomActive=true;
+  document.body.classList.add('mapZoomMode');
+  const screenEl=document.getElementById('mapEditorScreen');
+  screenEl?.classList.add('mapZoomed');
+  const nativeAndroid=!!(window.AndroidBLE&&typeof window.AndroidBLE.setOrientation==='function') || /BLINK-REDLEO-ANDROID/i.test(navigator.userAgent||'');
+  try{
+    if(nativeAndroid){
+      try{window.AndroidBLE&&window.AndroidBLE.setOrientation('landscape')}catch(_e){}
+    }else{
+      if(!document.fullscreenElement){
+        const root=document.documentElement,req=root.requestFullscreen||root.webkitRequestFullscreen;
+        if(req){try{await req.call(root);mapZoomOwnFullscreen=true}catch(_e){}}
+      }
+      try{await screen.orientation?.lock?.('landscape')}catch(_e){}
+    }
+  }catch(_e){}
+  syncMirrors();
+  setTimeout(()=>{try{highlightCurrent()}catch(_e){}},180);
+}
+async function exitMapZoom(){
+  if(!mapZoomActive)return;
+  mapZoomActive=false;
+  document.body.classList.remove('mapZoomMode');
+  document.getElementById('mapEditorScreen')?.classList.remove('mapZoomed');
+  try{screen.orientation?.unlock?.()}catch(_e){}
+  if(mapZoomOwnFullscreen&&document.fullscreenElement){
+    try{await document.exitFullscreen?.()}catch(_e){}
+  }
+  mapZoomOwnFullscreen=false;
+  setTimeout(()=>{try{highlightCurrent()}catch(_e){}},120);
+}
+function syncMapZoomOrientation(){
+  if(mapZoomActive&&!matchMedia('(orientation: landscape)').matches)exitMapZoom();
+}
+document.getElementById('mapZoomBtn')?.addEventListener('click',enterMapZoom);
+document.getElementById('mapZoomExit')?.addEventListener('click',exitMapZoom);
+document.getElementById('mapZoomPlus')?.addEventListener('click',()=>adjustMap(1));
+document.getElementById('mapZoomMinus')?.addEventListener('click',()=>adjustMap(-1));
+document.addEventListener('keydown',e=>{if(mapZoomActive&&e.key==='Escape'){e.preventDefault();exitMapZoom();}});
+document.addEventListener('fullscreenchange',()=>{if(mapZoomActive&&mapZoomOwnFullscreen&&!document.fullscreenElement)exitMapZoom();});
 async function requestLandscape(){
   const screenEl=document.getElementById('mapEditorScreen');
   const btn=document.getElementById('rotateLandscapeBtn');
@@ -4288,7 +4449,7 @@ function syncRotateButton(){
   btn.textContent=land?'↻ XOAY DỌC':'↻ XOAY NGANG';
 }
 document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
-window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);syncRotateButton();highlightCurrent();},260)});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{const land=matchMedia('(orientation: landscape)').matches;document.getElementById('mapEditorScreen')?.classList.toggle('landscapeRequested',land);syncRotateButton();syncMapZoomOrientation();highlightCurrent();},260)});
 syncRotateButton();
 updateMapControls();
 })();
