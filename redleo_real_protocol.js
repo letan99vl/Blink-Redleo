@@ -181,6 +181,13 @@ function currentAuxAxes(){
     generation:newer?'9.2+':'8/9.1'
   };
 }
+// Compensation tables are not TPS tables. On the newer thermal-axis generation
+// (REDLEO 9.2+, V10/Ultra and ATE/V11), page 0x72/0x82/0x92 rows are stored
+// low->high on wire, matching the ascending ECT/MAP physical axes. Older 8/9.1
+// software uses the legacy reversed-row serializer, so preserve it there.
+function compRowsForwardOnWire(info=handshakeInfo){
+  return usesNewThermalAxis(info);
+}
 function validDynamicAxes(tpsPct,rpmAxis){
   if(!Array.isArray(tpsPct)||tpsPct.length!==14||!Array.isArray(rpmAxis)||rpmAxis.length!==30)return false;
   const t=tpsPct.map(Number),r=rpmAxis.map(Number);
@@ -193,7 +200,7 @@ function publishEcuAxes(tpsPct,rpmAxis,source='ECU'){
   const aux=currentAuxAxes();
   let t=Array.from(tpsPct||[],Number),r=Array.from(rpmAxis||[],Number);
   if(!validDynamicAxes(t,r)){t=LEGACY_TPS_PCT.slice();r=LEGACY_RPM_AXIS.slice();}
-  const payload={profile:ecuProfile?.key||'UNKNOWN',firmware:handshakeInfo?.firmware||'',tpsPct:t.slice(),rpmAxis:r.slice(),ectAxis:aux.ect,iatAxis:aux.iat,mapAxis:aux.map,source};
+  const payload={profile:ecuProfile?.key||'UNKNOWN',firmware:handshakeInfo?.firmware||'',tpsPct:t.slice(),rpmAxis:r.slice(),ectAxis:aux.ect,iatAxis:aux.iat,mapAxis:aux.map,compRowOrder:compRowsForwardOnWire()?'forward':'legacy-reverse',source};
   window.blinkEcuAxes=payload;
   try{window.applyEcuAxes?.(payload);}catch(_e){}
   return payload;
@@ -1362,9 +1369,10 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   C.bitfield=a[81];C.autoStart=decAutoRpm(a[82]);C.auto=Array.from(a.slice(83,88),x=>x*5);C.password=Array.from(a.slice(88,92));
   C.optionRaw=Array.from(a.slice(92,104));
   C.options=decodeOptions(C.optionRaw,C.vEct,C.bitfield,C.autoStart);
-  let q=decodeRowsByte(a,104,11,30,decPct);C.ectInj=q.data;
-  q=decodeRowsByte(a,q.next,11,30,decEctIgn);C.ectIgn=q.data;
-  q=decodeRowsByte(a,q.next,11,30,decMapInj);C.mapInj=q.data;
+  const compDecode=compRowsForwardOnWire()?decodeRowsByteForward:decodeRowsByte;
+  let q=compDecode(a,104,11,30,decPct);C.ectInj=q.data;
+  q=compDecode(a,q.next,11,30,decEctIgn);C.ectIgn=q.data;
+  q=compDecode(a,q.next,11,30,decMapInj);C.mapInj=q.data;
   let p=q.next;
   for(let bank=1;bank<=4;bank++){
     const b={bank};let z=decodeRowsU16(a,p,14,30,decOilTab);b.inj=z.data;p=z.next;
@@ -2222,7 +2230,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   }
 
   const R=await readDirectPageReal(pg,rows*cols,label+(rows>1&&pg<0x70?' · MAP NO.'+bank:''),showUi);
-  const forwardComp=isV11Profile()&&['ect_inj','ect_ign','map_inj'].includes(id);
+  const forwardComp=['ect_inj','ect_ign','map_inj'].includes(id)&&compRowsForwardOnWire();
   const z=forwardComp
     ?decodeRowsByteForward(R.data,0,rows,cols,dec)
     :decodeRowsByte(R.data,0,rows,cols,dec);
@@ -2706,9 +2714,9 @@ async function writeFeatureReal(id){
       case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encMainInjAngle);break;
       case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
       case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encMainDwell);break;
-      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=isV11Profile()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
-      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=isV11Profile()?encodeRowsByteForward(m,encMainIgn):encodeRowsByte(m,encEctIgn);break;
-      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=isV11Profile()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
+      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
+      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,isV11Profile()?encMainIgn:encEctIgn):encodeRowsByte(m,encEctIgn);break;
+      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
       default:throw new Error('Chưa có page ghi trực tiếp cho '+id);
     }
 
@@ -2733,9 +2741,9 @@ async function writeFeatureReal(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
     case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
     case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encOil);break;
-    case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=encodeRowsByte(m,encPct);break;
-    case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=encodeRowsByte(m,encEctIgn);break;
-    case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=encodeRowsByte(m,encMapInj);break;
+    case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
+    case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encEctIgn):encodeRowsByte(m,encEctIgn);break;
+    case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
     case 'ect_idle_motor':pg=page(6,bank);payload=idlePayload(bank,false);{let motor=matrixFromRedTable(1,12)[0];for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(motor[i]/2),0,255);}break;
     case 'iat_inj':case 'map_idle_motor':case 'external_adjust':case 'auto_clutch':case 'v_ect':case 'v_iat':case 'v_map':pg=0xA2;payload=a2Payload();break;
     case 'spare':throw new Error('Spare là bảng firmware <9.0; ECU 9.1X dùng AutoClutch/Password thay thế. Không ghi để tránh hỏng A-page.');
@@ -3132,7 +3140,8 @@ async function sendAllReal(){
   requireProfile('fullWrite','Ghi toàn bộ ECU');
   taskUi('loading','ĐANG GHI TOÀN BỘ ECU...');
   if(!readCache)await readAll();
-  await writePageChecked(0x72,encodeRowsByte(readCache.ectInj,encPct));await writePageChecked(0x82,encodeRowsByte(readCache.ectIgn,encEctIgn));await writePageChecked(0x92,encodeRowsByte(readCache.mapInj,encMapInj));await writePageChecked(0xA2,a2Payload());
+  const compEncode=compRowsForwardOnWire()?encodeRowsByteForward:encodeRowsByte;
+  await writePageChecked(0x72,compEncode(readCache.ectInj,encPct));await writePageChecked(0x82,compEncode(readCache.ectIgn,encEctIgn));await writePageChecked(0x92,compEncode(readCache.mapInj,encMapInj));await writePageChecked(0xA2,a2Payload());
   for(let b=1;b<=4;b++)await writeBankAll(b);await readAll();notice('success','SEND ALL REAL OK','Đã ghi toàn bộ page hỗ trợ và Read All verify');
 }
 
