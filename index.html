@@ -4562,6 +4562,7 @@ document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestL
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{syncMapZoomOrientation();highlightCurrent();},180)});
 window.addEventListener('resize',()=>{setTimeout(()=>{syncAppOrientation();},80)},{passive:true});
 syncAppOrientation();
+syncRotateButton();
 updateMapControls();
 })();
 </script>
