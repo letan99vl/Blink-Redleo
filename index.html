@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.68';
+  window.BLINK_PB_VERSION = '3.69';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -485,7 +485,7 @@
   .editorTabs{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:4px!important;margin:0 12px 8px!important;padding:4px!important;background:#0d0d11!important;border:1px solid #33171c!important;border-radius:13px!important;overflow:visible!important}.editorTabs .tab{font-size:9px!important;min-height:37px!important;white-space:normal!important;padding:4px!important}
   .editorStepBar{display:flex;align-items:center;gap:6px;padding:0 12px 8px;color:#8d929b;font-size:10px;flex:0 0 auto}.stepChip{padding:7px 11px;border:1px solid #332027;background:#101014;border-radius:10px;font-weight:800}.stepChip.on{border-color:#a51c28;color:#fff;background:#2a0b10}
   .mapwrap{margin:0!important;border-radius:0!important;border-left:0!important;border-right:0!important;border-bottom:0!important;flex:1!important;min-height:0!important;background:#070708!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important}
-  #mapTable{min-width:1650px!important;height:auto!important;min-height:100%!important}.mapwrap th,.mapwrap td{height:42px!important;font-size:12px!important}.mapwrap th{background:#121217!important}.mapwrap td.rowhead{background:#0e0e12!important;color:#aeb2bb!important}.mapwrap td.mapcell{background:#f6b6c3!important}.mapwrap td.mapcell:nth-child(3n){background:#f3a9b8!important}.mapwrap td.mapcell.current{background:#ff8ca3!important;box-shadow:inset 0 0 0 3px #ff2d2d!important}.mapwrap td.mapcell.selected{background:#da1d31!important;color:#fff!important}
+  #mapTable{min-width:1650px!important;height:auto!important;min-height:100%!important}.mapwrap th,.mapwrap td{height:42px!important;font-size:12px!important}.mapwrap th{background:#121217!important}.mapwrap td.rowhead{background:#0e0e12!important;color:#aeb2bb!important}.mapwrap td.mapcell{background:#f6b6c3!important}.mapwrap td.mapcell:nth-child(3n){background:#f3a9b8!important}.mapwrap td.mapcell.current{background:#ff8ca3!important;box-shadow:inset 0 0 0 3px #ff2d2d!important}.mapwrap td.mapcell.selected{background:#da1d31!important;color:#fff!important}.mapwrap td.mapcell.selected.current{box-shadow:inset 0 0 0 3px #ffb3c5,inset 0 0 0 5px #ff2d2d!important}
   .editorFooter{display:flex;gap:9px;align-items:center;overflow-x:auto;padding:6px 10px 8px;background:#08080b;border-top:1px solid #2c1419;font-size:8px;color:#7d828c;flex:0 0 auto}.editorFooter span{white-space:nowrap}
 
   /* auto tune */
@@ -1479,7 +1479,9 @@ function currentCell(){
   const rpm=Number(state.live.rpm)||0,tps=Number(state.live.tps)||0;
   const r=nearestRow(tps,rpm),c=nearestCol(rpm);
   const idle=String(TPS_ROWS[r]).toUpperCase()==='IDLE';
-  return {r,c,key:idle?'idle':r+':'+c};
+  // IDLE is still RPM-indexed. Include the column in the key so auto-follow
+  // continues moving horizontally while the throttle remains closed.
+  return {r,c,key:(idle?'idle:':r+':')+c};
 }
 async function ensureActiveEcuAxes(showUi=false){
   if(!state.ecuConnected)return true;
@@ -4026,12 +4028,78 @@ function autoFollowRedLiveCell(td,cur){
     try{wrap.scrollTo({left,top,behavior:'auto'})}catch(_e){wrap.scrollTo(left,top)}
   }
 }
+function nearestFeatureAxisIndex(axis,value){
+  value=Number(value);
+  if(!Array.isArray(axis)||!Number.isFinite(value))return -1;
+  let best=-1,dist=Infinity;
+  for(let i=0;i<axis.length;i++){
+    const v=Number(axis[i]);
+    if(!Number.isFinite(v))continue;
+    const d=Math.abs(value-v);
+    if(d<dist){dist=d;best=i;}
+  }
+  return best;
+}
+function redLiveCursorForFeature(f){
+  if(!f)return null;
+  const rpm=Number(state.live.rpm),tps=Number(state.live.tps);
+  const ect=Number(state.live.ect),iat=Number(state.live.iat),mapKpa=Number(state.live.mapKpa);
+  const one=(r,c,key)=>{
+    if(r<0||c<0||r>=f.rows||c>=f.cols)return null;
+    return {cells:[{r,c}],key:key||f.id+':'+r+':'+c};
+  };
+  const column=(c,key)=>{
+    if(c<0||c>=f.cols)return null;
+    return {cells:Array.from({length:f.rows},(_,r)=>({r,c})),key:key||f.id+':col:'+c};
+  };
+
+  // Main TPS x RPM maps share the ECU-provided live axes.
+  if(['inj_ve','inj_degree','ign_degree','afr_map'].includes(f.id)){
+    const cur=currentCell();
+    return one(cur.r,cur.c,f.id+':'+cur.key);
+  }
+  if(f.id==='ign_time')return one(0,nearestFeatureAxisIndex(f.x,rpm));
+
+  // Compensation maps use their own live Y sensor plus RPM X axis.
+  if(f.id==='ect_inj'||f.id==='ect_ign'){
+    return one(nearestFeatureAxisIndex(f.y,ect),nearestFeatureAxisIndex(f.x,rpm));
+  }
+  if(f.id==='map_inj'){
+    return one(nearestFeatureAxisIndex(f.y,mapKpa),nearestFeatureAxisIndex(f.x,rpm));
+  }
+
+  // One-dimensional sensor maps.
+  if(f.id==='iat_inj'||f.id==='v_iat')return one(0,nearestFeatureAxisIndex(f.x,iat));
+  if(f.id==='map_idle_motor'||f.id==='v_map')return one(0,nearestFeatureAxisIndex(f.x,mapKpa));
+  if(f.id==='v_ect')return one(0,nearestFeatureAxisIndex(f.x,ect));
+  if(f.id==='alternate_table')return one(0,nearestFeatureAxisIndex(f.x,rpm));
+
+  // These tables have several semantic rows but one live X axis. Highlight the
+  // active column across all rows rather than inventing a fake row selection.
+  if(f.id==='ect_idle_motor'||f.id==='ect_start'){
+    return column(nearestFeatureAxisIndex(f.x,ect));
+  }
+  if(f.id==='external_adjust'){
+    const axis=externalAxisMode==='rpm'
+      ?Array.from({length:15},(_,i)=>(i+1)*1000)
+      :externalTpsAxis();
+    return column(nearestFeatureAxisIndex(axis,externalAxisMode==='rpm'?rpm:tps));
+  }
+  return null;
+}
 function highlightRedLiveCell(){
   const t=document.getElementById('redFeatureTable');if(!t)return;
   t.querySelectorAll('.redCell.current').forEach(x=>x.classList.remove('current'));
-  if(!currentFeature||currentFeature.rows!==14||currentFeature.cols!==30||!currentFeature.banked)return;
-  const cur=currentCell(),td=t.querySelector('.redCell[data-rr="'+cur.r+'"][data-rc="'+cur.c+'"]');
-  if(td){td.classList.add('current');autoFollowRedLiveCell(td,cur);}
+  const cur=redLiveCursorForFeature(currentFeature);
+  if(!cur||!Array.isArray(cur.cells)||!cur.cells.length)return;
+  let first=null;
+  for(const cell of cur.cells){
+    const td=t.querySelector('.redCell[data-rr="'+cell.r+'"][data-rc="'+cell.c+'"]');
+    if(!td)continue;
+    td.classList.add('current');
+    if(!first)first=td;
+  }
+  if(first)autoFollowRedLiveCell(first,cur);
 }
 window.highlightRedLiveCell=highlightRedLiveCell;
 function renderFeature(){
