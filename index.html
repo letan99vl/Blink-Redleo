@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.66';
+  window.BLINK_PB_VERSION = '3.67';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3105,7 +3105,7 @@ window.addEventListener('beforeunload',save);
   window.ensureBlinkBridgeFirmwareStatus=ensureBridgeFirmwareStatus;
 
   function bridgeStatusAtLeast(text,major,minor){
-    const m=String(text||'').match(/\\bFW(\\d+)(?:\\.(\\d+))?/i);
+    const m=String(text||'').match(/\bFW(\d+)(?:\.(\d+))?/i);
     if(!m)return false;
     const a=Number(m[1]||0),b=Number(m[2]||0);
     return a>major||(a===major&&b>=minor);
@@ -3123,7 +3123,7 @@ window.addEventListener('beforeunload',save);
     if(!bridgeStatusAtLeast(bridgeStatus,1,7))return false;
 
     const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
-    const nativeAndroid=/BLINK-REDLEO-ANDROID\\//i.test(ua);
+    const nativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(ua);
     const apple=/iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||(platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
 
     let mtu=Number(window.__androidBleMtu||0);
