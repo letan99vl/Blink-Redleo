@@ -74,18 +74,6 @@ static const uint16_t RAW_NOTIFY_YIELD_EVERY = 24;
 static volatile uint16_t rawRxPayload = RAW_SAFE_PAYLOAD;
 static volatile bool rawRxJumboEnabled = false;
 
-static void sendRxProbe(uint16_t payload) {
-  if (!deviceConnected || !mapChar) return;
-  if (payload < 16 || payload > RAW_JUMBO_PAYLOAD) payload = RAW_SAFE_PAYLOAD;
-  uint8_t pkt[2 + RAW_JUMBO_PAYLOAD];
-  pkt[0] = RX_PROBE_MARKER;
-  pkt[1] = (uint8_t)payload;
-  for (uint16_t i = 0; i < payload; ++i) pkt[2 + i] = (uint8_t)((i * 29U + 7U) & 0xFFU);
-  mapChar->setValue(pkt, 2 + payload);
-  mapChar->notify();
-  Serial.printf("BLE RX probe sent payload=%u total=%u\n", (unsigned)payload, (unsigned)(payload + 2));
-}
-
 // OTA control uses the same BLE command characteristic but a separate marker,
 // so the existing REDLEO raw bridge protocol remains byte-for-byte compatible.
 static const uint8_t OTA_TX_MARKER = 0xE3;
@@ -133,6 +121,18 @@ BLECharacteristic *commandChar = nullptr;
 BLECharacteristic *mapChar = nullptr;
 BLECharacteristic *statusChar = nullptr;
 volatile bool deviceConnected = false;
+
+static void sendRxProbe(uint16_t payload) {
+  if (!deviceConnected || !mapChar) return;
+  if (payload < 16 || payload > RAW_JUMBO_PAYLOAD) payload = RAW_SAFE_PAYLOAD;
+  uint8_t pkt[2 + RAW_JUMBO_PAYLOAD];
+  pkt[0] = RX_PROBE_MARKER;
+  pkt[1] = (uint8_t)payload;
+  for (uint16_t i = 0; i < payload; ++i) pkt[2 + i] = (uint8_t)((i * 29U + 7U) & 0xFFU);
+  mapChar->setValue(pkt, 2 + payload);
+  mapChar->notify();
+  Serial.printf("BLE RX probe sent payload=%u total=%u\n", (unsigned)payload, (unsigned)(payload + 2));
+}
 
 uint8_t txBuf[TX_MAX];
 uint8_t txSeen[TX_MAX];
