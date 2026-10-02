@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.72';
+  window.BLINK_PB_VERSION = '3.73';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -482,6 +482,11 @@
   #mapEditorScreen .screenHeader{padding:0 14px;margin-bottom:8px}
   .editToolbar{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:0 0 auto}.editToolbar button{height:38px;border-radius:11px;font-size:10px}.editToolbar #applyCorrectedBtn{grid-column:1/-1;height:40px}
   .editorInfo{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto}.editorInfo .livebox{min-height:52px;background:#0d0d11;border:1px solid #31171c;border-radius:12px}
+  .editorEctBox{display:none}
+  @media (min-width:900px){
+    #mapEditorScreen .editorInfo{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+    #mapEditorScreen .editorEctBox{display:block!important}
+  }
   .editorTabs{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:4px!important;margin:0 12px 8px!important;padding:4px!important;background:#0d0d11!important;border:1px solid #33171c!important;border-radius:13px!important;overflow:visible!important}.editorTabs .tab{font-size:9px!important;min-height:37px!important;white-space:normal!important;padding:4px!important}
   .editorStepBar{display:flex;align-items:center;gap:6px;padding:0 12px 8px;color:#8d929b;font-size:10px;flex:0 0 auto}.stepChip{padding:7px 11px;border:1px solid #332027;background:#101014;border-radius:10px;font-weight:800}.stepChip.on{border-color:#a51c28;color:#fff;background:#2a0b10}
   .mapwrap{margin:0!important;border-radius:0!important;border-left:0!important;border-right:0!important;border-bottom:0!important;flex:1!important;min-height:0!important;background:#070708!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important}
@@ -1047,7 +1052,7 @@
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
-    <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div></div>
+    <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
