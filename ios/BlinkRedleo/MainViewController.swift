@@ -89,7 +89,10 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         }
 
         orientationMask = next
-        setNeedsUpdateOfSupportedInterfaceOrientations()
+
+        if #available(iOS 16.0, *) {
+            setNeedsUpdateOfSupportedInterfaceOrientations()
+        }
 
         if #available(iOS 16.0, *), let scene = view.window?.windowScene {
             let prefs = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: next)
