@@ -1,0 +1,31 @@
+name: Check BLINK REDLEO iOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build-check.yml'
+  push:
+    branches: [main, ios-testflight]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build-check.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+      - name: Generate project and icons
+        working-directory: ios
+        run: |
+          python3 tools/make_icons.py
+          xcodegen generate
+      - name: Build unsigned simulator app
+        working-directory: ios
+        run: |
+          xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
