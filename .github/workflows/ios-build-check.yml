@@ -24,6 +24,14 @@ jobs:
         working-directory: ios
         run: |
           python3 tools/make_icons.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("BlinkRedleo/Assets.xcassets/AppIcon.appiconset/icon-1024.png")
+          b = p.read_bytes()
+          assert b[:8] == b"\x89PNG\r\n\x1a\n", "Invalid PNG signature"
+          assert b[25] == 2, f"App Store icon must be RGB without alpha; PNG color type={b[25]}"
+          print("App Store icon verified: RGB, no alpha channel")
+          PY
           xcodegen generate
       - name: Build unsigned simulator app
         working-directory: ios
