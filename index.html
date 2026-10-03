@@ -1086,8 +1086,8 @@
   /* ===== v15 FLOATING MAP SELECTION PAD ===== */
   #mapWrap{position:relative!important}
   .mapSelectionPad{
-    position:sticky;
-    z-index:40;
+    position:fixed;
+    z-index:9998;
     display:none;
     flex-direction:column;
     gap:7px;
@@ -1095,11 +1095,10 @@
     pointer-events:auto;
     touch-action:manipulation;
     -webkit-tap-highlight-color:transparent;
-    left:calc(100% - 58px);
-    top:50%;
-    transform:translateY(-50%);
-    margin-left:auto;
-    margin-top:-1px;
+    left:0;
+    top:0;
+    margin:0;
+    transform:none;
   }
   .mapSelectionPad.show{display:flex}
   .mapSelectionPad button{
@@ -4603,8 +4602,26 @@ function updateMapSelectionPad(){
   }
   const cells=table.querySelectorAll('td.mapcell.selected');
   if(!cells.length){hideMapSelectionPad();return}
+
+  // Fixed to the RIGHT-CENTER of the visible map viewport.
+  // It does not follow the selected cell or horizontal/vertical map scrolling.
+  const wr=wrap.getBoundingClientRect();
+  if(wr.width<20||wr.height<20){hideMapSelectionPad();return}
+
   selectionPad.classList.add('show');
   selectionPad.setAttribute('aria-hidden','false');
+
+  const padW=selectionPad.offsetWidth||48;
+  const padH=selectionPad.offsetHeight||158;
+  const edge=8;
+  let x=wr.right-padW-edge;
+  let y=wr.top+(wr.height-padH)/2;
+
+  x=Math.max(edge,Math.min(x,window.innerWidth-padW-edge));
+  y=Math.max(edge,Math.min(y,window.innerHeight-padH-edge));
+
+  selectionPad.style.left=Math.round(x)+'px';
+  selectionPad.style.top=Math.round(y)+'px';
 }
 const baseHighlightSelectionForPad=highlightSelection;
 highlightSelection=function(){
@@ -4633,7 +4650,11 @@ floatSaveBtn?.addEventListener('click',e=>{
   if(btn&&!btn.disabled)btn.click();
   else showEcuNotice('error','CHƯA THỂ LƯU HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
 });
+window.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
 window.addEventListener('orientationchange',()=>setTimeout(updateMapSelectionPad,120));
+try{
+  window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
+}catch(_e){}
 
 let mapZoomActive=false,mapZoomOwnFullscreen=false,mapZoomPrevLandscapeRequest=false;
 let appLandscapeRequested=false;
