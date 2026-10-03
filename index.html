@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.74';
+  window.BLINK_PB_VERSION = '3.75';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1052,6 +1052,37 @@
     max-height:calc(100% - 42px)!important;
   }
 
+  /* ===== v14 INJECTION-TIME HEATMAP ===== */
+  #mapTable td.mapcell.inj-heat{
+    background:var(--inj-heat)!important;
+    color:#111!important;
+    font-weight:700!important;
+  }
+  #mapTable td.mapcell.inj-heat:hover{
+    background:var(--inj-heat)!important;
+    filter:brightness(1.07);
+  }
+  #mapTable td.mapcell.inj-heat.current{
+    background:var(--inj-heat)!important;
+    color:#111!important;
+    box-shadow:inset 0 0 0 3px #ff2d2d,inset 0 0 0 5px rgba(255,255,255,.92)!important;
+  }
+  #mapTable td.mapcell.inj-heat.selected{
+    background:var(--inj-heat)!important;
+    color:#111!important;
+    box-shadow:inset 0 0 0 3px #0b63ce,inset 0 0 0 5px rgba(255,255,255,.92)!important;
+  }
+  #mapTable td.mapcell.inj-heat.selected.current{
+    background:var(--inj-heat)!important;
+    box-shadow:inset 0 0 0 3px #ff2d2d,inset 0 0 0 6px #0b63ce,inset 0 0 0 8px rgba(255,255,255,.92)!important;
+  }
+  #mapTable td.mapcell.inj-heat[contenteditable="true"]:focus{
+    background:#fff0a8!important;
+    color:#111!important;
+    filter:none!important;
+    box-shadow:inset 0 0 0 2px #ff9f0a!important;
+  }
+
 </style>
 </head>
 <body>
@@ -1515,6 +1546,17 @@ function displayValue(tab,r,c){
   return v==null?'--':fmt(Number(v),2);
 }
 
+const INJ_HEAT_RED_MS=13;
+function injectionHeatColor(value){
+  const v=Number(value);
+  if(!Number.isFinite(v))return '#f6b6c3';
+  const t=clamp(v/INJ_HEAT_RED_MS,0,1);
+  // 0 ms = green, ~6.5 ms = yellow, ~9.75 ms = orange, 13+ ms = red.
+  const hue=Math.round(120*(1-t));
+  const light=Math.round(49+3*t);
+  return 'hsl('+hue+' 100% '+light+'%)';
+}
+
 function render(){
   const table=$('mapTable'), data=matrixFor(state.tab);
   let html='<thead><tr><th class="corner">TPS</th>'+RPMS.map(x=>`<th>${x}</th>`).join('')+'</tr></thead><tbody>';
@@ -1523,7 +1565,11 @@ function render(){
     html+=`<tr><td class="rowhead${idle}">${rh==='IDLE'?'IDLE':rh+'%'}</td>`;
     for(let c=0;c<C;c++){
       const v=data[r][c],txt=displayValue(state.tab,r,c);
-      let cls='mapcell';
+      let cls='mapcell',cellStyle='';
+      if(state.tab==='inject'&&v!=null&&Number.isFinite(Number(v))){
+        cls+=' inj-heat';
+        cellStyle=' style="--inj-heat:'+injectionHeatColor(v)+'"';
+      }
       if(state.tab==='measured'&&v!=null){
         const afr=Number(v);
         if(Number.isFinite(afr)){
@@ -1533,7 +1579,7 @@ function render(){
         }
       }
       if(state.tab==='corrected'&&v!=null){const base=num(state.inject[r][c],0); const change=base>0?(v/base-1)*100:0; cls+=Math.abs(change)>20?' bad':Math.abs(change)>10?' warn':' good';}
-      html+=`<td class="${cls}" data-r="${r}" data-c="${c}">${txt}</td>`;
+      html+=`<td class="${cls}"${cellStyle} data-r="${r}" data-c="${c}">${txt}</td>`;
     }
     html+='</tr>';
   }
