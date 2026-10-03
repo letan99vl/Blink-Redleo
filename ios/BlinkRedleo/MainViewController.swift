@@ -10,6 +10,10 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         super.viewDidLoad()
         view.backgroundColor = .black
         UIApplication.shared.isIdleTimerDisabled = true
+        edgesForExtendedLayout = .all
+        extendedLayoutIncludesOpaqueBars = true
+        modalPresentationCapturesStatusBarAppearance = true
+        viewRespectsSystemMinimumLayoutMargins = false
 
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -18,14 +22,17 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         let userContentController = WKUserContentController()
         configuration.userContentController = userContentController
 
-        if let bridgeURL = Bundle.main.url(forResource: "native_bridge_ios", withExtension: "js"),
-           let bridgeJS = try? String(contentsOf: bridgeURL, encoding: .utf8) {
-            let script = WKUserScript(
-                source: bridgeJS,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-            userContentController.addUserScript(script)
+        for scriptName in ["ios_fullscreen_fix", "native_bridge_ios"] {
+            if let url = Bundle.main.url(forResource: scriptName, withExtension: "js"),
+               let source = try? String(contentsOf: url, encoding: .utf8) {
+                userContentController.addUserScript(
+                    WKUserScript(
+                        source: source,
+                        injectionTime: .atDocumentStart,
+                        forMainFrameOnly: true
+                    )
+                )
+            }
         }
 
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -35,6 +42,8 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInset = .zero
+        webView.scrollView.scrollIndicatorInsets = .zero
         webView.allowsBackForwardNavigationGestures = false
         webView.customUserAgent = "BLINK-REDLEO-IOS/1.0"
 
@@ -74,7 +83,19 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "iosBLE")
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
     override var prefersStatusBarHidden: Bool { true }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .none }
+    override var childForStatusBarHidden: UIViewController? { nil }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { orientationMask }
 
