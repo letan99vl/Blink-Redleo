@@ -241,7 +241,10 @@ function profileCap(name){
     return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
   const cap=!!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
-  if(cap&&ecuProfile&&ecuProfile.family==='v11'&&(name==='tpsStudy'||name==='testInjector')){
+  // ATE V11 TPS Study (0x77) is valid independently of the injector-test
+  // ecuMode safety gate. Gating TPS here made the Settings button silently
+  // disabled on otherwise supported V11 ECUs.
+  if(cap&&ecuProfile&&ecuProfile.family==='v11'&&name==='testInjector'){
     const mode=Number(handshakeInfo&&handshakeInfo.ecuMode);
     if(Number.isFinite(mode)&&mode>=4)return false;
   }
@@ -3295,41 +3298,86 @@ async function tpsStudyReal(){
   requireProfile('tpsStudy','Học TPS');
   const profileKey=ecuProfile?.key||'UNKNOWN';
 
-  // ATE V11 returns the extended 0x77 payload whose TPS-voltage calibration
-  // is part of the V11 A2-style layout. It must not be decoded like V9/V10.
+  // V11 uses a dedicated 0x77 study payload. Do NOT feed this short study
+  // frame into parseV11A2Data(): the A2 parser now expects the 272/286-byte
+  // table layouts, while TPS Study returns the older compact calibration
+  // layout with TPS voltage bytes first.
   if(profileKey==='MODERN_V11'){
-    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
-    taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
-    const rx=await rawExchange(req5(0x77,0x77),38000);
-    const f=findValidCommandFrame(rx,0x77,168);
-    if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
-    const C=parseV11A2Data(f.slice(1,-2));
-    sensorCalCache=C;
-    sensorCalIdentity=handshakeInfo?[profileKey,handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
-    const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
-    if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
-      state.cal.tpsMin=min;state.cal.tpsMax=max;
-      try{syncControls();saveSoon();}catch(_e){}
-    }
-    notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
-    return C;
-  }
-
-  // Verified REDLEO V9 and V10/Ultra families use the standard 0x77 study
-  // response with TPS Min/Max in bytes 92/93. Keep the branches explicit so
-  // future ECU families cannot silently fall through to the wrong decoder.
-  if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
+    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần. Giữ nguồn ECU ổn định.'))return;
+  }else if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
     throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
   }
-  const label=profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9';
-  taskUi('loading',label+' · ĐANG HỌC TPS · CHỜ ECU...');
-  const rx=await rawExchange(req5(0x77,0x77),38000);
-  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ');
-  const min=rx[92]*20/1024,max=rx[93]*20/1024;
-  if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
-  state.cal.tpsMin=min;state.cal.tpsMax=max;
-  try{syncControls();saveSoon();}catch(_e){}
-  notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+
+  const resume=liveRunning;
+  stopLiveLoop();
+  try{
+    // A live 0x69 may already be in flight at the moment the button is tapped.
+    // Wait for that exchange to complete before starting the long 0x77 study.
+    await waitForEcuIdle(9000);
+    await new Promise(r=>setTimeout(r,180));
+
+    const label=profileKey==='MODERN_V11'?'ATE V11':(profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9');
+    const infoEl=document.getElementById('studyTpsInfo');
+    if(infoEl)infoEl.textContent=label+' · đang học TPS, chờ ECU trả calibration...';
+    taskUi('loading',label+' · ĐANG HỌC TPS...');
+
+    const rx=await rawExchange(req5(0x77,0x77),38000);
+    const f=findValidCommandFrame(rx,0x77,100);
+    if(!f)throw new Error(label+' · không tìm thấy frame 0x77 checksum hợp lệ');
+
+    let min,max;
+
+    if(profileKey==='MODERN_V11'){
+      // Proven compact V11 TPS-study layout:
+      // payload[0..13] = TPS voltage breakpoints
+      // payload[14..27] = TPS percentage breakpoints
+      const payload=f.slice(1,-2);
+      if(payload.length<28)throw new Error('ATE V11 TPS Study payload quá ngắn · '+payload.length+'B');
+      const tpsVolt=Array.from(payload.slice(0,14),decVolt);
+      const tpsPct=Array.from(payload.slice(14,28),x=>Number(x)/2);
+      min=Number(tpsVolt[0]);
+      max=Number(tpsVolt[13]);
+
+      // Preserve the existing sensor cache and update only the calibration
+      // fields proven by the 0x77 response.
+      if(sensorCalCache){
+        sensorCalCache.tpsVolt=tpsVolt.slice();
+        sensorCalCache.tpsPct=tpsPct.slice();
+        sensorCalCache.tpsRaw=payload.slice(0,28);
+      }
+    }else{
+      // REDLEO V9 / V10 option block: TPS Min/Max are bytes 92/93.
+      if(f.length<=93)throw new Error(label+' · TPS Study frame quá ngắn · '+f.length+'B');
+      min=f[92]*20/1024;
+      max=f[93]*20/1024;
+    }
+
+    if(!Number.isFinite(min)||!Number.isFinite(max)||!(max>min+.1)){
+      throw new Error(label+' · TPS calibration không hợp lệ · '+String(min)+' V → '+String(max)+' V');
+    }
+
+    state.cal.tpsMin=min;
+    state.cal.tpsMax=max;
+    try{syncControls();saveSoon();}catch(_e){}
+
+    if(Number.isFinite(state.live.tpsV)){
+      const den=max-min;
+      state.live.tps=clamp((state.live.tpsV-min)/den*100,0,100);
+      try{updateLive();highlightCurrent();}catch(_e){}
+    }
+
+    if(infoEl)infoEl.textContent='TPS Study OK · '+min.toFixed(3)+' V → '+max.toFixed(3)+' V';
+    notice('success','TPS STUDY '+(profileKey==='MODERN_V11'?'ATE V11':(profileKey==='MODERN_V10'?'V10/ULTRA':'V9'))+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+    return {frame:f,min,max};
+  }catch(e){
+    const infoEl=document.getElementById('studyTpsInfo');
+    if(infoEl)infoEl.textContent='TPS Study lỗi · '+String(e&&e.message||e);
+    throw e;
+  }finally{
+    if(resume&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
+      scheduleLiveResume(380);
+    }
+  }
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
