@@ -858,7 +858,10 @@ function parseLiveReal(a){
   if(a.length!==53||a[0]!==0xA1||!validFrame(a))throw new Error('Live frame 0xA1 không hợp lệ · '+a.length+'B');
   if(typeof state==='undefined')return;
   const rawTps=a[1]*4+(a[47]&3);
-  state.live.tpsV=liveVolt10(rawTps);
+  // ATE V11 packs the 10-bit TPS sample as low 8 bits in byte1 and
+  // high 2 bits in byte47. V8/V9/V10 keep the proven legacy packing.
+  const rawTpsV11=a[1]+((a[47]&3)<<8);
+  state.live.tpsV=isV11Profile()?liveVolt10(rawTpsV11):liveVolt10(rawTps);
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
@@ -3334,10 +3337,11 @@ async function tpsStudyReal(){
     const profileKey=ecuProfile?.key||'UNKNOWN';
 
     if(profileKey==='MODERN_V11'){
-      if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần. Giữ nguồn ECU ổn định.')){
-        if(infoEl)infoEl.textContent='Đã hủy Học TPS.';
-        return;
-      }
+      // The app wrapper may suppress JavaScript confirm() and return false,
+      // which made a valid TPS Study look like it was cancelled. Run directly
+      // and show the operating instruction in the visible status instead.
+      if(infoEl)infoEl.textContent='ATE V11 · vặn ga MIN → MAX → MIN ít nhất 3 lần...';
+      taskUi('loading','ATE V11 · MIN → MAX → MIN ≥ 3 LẦN...');
     }else if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
       throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
     }
