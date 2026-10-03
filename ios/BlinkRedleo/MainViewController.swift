@@ -6,7 +6,7 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
     private var bleBridge: BLEBridge!
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
     private var protocolInjected = false
-    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js")!
+    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js")!
 
     override func viewDidLoad() {
         super.viewDidLoad()
