@@ -1086,7 +1086,7 @@
   /* ===== v15 FLOATING MAP SELECTION PAD ===== */
   #mapWrap{position:relative!important}
   .mapSelectionPad{
-    position:absolute;
+    position:sticky;
     z-index:40;
     display:none;
     flex-direction:column;
@@ -1095,6 +1095,11 @@
     pointer-events:auto;
     touch-action:manipulation;
     -webkit-tap-highlight-color:transparent;
+    left:calc(100% - 58px);
+    top:50%;
+    transform:translateY(-50%);
+    margin-left:auto;
+    margin-top:-1px;
   }
   .mapSelectionPad.show{display:flex}
   .mapSelectionPad button{
@@ -4591,48 +4596,16 @@ function mapCellBoxInWrap(td){
 function updateMapSelectionPad(){
   if(!selectionPad||!wrap||!table)return;
   const screen=document.getElementById('mapEditorScreen');
-  // This shortcut belongs to the INJECTION TIME editor only. Other tabs keep
-  // their existing controls unchanged.
+  // Fixed-position shortcut: show only for INJECTION TIME when a selection exists.
   if(!screen?.classList.contains('active')||state.tab!=='inject'||!state.selection.active||scanPointer!==null){
     hideMapSelectionPad();
     return;
   }
-
-  const cells=[...table.querySelectorAll('td.mapcell.selected')];
+  const cells=table.querySelectorAll('td.mapcell.selected');
   if(!cells.length){hideMapSelectionPad();return}
-
-  let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
-  for(const td of cells){
-    const b=mapCellBoxInWrap(td);if(!b)continue;
-    left=Math.min(left,b.left);top=Math.min(top,b.top);
-    right=Math.max(right,b.right);bottom=Math.max(bottom,b.bottom);
-  }
-  if(!Number.isFinite(left)||!Number.isFinite(top)){hideMapSelectionPad();return}
-
   selectionPad.classList.add('show');
   selectionPad.setAttribute('aria-hidden','false');
-
-  const padW=selectionPad.offsetWidth||48,padH=selectionPad.offsetHeight||158,gap=8;
-  const viewL=wrap.scrollLeft,viewT=wrap.scrollTop;
-  const viewR=viewL+wrap.clientWidth,viewB=viewT+wrap.clientHeight;
-
-  // Hide only when the whole selection is outside the visible map viewport.
-  if(right<viewL||left>viewR||bottom<viewT||top>viewB){hideMapSelectionPad();return}
-
-  const visibleL=Math.max(left,viewL),visibleR=Math.min(right,viewR);
-  const visibleT=Math.max(top,viewT),visibleB=Math.min(bottom,viewB);
-
-  let x=visibleR+gap;
-  if(x+padW>viewR-6)x=visibleL-padW-gap;
-  x=Math.max(viewL+6,Math.min(x,viewR-padW-6));
-
-  let y=((visibleT+visibleB)-padH)/2;
-  y=Math.max(viewT+6,Math.min(y,viewB-padH-6));
-
-  selectionPad.style.left=Math.round(x)+'px';
-  selectionPad.style.top=Math.round(y)+'px';
 }
-
 const baseHighlightSelectionForPad=highlightSelection;
 highlightSelection=function(){
   baseHighlightSelectionForPad();
@@ -4660,8 +4633,6 @@ floatSaveBtn?.addEventListener('click',e=>{
   if(btn&&!btn.disabled)btn.click();
   else showEcuNotice('error','CHƯA THỂ LƯU HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
 });
-wrap?.addEventListener('scroll',()=>requestAnimationFrame(updateMapSelectionPad),{passive:true});
-window.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
 window.addEventListener('orientationchange',()=>setTimeout(updateMapSelectionPad,120));
 
 let mapZoomActive=false,mapZoomOwnFullscreen=false,mapZoomPrevLandscapeRequest=false;
