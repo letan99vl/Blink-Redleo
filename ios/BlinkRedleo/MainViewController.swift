@@ -64,19 +64,32 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        var components = URLComponents(string: "https://letan99vl.github.io/Blink-Redleo/")!
-        components.queryItems = [
-            URLQueryItem(name: "ios", value: "1"),
-            URLQueryItem(name: "v", value: "1")
+        loadBundledWebApp()
+    }
+
+    private func loadBundledWebApp() {
+        let candidates: [URL?] = [
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web"),
+            Bundle.main.url(forResource: "index", withExtension: "html")
         ]
-        if let url = components.url {
-            let request = URLRequest(
-                url: url,
-                cachePolicy: .reloadIgnoringLocalCacheData,
-                timeoutInterval: 30
-            )
-            webView.load(request)
+
+        guard let indexURL = candidates.compactMap({ $0 }).first else {
+            showLocalAppError("Bundled index.html was not found.")
+            return
         }
+
+        let readAccessURL = indexURL.deletingLastPathComponent()
+        webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessURL)
+    }
+
+    private func showLocalAppError(_ message: String) {
+        let html = """
+        <!doctype html>
+        <html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+        <style>html,body{margin:0;height:100%;background:#050507;color:#fff;font-family:-apple-system;padding:24px;box-sizing:border-box}h2{color:#ff453a}</style>
+        </head><body><h2>BLINK REDLEO</h2><p>\(message)</p></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     deinit {
