@@ -1083,6 +1083,59 @@
     box-shadow:inset 0 0 0 2px #ff9f0a!important;
   }
 
+  /* ===== v15 FLOATING MAP SELECTION PAD ===== */
+  #mapWrap{position:relative!important}
+  .mapSelectionPad{
+    position:fixed;
+    z-index:9998;
+    display:none;
+    flex-direction:column;
+    gap:7px;
+    width:48px;
+    pointer-events:auto;
+    touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;
+    left:0;
+    top:0;
+    margin:0;
+    transform:none;
+  }
+  .mapSelectionPad.show{display:flex}
+  .mapSelectionPad button{
+    width:48px;
+    height:48px;
+    min-width:48px;
+    min-height:48px;
+    padding:0;
+    border-radius:12px;
+    border:2px solid rgba(255,255,255,.18);
+    color:#fff;
+    font-size:27px;
+    line-height:1;
+    font-weight:900;
+    display:grid;
+    place-items:center;
+    box-shadow:0 7px 18px rgba(0,0,0,.42);
+    backdrop-filter:blur(7px);
+    -webkit-backdrop-filter:blur(7px);
+  }
+  .mapSelectionPad button:active{transform:scale(.92);filter:brightness(1.15)}
+  .mapSelectionPad .save{
+    background:rgba(18,18,22,.96);
+    border-color:#ff3b30;
+  }
+  .mapSelectionPad .plus{
+    background:rgba(4,73,31,.96);
+    border-color:#22d66b;
+    color:#dffff0;
+  }
+  .mapSelectionPad .minus{
+    background:rgba(92,12,25,.96);
+    border-color:#ff4055;
+    color:#ffe8ec;
+  }
+  .mapSelectionPad[aria-hidden="true"]{display:none!important}
+
 </style>
 </head>
 <body>
@@ -1141,7 +1194,7 @@
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
-    <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
+    <main class="mapwrap" id="mapWrap"><table id="mapTable"></table><div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div></main>
     <div id="mapZoomHud" aria-live="polite">
       <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
       <button id="mapZoomExit" type="button">THU NHỎ</button>
@@ -4493,7 +4546,11 @@ loadOptions();syncBanks();setInterval(syncMirrors,120);syncMirrors();showScreen(
 (function(){
 'use strict';
 let mapStep=0.1,mapMode='unit',scanMode=false,scanPointer=null;
-const table=document.getElementById('mapTable'),wrap=document.getElementById('mapWrap'),scanBtn=document.getElementById('mapScanToggle');
+const table=document.getElementById('mapTable'),wrap=document.getElementById('mapWrap'),scanBtn=document.getElementById('mapScanToggle'),
+      selectionPad=document.getElementById('mapSelectionPad'),
+      floatSaveBtn=document.getElementById('mapFloatSaveBtn'),
+      floatPlusBtn=document.getElementById('mapFloatPlusBtn'),
+      floatMinusBtn=document.getElementById('mapFloatMinusBtn');
 function updateMapControls(){
   document.querySelectorAll('[data-mapstep]').forEach(b=>b.classList.toggle('on',Number(b.dataset.mapstep)===mapStep));
   document.querySelectorAll('[data-mapmode]').forEach(b=>b.classList.toggle('on',b.dataset.mapmode===mapMode));
@@ -4514,10 +4571,68 @@ function adjustMap(sign){
   const n=(b.r1-b.r0+1)*(b.c1-b.c0+1),sym=sign>0?'+':'−';
   $('selectionInfo').textContent=`${sym}${mapStep}${mapMode==='percent'?'%':''} · ${n} ô`;
 }
+
+function hideMapSelectionPad(){
+  if(!selectionPad)return;
+  selectionPad.classList.remove('show');
+  selectionPad.setAttribute('aria-hidden','true');
+}
+function mapCellBoxInWrap(td){
+  if(!td||!wrap)return null;
+  let left=0,top=0,node=td,guard=0;
+  while(node&&node!==wrap&&guard++<12){
+    left+=Number(node.offsetLeft||0);
+    top+=Number(node.offsetTop||0);
+    node=node.offsetParent;
+  }
+  if(node!==wrap){
+    const tr=td.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
+    left=wrap.scrollLeft+(tr.left-wr.left);
+    top=wrap.scrollTop+(tr.top-wr.top);
+  }
+  return {left,top,right:left+td.offsetWidth,bottom:top+td.offsetHeight};
+}
+function updateMapSelectionPad(){
+  if(!selectionPad||!wrap||!table)return;
+  const screen=document.getElementById('mapEditorScreen');
+  // Fixed-position shortcut: show only for INJECTION TIME when a selection exists.
+  if(!screen?.classList.contains('active')||state.tab!=='inject'||!state.selection.active||scanPointer!==null){
+    hideMapSelectionPad();
+    return;
+  }
+  const cells=table.querySelectorAll('td.mapcell.selected');
+  if(!cells.length){hideMapSelectionPad();return}
+
+  // Fixed to the RIGHT-CENTER of the visible map viewport.
+  // It does not follow the selected cell or horizontal/vertical map scrolling.
+  const wr=wrap.getBoundingClientRect();
+  if(wr.width<20||wr.height<20){hideMapSelectionPad();return}
+
+  selectionPad.classList.add('show');
+  selectionPad.setAttribute('aria-hidden','false');
+
+  const padW=selectionPad.offsetWidth||48;
+  const padH=selectionPad.offsetHeight||158;
+  const edge=8;
+  let x=wr.right-padW-edge;
+  let y=wr.top+(wr.height-padH)/2;
+
+  x=Math.max(edge,Math.min(x,window.innerWidth-padW-edge));
+  y=Math.max(edge,Math.min(y,window.innerHeight-padH-edge));
+
+  selectionPad.style.left=Math.round(x)+'px';
+  selectionPad.style.top=Math.round(y)+'px';
+}
+const baseHighlightSelectionForPad=highlightSelection;
+highlightSelection=function(){
+  baseHighlightSelectionForPad();
+  requestAnimationFrame(updateMapSelectionPad);
+};
+
 function cellAt(x,y){const el=document.elementFromPoint(x,y);return el?.closest?.('#mapTable td.mapcell')||null}
 function startScan(e){if(!scanMode)return;const td=e.target.closest('td.mapcell');if(!td)return;e.preventDefault();scanPointer=e.pointerId;setSelection(+td.dataset.r,+td.dataset.c,false);try{wrap.setPointerCapture(e.pointerId)}catch(_e){}}
 function moveScan(e){if(!scanMode||scanPointer!==e.pointerId)return;e.preventDefault();const td=cellAt(e.clientX,e.clientY);if(!td)return;state.selection.focusR=+td.dataset.r;state.selection.focusC=+td.dataset.c;highlightSelection()}
-function endScan(e){if(scanPointer!==e.pointerId)return;scanPointer=null;try{wrap.releasePointerCapture(e.pointerId)}catch(_e){}}
+function endScan(e){if(scanPointer!==e.pointerId)return;scanPointer=null;try{wrap.releasePointerCapture(e.pointerId)}catch(_e){};requestAnimationFrame(updateMapSelectionPad)}
 wrap?.addEventListener('pointerdown',startScan,{passive:false});wrap?.addEventListener('pointermove',moveScan,{passive:false});wrap?.addEventListener('pointerup',endScan);wrap?.addEventListener('pointercancel',endScan);
 // Single tap still selects one cell while scan mode is OFF (important for iOS where mousedown may not fire consistently).
 table?.addEventListener('click',e=>{if(scanMode)return;const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;setSelection(+td.dataset.r,+td.dataset.c,false)});
@@ -4525,6 +4640,21 @@ document.querySelectorAll('[data-mapstep]').forEach(b=>b.addEventListener('click
 document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click',()=>{mapMode=b.dataset.mapmode;updateMapControls()}));
 scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF'});
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
+
+function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
+floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
+floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
+floatSaveBtn?.addEventListener('click',e=>{
+  stopPadEvent(e);
+  const btn=document.getElementById('writeMapBtn');
+  if(btn&&!btn.disabled)btn.click();
+  else showEcuNotice('error','CHƯA THỂ LƯU HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
+});
+window.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
+window.addEventListener('orientationchange',()=>setTimeout(updateMapSelectionPad,120));
+try{
+  window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
+}catch(_e){}
 
 let mapZoomActive=false,mapZoomOwnFullscreen=false,mapZoomPrevLandscapeRequest=false;
 let appLandscapeRequested=false;
