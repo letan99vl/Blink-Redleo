@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.75';
+  window.BLINK_PB_VERSION = '3.76';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3216,7 +3216,7 @@ function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    state.live.afr=10+clamp(state.live.afrV,0,2.8)*(10/2.8);
+    state.live.afr=10+clamp(state.live.afrV,0,2.46)*(10/2.46);
     ok=true;
   }else if(Number.isFinite(+p.afr)){
     state.live.afr=+p.afr; ok=true;
