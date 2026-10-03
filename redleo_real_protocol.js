@@ -241,10 +241,7 @@ function profileCap(name){
     return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
   const cap=!!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
-  // ATE V11 TPS Study (0x77) is valid independently of the injector-test
-  // ecuMode safety gate. Gating TPS here made the Settings button silently
-  // disabled on otherwise supported V11 ECUs.
-  if(cap&&ecuProfile&&ecuProfile.family==='v11'&&name==='testInjector'){
+  if(cap&&ecuProfile&&ecuProfile.family==='v11'&&(name==='tpsStudy'||name==='testInjector')){
     const mode=Number(handshakeInfo&&handshakeInfo.ecuMode);
     if(Number.isFinite(mode)&&mode>=4)return false;
   }
@@ -343,13 +340,8 @@ function applyProfileUi(){
     if(p.key==='MODERN_V11')studyTpsBtn.textContent='HỌC TPS ECU · ATE V11';
     else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
     else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
-    else studyTpsBtn.textContent='HỌC TPS ECU · BẤM ĐỂ KIỂM TRA';
-    // Never silently disable this button. A disabled HTML button emits no
-    // click event, so the user gets zero feedback. Let tpsStudyReal() perform
-    // profile/connection checks and show an explicit status or error instead.
-    if(studyTpsBtn.dataset.profileBlocked==='1')delete studyTpsBtn.dataset.profileBlocked;
-    studyTpsBtn.disabled=studyTpsBtn.dataset.ioBusy==='1';
-    studyTpsBtn.title=profileCap('tpsStudy')?'':('Bấm để Blink kiểm tra ECU trước khi Học TPS.');
+    else studyTpsBtn.textContent='HỌC TPS ECU · CHƯA HỖ TRỢ';
+    setProfileDisabled(studyTpsBtn,!profileCap('tpsStudy'),reason);
   }
 
   ['writeMapBtn','applyCorrectedBtn'].forEach(id=>setProfileDisabled(document.getElementById(id),!profileCap('fuelWrite'),reason));
@@ -858,10 +850,7 @@ function parseLiveReal(a){
   if(a.length!==53||a[0]!==0xA1||!validFrame(a))throw new Error('Live frame 0xA1 không hợp lệ · '+a.length+'B');
   if(typeof state==='undefined')return;
   const rawTps=a[1]*4+(a[47]&3);
-  // ATE V11 packs the 10-bit TPS sample as low 8 bits in byte1 and
-  // high 2 bits in byte47. V8/V9/V10 keep the proven legacy packing.
-  const rawTpsV11=a[1]+((a[47]&3)<<8);
-  state.live.tpsV=isV11Profile()?liveVolt10(rawTpsV11):liveVolt10(rawTps);
+  state.live.tpsV=liveVolt10(rawTps);
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   state.live.rpm=u16be(a,6);
@@ -3303,103 +3292,44 @@ async function restoreReal(){
   }
 }
 async function tpsStudyReal(){
-  const infoEl=document.getElementById('studyTpsInfo');
-  if(infoEl)infoEl.textContent='Đã nhận nút HỌC TPS · đang kiểm tra ECU...';
-  taskUi('loading','HỌC TPS · ĐÃ NHẬN LỆNH...');
+  requireProfile('tpsStudy','Học TPS');
+  const profileKey=ecuProfile?.key||'UNKNOWN';
 
-  if(!cmdChar()||!mapChar()){
-    throw new Error('Chưa kết nối ECU Blink BLE.');
-  }
-
-  const resume=liveRunning;
-  stopLiveLoop();
-  try{
-    // A live 0x69 may already be in flight when the button is tapped.
-    await waitForEcuIdle(9000);
-    await new Promise(r=>setTimeout(r,140));
-
-    // If the profile has not resolved yet, do one explicit safe handshake now
-    // instead of leaving the TPS button disabled with no feedback.
-    const unresolved=!handshakeInfo||!ecuProfile||ecuProfile.key==='UNKNOWN'||ecuProfile.key==='LEGACY_PROBE';
-    if(unresolved){
-      if(infoEl)infoEl.textContent='HỌC TPS · đang nhận diện ECU...';
-      taskUi('loading','HỌC TPS · ĐANG NHẬN DIỆN ECU...');
-      try{
-        await handshakeReal();
-      }catch(e){
-        throw new Error('Không nhận diện được ECU trước Học TPS · '+String(e&&e.message||e));
-      }
-      await waitForEcuIdle(9000);
-      await new Promise(r=>setTimeout(r,140));
-    }
-
-    requireProfile('tpsStudy','Học TPS');
-    const profileKey=ecuProfile?.key||'UNKNOWN';
-
-    if(profileKey==='MODERN_V11'){
-      // The app wrapper may suppress JavaScript confirm() and return false,
-      // which made a valid TPS Study look like it was cancelled. Run directly
-      // and show the operating instruction in the visible status instead.
-      if(infoEl)infoEl.textContent='ATE V11 · vặn ga MIN → MAX → MIN ít nhất 3 lần...';
-      taskUi('loading','ATE V11 · MIN → MAX → MIN ≥ 3 LẦN...');
-    }else if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
-      throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
-    }
-
-    const label=profileKey==='MODERN_V11'?'ATE V11':(profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9');
-    if(infoEl)infoEl.textContent=label+' · đang gửi 0x77 và chờ calibration...';
-    taskUi('loading',label+' · ĐANG HỌC TPS...');
-
+  // ATE V11 returns the extended 0x77 payload whose TPS-voltage calibration
+  // is part of the V11 A2-style layout. It must not be decoded like V9/V10.
+  if(profileKey==='MODERN_V11'){
+    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
+    taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
     const rx=await rawExchange(req5(0x77,0x77),38000);
-    const f=findValidCommandFrame(rx,0x77,100);
-    if(!f)throw new Error(label+' · không tìm thấy frame 0x77 checksum hợp lệ');
-
-    let min,max;
-
-    if(profileKey==='MODERN_V11'){
-      // Compact V11 TPS-study payload is not the 272/286-byte A2 layout.
-      const payload=f.slice(1,-2);
-      if(payload.length<28)throw new Error('ATE V11 TPS Study payload quá ngắn · '+payload.length+'B');
-      const tpsVolt=Array.from(payload.slice(0,14),decVolt);
-      const tpsPct=Array.from(payload.slice(14,28),x=>Number(x)/2);
-      min=Number(tpsVolt[0]);
-      max=Number(tpsVolt[13]);
-      if(sensorCalCache){
-        sensorCalCache.tpsVolt=tpsVolt.slice();
-        sensorCalCache.tpsPct=tpsPct.slice();
-        sensorCalCache.tpsRaw=payload.slice(0,28);
-      }
-    }else{
-      if(f.length<=93)throw new Error(label+' · TPS Study frame quá ngắn · '+f.length+'B');
-      min=f[92]*20/1024;
-      max=f[93]*20/1024;
+    const f=findValidCommandFrame(rx,0x77,168);
+    if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
+    const C=parseV11A2Data(f.slice(1,-2));
+    sensorCalCache=C;
+    sensorCalIdentity=handshakeInfo?[profileKey,handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
+    const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
+    if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
+      state.cal.tpsMin=min;state.cal.tpsMax=max;
+      try{syncControls();saveSoon();}catch(_e){}
     }
-
-    if(!Number.isFinite(min)||!Number.isFinite(max)||!(max>min+.1)){
-      throw new Error(label+' · TPS calibration không hợp lệ · '+String(min)+' V → '+String(max)+' V');
-    }
-
-    state.cal.tpsMin=min;
-    state.cal.tpsMax=max;
-    try{syncControls();saveSoon();}catch(_e){}
-
-    if(Number.isFinite(state.live.tpsV)){
-      const den=max-min;
-      state.live.tps=clamp((state.live.tpsV-min)/den*100,0,100);
-      try{updateLive();highlightCurrent();}catch(_e){}
-    }
-
-    if(infoEl)infoEl.textContent='TPS Study OK · '+min.toFixed(3)+' V → '+max.toFixed(3)+' V';
-    notice('success','TPS STUDY '+(profileKey==='MODERN_V11'?'ATE V11':(profileKey==='MODERN_V10'?'V10/ULTRA':'V9'))+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
-    return {frame:f,min,max};
-  }catch(e){
-    if(infoEl)infoEl.textContent='TPS Study lỗi · '+String(e&&e.message||e);
-    throw e;
-  }finally{
-    if(resume&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
-      scheduleLiveResume(380);
-    }
+    notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
+    return C;
   }
+
+  // Verified REDLEO V9 and V10/Ultra families use the standard 0x77 study
+  // response with TPS Min/Max in bytes 92/93. Keep the branches explicit so
+  // future ECU families cannot silently fall through to the wrong decoder.
+  if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
+    throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
+  }
+  const label=profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9';
+  taskUi('loading',label+' · ĐANG HỌC TPS · CHỜ ECU...');
+  const rx=await rawExchange(req5(0x77,0x77),38000);
+  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ');
+  const min=rx[92]*20/1024,max=rx[93]*20/1024;
+  if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
+  state.cal.tpsMin=min;state.cal.tpsMax=max;
+  try{syncControls();saveSoon();}catch(_e){}
+  notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
