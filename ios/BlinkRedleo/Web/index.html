@@ -4618,8 +4618,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v;
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v);
-    document.write('<script src="'+src+'"><\/script>');
+    window.BLINK_PROTOCOL_BOOTSTRAP='ios-native-remote-first';
   })();
 </script>
 </body>
