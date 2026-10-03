@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#27272b"/>
+      <stop offset="0.38" stop-color="#0a0a0c"/>
+      <stop offset="1" stop-color="#020203"/>
+    </linearGradient>
+    <radialGradient id="disc" cx="38%" cy="28%" r="78%">
+      <stop offset="0" stop-color="#ff535a"/>
+      <stop offset="0.34" stop-color="#ff141d"/>
+      <stop offset="0.68" stop-color="#d40008"/>
+      <stop offset="1" stop-color="#740006"/>
+    </radialGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".78"/>
+      <stop offset=".38" stop-color="#ffffff" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="redGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="19" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="textGlow" x="-30%" y="-40%" width="160%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="b"/>
+      <feFlood flood-color="#8f0005" flood-opacity=".95" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="s"/>
+      <feOffset dx="0" dy="10" result="o"/>
+      <feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect x="28" y="28" width="968" height="968" rx="210" fill="none" stroke="#ff1720" stroke-width="11" opacity=".95" filter="url(#redGlow)"/>
+  <rect x="48" y="48" width="928" height="928" rx="195" fill="none" stroke="#ffffff" stroke-width="3" opacity=".16"/>
+
+  <circle cx="512" cy="512" r="326" fill="#ff1018" opacity=".28" filter="url(#redGlow)"/>
+  <circle cx="512" cy="512" r="318" fill="url(#disc)" stroke="#ff343c" stroke-width="11"/>
+  <circle cx="512" cy="512" r="302" fill="none" stroke="#4e0004" stroke-width="6" opacity=".65"/>
+  <path d="M263 378 C330 231 519 178 699 239 C593 226 418 259 303 414 Z" fill="url(#shine)" opacity=".7"/>
+  <ellipse cx="535" cy="676" rx="214" ry="72" fill="#650005" opacity=".35"/>
+
+  <g filter="url(#textGlow)">
+    <text x="512" y="574"
+      text-anchor="middle"
+      fill="#ffffff"
+      font-family="Arial Black, Helvetica Neue, Arial, sans-serif"
+      font-size="170"
+      font-weight="900"
+      font-style="italic"
+      letter-spacing="-8">Blink TL</text>
+  </g>
+</svg>
