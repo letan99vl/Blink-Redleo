@@ -25,3 +25,5 @@ The manual TestFlight workflow needs:
 - APPSTORE_KEY_ID
 - APPSTORE_ISSUER_ID
 - APPSTORE_API_KEY_P8_BASE64
+
+Build check runs automatically on the ios-testflight branch.
