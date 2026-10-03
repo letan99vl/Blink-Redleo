@@ -10,7 +10,8 @@ def chunk(kind,payload):
     return struct.pack(">I",len(payload))+kind+payload+struct.pack(">I",zlib.crc32(kind+payload)&0xffffffff)
 
 def pixel(x,y,size):
-    bg=(17,17,20,255); red=(226,46,58,255); white=(246,246,247,255)
+    # App Store icons are generated as RGB PNGs with no alpha channel.
+    bg=(17,17,20); red=(226,46,58); white=(246,246,247)
     cx=cy=size/2.0; dx=x-cx; dy=y-cy; r=size*0.31
     color=red if dx*dx+dy*dy<=r*r else bg
     w=max(1.0,size*0.045)
@@ -23,7 +24,8 @@ def make_png(size,path):
         row=bytearray([0])
         for x in range(size): row.extend(pixel(x,y,size))
         rows.append(bytes(row))
-    ihdr=struct.pack(">IIBBBBB",size,size,8,6,0,0,0)
+    # PNG color type 2 = RGB, so there is no alpha channel.
+    ihdr=struct.pack(">IIBBBBB",size,size,8,2,0,0,0)
     raw=b"".join(rows)
     png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",ihdr)+chunk(b"IDAT",zlib.compress(raw,9))+chunk(b"IEND",b"")
     path.write_bytes(png)
