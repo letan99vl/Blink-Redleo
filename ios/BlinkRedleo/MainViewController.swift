@@ -2,6 +2,7 @@ import UIKit
 import WebKit
 
 final class MainViewController: UIViewController, WKNavigationDelegate {
+    // Hybrid runtime: local UI, remote-first iOS-only ECU protocol, bundled fallback.
     private var webView: WKWebView!
     private var bleBridge: BLEBridge!
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
