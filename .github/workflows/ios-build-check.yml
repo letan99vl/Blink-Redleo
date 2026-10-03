@@ -7,7 +7,7 @@ on:
       - 'ios/**'
       - '.github/workflows/ios-build-check.yml'
   push:
-    branches: [main, ios-testflight]
+    branches: [main, ios-testflight, ios-hybrid-fallback]
     paths:
       - 'ios/**'
       - '.github/workflows/ios-build-check.yml'
@@ -45,10 +45,13 @@ jobs:
           test -n "$PROTOCOL_PATH"
           test "$(dirname "$INDEX_PATH")" = "$(dirname "$PROTOCOL_PATH")"
           if grep -R -q 'letan99vl.github.io/Blink-Redleo' "$APP_PATH"; then
-            echo "Runtime bundle still contains GitHub Pages URL"
+            echo "Runtime bundle still contains GitHub Pages UI URL"
             exit 1
           fi
-          echo "Bundled web app verified: $INDEX_PATH"
+          grep -q "ios-native-remote-first" "$INDEX_PATH"
+          grep -q "redleo_real_protocol.js" "$PROTOCOL_PATH"
+          grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
+          echo "Hybrid verified: local UI + remote protocol + bundled fallback"
 
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
