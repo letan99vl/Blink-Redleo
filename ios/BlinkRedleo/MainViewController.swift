@@ -5,6 +5,8 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
     private var webView: WKWebView!
     private var bleBridge: BLEBridge!
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
+    private var protocolInjected = false
+    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js")!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -80,6 +82,79 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
 
         let readAccessURL = indexURL.deletingLastPathComponent()
         webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessURL)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView.url?.isFileURL == true, !protocolInjected else { return }
+        loadRemoteProtocolWithFallback()
+    }
+
+    private func loadRemoteProtocolWithFallback() {
+        var request = URLRequest(
+            url: remoteProtocolURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 5
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if error == nil,
+               status == 200,
+               let data = data,
+               data.count > 50_000,
+               let source = String(data: data, encoding: .utf8),
+               source.contains("window.BlinkRealProtocol"),
+               source.contains("initializeRealSession") {
+                DispatchQueue.main.async {
+                    self.injectProtocol(source, sourceName: "github-remote") {
+                        self.loadBundledProtocol()
+                    }
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.loadBundledProtocol()
+            }
+        }.resume()
+    }
+
+    private func loadBundledProtocol() {
+        let candidates: [URL?] = [
+            Bundle.main.url(forResource: "redleo_real_protocol", withExtension: "js", subdirectory: "Web"),
+            Bundle.main.url(forResource: "redleo_real_protocol", withExtension: "js")
+        ]
+
+        guard let url = candidates.compactMap({ $0 }).first,
+              let source = try? String(contentsOf: url, encoding: .utf8) else {
+            showLocalAppError("Both remote and bundled ECU protocol are unavailable.")
+            return
+        }
+
+        injectProtocol(source, sourceName: "ipa-fallback", onFailure: nil)
+    }
+
+    private func injectProtocol(_ source: String, sourceName: String, onFailure: (() -> Void)?) {
+        guard !protocolInjected else { return }
+
+        let wrapped = """
+        window.BLINK_PROTOCOL_SOURCE = '\(sourceName)';
+        \(source)
+        """
+
+        webView.evaluateJavaScript(wrapped) { [weak self] _, error in
+            guard let self = self else { return }
+            if error == nil {
+                self.protocolInjected = true
+                print("BLINK protocol loaded from \(sourceName)")
+            } else {
+                print("BLINK protocol injection failed from \(sourceName): \(error!.localizedDescription)")
+                onFailure?()
+            }
+        }
     }
 
     private func showLocalAppError(_ message: String) {
