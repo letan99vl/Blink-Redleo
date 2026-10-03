@@ -1,35 +1,40 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import struct, zlib
+import shutil
+import struct
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "BlinkRedleo" / "Assets.xcassets" / "AppIcon.appiconset"
+SVG = Path(__file__).with_name("BlinkTL-AppIcon.svg")
 SIZES = [20,29,40,58,60,76,80,87,120,152,167,180,1024]
 
-def chunk(kind,payload):
-    return struct.pack(">I",len(payload))+kind+payload+struct.pack(">I",zlib.crc32(kind+payload)&0xffffffff)
+def run(*args):
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-def pixel(x,y,size):
-    # App Store icons are generated as RGB PNGs with no alpha channel.
-    bg=(17,17,20); red=(226,46,58); white=(246,246,247)
-    cx=cy=size/2.0; dx=x-cx; dy=y-cy; r=size*0.31
-    color=red if dx*dx+dy*dy<=r*r else bg
-    w=max(1.0,size*0.045)
-    if abs((x-size*0.56)+0.42*(y-size*0.48))<w and size*0.28<y<size*0.72: color=white
-    return color
+def png_color_type(path):
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeError(f"{path.name}: invalid PNG")
+    return data[25]
 
-def make_png(size,path):
-    rows=[]
-    for y in range(size):
-        row=bytearray([0])
-        for x in range(size): row.extend(pixel(x,y,size))
-        rows.append(bytes(row))
-    # PNG color type 2 = RGB, so there is no alpha channel.
-    ihdr=struct.pack(">IIBBBBB",size,size,8,2,0,0,0)
-    raw=b"".join(rows)
-    png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",ihdr)+chunk(b"IDAT",zlib.compress(raw,9))+chunk(b"IEND",b"")
-    path.write_bytes(png)
+if shutil.which("sips") is None:
+    raise RuntimeError("sips is required to render the Blink TL AppIcon on macOS")
 
-OUT.mkdir(parents=True,exist_ok=True)
-for size in SIZES: make_png(size,OUT/f"icon-{size}.png")
-print(f"Generated {len(SIZES)} app icons")
+OUT.mkdir(parents=True, exist_ok=True)
+master_jpg = OUT / "_BlinkTL-master.jpg"
+
+# Render the vector artwork through an opaque JPEG first. This deliberately
+# strips alpha so App Store Connect receives RGB-only PNG app icons.
+run("sips", "-s", "format", "jpeg", "-s", "formatOptions", "100",
+    str(SVG), "--out", str(master_jpg))
+
+for size in SIZES:
+    out = OUT / f"icon-{size}.png"
+    run("sips", "--resampleHeightWidth", str(size), str(size),
+        "-s", "format", "png", str(master_jpg), "--out", str(out))
+    if png_color_type(out) != 2:
+        raise RuntimeError(f"{out.name}: expected RGB PNG without alpha")
+
+master_jpg.unlink(missing_ok=True)
+print(f"Generated {len(SIZES)} Blink TL RGB app icons")
