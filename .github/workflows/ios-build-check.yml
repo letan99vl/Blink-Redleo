@@ -50,7 +50,7 @@ jobs:
           fi
           grep -q "ios-native-remote-first" "$INDEX_PATH"
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
-          grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
+          grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
           echo "Hybrid verified: local UI + remote protocol + bundled fallback"
 
           mkdir -p Payload
