@@ -891,7 +891,7 @@ function installAfrListener(){
     const d=ev.target.value;if(!d||d.byteLength<3)return;const v=new DataView(d.buffer,d.byteOffset,d.byteLength);if(v.getUint8(0)!==0xA3)return;
     const mv=v.getUint16(1,true),volts=mv/1000;if(typeof state==='undefined')return;state.live.afrV=volts;
     // Keep Blink's established analog AFR calibration used by this project.
-    state.live.afr=10+clamp(volts,0,2.8)*(10/2.8);
+    state.live.afr=10+clamp(volts,0,2.46)*(10/2.46);
     const now=performance.now();if(Array.isArray(state.afrHistory)){state.afrHistory.push({t:now,v:state.live.afr});while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();}
     try{updateLive();if(state.recording)recordSample(now);highlightCurrent();}catch(_e){}
   });
