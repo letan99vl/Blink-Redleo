@@ -319,7 +319,11 @@ const PROFILE_FEATURES=Object.freeze({
   UNKNOWN:new Set()
 });
 function profileSupportsFeature(id,p=ecuProfile){
-  if(p?.key==='MODERN_V10'&&isV10Direct()&&['ect_idle_motor','external_adjust'].includes(id))return true;
+  // V10.2 and Ultra share MODERN_V10, but these two decoded A2 surfaces are
+  // proven only for a current non-ULTRA V10 session. Never broaden them by
+  // profile key alone.
+  const currentV10Direct=p===ecuProfile&&isV10Direct();
+  if(currentV10Direct&&['ect_idle_motor','external_adjust'].includes(id))return true;
   const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
   return set.has(id);
 }
