@@ -1295,8 +1295,8 @@
     flex:1 1 auto;
     min-height:0;
     display:grid;
-    grid-template-columns:repeat(3,minmax(0,1fr));
-    grid-template-rows:repeat(5,minmax(0,1fr));
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    grid-template-rows:repeat(4,minmax(0,1fr));
     gap:6px;
   }
   .fuelKeypadGrid button{
@@ -1317,8 +1317,8 @@
   .fuelKeypadGrid button:active{transform:scale(.96);filter:brightness(1.25)}
   .fuelKeypadGrid .clear{background:#4b151d;border-color:#a52d3b;color:#ffb3bd}
   .fuelKeypadGrid .backspace{background:#3b2023;border-color:#765057}
-  .fuelKeypadGrid .enter{background:#0b4a27;border-color:#20c968;color:#9bffbe;font-size:14px}
   .fuelKeypadGrid .hide{background:#17171c;border-color:#6a5960;color:#ddd}
+  .fuelKeypadGrid .zeroWide{grid-column:span 3}
 
   /* Normal editor: reserve real map space instead of covering cells. */
   #mapEditorScreen.standaloneFuel.mapKeypadOpen #mapWrap{
@@ -1339,12 +1339,12 @@
     .fuelKeypadHead{height:28px;min-height:28px;font-size:9px;border-radius:8px}
     .fuelKeypadHead strong{font-size:14px}
     .fuelKeypadGrid{
-      grid-template-columns:repeat(8,minmax(0,1fr));
+      grid-template-columns:repeat(7,minmax(0,1fr));
       grid-template-rows:repeat(2,minmax(0,1fr));
       gap:4px;
     }
     .fuelKeypadGrid button{border-radius:8px;font-size:16px}
-    .fuelKeypadGrid .enter{grid-column:span 2;font-size:11px}
+    .fuelKeypadGrid .zeroWide{grid-column:auto}
   }
   /* Software-landscape uses the same compact keypad even when the physical
      device remains portrait and CSS orientation media queries do not change. */
@@ -1353,12 +1353,12 @@
   body.appForceLandscape .fuelKeypadHead{height:28px;min-height:28px;font-size:9px;border-radius:8px}
   body.appForceLandscape .fuelKeypadHead strong{font-size:14px}
   body.appForceLandscape .fuelKeypadGrid{
-    grid-template-columns:repeat(8,minmax(0,1fr));
+    grid-template-columns:repeat(7,minmax(0,1fr));
     grid-template-rows:repeat(2,minmax(0,1fr));
     gap:4px;
   }
   body.appForceLandscape .fuelKeypadGrid button{border-radius:8px;font-size:16px}
-  body.appForceLandscape .fuelKeypadGrid .enter{grid-column:span 2;font-size:11px}
+  body.appForceLandscape .fuelKeypadGrid .zeroWide{grid-column:auto}
   body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel.mapKeypadOpen #mapWrap{
     bottom:var(--fuel-keypad-h)!important;
     height:auto!important;
@@ -1434,11 +1434,10 @@
     <div id="fuelKeypad" class="fuelKeypad" aria-hidden="true">
       <div class="fuelKeypadHead"><span id="fuelKeypadCell">Chưa chọn ô</span><strong id="fuelKeypadValue">-- ms</strong></div>
       <div class="fuelKeypadGrid">
-        <button type="button" data-fuel-key="1">1</button><button type="button" data-fuel-key="2">2</button><button type="button" data-fuel-key="3">3</button>
-        <button type="button" data-fuel-key="4">4</button><button type="button" data-fuel-key="5">5</button><button type="button" data-fuel-key="6">6</button>
-        <button type="button" data-fuel-key="7">7</button><button type="button" data-fuel-key="8">8</button><button type="button" data-fuel-key="9">9</button>
-        <button type="button" class="clear" data-fuel-key="clear">C</button><button type="button" data-fuel-key="0">0</button><button type="button" data-fuel-key=".">.</button>
-        <button type="button" class="backspace" data-fuel-key="backspace">⌫</button><button type="button" class="enter" data-fuel-key="enter">✓ NHẬP</button><button type="button" class="hide" data-fuel-key="hide">▾</button>
+        <button type="button" data-fuel-key="1">1</button><button type="button" data-fuel-key="2">2</button><button type="button" data-fuel-key="3">3</button><button type="button" class="clear" data-fuel-key="clear">C</button>
+        <button type="button" data-fuel-key="4">4</button><button type="button" data-fuel-key="5">5</button><button type="button" data-fuel-key="6">6</button><button type="button" class="backspace" data-fuel-key="backspace">⌫</button>
+        <button type="button" data-fuel-key="7">7</button><button type="button" data-fuel-key="8">8</button><button type="button" data-fuel-key="9">9</button><button type="button" class="hide" data-fuel-key="hide">▾</button>
+        <button type="button" class="zeroWide" data-fuel-key="0">0</button><button type="button" data-fuel-key=".">.</button>
       </div>
     </div>
     
@@ -5183,7 +5182,7 @@ function selectedFuelMeta(){
 }
 function formatFuelEntry(v){
   if(!Number.isFinite(Number(v)))return '';
-  return Number(v).toFixed(3).replace(/0+$/,'').replace(/.$/,'');
+  return Number(v).toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
 }
 function syncFuelKeypadSelection(force=false){
   if(!fuelKeypad||fuelKeypad.getAttribute('aria-hidden')==='true')return;
@@ -5227,6 +5226,17 @@ function hideFuelKeypad(){
   fuelKeypadBuffer='';fuelKeypadDirty=false;fuelKeypadSelectionKey='';
   requestAnimationFrame(updateMapSelectionPad);
 }
+function applyFuelKeypadLive(){
+  if(!standaloneFuelEditorActive()||!isEditableTab()||!state.selection.active)return;
+  const typed=fuelKeypadBuffer;
+  const parsed=typed===''?0:Number(typed);
+  if(!Number.isFinite(parsed))return;
+  const safe=clamp(parsed,0,fuelProtocolMaxMs()),b=selectionBounds();
+  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)state.inject[r][c]=Number(safe.toFixed(3));
+  render();saveSoon();
+  $('selectionInfo').textContent='Đang nhập '+(typed===''?'0':typed)+' ms · '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô';
+  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+}
 function fuelKeypadAppend(ch){
   if(!fuelKeypadDirty){fuelKeypadBuffer='';fuelKeypadDirty=true}
   if(ch==='.'){
@@ -5236,35 +5246,27 @@ function fuelKeypadAppend(ch){
     if(fuelKeypadBuffer.length>=8)return;
     fuelKeypadBuffer+=ch;
   }
+  applyFuelKeypadLive();
   syncFuelKeypadSelection(false);
 }
 function fuelKeypadBackspace(){
   if(!fuelKeypadDirty){const m=selectedFuelMeta();fuelKeypadBuffer=formatFuelEntry(m?.v);fuelKeypadDirty=true}
   fuelKeypadBuffer=fuelKeypadBuffer.slice(0,-1);
+  applyFuelKeypadLive();
   syncFuelKeypadSelection(false);
 }
-function fuelKeypadCommit(){
-  if(!standaloneFuelEditorActive()||!isEditableTab())return;
-  const v=Number(fuelKeypadBuffer);
-  if(!Number.isFinite(v)||fuelKeypadBuffer===''){
-    fuelKeypadValue.textContent='GIÁ TRỊ?';
-    return;
-  }
-  const safe=clamp(v,0,fuelProtocolMaxMs()),b=selectionBounds();
-  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)state.inject[r][c]=Number(safe.toFixed(3));
-  fuelKeypadBuffer=formatFuelEntry(safe);fuelKeypadDirty=false;
-  render();saveSoon();
-  $('selectionInfo').textContent='Đã nhập '+fuelKeypadBuffer+' ms · '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô';
-  syncFuelKeypadSelection(true);
-  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+function fuelKeypadClear(){
+  fuelKeypadBuffer='';
+  fuelKeypadDirty=true;
+  applyFuelKeypadLive();
+  syncFuelKeypadSelection(false);
 }
 fuelKeypadToggle?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openFuelKeypad()});
 fuelKeypad?.querySelectorAll('[data-fuel-key]').forEach(btn=>btn.addEventListener('click',e=>{
   e.preventDefault();e.stopPropagation();
   const k=btn.dataset.fuelKey;
-  if(k==='clear'){fuelKeypadBuffer='';fuelKeypadDirty=true;syncFuelKeypadSelection(false);return}
+  if(k==='clear'){fuelKeypadClear();return}
   if(k==='backspace'){fuelKeypadBackspace();return}
-  if(k==='enter'){fuelKeypadCommit();return}
   if(k==='hide'){hideFuelKeypad();return}
   fuelKeypadAppend(k);
 }));
