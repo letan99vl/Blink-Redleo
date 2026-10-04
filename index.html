@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.39';
+  window.BLINK_PB_VERSION = '3.79.40';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -5352,7 +5352,10 @@ function featureForProfile(id){
   }else if(id==='map_idle_motor'||id==='v_map'){
     f.x=ECU_AUX_AXES.map.slice();
   }else if(id==='ect_idle_motor'){
-    f.x=ECU_AUX_AXES.ect.slice().concat('SUM');
+    // Original REDLEO ECT Motor grid has 11 ECT points. The old synthetic
+    // SUM column was not transmitted by ECU software and must not be editable.
+    f.x=ECU_AUX_AXES.ect.slice();
+    f.cols=f.x.length;
   }else if(id==='v_ect'||id==='ect_start'){
     f.x=ECU_AUX_AXES.ect.slice();
   }else if(id==='v_iat'){
