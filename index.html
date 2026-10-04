@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.13';
+  window.BLINK_PB_VERSION = '3.79.14';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1090,6 +1090,49 @@
     color:#111!important;
     filter:none!important;
     box-shadow:inset 0 0 0 2px #ff9f0a!important;
+  }
+
+  /* ===== v14.1 AFR / CORRECTED MAP COLORS =====
+     Keep semantic colors above the later mobile map-cell background rules. */
+  #mapTable td.mapcell.afr-red,
+  #mapTable td.mapcell.afr-red:hover,
+  #mapTable td.mapcell.afr-red.current,
+  #mapTable td.mapcell.afr-red.selected{
+    background:#db1f33!important;
+    color:#fff!important;
+    font-weight:800!important;
+  }
+  #mapTable td.mapcell.afr-green,
+  #mapTable td.mapcell.afr-green:hover,
+  #mapTable td.mapcell.afr-green.current,
+  #mapTable td.mapcell.afr-green.selected{
+    background:#1ea94e!important;
+    color:#fff!important;
+    font-weight:800!important;
+  }
+  #mapTable td.mapcell.afr-orange,
+  #mapTable td.mapcell.afr-orange:hover,
+  #mapTable td.mapcell.afr-orange.current,
+  #mapTable td.mapcell.afr-orange.selected{
+    background:#ff9f0a!important;
+    color:#1a1002!important;
+    font-weight:800!important;
+  }
+  #mapTable td.mapcell.corrected-add,
+  #mapTable td.mapcell.corrected-add:hover,
+  #mapTable td.mapcell.corrected-add.current,
+  #mapTable td.mapcell.corrected-add.selected{
+    background:#db1f33!important;
+    color:#fff!important;
+    font-weight:800!important;
+  }
+  #mapTable td.mapcell.corrected-cut,
+  #mapTable td.mapcell.corrected-cut:hover,
+  #mapTable td.mapcell.corrected-cut.current,
+  #mapTable td.mapcell.corrected-cut.selected{
+    background:#ffd23f!important;
+    color:#281900!important;
+    font-weight:800!important;
   }
 
   /* ===== v15 FLOATING MAP SELECTION PAD ===== */
