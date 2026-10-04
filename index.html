@@ -2433,7 +2433,7 @@ async function startFuelWrite(opts={}){
       // keep the real ECU map and stop the tuning sequence. If readback itself
       // fails, restore the known local baseline only for display and latch the
       // bank UNKNOWN so no further write/Auto Tune can proceed.
-      let resynced=false,verifiedDespiteError=false,resyncError=null,cmp=null;
+      let resynced=false,verifiedDespiteError=false,resyncError=null,cmp=null,cmpBefore=null;
       if(realApi&&typeof realApi.readCurrentFuelBank==='function'&&window.blinkCommandChar&&window.blinkMapChar){
         try{
           await new Promise(r=>setTimeout(r,180));
@@ -2441,6 +2441,7 @@ async function startFuelWrite(opts={}){
           resynced=!!(R&&validMatrix(R.matrix));
           if(resynced){
             cmp=compareFuelMaps(R.matrix,attemptedMap);
+            cmpBefore=knownBefore?compareFuelMaps(R.matrix,knownBefore):null;
             verifiedDespiteError=cmp.bad===0;
             setFuelMapSyncUnknown(mapNo,false);
           }
@@ -2456,8 +2457,19 @@ async function startFuelWrite(opts={}){
       if(!resynced){
         if(knownBefore&&state.mapBanks&&state.mapBanks[mapNo-1])state.mapBanks[mapNo-1].inject=cloneMatrix(knownBefore);
         setFuelMapSyncUnknown(mapNo,true);
-        try{if(state.activeMap===mapNo&&(state.tab==='inject'||state.tab==='corrected'))render();saveSoon();}catch(_e){}
       }
+
+      // AFR collected before the write is valid only if readback proves the ECU
+      // stayed exactly on the known baseline. A mixed/unknown map needs fresh AFR
+      // before any correction can be calculated again, otherwise the same AFR
+      // could be applied twice to cells that already changed.
+      const afrStillValid=!!(resynced&&cmpBefore&&cmpBefore.bad===0);
+      if(!afrStillValid&&state.mapBanks&&state.mapBanks[mapNo-1]){
+        state.mapBanks[mapNo-1].measured=blankMatrix(null);
+        state.mapBanks[mapNo-1].counts=blankMatrix(0);
+        state.lastCellKey='';
+      }
+      try{if(state.activeMap===mapNo&&(state.tab==='inject'||state.tab==='corrected'||state.tab==='measured'))render();saveSoon();}catch(_e){}
 
       onFuelWriteVerifyFailed(mapNo,cmp||{bad:420,first:null});
       const baseMsg=String(e&&e.message||e);
@@ -3424,9 +3436,13 @@ function processAfrPacket(p){
 }
 window.blinkProcessAfrPacket=processAfrPacket;
 function delayedAfr(now){
-  const targetT=now-state.cal.afrDelayMs;let best=null;
+  const delay=Math.max(0,Number(state.cal.afrDelayMs)||0);
+  const targetT=now-delay;let best=null;
   for(const x of state.afrHistory){if(x.t<=targetT)best=x;else break;}
   if(best)return best.blocked?NaN:best.v;
+  // With a configured sensor delay, wait until enough history exists instead
+  // of silently substituting the current sample into the wrong TPS/RPM cell.
+  if(delay>0)return NaN;
   return throttleClosingLock(now)?NaN:state.live.afr;
 }
 function noteTpsTrend(tps,now=performance.now()){
@@ -3453,8 +3469,10 @@ function throttleClosingLock(now=performance.now()){
   if(now-h[h.length-1].t>700)return false;
   return !!state.tpsFalling;
 }
+function resetTpsTrendState(){state.tpsTrendHistory=[];state.tpsFalling=false;}
 window.noteBlinkTpsTrend=noteTpsTrend;
 window.blinkThrottleClosingLock=throttleClosingLock;
+window.resetBlinkTpsTrend=resetTpsTrendState;
 function recordSample(now){
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
   if(throttleClosingLock(now))return;
@@ -3560,9 +3578,9 @@ load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
-$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;syncControls();saveSoon();};
-$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;syncControls();saveSoon();};
-['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrValueMin','afrValueMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
+$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrValueMin','afrValueMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 
 function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
@@ -3625,7 +3643,7 @@ window.addEventListener('beforeunload',save);
   };
 
   let device=null,server=null,service=null,liveChar=null,commandChar=null,mapChar=null,statusChar=null;
-  let mapRx={active:false,mapNo:1,packets:0,cells:0};
+  let mapRx={active:false,mapNo:1,packets:0,cells:0,temp:null,seen:new Set()};
   const enc=new TextEncoder(),dec=new TextDecoder();
   const originalRender=render;
 
@@ -4267,15 +4285,16 @@ window.addEventListener('beforeunload',save);
     if(d.byteLength<6||v.getUint8(0)!==0xB1)return;
     const mapNo=v.getUint8(1),r=v.getUint8(2),c0=v.getUint8(3),count=v.getUint8(4);
     if(mapNo<1||mapNo>4||r>=R||c0>=C||count<1)return;
-    if(!mapRx.active||mapRx.mapNo!==mapNo){mapRx={active:true,mapNo,packets:0,cells:0};}
+    if(!mapRx.active||mapRx.mapNo!==mapNo)mapRx={active:true,mapNo,packets:0,cells:0,temp:blankMatrix(null),seen:new Set()};
+    if(!mapRx.temp)mapRx.temp=blankMatrix(null);
+    if(!(mapRx.seen instanceof Set))mapRx.seen=new Set();
     let p=5;
     for(let i=0;i<count&&c0+i<C&&p+1<d.byteLength;i++,p+=2){
-      const raw=v.getUint16(p,true);
-      state.mapBanks[mapNo-1].inject[r][c0+i]=raw/500;
-      mapRx.cells++;
+      const cc=c0+i,raw=v.getUint16(p,true),key=r+':'+cc;
+      mapRx.temp[r][cc]=raw/500;
+      if(!mapRx.seen.has(key)){mapRx.seen.add(key);mapRx.cells++;}
     }
     mapRx.packets++;
-    if(state.activeMap===mapNo&&(state.tab==='inject'||state.tab==='corrected'))render();
     $('saveInfo').textContent='BLE MAP: '+mapRx.cells+'/420 ô';
   }
 
@@ -4295,8 +4314,17 @@ window.addEventListener('beforeunload',save);
     if(text==='RXJUMBO OFF'){window.blinkBridgeRxPayload=12;return;}
     if(text.startsWith('OTA:')){handleOtaStatus(text);return;}
     if(text.startsWith('MAP_DONE')){
-      mapRx.active=false;saveSoon();
-      showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận '+mapRx.cells+'/420 ô từ ECU Blink.');
+      const complete=mapRx.cells===R*C&&validMatrix(mapRx.temp)&&mapRx.temp.every(row=>row.every(v=>Number.isFinite(Number(v))));
+      mapRx.active=false;
+      if(!complete){
+        showEcuNotice('error','ĐỌC MAP BLE CHƯA ĐỦ','Chỉ nhận '+mapRx.cells+'/420 ô. MAP cũ được giữ nguyên; không cho dữ liệu thiếu thay thế MAP ECU.',0);
+      }else{
+        state.mapBanks[mapRx.mapNo-1].inject=cloneMatrix(mapRx.temp);
+        setFuelMapSyncUnknown(mapRx.mapNo,false);
+        if(state.activeMap===mapRx.mapNo&&(state.tab==='inject'||state.tab==='corrected'))render();
+        saveSoon();
+        showEcuNotice('success','ĐỌC MAP BLE THÀNH CÔNG','Đã nhận đủ 420/420 ô từ ECU Blink.');
+      }
     }else if(text.startsWith('PONG')){
       acceptBridgePong(text);
       const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
@@ -4375,8 +4403,8 @@ window.addEventListener('beforeunload',save);
   async function readMapBle(){
     try{
       if(!state.ecuConnected)return showEcuNotice('error','CHƯA KẾT NỐI BLE','Kết nối ECU Blink trước.');
-      mapRx={active:true,mapNo:state.activeMap,packets:0,cells:0};
-      state.inject=blankMatrix(0);if(state.tab==='inject'||state.tab==='corrected')render();
+      mapRx={active:true,mapNo:state.activeMap,packets:0,cells:0,temp:blankMatrix(null),seen:new Set()};
+      // Never erase the current map before all 420 cells have arrived.
       await writeCommand('READ_MAP:'+state.activeMap);
       flashSave('Đang nhận MAP No.'+state.activeMap+' qua BLE...');
     }catch(e){showEcuNotice('error','ĐỌC MAP BLE LỖI',e.message,0);}
