@@ -2619,6 +2619,24 @@ async function verifyExactDirectPage(pg,payload,label){
   }
   return R;
 }
+function buildPreservedDirectPayload(pg,knownBytes,label='PAGE'){
+  pg&=255;
+  const known=knownBytes instanceof Uint8Array?knownBytes:Uint8Array.from(knownBytes||[]);
+  const cached=pageCache.get(pg);
+  if(!cached||cached.length<known.length){
+    throw new Error(label+' cần ĐỌC page 0x'+pg.toString(16).toUpperCase()+' tối thiểu '+known.length+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
+  }
+  const payload=new Uint8Array(cached);
+  payload.set(known,0);
+  return payload;
+}
+async function writePreservedDirectPage(pg,payload,label,cap='mainWrite',retries=1){
+  const u=payload instanceof Uint8Array?payload:Uint8Array.from(payload||[]);
+  await writePageChecked(pg,u,false,retries,cap);
+  await verifyExactDirectPage(pg,u,label);
+  cacheAckedPage(pg,u);
+  return u;
+}
 async function writeV92A2KnownFeature(id){
   if(!isV92Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO 9.2+.');
   const payload=requireExactCachedPage(0xA2,133,'REDLEO 9.2 '+id);
@@ -2777,8 +2795,7 @@ async function writeV11AutoShift(bank){
   const payload=new Uint8Array(cached);
   payload.set(shift,12);
   taskUi('loading','ATE V11 · GHI AUTOSHIFT MAP NO.'+bank+' · GIỮ NGUYÊN IDLE + ECT MOTOR');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  cacheAckedPage(pg,payload);
+  await writePreservedDirectPage(pg,payload,'ATE V11 AutoShift MAP '+bank,'mainWrite',1);
   notice('success','GHI AUTOSHIFT ATE V11 OK','MAP No.'+bank+' · ECU ACK · 9B AutoShift đã ghi · 34B Idle/ECT Motor giữ nguyên · '+v11AutoShiftConfigText(shift[0])+'.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2795,8 +2812,7 @@ async function writeV11AfrMap(bank){
   const payload=new Uint8Array(cached);
   payload.set(afrRaw,0);
   taskUi('loading','ATE V11 · GHI AFR MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  cacheAckedPage(pg,payload);
+  await writePreservedDirectPage(pg,payload,'ATE V11 AFR MAP '+bank,'mainWrite',1);
   notice('success','GHI AFR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 420 ô + ON/OFF đã gửi.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2813,8 +2829,7 @@ async function writeV11EctMotor(bank){
   const payload=new Uint8Array(cached);
   payload.set(motor,21);
   taskUi('loading','ATE V11 · GHI ECT MOTOR MAP NO.'+bank+' · '+mode.label+' · GIỮ NGUYÊN IDLE + AUTOSHIFT');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  cacheAckedPage(pg,payload);
+  await writePreservedDirectPage(pg,payload,'ATE V11 ECT Motor MAP '+bank,'mainWrite',1);
   notice('success','GHI ECT MOTOR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 22B ECT Motor đã ghi · 21B Idle/AutoShift giữ nguyên · '+mode.label+'.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2831,8 +2846,7 @@ async function writeV11IdleLimit(bank){
   const payload=new Uint8Array(cached);
   payload.set(idle,0);
   taskUi('loading','ATE V11 · GHI IDLE/LIMIT MAP NO.'+bank+' · GIỮ NGUYÊN AUTOSHIFT + ECT MOTOR');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  cacheAckedPage(pg,payload);
+  await writePreservedDirectPage(pg,payload,'ATE V11 Idle/Limit MAP '+bank,'mainWrite',1);
   notice('success','GHI IDLE ATE V11 OK','MAP No.'+bank+' · ECU ACK · 12B Idle đã ghi · 31B AutoShift/ECT Motor giữ nguyên.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2847,8 +2861,7 @@ async function writeV11EctStart(){
   const payload=new Uint8Array(cached);
   payload.set(raw44,L.ECT_START);
   taskUi('loading','ATE V11 · GHI ECT START 44B · GIỮ NGUYÊN A2 CÒN LẠI');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 ECT Start','mainWrite',1);
   notice('success','GHI ECT START ATE V11 OK','ECU ACK · 44 byte · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2867,8 +2880,7 @@ async function writeV11AlternateTable(){
   const payload=new Uint8Array(cached);
   payload.set(raw,L.GLOBAL_AUX);
   taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 Alternate Table','mainWrite',1);
   notice('success','GHI ALTERNATE TABLE V11 OK','ECU ACK · 9 byte raw · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2886,8 +2898,7 @@ async function writeV11Options20(){
   const payload=new Uint8Array(cached);
   payload.set(expected30,L.OPTION);
   taskUi('loading','ATE V11 · GHI OPTIONS 20 MỤC · GIỮ NGUYÊN AFR/O2 + RESERVED');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 Options','mainWrite',1);
   notice('success','GHI ATE OPTIONS V11 OK','ECU ACK · 20 byte Option đã chỉnh · AFR/O2 + reserved giữ nguyên.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2902,8 +2913,7 @@ async function writeV11Chg(){
   const payload=new Uint8Array(cached);
   payload.set(raw,L.CHG);
   taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 Charger','mainWrite',1);
   notice('success','GHI CHG ATE V11 OK','ECU ACK · 8 byte Charger Parameters · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2921,8 +2931,7 @@ async function writeV11AutoClutch(){
   const payload=new Uint8Array(cached);
   payload.set(expected,L.CONFIG);
   taskUi('loading','ATE V11 · GHI AUTOMATIC CLUTCH · GIỮ NGUYÊN ENABLE + PIN');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 Automatic Clutch','mainWrite',1);
   notice('success','GHI AUTOMATIC CLUTCH ATE V11 OK','ECU ACK · 6 byte Dgv_Dzfm đã ghi · enable + password cũ giữ nguyên.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2938,8 +2947,7 @@ async function writeV11ExternalAdjust(){
   for(let c=0;c<15;c++)payload[L.EXTERNAL+c]=encV11ExtIgn(m[1][c]);
   for(let c=0;c<15;c++)payload[L.EXTERNAL+15+c]=encV11ExtPct(m[0][c]);
   taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 External Adjustment','mainWrite',1);
   notice('success','GHI EXTERNAL ADJUSTMENT ATE V11 OK','ECU ACK · '+L.NAME+' · 30 byte · byte A2 khác giữ nguyên.');
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
@@ -2967,8 +2975,7 @@ async function writeV11A2KnownFeature(id){
   const payload=Array.from(cached);
   for(let i=0;i<11;i++)payload[spec.off+i]=clamp(Math.round(spec.enc(vals[i])),0,255);
   taskUi('loading','ATE V11 · GHI '+spec.label+' · GIỮ NGUYÊN BYTE ẨN');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  cacheAckedPage(0xA2,payload);
+  await writePreservedDirectPage(0xA2,payload,'ATE V11 '+spec.label,'mainWrite',1);
   notice('success','GHI ATE V11 OK',spec.label+' · page A2 · ECU ACK · 11 byte · byte ẩn giữ nguyên.');
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
@@ -2999,44 +3006,27 @@ async function writeFeatureReal(id){
       throw new Error('Hãy ĐỌC bảng '+id+' của MAP hiện tại thành công trước khi GHI để tránh ghi dữ liệu trống.');
     }
 
-    let m,pg,payload;
+    let m,pg,known,payload;
     switch(id){
-      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encMainInjAngle);break;
-      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
-      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encMainDwell);break;
-      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
-      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,isV11Profile()?encMainIgn:encEctIgn):encodeRowsByte(m,encEctIgn);break;
-      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
+      case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);known=encodeRowsByte(m,encMainInjAngle);break;
+      case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);known=encodeRowsByte(m,encMainIgn);break;
+      case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);known=encodeRowsByte(m,encMainDwell);break;
+      case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;known=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
+      case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;known=compRowsForwardOnWire()?encodeRowsByteForward(m,isV11Profile()?encMainIgn:encEctIgn):encodeRowsByte(m,encEctIgn);break;
+      case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;known=compRowsForwardOnWire()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
       default:throw new Error('Chưa có page ghi trực tiếp cho '+id);
     }
+    // Never assume the page ends exactly where the known matrix ends. Preserve
+    // any build-specific tail bytes learned from the successful READ operation.
+    payload=buildPreservedDirectPayload(pg,known,id.toUpperCase());
 
     const resumeLive=liveRunning;
     stopLiveLoop();
     try{
       await waitForEcuIdle(16000);
       await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,5)?25:120));
-      await writePageChecked(pg,payload,false,1,'mainWrite');
-
-      // REDLEO 9.2 and V10 compensation pages are direct-write enabled. Verify
-      // the whole payload after ACK so a lost/partial write cannot look successful.
-      const verifyComp=!!(ecuProfile&&(
-        (ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis())||
-        isV10Direct()
-      )&&['ect_inj','ect_ign','map_inj'].includes(id));
-      if(verifyComp){
-        const verify=await readDirectPageReal(pg,payload.length,'XÁC MINH '+id.toUpperCase(),false);
-        const got=verify.data;
-        let mismatch=-1;
-        for(let i=0;i<payload.length;i++){
-          if(got[i]!==payload[i]){mismatch=i;break;}
-        }
-        if(mismatch>=0){
-          throw new Error('ECU ACK nhưng đọc lại '+id+' khác dữ liệu ghi tại byte '+mismatch+' · expected '+payload[mismatch]+' · got '+got[mismatch]);
-        }
-      }
-
-      cacheAckedPage(pg,payload);
-      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK'+(verifyComp?' + READBACK OK':''));
+      await writePreservedDirectPage(pg,payload,id.toUpperCase(),'mainWrite',1);
+      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK TOÀN PAGE OK · tail giữ nguyên');
       return {ack:true,page:pg,payload:Uint8Array.from(payload)};
     }finally{
       if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(380);
