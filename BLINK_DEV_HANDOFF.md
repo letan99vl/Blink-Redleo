@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.41**.
+- Current displayed PB: **3.79.42**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -163,10 +163,18 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
 - Static IL from original V10.2 confirms:
   - page family 6 serializes **only Dgv_Idle_Limit[bank]** via `proUartDgvNumOption`; it does NOT serialize ECT Motor there.
   - therefore V10 page6 is structurally different from REDLEO 9.2 page6.
-  - A2 writer starts with `proUartDgvNumVoltage`, which serializes TPS + RPM + vAFR + vECT + vIAT + vMAP + IAT INJ + MAP Motor (the known 140B prefix), then appends Options + ECT Motor + ECT Start Add + External Adjustment + password-related bytes.
-  - firmware-dependent Spare may also be included in the voltage prefix on older firmware.
-- IMPORTANT: A2 direct-write for V10 remains deliberately LOCKED because readable 140B does NOT prove the complete accepted TX length.
-- V10 Idle/page6 writer also remains LOCKED in Blink until the exact original V10 Idle 18B TX/readback path is implemented separately.
+  - A2 writer starts with `proUartDgvNumVoltage`, then Options + ECT Motor + ECT Start Add + External Adjustment.
+  - Deep IL reconstruction corrected the old 140B-prefix assumption for direct V10.2: TPS is **2 rows × 14B = 28B**, followed by RPM 60B and six 11B sensor/compensation blocks.
+  - Modern V10.2 `programSpaceOut()` contributes **11B**: feature/config byte + AutoClutch RPM + 5 AutoClutch bytes + 4 password nibbles.
+  - `Dgv_Option` contributes **18B** via `proUartDgvNumOption` (6 rows × 3 serialized values).
+  - ECT Motor = 22B, ECT Start Add = 33B, External Adjustment = 30B.
+  - Exact V10.2 A2 writable payload = **268B**.
+  - firmware-dependent Spare applies only to older firmware path; V10.2 modern path uses programSpaceOut instead.
+- PB 3.79.41: V10.2 Idle/page6 implemented as exact **18B Idle-only** writer.
+- PB 3.79.42: direct V10.2 A2 reconstructed as exact **268B** read-modify-write baseline.
+- V10.2 A2 partial writers now opened from a successful 268B direct read for: IAT INJ, MAP Idle Motor, ECT Idle Motor, External Adjustment, V-ECT, V-IAT, V-MAP.
+- CONFIG/AutoClutch/password, Option and ECT Start Add are decoded/preserved where applicable but are NOT broadly editable yet in this pass.
+- Ultra remains separate and must NOT use the V10.2 268B serializer.
 - Never reuse the 9.2 62B page6 serializer for V10.
 
 ## 7. Ultra Pro1 status
@@ -235,7 +243,8 @@ Recent PB progression:
 - 3.79.38 direct-page safety hardening attempt
 - 3.79.39 writable-length separation work
 - 3.79.40 REDLEO 9.2 page6 exact 62B serializer + real 11-point ECT Motor grid; unverified V9.1/V10 page6 writers locked
-- 3.79.41 V10.2 page6 exact 18B Idle/Limit serializer from original IL; ECT Motor removed from V10 page6 surface and remains A2-locked
+- 3.79.41 V10.2 page6 exact 18B Idle/Limit serializer from original IL; ECT Motor removed from V10 page6 surface and routed to A2 work
+- 3.79.42 V10.2 exact 268B A2 serializer; verified partial RMW writers for IAT/MAP motor/ECT motor/external/voltage; Ultra remains separate
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -332,3 +341,67 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Regression checker commit: `e1db6ee896648be64b27cd0595169655bce2e537`.
 - CI wiring commit: `11e43e42f8973cc76e6499cc33efddbdf5e49fbb`.
 - PB bump commit: `897f2f9658b5cffd22b5133df62ec05e0ecd340f`.
+
+
+## V10.2 A2 reconstruction update - 2026-10-05
+
+- PB: **3.79.42**.
+- Original source analyzed: `Redleo ECU Pro Ver10/ECU Pro 10.2.exe` extracted from the archived original PC software.
+- Relevant original IL methods:
+  - `UartDatRx::proUartSendToEcu`
+  - `proUartDgvNum`
+  - `proUartDgvNumOption`
+  - `proUartDgvNumVoltage`
+  - `__UartToDgvTps`
+  - `UartDat::programSpaceOut`
+  - `UartDat::proReadAutoClutchPassword`
+  - `ModlePassword::proUartPassword`
+  - `Color_Moude::__IsMotorSolenoid`
+- Corrected old assumption: direct V10.2 A2 is NOT a 140B writable page.
+- Exact modern V10.2 A2 writable layout:
+  - 0..13: hidden TPS row = 14B
+  - 14..27: visible TPS breakpoint row = 14B, UI raw/2
+  - 28..87: RPM axis = 30 × uint16-BE = 60B, UI raw×20
+  - 88..98: vAFR = 11B
+  - 99..109: vECT = 11B
+  - 110..120: vIAT = 11B
+  - 121..131: vMAP = 11B
+  - 132..142: IAT INJ = 11B
+  - 143..153: MAP Motor = 11B
+  - 154..164: CONFIG + AutoClutch + password = 11B
+  - 165..182: Option = 18B
+  - 183..204: ECT Motor = 22B
+  - 205..237: ECT Start Add = 33B
+  - 238..267: External Adjustment = 30B
+  - total writable payload = **268B**.
+- V10.2 ECT Motor belongs to A2, NOT page6.
+- V10.2 ECT Motor mode from original `__IsMotorSolenoid()`: `InfoChk[3] || InfoChk[4]`, mapped to handshake feature bits 3/4.
+- V10.2 partial writers opened on exact 268B read-modify-write baseline:
+  - IAT INJ
+  - MAP Idle Motor
+  - ECT Idle Motor
+  - External Adjustment
+  - V-ECT
+  - V-IAT
+  - V-MAP
+- Each partial writer:
+  - requires a successful direct A2 read of at least 268B first,
+  - sends exactly the first 268 writable bytes,
+  - preserves every sibling/unknown block byte-for-byte,
+  - requires ECU ACK + readback verification,
+  - verifies any read-only/reply tail beyond 268B remains unchanged.
+- Still preserved/not exposed for V10.2 in this pass: hidden TPS row, TPS/RPM axis writes, vAFR, CONFIG/AutoClutch/password edits, Option edits, ECT Start Add edits.
+- Ultra remains on its separate conservative/read-only path and is explicitly rejected by the V10.2 A2 writer.
+- Regression protection:
+  - `tools/check-v10-a2.js`
+  - `tools/check-v10-page6.js`
+  - `tools/check-v92-page6.js` cross-family boundary check
+  - CI run **37242896117** passed syntax + row orientation + 9.2 page6 + V10.2 page6 + V10.2 A2.
+- Backup before A2 implementation: `backup-pb-3.79.41-pre-v10-a2-268`.
+- Core A2 commit: `c2bc3ba9ad09a5c340b2b3068e7c69366f5f0d7c`.
+- Feature-gate hardening: `9029136f9b72bc4dd3ea1b1ac286c09d95aa6642`.
+- A2 regression checker: `c3e09c8ecc616dc53d261e8355d0c88a49a5f6a3`.
+- CI wiring: `e952f76695c4b152d8515e092f5e18f5e5bfc7f0`.
+- Final regression repairs: `560a24e1ef6cce7ab77fbacce0b4042db5689a2b`, `d02fbc23c269c61b11e97601b277eec0a085a96e`.
+- PB bump: `bd3a6d80aecb327585dd99c237e0d8e897b8c5f2`.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Do not release-certify A2 writers until real V10.2 READ -> one small controlled change -> SAVE -> READBACK passes.
