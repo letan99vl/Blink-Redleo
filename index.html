@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.24';
+  window.BLINK_PB_VERSION = '3.79.25';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1366,6 +1366,31 @@
     max-height:none!important;
   }
 
+  /* ===== PB 3.79.25 · 420-CELL REDLEO TOUCH EDITOR ===== */
+  #redleoEditorScreen.red420Editor{--fuel-keypad-h:304px}
+  #redleoEditorScreen .redSelectionPad{
+    position:absolute!important;
+    z-index:250040!important;
+  }
+  #redleoEditorScreen .redKeypadToggle{display:none}
+  #redleoEditorScreen.red420Editor .redKeypadToggle{display:grid;place-items:center}
+  #redleoEditorScreen.redMapKeypadOpen .redKeypadToggle{display:none!important}
+  #redleoEditorScreen.red420Editor.redMapKeypadOpen .redKeypad{display:flex}
+  #redleoEditorScreen.red420Editor.redMapKeypadOpen .redTableWrap{
+    margin-bottom:var(--fuel-keypad-h)!important;
+  }
+  #redleoEditorScreen:not(.red420Editor) .redSelectionPad,
+  #redleoEditorScreen:not(.red420Editor) .redKeypadToggle,
+  #redleoEditorScreen:not(.red420Editor) .redKeypad{display:none!important}
+  @media(max-width:600px){
+    #redleoEditorScreen .redStep{padding-right:8px}
+    #redleoEditorScreen #redScanToggle{min-width:72px}
+  }
+  @media(orientation:landscape){
+    #redleoEditorScreen.red420Editor{--fuel-keypad-h:132px}
+  }
+  body.appForceLandscape #redleoEditorScreen.red420Editor{--fuel-keypad-h:132px}
+
 </style>
 </head>
 <body>
@@ -1423,7 +1448,7 @@
     <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
-    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
+    <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
     <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div>
     <div id="mapZoomHud" aria-live="polite">
@@ -1492,8 +1517,19 @@
     <div class="screenHeader redEditorHead"><button class="backBtn" id="redEditorBack" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="redEditorTitle">REDLEO MAP</div><div class="screenSub" id="redEditorSub">—</div></div><div class="miniStatus" id="redEditorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="redEditorTools"><button id="redReadBtn" class="good">↓ ĐỌC ECU</button><button id="redWriteBtn" class="danger">▣ GHI ECU</button><select id="redBankSelect"><option value="1">MAP NO.1</option><option value="2">MAP NO.2</option><option value="3">MAP NO.3</option><option value="4">MAP NO.4</option></select><select id="redAxisMode" class="wide" style="display:none"><option value="tps">TRỤC TPS</option><option value="rpm">TRỤC RPM</option></select><button id="redAfrOn" class="good" style="display:none">AFR ON · Ô CHỌN</button><button id="redAfrOff" class="danger" style="display:none">AFR OFF · Ô CHỌN</button><button id="redSmoothBtn" class="ghost wide">≈ LÀM MƯỢT TỰ ĐỘNG</button></div>
     <div class="redMeta"><span class="metaChip">Tên REDLEO: <b id="redSourceName">—</b></span><span class="metaChip">Kích thước: <b id="redSize">—</b></span><span class="metaChip">Đơn vị: <b id="redUnit">—</b></span></div>
-    <div class="redStep"><span style="font-size:9px;color:#858a93">Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button><button id="redMinus">−</button><button id="redPlus">＋</button><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ TỰ CUỘN LIVE</button><span class="spacer"></span><button id="redCopyBtn">COPY</button><button id="redPasteBtn">PASTE</button></div>
+    <div class="redStep"><span style="font-size:9px;color:#858a93">Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ TỰ CUỘN LIVE</button><span class="spacer"></span><button id="redCopyBtn">COPY</button><button id="redPasteBtn">PASTE</button></div>
     <div class="redTableWrap"><table class="redTable" id="redFeatureTable"></table></div>
+    <div id="redSelectionPad" class="mapSelectionPad redSelectionPad" aria-hidden="true"><button id="redFloatSaveBtn" class="save" type="button" aria-label="Ghi ECU" title="Ghi ECU">↓</button><button id="redFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="redFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div>
+    <button id="redKeypadToggle" class="fuelKeypadToggle redKeypadToggle" type="button" aria-label="Mở bàn phím nhập giá trị" title="Bàn phím số">⌨</button>
+    <div id="redKeypad" class="fuelKeypad redKeypad" aria-hidden="true">
+      <div class="fuelKeypadHead"><span id="redKeypadCell">Chưa chọn ô</span><strong id="redKeypadValue">--</strong></div>
+      <div class="fuelKeypadGrid">
+        <button type="button" data-red-key="1">1</button><button type="button" data-red-key="2">2</button><button type="button" data-red-key="3">3</button><button type="button" class="clear" data-red-key="clear">C</button>
+        <button type="button" data-red-key="4">4</button><button type="button" data-red-key="5">5</button><button type="button" data-red-key="6">6</button><button type="button" class="backspace" data-red-key="backspace">⌫</button>
+        <button type="button" data-red-key="7">7</button><button type="button" data-red-key="8">8</button><button type="button" data-red-key="9">9</button><button type="button" class="hide" data-red-key="hide">▾</button>
+        <button type="button" class="zeroWide" data-red-key="0">0</button><button type="button" data-red-key=".">.</button>
+      </div>
+    </div>
     <div class="redEditorFoot"><span id="redSelectionInfo">Chạm một ô để chọn</span><span id="redIoStatus">Dữ liệu cục bộ</span></div>
   </section>
 
@@ -4736,7 +4772,7 @@ window.addEventListener('beforeunload',save);
 const REDLEO_FEATURES=[{"n":1,"id":"inj_ve","title":"Thời gian phun (INJ VE)","source":"INJ VE","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"ms","editor":"fuel","desc":"Thời gian mở kim phun theo TPS × RPM."},{"n":2,"id":"inj_degree","title":"Góc phun","source":"INJ degree","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"°","desc":"Góc thời điểm phun theo TPS × RPM."},{"n":3,"id":"ign_degree","title":"Góc đánh lửa","source":"IGN degree","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"°","desc":"Góc đánh lửa theo TPS × RPM."},{"n":4,"id":"ign_time","title":"Thời gian tích điện bobin (Dwell)","source":"IGN Time","group":"main","banked":true,"rows":1,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":["Dwell"],"unit":"ms","desc":"Thời gian nạp/tích điện cuộn đánh lửa theo RPM."},{"n":23,"id":"afr_map","title":"AFR / O2 mục tiêu","source":"Air fuel ratio map","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"AFR","desc":"ATE V11 · Air fuel ratio map. AFR 9.0–18.0; trạng thái ON/OFF từng ô dùng mã hóa offset 12.8 như phần mềm ATE gốc."},{"n":7,"id":"ect_inj","title":"Bù phun theo nhiệt độ động cơ (ECT)","source":"ECT Comp INJ","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,14,28,42,56,70,84,98,112,126,140],"unit":"%","desc":"Bù lượng phun theo nhiệt độ động cơ và RPM."},{"n":8,"id":"ect_ign","title":"Bù góc đánh lửa theo nhiệt độ động cơ (ECT)","source":"ECT Comp IGN","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,14,28,42,56,70,84,98,112,126,140],"unit":"°","desc":"Bù góc đánh lửa theo nhiệt độ động cơ và RPM."},{"n":9,"id":"map_inj","title":"Bù phun theo áp suất ống nạp (MAP)","source":"MAP Comp INJ","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,12,24,36,48,60,72,84,96,108,120],"unit":"%","desc":"Bù lượng phun theo áp suất ống nạp và RPM."},{"n":10,"id":"iat_inj","title":"Bù phun theo nhiệt độ khí nạp (IAT)","source":"IAT Compensating Injection","group":"comp","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["INJ VE"],"unit":"±ms","desc":"Bù thời gian phun theo nhiệt độ khí nạp."},{"n":21,"id":"ect_start","title":"Bù khởi động theo nhiệt độ ECT","source":"Start Add Injection","group":"comp","banked":false,"rows":4,"cols":11,"x":[0,14,28,42,56,70,84,98,112,126,140],"y":["Delayed (Second)","INJ VE Add (ms)","Not Delayed (Number)","Not Started Add (ms)"],"unit":"mixed","desc":"ATE V11 · Dgv_EctStrt_Add 44 byte. Bốn hàng được truyền đảo thứ tự như phần mềm ATE gốc; ghi có read-back verify toàn A2 272B."},{"n":5,"id":"idle_limit","title":"Không tải & giới hạn tua","source":"Idle and limit","group":"idle","banked":true,"rows":3,"cols":8,"x":["C1","C2","C3","C4","C5","C6","C7","C8"],"y":["Hàng REDLEO 1","Hàng REDLEO 2","Hàng REDLEO 3"],"unit":"","desc":"Bảng REDLEO 8×3. EXE không chứa đủ nhãn tiếng Anh riêng cho ba hàng nên giữ nhãn trung tính, không tự suy diễn."},{"n":6,"id":"ect_idle_motor","title":"Motor garanti theo nhiệt độ động cơ","source":"Temperature-idle motor relationship","group":"idle","banked":true,"rows":1,"cols":12,"x":[0,14,28,42,56,70,84,98,112,126,140,"SUM"],"y":["STEPPER"],"unit":"step","desc":"Quan hệ nhiệt độ động cơ với bước/duty motor garanti."},{"n":11,"id":"map_idle_motor","title":"Bù motor garanti theo áp suất nạp","source":"Intake pressure compensation idle motor","group":"idle","banked":false,"rows":1,"cols":11,"x":[0,12,24,36,48,60,72,84,96,108,120],"y":["Motor"],"unit":"±STEP","desc":"Bù motor garanti theo áp suất ống nạp."},{"n":12,"id":"external_adjust","title":"Hiệu chỉnh ngoài","source":"External adjustment","group":"aux","banked":false,"rows":2,"cols":15,"x":[0,2,5,8,14,20,30,40,50,60,70,80,90,100,"ALL"],"y":["Phun ±%","Đánh lửa ±°"],"unit":"","desc":"Hiệu chỉnh ngoài theo TPS; REDLEO cũng hỗ trợ trục RPM 1000–15000."},{"n":18,"id":"auto_shift","title":"Sang số tự động","source":"Automatic shift","group":"aux","banked":true,"rows":1,"cols":9,"x":["Config","Start RPM","INJ VE Adj","IGN Angle Adj",4000,6000,8000,10000,12000],"y":["AUTO SHIFT"],"unit":"mixed","desc":"ATE V11 AutoShift. Config: bit0 INJ, bit1 IGN, bit2 chọn Limit IGN (0=INJ), bit3–7 spare. Các cột sau lần lượt là Start RPM, bù INJ %, bù góc lửa và 5 giá trị tại 4000–12000 RPM."},{"n":13,"id":"auto_clutch","title":"Ly hợp tự động","source":"Automatic clutch","group":"aux","banked":false,"rows":1,"cols":5,"x":[2000,4000,6000,8000,10000],"y":["Timer"],"unit":"ms","desc":"Thời gian điều khiển ly hợp tự động theo RPM; có ngưỡng Start RPM riêng."},{"n":19,"id":"chg_params","title":"Thông số bộ sạc","source":"Charger Parameters","group":"aux","banked":false,"rows":1,"cols":8,"x":["Min Current RPM","Mid Current RPM","Max Current RPM","Min Current","Mid Current","Max Current","Full Voltage","Fault Voltage"],"y":["CHARGER"],"unit":"mixed","desc":"ATE V11 - Dgv_Chg 8 byte. Min/Mid/Max RPM và Min/Mid/Max Current phải tăng dần."},{"n":20,"id":"ate_options","title":"Tuỳ chọn ATE","source":"ATE options","group":"aux","banked":false,"rows":1,"cols":20,"x":["TPS V Min","TPS V Max","Idle Min INJ Cold","Idle Min INJ Hot","Idle Auto Reg IGN","Idle Auto Reg INJ","Idle Start Dev RPM","Idle Step IGN","Idle Step INJ","Fan Temp","ECT Comp INJ Idle","ECT Comp IGN Idle","Voltage Cold","Voltage Hot","Idle Motor Total Step","Idle Motor Max","Idle Motor Min","Idle Hole Max Adj","Idle Hole INJ Comp","Start Add RPM"],"y":["OPTIONS"],"unit":"mixed","desc":"ATE V11 · 20 mục TPS/Idle/ECT/Start đã xác minh. 7 byte AFR/O2 và 3 byte reserved không hiển thị và luôn được giữ nguyên."},{"n":22,"id":"alternate_table","title":"Alternate Table","source":"Alternate Table","group":"aux","banked":false,"rows":1,"cols":9,"x":[1000,1500,2000,2500,3000,3500,4000,4500,5000],"y":["Dat"],"unit":"raw","desc":"ATE V11 · Dgv_One_Spare / Alternate Table · 9 byte raw 0–255 theo RPM 1000–5000."},{"n":14,"id":"spare","title":"Bảng dự phòng (Spare)","source":"Spare","group":"aux","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["Spare"],"unit":"","desc":"Bảng dự phòng trong REDLEO. Giữ nguyên tên gốc vì EXE không mô tả ý nghĩa cụ thể."},{"n":15,"id":"v_ect","title":"Hiệu chuẩn điện áp cảm biến ECT","source":"ECT - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,14,28,42,56,70,84,98,112,126,140],"y":["Voltage"],"unit":"V","desc":"Quan hệ nhiệt độ động cơ ↔ điện áp cảm biến."},{"n":16,"id":"v_iat","title":"Hiệu chuẩn điện áp cảm biến IAT","source":"IAT - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["Voltage"],"unit":"V","desc":"Quan hệ nhiệt độ khí nạp ↔ điện áp cảm biến."},{"n":17,"id":"v_map","title":"Hiệu chuẩn điện áp cảm biến MAP","source":"MAP - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,12,24,36,48,60,72,84,96,108,120],"y":["Voltage"],"unit":"V","desc":"Quan hệ áp suất ống nạp ↔ điện áp cảm biến."}];
 const F=Object.fromEntries(REDLEO_FEATURES.map(x=>[x.id,x]));
 const screens={dashboard:'dashboardScreen',maps:'mapsScreen',editor:'mapEditorScreen',idlelimit:'idleLimitScreen',rededitor:'redleoEditorScreen',tune:'tuneScreen',ecu:'ecuScreen',settings:'settingsScreen'};
-let currentFeature=null,redStep=.1,redSel={r0:0,c0:0,r1:0,c1:0},redScanMode=false,redClipboard=null,externalAxisMode='tps';
+let currentFeature=null,redStep=.1,redSel={r0:0,c0:0,r1:0,c1:0},redScanMode=false,redClipboard=null,externalAxisMode='tps',redPointer=null;
 const featureStore=JSON.parse(localStorage.getItem('blinkRedleoFeatureStoreV6')||'{}');
 const optionStore=JSON.parse(localStorage.getItem('blinkRedleoOptionsV6')||'{}');
 function keyFor(f,bank){return f.id+':'+(f.banked?bank:0)}
@@ -4862,7 +4898,7 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
     if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
   },0);
 }
-function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';const cp=document.getElementById('redCopyBtn'),ps=document.getElementById('redPasteBtn');if(cp)cp.style.display=afr?'none':'';if(ps)ps.style.display=afr?'none':'';redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
+function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',f.rows===14&&f.cols===30);if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';const cp=document.getElementById('redCopyBtn'),ps=document.getElementById('redPasteBtn');if(cp)cp.style.display=afr?'none':'';if(ps)ps.style.display=afr?'none':'';redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -4886,6 +4922,96 @@ document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>
 
 function fmtV(v){if(v==null||v==='')return '--';const n=Number(v);if(!Number.isFinite(n))return '--';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
 function redBounds(){return {r0:Math.min(redSel.r0,redSel.r1),r1:Math.max(redSel.r0,redSel.r1),c0:Math.min(redSel.c0,redSel.c1),c1:Math.max(redSel.c0,redSel.c1)}}
+function red420EditorActive(){return !!(currentFeature&&currentFeature.rows===14&&currentFeature.cols===30&&currentFeature.editor!=='fuel')}
+function hideRedSelectionPad(){
+  const pad=document.getElementById('redSelectionPad');if(!pad)return;
+  pad.classList.remove('show');pad.setAttribute('aria-hidden','true');
+}
+function updateRedSelectionPad(){
+  const pad=document.getElementById('redSelectionPad'),wrap=document.querySelector('#redleoEditorScreen .redTableWrap'),screen=document.getElementById('redleoEditorScreen');
+  if(!pad||!wrap||!screen||!screen.classList.contains('active')||!red420EditorActive()||redPointer!==null){hideRedSelectionPad();return}
+  const padW=pad.offsetWidth||48,padH=pad.offsetHeight||158,edge=8;
+  const mapTop=Number(wrap.offsetTop||0),mapH=Number(wrap.clientHeight||0),screenW=Number(screen.clientWidth||0);
+  if(screenW<40||mapH<30){hideRedSelectionPad();return}
+  pad.classList.add('show');pad.setAttribute('aria-hidden','false');
+  pad.style.left=Math.round(Math.max(edge,screenW-padW-edge))+'px';
+  pad.style.top=Math.round(Math.max(mapTop+edge,mapTop+(mapH-padH)/2))+'px';
+}
+let redKeypadBuffer='',redKeypadDirty=false,redKeypadSelectionKey='';
+function selectedRedMeta(){
+  if(!red420EditorActive())return null;
+  const b=redBounds(),r=Math.max(0,Math.min(currentFeature.rows-1,redSel.r1)),cc=Math.max(0,Math.min(currentFeature.cols-1,redSel.c1));
+  const d=featureData(currentFeature,state.activeMap),v=Number(d?.[r]?.[cc]);
+  return {b,r,c:cc,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),key:currentFeature.id+':'+state.activeMap+':'+b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+cc};
+}
+function formatRedEntry(v){
+  if(!Number.isFinite(Number(v)))return '';
+  return Number(v).toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+}
+function syncRedKeypadSelection(force=false){
+  const kp=document.getElementById('redKeypad');if(!kp||kp.getAttribute('aria-hidden')==='true')return;
+  const m=selectedRedMeta(),cell=document.getElementById('redKeypadCell'),val=document.getElementById('redKeypadValue');
+  if(!m){if(cell)cell.textContent='Chưa chọn ô';if(val)val.textContent='--';return}
+  if(force||m.key!==redKeypadSelectionKey||!redKeypadDirty){
+    redKeypadSelectionKey=m.key;redKeypadBuffer=formatRedEntry(m.v);redKeypadDirty=false;
+  }
+  const y=currentFeature.y?.[m.r]??('R'+(m.r+1)),x=currentFeature.x?.[m.c]??('C'+(m.c+1));
+  if(cell)cell.textContent=String(y)+' · '+String(x)+' · '+m.count+' ô';
+  if(val)val.textContent=(redKeypadBuffer||'--')+(currentFeature.unit?' '+currentFeature.unit:'');
+}
+function keepRedSelectionVisible(){
+  if(!red420EditorActive())return;
+  const wrap=document.querySelector('#redleoEditorScreen .redTableWrap'),m=selectedRedMeta();if(!wrap||!m)return;
+  const td=document.querySelector('#redFeatureTable .redCell[data-rr="'+m.r+'"][data-rc="'+m.c+'"]');if(!td)return;
+  const wr=wrap.getBoundingClientRect(),tr=td.getBoundingClientRect(),edge=12,rightPad=64;
+  let dx=0,dy=0;
+  if(tr.left<wr.left+edge)dx=tr.left-(wr.left+edge);
+  else if(tr.right>wr.right-rightPad)dx=tr.right-(wr.right-rightPad);
+  if(tr.top<wr.top+edge)dy=tr.top-(wr.top+edge);
+  else if(tr.bottom>wr.bottom-edge)dy=tr.bottom-(wr.bottom-edge);
+  if(Math.abs(dx)>1||Math.abs(dy)>1)wrap.scrollBy({left:dx,top:dy,behavior:'auto'});
+}
+function openRedKeypad(){
+  if(!red420EditorActive())return;
+  const screen=document.getElementById('redleoEditorScreen'),kp=document.getElementById('redKeypad');
+  screen?.classList.add('redMapKeypadOpen');kp?.setAttribute('aria-hidden','false');
+  redKeypadDirty=false;redKeypadSelectionKey='';syncRedKeypadSelection(true);
+  requestAnimationFrame(()=>{updateRedSelectionPad();keepRedSelectionVisible()});
+  setTimeout(()=>{updateRedSelectionPad();keepRedSelectionVisible()},90);
+}
+function hideRedKeypad(){
+  document.getElementById('redleoEditorScreen')?.classList.remove('redMapKeypadOpen');
+  document.getElementById('redKeypad')?.setAttribute('aria-hidden','true');
+  redKeypadBuffer='';redKeypadDirty=false;redKeypadSelectionKey='';
+  requestAnimationFrame(updateRedSelectionPad);
+}
+window.hideRedKeypad=hideRedKeypad;
+function applyRedKeypadLive(){
+  if(!red420EditorActive())return;
+  const typed=redKeypadBuffer,parsed=typed===''?0:Number(typed);if(!Number.isFinite(parsed))return;
+  const d=featureData(currentFeature,state.activeMap),b=redBounds();
+  for(let r=b.r0;r<=b.r1;r++)for(let cc=b.c0;cc<=b.c1;cc++)d[r][cc]=Number(parsed.toFixed(4));
+  saveFeatureStore();renderFeature();
+  document.getElementById('redIoStatus').textContent='Đã sửa cục bộ '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô · chưa ghi ECU';
+  requestAnimationFrame(()=>{updateRedSelectionPad();keepRedSelectionVisible()});
+}
+function redKeypadAppend(ch){
+  if(!redKeypadDirty){redKeypadBuffer='';redKeypadDirty=true}
+  if(ch==='.'){
+    if(redKeypadBuffer.includes('.'))return;
+    redKeypadBuffer=redKeypadBuffer?redKeypadBuffer+'.':'0.';
+  }else if(/^\d$/.test(ch)){
+    if(redKeypadBuffer.length>=10)return;
+    redKeypadBuffer+=ch;
+  }
+  applyRedKeypadLive();syncRedKeypadSelection(false);
+}
+function redKeypadBackspace(){
+  if(!redKeypadDirty){const m=selectedRedMeta();redKeypadBuffer=formatRedEntry(m?.v);redKeypadDirty=true}
+  redKeypadBuffer=redKeypadBuffer.slice(0,-1);applyRedKeypadLive();syncRedKeypadSelection(false);
+}
+function redKeypadClear(){redKeypadBuffer='';redKeypadDirty=true;applyRedKeypadLive();syncRedKeypadSelection(false)}
+
 function setSelectedAfrEnabled(on){
   if(currentFeature?.id!=='afr_map'||state.ecuProfile!=='MODERN_V11')return;
   const meta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[state.activeMap];
@@ -4904,6 +5030,8 @@ function updateRedSelectionVisual(){
   });
   const d=featureData(currentFeature,state.activeMap),count=(b.r1-b.r0+1)*(b.c1-b.c0+1);
   document.getElementById('redSelectionInfo').textContent=count===1?'Ô '+(b.r0+1)+','+(b.c0+1)+' · '+fmtV(d[b.r0][b.c0])+' '+(currentFeature.unit||''):'Đã chọn '+(b.r1-b.r0+1)+' × '+(b.c1-b.c0+1)+' = '+count+' ô';
+  requestAnimationFrame(updateRedSelectionPad);
+  try{syncRedKeypadSelection(false)}catch(_e){}
 }
 function autoFollowRedLiveCell(td,cur){
   const wrap=document.querySelector('#redleoEditorScreen .redTableWrap');
@@ -5047,10 +5175,15 @@ function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textCont
 document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()=>showScreen(e.dataset.nav)));
 document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',()=>{selectMapBank(Number(e.dataset.mapbank),true);syncBanks();if(currentFeature?.banked)renderFeature()}));
 document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>openFeature(e.dataset.feature)));
-document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>showScreen('maps'));
+document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
-document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redPlus')?.addEventListener('click',()=>bump(redStep));document.getElementById('redMinus')?.addEventListener('click',()=>bump(-redStep));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
+document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';if(redScanMode)window.hideRedKeypad?.();document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
+document.getElementById('redFloatPlusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(redStep)});
+document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(-redStep)});
+document.getElementById('redFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('redWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc bảng ECU thành công và kiểm tra profile trước khi ghi.',0)});
+document.getElementById('redKeypadToggle')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openRedKeypad()});
+document.getElementById('redKeypad')?.querySelectorAll('[data-red-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const k=btn.dataset.redKey;if(k==='clear'){redKeypadClear();return}if(k==='backspace'){redKeypadBackspace();return}if(k==='hide'){hideRedKeypad();return}redKeypadAppend(k)}));
 document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>document.getElementById('backupFile').click());document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
 document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());
 
@@ -5060,12 +5193,14 @@ if(redTableWrap){
   redTableWrap.addEventListener('touchstart',()=>pauseRedAutoFollow(3000),{passive:true});
   redTableWrap.addEventListener('wheel',()=>pauseRedAutoFollow(3000),{passive:true});
 }
-let redPointer=null;
 function redCellFromPoint(x,y){const el=document.elementFromPoint(x,y);return el?.closest?.('.redCell')||null}
 redTableWrap?.addEventListener('pointerdown',e=>{if(!redScanMode)return;const td=e.target.closest('.redCell');if(!td)return;e.preventDefault();redPointer=e.pointerId;redSel={r0:+td.dataset.rr,c0:+td.dataset.rc,r1:+td.dataset.rr,c1:+td.dataset.rc};redTableWrap.classList.add('scanMode');try{redTableWrap.setPointerCapture(e.pointerId)}catch(_e){}updateRedSelectionVisual()},{passive:false});
 redTableWrap?.addEventListener('pointermove',e=>{if(!redScanMode||redPointer!==e.pointerId)return;e.preventDefault();const td=redCellFromPoint(e.clientX,e.clientY);if(!td||!td.closest('#redleoEditorScreen'))return;redSel.r1=+td.dataset.rr;redSel.c1=+td.dataset.rc;updateRedSelectionVisual()},{passive:false});
 function endRedScan(e){if(redPointer!==e.pointerId)return;redPointer=null;try{redTableWrap.releasePointerCapture(e.pointerId)}catch(_e){};if(!redScanMode)redTableWrap?.classList.remove('scanMode');updateRedSelectionVisual()}
 redTableWrap?.addEventListener('pointerup',endRedScan);redTableWrap?.addEventListener('pointercancel',endRedScan);
+window.addEventListener('resize',()=>requestAnimationFrame(updateRedSelectionPad));
+window.addEventListener('orientationchange',()=>setTimeout(()=>requestAnimationFrame(updateRedSelectionPad),140));
+try{window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(updateRedSelectionPad))}catch(_e){}
 
 document.getElementById('mapLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));
 syncLiveCursorButtons();
