@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.22`
+`BLINK_PB_VERSION = 3.79.23`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -35,6 +35,12 @@ Important current state:
   - V8 readback comparison accounts for 0.05 ms wire quantization; V9+ keeps the existing tighter tolerance.
   - Legacy BLE READ_MAP uses a temporary 420-cell buffer and never pre-clears the current map to zero.
 - ATE V11 restore 0x8B flow is hardened: a valid 9958-byte restore image is authoritative, AB/AE/8B response headers are supported, and follow-up 0xAB is a secondary verification rather than a false-failure trigger.
+- PB 3.79.23 ATE V11 restore response fix:
+  - V11 Restore 0x8B now has a dedicated strict checksum parser and is no longer forced through the 9958-byte 0xAB Read-All decoder.
+  - A checksum-valid 0x8B response confirms the restore transaction response even when its length differs from 9958B.
+  - Blink then retries 0xAB readback twice; only a decoded 9958B Read All is treated as full-image verification.
+  - Alternate valid 0xAB lengths or temporary readback timeouts are reported as "restore executed but not fully verified" instead of a false restore failure.
+  - V9 restore path remains unchanged.
 - PB 3.79.22 Auto Tune quick-map actions:
   - Auto Tune keeps only the four quick views: AFR measured, AFR target, corrected fuel map, and injection time; no MAP 1-4 bank strip was added.
   - Removed the redundant XEM MAP button from Auto Tune.
