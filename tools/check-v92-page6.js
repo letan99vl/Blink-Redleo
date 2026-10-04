@@ -55,11 +55,16 @@ mustNot(/writeV92(?:IdleLimit|EctMotor)[\s\S]{0,700}slice\(0,30\)/,
   'old 30B page6 write assumption reintroduced');
 
 // Other families must never reuse the REDLEO 9.2 62B serializer.
-// V10.2 now has its own proven 18B Idle-only page6 writer; ECT Motor remains A2-locked.
-must(/REDLEO V10 · ECT Motor KHÔNG nằm ở page6[\s\S]{0,180}thuộc A2/,
-  'V10 ECT Motor must remain separated from page6');
+// V10.2 has its own 18B Idle-only page6 writer. Its ECT Motor lives in A2,
+// so page6 regression only verifies the family boundary, not an A2 lock.
+must(/if\(v10&&id==='idle_limit'\)return page\(6,bank\);[\s\S]{0,180}ect_idle_motor[\s\S]{0,100}return 0xA2/,
+  'V10 ECT Motor must route to A2, not page6');
+must(/writeV10EctMotor[\s\S]{0,180}writeV10A2KnownFeature\('ect_idle_motor'\)/,
+  'V10 ECT Motor writer must delegate to A2 serializer');
 mustNot(/writeV10IdleLimit[\s\S]{0,700}slice\(0,62\)/,
   'V10 must never reuse the REDLEO 9.2 62B page6 payload');
+mustNot(/writeV10EctMotor[\s\S]{0,500}page\(6,bank\)/,
+  'V10 ECT Motor must never regain a page6 writer');
 must(/REDLEO 9\.1X · Idle\/ECT Motor tạm khóa/,
   'V9.1 page6 safety lock missing');
 
