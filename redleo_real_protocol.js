@@ -2294,15 +2294,47 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
     return {...R,...C,readOnly:false};
   }
 
-  const R=await readDirectPageReal(pg,30,'IDLE / LIMIT · MAP NO.'+bank,showUi);
-  let p=0;const idle=[];
-  for(let i=0;i<9;i++){idle.push(u16be(R.data,p));p+=2;}
-  const motor=[Array.from(R.data.slice(p,p+12),x=>x*2)];
-  const o={idleCold:idle[0],idleHot:idle[1],maxSpeed:idle[2],returnCold:idle[3],returnHot:idle[4],accelPct:Math.round(idle[5]*50/64),idleSensitivity:idle[6]};
-  for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);
-  emitFeature(N.ect_idle_motor,motor,bank);
-  if(showUi)taskUi('success','IDLE / LIMIT · MAP NO.'+bank+' · OK');
-  return {...R,idle,motor};
+  if(isV92Direct()){
+    // REDLEO 9.2 original serializer for page 6x:
+    //   Idle/Limit      = 9 x uint16-BE = 18B
+    //   ECT Motor       = 2 rows x 11   = 22B
+    //   ECT Start Add   = 2 rows x 11   = 22B
+    // Writable payload = 62B. Real READ replies may expose one extra reply-only
+    // byte (observed 63B); it must never be transmitted back to ECU.
+    const R=await readDirectPageReal(pg,62,'REDLEO 9.2 · IDLE / ECT MOTOR · MAP NO.'+bank,showUi);
+    const wire=R.data.slice(0,62);
+    let p=0;const idle=[];
+    for(let i=0;i<9;i++){idle.push(u16be(wire,p));p+=2;}
+    const motorRaw=wire.slice(18,40);
+    const startRaw=wire.slice(40,62);
+    const motorMode=v11IdleMotorMode(false);
+    const motor2=decodeV11EctMotor22(motorRaw,motorMode);
+    const motor=[motor2[0].slice()];
+    const o={idleCold:idle[0],idleHot:idle[1],maxSpeed:idle[2],returnCold:idle[3],returnHot:idle[4],accelPct:Math.round(idle[5]*50/64),idleSensitivity:idle[6]};
+    for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);
+    emitFeature(N.ect_idle_motor,motor,bank);
+    if(!window.blinkV92Page6Raw)window.blinkV92Page6Raw={};
+    window.blinkV92Page6Raw[bank]={
+      page:pg,
+      readLength:R.data.length,
+      writableLength:62,
+      idleRaw:Array.from(wire.slice(0,18)),
+      ectMotorRaw:Array.from(motorRaw),
+      ectMotorHiddenInjRaw:Array.from(motorRaw.slice(0,11)),
+      ectMotorStepRaw:Array.from(motorRaw.slice(11,22)),
+      ectStartAddRaw:Array.from(startRaw),
+      replyOnlyTail:Array.from(R.data.slice(62)),
+      motorMode
+    };
+    const st=document.getElementById('redIoStatus');
+    if(st)st.textContent='REDLEO 9.2 · PAGE 0x'+pg.toString(16).toUpperCase()+' · READ '+R.data.length+'B / TX 62B · Idle 18B + ECT Motor 22B + ECT Start Add 22B';
+    if(showUi)notice('success','REDLEO 9.2 · PAGE 6x READ OK','MAP No.'+bank+' · '+R.data.length+'B đọc · 62B writable · byte reply-only được tách riêng.');
+    return {...R,idle,motor,motorRaw,startRaw,writablePayload:wire,replyOnlyTail:R.data.slice(62)};
+  }
+
+  // Older REDLEO layouts are not assumed to be the same as 9.2. Keep them
+  // read-only here until their exact page-6 serializer is verified separately.
+  throw new Error((ecuProfile?.label||'REDLEO')+' · Idle/ECT Motor page6 đang khóa an toàn: chưa xác minh serializer riêng cho đời ECU này.');
 }
 async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.activeMap)||1),showUi=true){
   bank=normalizeBankForProfile(bank);
@@ -2675,19 +2707,32 @@ async function writeV92A2KnownFeature(id){
 async function writeV92EctMotor(bank){
   if(!isV92Direct())throw new Error('ECT Motor direct writer chỉ dùng REDLEO 9.2+.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO 9.2 ECT Motor'),payload=baseline.slice(0,30);
-  const m=matrixFromRedTable(1,12);
-  if(!m[0]||m[0].length!==12||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor chưa đủ 12 giá trị.');
-  for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(Number(m[0][i])/2),0,255);
-  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,62,'REDLEO 9.2 ECT Motor'),payload=baseline.slice(0,62);
+  const m=matrixFromRedTable(1,11);
+  if(!m[0]||m[0].length!==11||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor 9.2 cần đúng 11 giá trị ECT.');
+  const mode=v11IdleMotorMode(true);
+  // Original REDLEO transmits ECT Motor rows in reverse UI order:
+  // bytes 18..28 = hidden INJ VE row (preserve exact);
+  // bytes 29..39 = visible Step/Time row (editable).
+  for(let i=0;i<11;i++){
+    let v=Number(m[0][i]);
+    if(mode.solenoid){
+      if(mode.limit128)v=Math.min(v,128);
+      payload[29+i]=clamp(Math.round(v/2),0,255);
+    }else{
+      payload[29+i]=clamp(Math.round(Math.max(0,v)*5),0,255);
+    }
+  }
+  // bytes 40..61 = ECT Start Add 2x11. Preserve byte-for-byte.
+  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · TX 62B · giữ INJ row + ECT Start Add');
   await writeWritablePrefixPage(pg,payload,baseline,'REDLEO 9.2 ECT Motor MAP '+bank,'mainWrite',1);
-  notice('success','GHI ECT MOTOR 9.2 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail '+Math.max(0,baseline.length-30)+'B giữ nguyên');
+  notice('success','GHI ECT MOTOR 9.2 OK','MAP No.'+bank+' · TX 62B · ACK + READBACK OK · ECT Start Add và hidden INJ row giữ nguyên.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 async function writeV92IdleLimit(bank){
   if(!isV92Direct())throw new Error('Idle/Limit direct writer chỉ dùng REDLEO 9.2+.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO 9.2 Idle/Limit'),payload=baseline.slice(0,30);
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,62,'REDLEO 9.2 Idle/Limit'),payload=baseline.slice(0,62);
   const specs=[
     ['idleCold',0,v=>Math.round(v)],['idleHot',1,v=>Math.round(v)],['maxSpeed',2,v=>Math.round(v)],
     ['returnCold',3,v=>Math.round(v)],['returnHot',4,v=>Math.round(v)],['accelPct',5,v=>Math.round(v*64/50)],
@@ -2699,9 +2744,10 @@ async function writeV92IdleLimit(bank){
     const raw=clamp(enc(v),0,65535);
     payload[idx*2]=(raw>>8)&255;payload[idx*2+1]=raw&255;
   }
-  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  // Preserve Idle words 7/8, complete 22B ECT Motor and complete 22B ECT Start Add.
+  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · TX 62B · giữ Motor + ECT Start Add');
   await writeWritablePrefixPage(pg,payload,baseline,'REDLEO 9.2 Idle/Limit MAP '+bank,'mainWrite',1);
-  notice('success','GHI IDLE/LIMIT 9.2 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail '+Math.max(0,baseline.length-30)+'B giữ nguyên');
+  notice('success','GHI IDLE/LIMIT 9.2 OK','MAP No.'+bank+' · TX 62B · ACK + READBACK OK · Motor/ECT Start Add giữ nguyên.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
@@ -3029,7 +3075,7 @@ async function writeFeatureReal(id){
 }
 async function writeIdleReal(){
   if(isV92Direct())return writeV92IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
-  if(isV10Direct())return writeV10IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
+  if(isV10Direct())throw new Error('REDLEO V10 · Idle/ECT Motor tạm khóa: serializer page6 khác 9.2 và đang được xác minh riêng, không gửi CD page6 để tránh RX 0B.');
   await ensureV9FullWriteReady('Ghi Idle/Limit');
   assertSafeWriteLayout();
   const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);
