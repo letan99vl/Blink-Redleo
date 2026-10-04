@@ -277,6 +277,18 @@ function requireProfile(name,action='Thao tác ECU'){
   const label=ecuProfile?.label||ECU_PROFILE_DEFS.UNKNOWN.label;
   throw new Error(label+' · '+action+' chưa được xác nhận an toàn cho đời ECU này.');
 }
+async function ensureV9FullWriteReady(action='Ghi dữ liệu ECU'){
+  if(profileCap('fullWrite'))return true;
+  if(!ecuProfile||ecuProfile.key!=='MODERN_V9'){
+    return requireProfile('fullWrite',action);
+  }
+  taskUi('loading','REDLEO 9.x · ĐANG ĐỌC TOÀN BỘ ĐỂ XÁC MINH LAYOUT TRƯỚC KHI GHI...');
+  const C=await readAll();
+  if(profileCap('fullWrite'))return true;
+  const len=Number(C&&C.sourceLength)||0;
+  const layout=String(C&&C.layoutInfo||'unknown');
+  throw new Error('REDLEO 9.x · '+action+' vẫn bị khóa an toàn sau READ ALL '+len+'B ('+layout+'). Blink chỉ mở full-write khi decode đúng layout 9767B.');
+}
 function setProfileDisabled(el,blocked,reason=''){
   if(!el)return;
   if(blocked){
@@ -2845,8 +2857,7 @@ async function writeFeatureReal(id){
     }
   }
 
-  requireProfile('fullWrite','Ghi bảng '+id);
-  if(!readCache)await readAll();
+  await ensureV9FullWriteReady('Ghi bảng '+id);
   let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
@@ -2866,9 +2877,8 @@ async function writeFeatureReal(id){
   return {ack:true,page:pg,payload:Uint8Array.from(payload)};
 }
 async function writeIdleReal(){
-  requireProfile('fullWrite','Ghi Idle/Limit');
+  await ensureV9FullWriteReady('Ghi Idle/Limit');
   assertSafeWriteLayout();
-  if(!readCache)await readAll();
   const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);
   const payload=idlePayload(bank,true);
   await writePageChecked(pg,payload);
@@ -2877,9 +2887,8 @@ async function writeIdleReal(){
   return {ack:true,page:pg,payload:Uint8Array.from(payload)};
 }
 async function writeOptionsReal(){
-  requireProfile('fullWrite','Ghi Options');
+  await ensureV9FullWriteReady('Ghi Options');
   assertSafeWriteLayout();
-  if(!readCache)await readAll();
   const payload=a2Payload();
   await writePageChecked(0xA2,payload);
   cacheAckedPage(0xA2,payload);
@@ -3253,9 +3262,8 @@ async function sendAllV11Real(){
 }
 async function sendAllReal(){
   if(isV11Profile())return sendAllV11Real();
-  requireProfile('fullWrite','Ghi toàn bộ ECU');
+  await ensureV9FullWriteReady('Ghi toàn bộ ECU');
   taskUi('loading','ĐANG GHI TOÀN BỘ ECU...');
-  if(!readCache)await readAll();
   const compEncode=compRowsForwardOnWire()?encodeRowsByteForward:encodeRowsByte;
   await writePageChecked(0x72,compEncode(readCache.ectInj,encPct));await writePageChecked(0x82,compEncode(readCache.ectIgn,encEctIgn));await writePageChecked(0x92,compEncode(readCache.mapInj,encMapInj));await writePageChecked(0xA2,a2Payload());
   for(let b=1;b<=4;b++)await writeBankAll(b);await readAll();notice('success','SEND ALL REAL OK','Đã ghi toàn bộ page hỗ trợ và Read All verify');
@@ -3362,8 +3370,8 @@ async function copyBankV11Real(dest){
 }
 async function copyBankReal(dest){
   if(isV11Profile())return copyBankV11Real(dest);
-  requireProfile('fullWrite','Sao chép/Ghi MAP');
-  if(!readCache)await readAll();const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[Number(dest)];
+  await ensureV9FullWriteReady('Sao chép/Ghi MAP');
+  const src=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),dests=dest==='all'?[1,2,3,4].filter(x=>x!==src):[Number(dest)];
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
 }
 
@@ -3650,8 +3658,7 @@ async function changePasswordReal(){
     return;
   }
 
-  requireProfile('fullWrite','Đổi mật khẩu ECU');
-  if(!readCache)await readAll();
+  await ensureV9FullWriteReady('Đổi mật khẩu ECU');
   const old=prompt('Mật khẩu cũ:','');if(old==null)return;
   if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');
   const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;
