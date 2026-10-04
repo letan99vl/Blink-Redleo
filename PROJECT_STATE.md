@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.41`
+`BLINK_PB_VERSION = 3.79.42`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.41.
+- Android/web production: `main`, currently PB 3.79.42.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -304,3 +304,15 @@ The assistant should then:
 - V10.2 ECT Motor is not on page6; it remains locked with the incomplete A2 writer until the full A2 TX layout is proven.
 - V10.2 Idle/Limit still requires a real V10.2 hardware test before release certification.
 - Regression checks now cover both REDLEO 9.2 page6 and REDLEO V10.2 page6 invariants.
+
+
+## 15. V10.2 A2 checkpoint - PB 3.79.42
+
+- Original ECU Pro 10.2 IL corrected the previous V10/Ultra 140B A2-prefix assumption for direct V10.2.
+- Direct V10.2 A2 writable payload is now reconstructed as **268B** with exact block offsets.
+- Opened safe read-modify-write paths: IAT INJ, MAP Idle Motor, ECT Idle Motor, External Adjustment, V-ECT, V-IAT, V-MAP.
+- All partial writes require a 268B direct-read baseline and perform ACK + post-write readback while preserving sibling blocks and any longer reply tail.
+- CONFIG/AutoClutch/password, Option, ECT Start Add, TPS/RPM axis writes and vAFR remain preserved/not broadly editable in this pass.
+- Ultra remains a separate serializer target and is not allowed to use the V10.2 268B writer.
+- CI run 37242896117 passed all protocol regression checks.
+- V10.2 A2 is **NEEDS REAL HARDWARE TEST**, not release-certified yet.
