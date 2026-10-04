@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.40**.
+- Current displayed PB: **3.79.41**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -235,6 +235,7 @@ Recent PB progression:
 - 3.79.38 direct-page safety hardening attempt
 - 3.79.39 writable-length separation work
 - 3.79.40 REDLEO 9.2 page6 exact 62B serializer + real 11-point ECT Motor grid; unverified V9.1/V10 page6 writers locked
+- 3.79.41 V10.2 page6 exact 18B Idle/Limit serializer from original IL; ECT Motor removed from V10 page6 surface and remains A2-locked
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -306,3 +307,28 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   - Idle/Limit page 0x62: **RELEASE-CERTIFIED on tested REDLEO 9.2 hardware**.
   - ECT Motor page 0x62: **RELEASE-CERTIFIED on tested REDLEO 9.2 hardware**.
 - Keep this certification scoped to the tested REDLEO 9.2 family. Do NOT reuse its 62B serializer for V9.1X, V10.2, Ultra Pro1, V8, or ATE V11.1.
+
+
+## V10.2 page6 implementation update - 2026-10-05
+
+- PB: **3.79.41**.
+- Source evidence: original **REDLEO ECU Pro 10.2** static IL.
+- Confirmed original writer behavior:
+  - page family 6 serializes **only Dgv_Idle_Limit[bank]** through `proUartDgvNumOption`.
+  - Idle/Limit block is **9 x uint16-BE = exactly 18 writable bytes**.
+  - V10 ECT Motor is **NOT** serialized on page6; it belongs to A2 and remains locked until complete A2 serializer/TX length is proven.
+- Blink implementation:
+  - V10 direct page6 READ now accepts >=18B, decodes only first 18B as Idle/Limit, and preserves any longer reply tail as reply-only/baseline data.
+  - V10 Idle SAVE sends **exactly 18B** and preserves the 2 hidden Idle words (bytes 14..17).
+  - Post-write verification checks all 18 writable bytes and also verifies any longer read tail remains unchanged.
+  - The old 30B V10 Idle/ECT page6 assumption has been removed from the active writer path.
+  - V10 ECT Motor feature is hidden/locked instead of incorrectly sharing page6.
+- Regression protection:
+  - `tools/check-v10-page6.js` forbids a return to the old 30B assumption and requires the 18B writer + A2 lock.
+  - CI workflow runs this checker together with syntax, row-orientation, and REDLEO 9.2 page6 checks.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Do not call this release-certified until a real V10.2 performs READ -> small one-value Idle change -> SAVE -> READBACK successfully.
+- Backup branch before this change: `backup-pb-3.79.40-pre-v10-idle18`.
+- Core implementation commit: `9321d5e93f67d5176cb1d27752b50fd761f3e016`.
+- Regression checker commit: `e1db6ee896648be64b27cd0595169655bce2e537`.
+- CI wiring commit: `11e43e42f8973cc76e6499cc33efddbdf5e49fbb`.
+- PB bump commit: `897f2f9658b5cffd22b5133df62ec05e0ecd340f`.
