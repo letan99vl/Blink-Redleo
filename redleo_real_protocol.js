@@ -257,7 +257,7 @@ function mainFeaturePage(id,bank){
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
   const v92=!!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
-  const v10=!!(ecuProfile&&ecuProfile.key==='MODERN_V10');
+  const v10=isV10Direct();
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
@@ -272,7 +272,7 @@ function isDirectVerifiedFeature(id){
   // These layouts and row orientation are already handled explicitly below,
   // so they can use the same page-read -> page-write safety gate as the main maps.
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
-  if(ecuProfile&&ecuProfile.key==='MODERN_V10'&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return true;
+  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -2690,7 +2690,9 @@ async function writeV92IdleLimit(bank){
 }
 
 function isV10Direct(){
-  return !!(ecuProfile&&ecuProfile.key==='MODERN_V10');
+  if(!ecuProfile||ecuProfile.key!=='MODERN_V10')return false;
+  const txt=(String(handshakeInfo&&handshakeInfo.ident||'')+' '+String(handshakeInfo&&handshakeInfo.firmware||'')+' '+String(handshakeInfo&&handshakeInfo.classify||'')).toUpperCase();
+  return !/ULTRA/.test(txt);
 }
 function requireCachedPageAtLeast(pg,minLen,label){
   const cached=pageCache.get(pg&255);
@@ -2700,7 +2702,7 @@ function requireCachedPageAtLeast(pg,minLen,label){
   return new Uint8Array(cached);
 }
 async function writeV10A2KnownFeature(id){
-  if(!isV10Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO V10/Ultra profile.');
+  if(!isV10Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO V10.2; Ultra được giữ khóa cho lượt xác minh riêng.');
   const payload=requireCachedPageAtLeast(0xA2,140,'REDLEO V10 '+id);
   let m;
   const row11=(off,enc)=>{
@@ -3017,7 +3019,7 @@ async function writeFeatureReal(id){
       // the whole payload after ACK so a lost/partial write cannot look successful.
       const verifyComp=!!(ecuProfile&&(
         (ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis())||
-        ecuProfile.key==='MODERN_V10'
+        isV10Direct()
       )&&['ect_inj','ect_ign','map_inj'].includes(id));
       if(verifyComp){
         const verify=await readDirectPageReal(pg,payload.length,'XÁC MINH '+id.toUpperCase(),false);
