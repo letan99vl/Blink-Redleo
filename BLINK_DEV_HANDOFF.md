@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.39**.
+- Current displayed PB: **3.79.40**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -47,14 +47,14 @@
 - Page 0x62 direct read returns **63B** on MAP No.1.
 - Earlier strict equality gates 133B/30B were wrong and were removed.
 
-### Critical open bug - DO NOT ASSUME FIXED
+### Critical page-0x62 status - PB 3.79.40 HARDWARE TEST PENDING
 
-Both of these still fail on real 9.2 hardware:
+Historical failures on PB <=3.79.39:
+- Idle/Limit -> **ECU không ACK CD 62 · RX 0B**
+- ECT Motor -> **ECU không ACK CD 62 · RX 0B**
+- The failed experiments used wrong 30B/63B write assumptions.
 
-- Idle/Limit -> write attempt -> **ECU không ACK CD 62 · RX 0B**
-- ECT Motor -> write attempt -> **ECU không ACK CD 62 · RX 0B**
-
-Testing both 63B and 30B-style assumptions has not solved it.
+PB 3.79.40 now reproduces the original 9.2 page-6 serializer as **62 writable bytes**. This exact 62B implementation has NOT yet been confirmed on the user's real ECU. Do not call it WORKING until ACK + readback succeeds.
 
 ### Important IL evidence from original REDLEO ECU Pro 9.2
 
@@ -88,25 +88,39 @@ Decompiled method flow from original software:
     - Dgv_Ect_Motor1 using `proUartDgvNum`
     - Dgv_EctStrt_Add1 using `proUartDgvNum`
   - then appends complement/checksum/length.
-  - This strongly explains the real read length: **18B Idle + 12B ECT Motor + ~33B ECT Start Add = 63B**.
-  - Therefore the 33B beyond the first 30B are NOT garbage tail; they are likely ECT Start Add writable data.
+
+Confirmed byte structure from original IL:
+- Idle/Limit: **9 x uint16-BE = 18B**.
+- ECT Motor: **2 rows x 11 columns = 22B**.
+- ECT Start Add: **2 rows x 11 columns = 22B**.
+- Total writable payload: **62B**.
+- Real 0x9A read on the user's 9.2 returns **63B**. Byte 63 is reply-only and MUST NOT be sent in CD 62.
+- Original `proUartDgvNum` transmits DataGrid rows in reverse UI order. For ECT Motor:
+  - first 11 wire bytes = UI `INJ VE(ms)` row,
+  - next 11 wire bytes = UI `Step/Time` row.
+- Original `proDgvUnit` encodes ECT Motor Step/Time:
+  - solenoid: round(value / 2),
+  - stepper: `Second_Or_200ms(value,0)` = round(value * 5).
+- Blink PB 3.79.40 preserves the hidden 11B INJ row, edits the visible 11B Step/Time row, and preserves all 22B ECT Start Add.
+- Idle UI language order from original LNG_EN:
+  1. Idle Speed (Cold)
+  2. Idle Speed (Hot)
+  3. Idle Return INJ (Cold)
+  4. Idle Return INJ (Hot)
+  5. Maximum Speed
+  6. Acceleration Setup Percentage
+  7. Enter (leave) idle sensitivity
+  8. Idle minimum inj (cold)
+  9. Idle minimum inj (Hot)
+  Blink exposes items 1..7 and preserves words 8..9 byte-for-byte.
+- Original checksum/final-length generation matches Blink `finalizePage`. For 62B payload, complete CD62 frame is **67B**.
 
 ### Current task to solve next
 
-Do NOT test random lengths on the user's ECU.
-
-Reconstruct the exact original `CD 62` payload byte-for-byte from:
-- `proUartDgvNumOption`
-- `proUartDgvNum`
-- Dgv_Idle_Limit1 dimensions/order
-- Dgv_Ect_Motor1 dimensions/order/encoder
-- Dgv_EctStrt_Add1 dimensions/order/encoder
-- `__EctMotor_EcuPc`
-- `__EctStrtAdd_EcuPc`
-- `proDgvUnit`
-- checksum/complement/length generation
-
-Then make Blink's page-0x62 writer reproduce the original TX format. Only after that test on real ECU.
+1. Real-hardware test PB 3.79.40 on REDLEO 9.2 using a READ first.
+2. Test a no-change write for Idle/Limit, then ECT Motor.
+3. Required success: CD62 ACK + post-write readback match.
+4. If PB 3.79.40 still returns RX 0B, do NOT change length/page again. Investigate transport/state/timing or a remaining byte-level serializer mismatch against the original generated TX frame.
 
 ## 4. REDLEO 9.2 writer status
 
@@ -126,11 +140,11 @@ Needs hardware validation after recent refactors:
 - External adjustment
 - Auto clutch
 
-OPEN/BROKEN:
-- Idle/Limit page 0x62 write
-- ECT Motor page 0x62 write
+NEEDS REAL-HARDWARE TEST ON PB 3.79.40:
+- Idle/Limit page 0x62 writer: exact 62B serializer reconstructed.
+- ECT Motor page 0x62 writer: exact 11-point visible Step/Time row + hidden INJ row preservation reconstructed.
 
-Do not advertise page-0x62 write as working until real ACK + readback passes.
+Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially different serializer. Do not advertise page-0x62 write as working until real ACK + readback passes.
 
 ## 5. 9.1X status
 
@@ -217,6 +231,7 @@ Recent PB progression:
 - 3.79.37 9.2 readable-tail relaxation
 - 3.79.38 direct-page safety hardening attempt
 - 3.79.39 writable-length separation work
+- 3.79.40 REDLEO 9.2 page6 exact 62B serializer + real 11-point ECT Motor grid; unverified V9.1/V10 page6 writers locked
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
