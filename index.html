@@ -2827,7 +2827,14 @@ function onFuelWriteVerified(mapNo){
   if(tr.cancelRequested){resetThreeRunCancelled('GHI ACK OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
   if(!tr.pendingNextPass)return;
   const next=tr.pendingNextPass;tr.pendingNextPass=0;
-  if(next===4){completeThreeRunSession();return;}
+  if(next===4){
+    // Automated writes are read-back verified before reaching here. Store the
+    // actual ECU-quantized FINAL map (not only the floating proposal), which
+    // matters especially on V8's 0.05 ms fuel resolution.
+    tr.finalPw=cloneMatrix(state.inject);
+    if(tr.runs&&tr.runs[2])tr.runs[2].nextPw=cloneMatrix(state.inject);
+    completeThreeRunSession();return;
+  }
   if(!afrStreamReady()){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · chờ AFR BLE để chạy LƯỢT '+next);return;}
   beginThreeRunPass(next,false);flashSave('GHI ACK OK · tự bắt đầu LƯỢT '+next+'/3');
 }
