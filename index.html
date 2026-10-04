@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.7';
+  window.BLINK_PB_VERSION = '3.79.8';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1306,7 +1306,7 @@
       <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
       <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>ESP32 OTA qua Wi-Fi</p><span class="tiny">SYS_05</span></div>
     </div>
-    <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
+    <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
     <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
       <div class="settingsGrid">
@@ -1448,7 +1448,7 @@ const state={
   ecuWriteSnapshot:null, ecuWriteMapNo:1,
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
-  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrDelayMs:0,limitPct:100,threeRunLimitPct:30,afrFloor:10.05},
+  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrDelayMs:0,limitPct:100,threeRunLimitPct:30,afrFloor:10.05},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
@@ -1564,11 +1564,11 @@ function save(){
 function saveThreeRunHistory(){localStorage.setItem('afrAutoTune3RunHistoryV1',JSON.stringify(state.threeRunHistory.slice(0,12)));}
 function syncControls(){
   $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
-  $('settleMs').value=state.cal.settleMs; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('afrFloor').value=state.cal.afrFloor; $('tuneMode').value=state.mode;
+  $('settleMs').value=state.cal.settleMs; $('afrVoltMin').value=state.cal.afrVoltMin; $('afrVoltMax').value=state.cal.afrVoltMax; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('afrFloor').value=state.cal.afrFloor; $('tuneMode').value=state.mode;
 }
 function pullControls(){
   state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
-  state.cal.settleMs=Math.max(0,num($('settleMs').value,0)); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); state.cal.afrFloor=clamp(num($('afrFloor').value,10.05),9.5,11); saveSoon();
+  state.cal.settleMs=Math.max(0,num($('settleMs').value,0)); state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,5); state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,2.66),0.01,5); if(state.cal.afrVoltMax<=state.cal.afrVoltMin+0.001)state.cal.afrVoltMax=Math.min(5,state.cal.afrVoltMin+0.01); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); state.cal.afrFloor=clamp(num($('afrFloor').value,10.05),9.5,11); saveSoon();
 }
 
 function matrixFor(tab){
@@ -3229,8 +3229,12 @@ function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    const afrVCal=clamp(state.live.afrV,0,2.66);
-    const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
+    const vMin=Number.isFinite(state.cal.afrVoltMin)?state.cal.afrVoltMin:0;
+    const vMax=Number.isFinite(state.cal.afrVoltMax)?state.cal.afrVoltMax:2.66;
+    const span=Math.max(0.001,vMax-vMin);
+    const x=clamp((state.live.afrV-vMin)/span,0,1);
+    const knee=1.271/2.66;
+    const afrRaw=x<=knee ? 9+(x/knee)*3.1 : 12.1+((x-knee)/(1-knee))*5.9;
     state.live.afr=afrRaw;
     ok=true;
   }else if(Number.isFinite(+p.afr)){
@@ -3360,7 +3364,7 @@ $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEc
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
 $('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;syncControls();saveSoon();};
 $('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;syncControls();saveSoon();};
-['tpsMin','tpsMax','settleMs','afrDelayMs','limitPct','threeRunLimitPct','afrFloor'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
+['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct','afrFloor'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 
 function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
