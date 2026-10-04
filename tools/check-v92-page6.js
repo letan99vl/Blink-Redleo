@@ -13,6 +13,15 @@ function mustNot(re,msg){
     process.exitCode=1;
   }
 }
+function between(a,b){
+  const i=s.indexOf(a),j=s.indexOf(b,i+a.length);
+  if(i<0||j<0){
+    console.error('FAIL: cannot isolate '+a);
+    process.exitCode=1;
+    return '';
+  }
+  return s.slice(i,j);
+}
 
 // REDLEO 9.2 page 6x is NOT a 30B Idle+Motor page.
 // Original ECU Pro 9.2 writer serializes:
@@ -63,8 +72,13 @@ must(/writeV10EctMotor[\s\S]{0,180}writeV10A2KnownFeature\('ect_idle_motor'\)/,
   'V10 ECT Motor writer must delegate to A2 serializer');
 mustNot(/writeV10IdleLimit[\s\S]{0,700}slice\(0,62\)/,
   'V10 must never reuse the REDLEO 9.2 62B page6 payload');
-mustNot(/writeV10EctMotor[\s\S]{0,500}page\(6,bank\)/,
-  'V10 ECT Motor must never regain a page6 writer');
+{
+  const v10MotorWriter=between('async function writeV10EctMotor','async function writeV10IdleLimit');
+  if(/page\(6,bank\)/.test(v10MotorWriter)){
+    console.error('FAIL: V10 ECT Motor must never regain a page6 writer');
+    process.exitCode=1;
+  }
+}
 must(/REDLEO 9\.1X · Idle\/ECT Motor tạm khóa/,
   'V9.1 page6 safety lock missing');
 
