@@ -2561,14 +2561,23 @@ function validateWriteAck(f,page){
   return f.length>=2 && f[f.length-2]===0xCD && f[f.length-1]===page;
 }
 
-function compareFuelMaps(a,b,tol=.006){
+function compareFuelMaps(a,b,tol=null){
+  // V8 fuel is stored as U8 /20 = 0.05 ms per count. V9+ is U16 /500,
+  // while Blink's UI parser rounds display values to 0.01 ms. Use a tolerance
+  // that matches the actual wire quantization so a correctly encoded V8 value
+  // (e.g. 1.23 -> 1.25 ms) is not reported as a failed readback.
+  if(tol==null){
+    let v8=false;
+    try{v8=window.BlinkRealProtocol?.profile?.family==='v8'}catch(_e){}
+    tol=v8?.026:.006;
+  }
   let bad=0,maxErr=0,first=null;
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const x=num(a[r][c],0),y=num(b[r][c],0),e=Math.abs(x-y);
     if(e>tol){bad++;if(!first)first={r,c,x,y,e};}
     if(e>maxErr)maxErr=e;
   }
-  return {bad,maxErr,first};
+  return {bad,maxErr,first,tol};
 }
 
 async function writeCurrentFuelMap(){
