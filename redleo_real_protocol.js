@@ -2714,30 +2714,6 @@ function isV10Direct(){
 async function writeV10A2KnownFeature(id){
   if(!isV10Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO V10.2; Ultra được giữ khóa cho lượt xác minh riêng.');
   throw new Error('REDLEO V10 · A2 direct-write tạm khóa: đã xác minh prefix đọc 140B nhưng chưa xác minh độ dài TX mà ECU chấp nhận. Không ghi để tránh lỗi RX 0B như REDLEO 9.2.');
-  const payload=requireCachedPageAtLeast(0xA2,140,'REDLEO V10 '+id);
-  let m;
-  const row11=(off,enc)=>{
-    m=matrixFromRedTable(1,11);
-    if(!m[0]||m[0].length!==11||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error(id+' chưa có đủ 11 giá trị hợp lệ.');
-    for(let i=0;i<11;i++)payload[off+i]=clamp(Math.round(enc(m[0][i])),0,255);
-  };
-  switch(id){
-    // V10/Ultra verified A2 prefix:
-    // TPS 14B + RPM 60B + vAFR 11B + vECT 11B + vIAT 11B + vMAP 11B
-    // + IAT INJ 11B + MAP MOTOR 11B = 140B. Tail is build-specific and preserved.
-    case 'v_ect':row11(85,encVolt);break;
-    case 'v_iat':row11(96,encVolt);break;
-    case 'v_map':row11(107,encVolt);break;
-    case 'iat_inj':row11(118,encOil);break;
-    case 'map_idle_motor':row11(129,v=>Number(v));break;
-    default:throw new Error('REDLEO V10 chưa có A2 direct writer đã xác minh cho '+id);
-  }
-  taskUi('loading','REDLEO V10 · GHI '+id.toUpperCase()+' · PATCH A2 PREFIX · GIỮ NGUYÊN TAIL '+Math.max(0,payload.length-140)+'B');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(0xA2,payload,'REDLEO V10 '+id);
-  cacheAckedPage(0xA2,payload);
-  notice('success','GHI REDLEO V10 OK',id+' · A2 '+payload.length+'B · chỉ patch block đã xác minh · ACK + READBACK OK');
-  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 async function writeV10EctMotor(bank){
   if(!isV10Direct())throw new Error('ECT Motor direct writer chỉ dùng REDLEO V10.');
@@ -2777,12 +2753,13 @@ async function writeV11AutoShift(bank){
   bank=normalizeBankForProfile(bank);
   const pg=page(6,bank),cached=pageCache.get(pg);
   if(!cached||cached.length<43)throw new Error('Hãy ĐỌC AutoShift MAP No.'+bank+' thành công trước khi GHI.');
+  const baseline=new Uint8Array(cached);
   const m=matrixFromRedTable(1,9);
   const shift=encodeV11AutoShift9(m);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,43);
   payload.set(shift,12);
   taskUi('loading','ATE V11 · GHI AUTOSHIFT MAP NO.'+bank+' · GIỮ NGUYÊN IDLE + ECT MOTOR');
-  await writePreservedDirectPage(pg,payload,'ATE V11 AutoShift MAP '+bank,'mainWrite',1);
+  await writeWritablePrefixPage(pg,payload,baseline,'ATE V11 AutoShift MAP '+bank,'mainWrite',1);
   notice('success','GHI AUTOSHIFT ATE V11 OK','MAP No.'+bank+' · ECU ACK · 9B AutoShift đã ghi · 34B Idle/ECT Motor giữ nguyên · '+v11AutoShiftConfigText(shift[0])+'.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2792,14 +2769,15 @@ async function writeV11AfrMap(bank){
   bank=normalizeBankForProfile(bank);
   const pg=page(5,bank),cached=pageCache.get(pg);
   if(!cached||cached.length<420)throw new Error('Hãy ĐỌC AFR MAP No.'+bank+' thành công trước khi GHI.');
+  const baseline=new Uint8Array(cached);
   const meta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[bank];
   if(!meta)throw new Error('Thiếu trạng thái AFR ON/OFF của MAP No.'+bank+'. Hãy ĐỌC lại bảng.');
   const m=matrixFromRedTable(14,30);
-  const afrRaw=encodeV11AfrChanged(m,meta,cached.slice(0,420));
-  const payload=new Uint8Array(cached);
+  const afrRaw=encodeV11AfrChanged(m,meta,baseline.slice(0,420));
+  const payload=baseline.slice(0,420);
   payload.set(afrRaw,0);
   taskUi('loading','ATE V11 · GHI AFR MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  await writePreservedDirectPage(pg,payload,'ATE V11 AFR MAP '+bank,'mainWrite',1);
+  await writeWritablePrefixPage(pg,payload,baseline,'ATE V11 AFR MAP '+bank,'mainWrite',1);
   notice('success','GHI AFR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 420 ô + ON/OFF đã gửi.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2810,13 +2788,14 @@ async function writeV11EctMotor(bank){
   const mode=v11IdleMotorMode(true),pg=page(6,bank);
   const cached=pageCache.get(pg);
   if(!cached||cached.length<43)throw new Error('Hãy ĐỌC Temperature–Idle Motor MAP No.'+bank+' thành công trước khi GHI.');
+  const baseline=new Uint8Array(cached);
   const m=matrixFromRedTable(2,11);
   if(m.some(r=>r.some(v=>!Number.isFinite(Number(v)))))throw new Error('ECT Motor V11 chưa có đủ 22 giá trị hợp lệ.');
   const motor=encodeV11EctMotor22(m,mode);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,43);
   payload.set(motor,21);
   taskUi('loading','ATE V11 · GHI ECT MOTOR MAP NO.'+bank+' · '+mode.label+' · GIỮ NGUYÊN IDLE + AUTOSHIFT');
-  await writePreservedDirectPage(pg,payload,'ATE V11 ECT Motor MAP '+bank,'mainWrite',1);
+  await writeWritablePrefixPage(pg,payload,baseline,'ATE V11 ECT Motor MAP '+bank,'mainWrite',1);
   notice('success','GHI ECT MOTOR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 22B ECT Motor đã ghi · 21B Idle/AutoShift giữ nguyên · '+mode.label+'.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2827,13 +2806,14 @@ async function writeV11IdleLimit(bank){
   const pg=page(6,bank);
   const cached=pageCache.get(pg);
   if(!cached||cached.length<43)throw new Error('Hãy ĐỌC Idle/Limit MAP No.'+bank+' thành công trước khi GHI.');
+  const baseline=new Uint8Array(cached);
   const m=matrixFromRedTable(4,3);
   if(m.some(r=>r.some(v=>!Number.isFinite(Number(v)))))throw new Error('Idle/Limit V11 chưa có đủ 12 giá trị hợp lệ.');
   const idle=encodeV11Idle12(m);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,43);
   payload.set(idle,0);
   taskUi('loading','ATE V11 · GHI IDLE/LIMIT MAP NO.'+bank+' · GIỮ NGUYÊN AUTOSHIFT + ECT MOTOR');
-  await writePreservedDirectPage(pg,payload,'ATE V11 Idle/Limit MAP '+bank,'mainWrite',1);
+  await writeWritablePrefixPage(pg,payload,baseline,'ATE V11 Idle/Limit MAP '+bank,'mainWrite',1);
   notice('success','GHI IDLE ATE V11 OK','MAP No.'+bank+' · ECU ACK · 12B Idle đã ghi · 31B AutoShift/ECT Motor giữ nguyên.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
@@ -2842,13 +2822,14 @@ async function writeV11EctStart(){
   if(!isV11Profile())throw new Error('ECT Start writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC ECT Start thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const m=matrixFromRedTable(4,11);
   const raw44=encodeV11EctStart44(m);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,L.LEN);
   payload.set(raw44,L.ECT_START);
   taskUi('loading','ATE V11 · GHI ECT START 44B · GIỮ NGUYÊN A2 CÒN LẠI');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 ECT Start','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 ECT Start','mainWrite',1);
   notice('success','GHI ECT START ATE V11 OK','ECU ACK · 44 byte · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2857,17 +2838,18 @@ async function writeV11AlternateTable(){
   if(!isV11Profile())throw new Error('Alternate Table writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Alternate Table thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const m=matrixFromRedTable(1,9),vals=m[0]||[];
   if(vals.length!==9||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Alternate Table V11 chưa có đủ 9 giá trị hợp lệ.');
   let bad=-1;
   for(let i=0;i<9;i++)if(Number(vals[i])<0||Number(vals[i])>255){bad=i;break;}
   if(bad>=0)throw new Error('Alternate Table chỉ chấp nhận raw 0–255 · cột '+(bad+1)+' = '+vals[bad]);
   const raw=Uint8Array.from(vals,v=>clamp(Math.round(Number(v)),0,255));
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,L.LEN);
   payload.set(raw,L.GLOBAL_AUX);
   taskUi('loading','ATE V11 · GHI ALTERNATE TABLE 9B · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 Alternate Table','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 Alternate Table','mainWrite',1);
   notice('success','GHI ALTERNATE TABLE V11 OK','ECU ACK · 9 byte raw · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2876,16 +2858,17 @@ async function writeV11Options20(){
   if(!isV11Profile())throw new Error('ATE Options writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC ATE Options thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
-  const C=parseV11A2Data(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
+  const C=parseV11A2Data(baseline);
   const m=matrixFromRedTable(1,20);
   const raw20=encV11Options20(m,C.vEct);
   const expected30=new Uint8Array(C.optionRawV11);
   expected30.set(raw20,0);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,L.LEN);
   payload.set(expected30,L.OPTION);
   taskUi('loading','ATE V11 · GHI OPTIONS 20 MỤC · GIỮ NGUYÊN AFR/O2 + RESERVED');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 Options','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 Options','mainWrite',1);
   notice('success','GHI ATE OPTIONS V11 OK','ECU ACK · 20 byte Option đã chỉnh · AFR/O2 + reserved giữ nguyên.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2894,13 +2877,14 @@ async function writeV11Chg(){
   if(!isV11Profile())throw new Error('CHG writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Charger Parameters thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const m=matrixFromRedTable(1,8);
   const raw=encV11Chg8(m);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,L.LEN);
   payload.set(raw,L.CHG);
   taskUi('loading','ATE V11 · GHI CHARGER PARAMETERS · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 Charger','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 Charger','mainWrite',1);
   notice('success','GHI CHG ATE V11 OK','ECU ACK · 8 byte Charger Parameters · '+L.NAME+'.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2909,16 +2893,17 @@ async function writeV11AutoClutch(){
   if(!isV11Profile())throw new Error('Automatic Clutch writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC Automatic Clutch thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const m=matrixFromRedTable(1,6),vals=m[0]||[];
   if(vals.length!==6||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch V11 chưa có đủ 6 giá trị hợp lệ.');
   const config=new Uint8Array(cached.slice(L.CONFIG,L.CONFIG+11));
   const expected=new Uint8Array(config);
   for(let i=0;i<6;i++)expected[1+i]=encV11Dzfm(i,vals[i]);
-  const payload=new Uint8Array(cached);
+  const payload=baseline.slice(0,L.LEN);
   payload.set(expected,L.CONFIG);
   taskUi('loading','ATE V11 · GHI AUTOMATIC CLUTCH · GIỮ NGUYÊN ENABLE + PIN');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 Automatic Clutch','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 Automatic Clutch','mainWrite',1);
   notice('success','GHI AUTOMATIC CLUTCH ATE V11 OK','ECU ACK · 6 byte Dgv_Dzfm đã ghi · enable + password cũ giữ nguyên.');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
@@ -2927,14 +2912,15 @@ async function writeV11ExternalAdjust(){
   if(!isV11Profile())throw new Error('External Adjustment writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC External Adjustment thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const m=matrixFromRedTable(2,15);
   if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa có đủ dữ liệu 2 × 15.');
-  const payload=Array.from(cached);
+  const payload=Array.from(baseline.slice(0,L.LEN));
   for(let c=0;c<15;c++)payload[L.EXTERNAL+c]=encV11ExtIgn(m[1][c]);
   for(let c=0;c<15;c++)payload[L.EXTERNAL+15+c]=encV11ExtPct(m[0][c]);
   taskUi('loading','ATE V11 · GHI EXTERNAL ADJUSTMENT · GIỮ NGUYÊN BYTE A2 KHÁC');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 External Adjustment','mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 External Adjustment','mainWrite',1);
   notice('success','GHI EXTERNAL ADJUSTMENT ATE V11 OK','ECU ACK · '+L.NAME+' · 30 byte · byte A2 khác giữ nguyên.');
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
@@ -2953,16 +2939,17 @@ async function writeV11A2KnownFeature(id){
   if(!isV11Profile())throw new Error('A2 partial writer chỉ dùng cho ATE V11.');
   const cached=pageCache.get(0xA2);
   if(!cached||cached.length<272)throw new Error('Hãy ĐỌC bảng '+id+' thành công trước khi GHI page A2.');
-  const L=v11A2LayoutOf(cached);
+  const baseline=new Uint8Array(cached);
+  const L=v11A2LayoutOf(baseline);
   const spec=v11A2PatchSpec(id,L);
   if(!spec)throw new Error('ATE V11 chưa có A2 patch spec cho '+id);
   const m=matrixFromRedTable(1,11);
   const vals=m[0]||[];
   if(vals.length!==11||vals.some(v=>!Number.isFinite(Number(v))))throw new Error('Bảng '+id+' chưa có đủ 11 giá trị hợp lệ.');
-  const payload=Array.from(cached);
+  const payload=Array.from(baseline.slice(0,L.LEN));
   for(let i=0;i<11;i++)payload[spec.off+i]=clamp(Math.round(spec.enc(vals[i])),0,255);
   taskUi('loading','ATE V11 · GHI '+spec.label+' · GIỮ NGUYÊN BYTE ẨN');
-  await writePreservedDirectPage(0xA2,payload,'ATE V11 '+spec.label,'mainWrite',1);
+  await writeWritablePrefixPage(0xA2,payload,baseline,'ATE V11 '+spec.label,'mainWrite',1);
   notice('success','GHI ATE V11 OK',spec.label+' · page A2 · ECU ACK · 11 byte · byte ẩn giữ nguyên.');
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
