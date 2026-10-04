@@ -251,7 +251,24 @@ Until hardware proof exists:
 
 Do not claim an untested ECU family is guaranteed to write safely.
 
-## 13. Required handoff discipline
+## 13. Regression protection added
+
+- `tools/check-v92-page6.js` locks the verified REDLEO 9.2 page6 invariants:
+  - 18B Idle + 22B ECT Motor + 22B ECT Start Add = 62B writable.
+  - 63rd read byte is reply-only.
+  - ECT Motor uses exactly 11 visible Step/Time points.
+  - hidden 11B INJ row and 22B ECT Start Add are preserved.
+  - old 30B page6 write assumption must not return.
+  - V9.1X and V10 page6 writers remain locked.
+- GitHub Actions `.github/workflows/check-redleo-protocol.yml` now runs this regression checker on protocol changes.
+- Relevant commits:
+  - `eb3b819157e5d576a8a5af80aeedd70e1c0f2769` exact REDLEO 9.2 62B serializer.
+  - `8ad52b79f1dc2d3a4dd904396787db2657b1d09d` real 11-point ECT Motor + PB 3.79.40.
+  - `b3dc8c09add6be8428ddf62118146cafaf34d19c` lock unverified V9.1/V10 page6.
+  - `6ab62eb5d6a600ca7ae179264d792136cf3ae3ce` page6 regression checker.
+  - `1949b418b8e6bbbe3ed66d8daf28ddee98fc227f` run page6 checker in CI.
+
+## 14. Required handoff discipline
 
 At the end of every meaningful session:
 1. Update current PB.
