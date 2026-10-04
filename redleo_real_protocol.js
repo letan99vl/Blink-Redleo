@@ -1642,7 +1642,7 @@ function parseRestoreResponse(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a||[]);
   const candidates=[];
   for(const s of [0x8B,0xAB,0xAE]){
-    const f=findValidCommandFrame(a,s,3);
+    const f=findValidCommandFrame(a,s,5);
     if(f)candidates.push({s,frame:f});
   }
   candidates.sort((x,y)=>y.frame.length-x.frame.length);
