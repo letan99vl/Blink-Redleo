@@ -61,7 +61,7 @@ must(/A2 TX 268B/,
   'V10 A2 status must expose exact TX length');
 
 // Only verified editable surfaces are patched in this pass.
-must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','v_ect','v_iat','v_map'\]\.includes\(id\)/,
+must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'V10 A2 verified feature dispatch changed');
 must(/payload\[V10_A2\.IAT_INJ\+i\]=encOil/,
   'IAT INJ patch must stay at exact block');
@@ -71,13 +71,31 @@ must(/payload\.set\(encodeV10EctMotor22\(m,v10IdleMotorMode\(true\)\),V10_A2\.EC
   'ECT Motor patch must stay at exact A2 block');
 must(/payload\[V10_A2\.EXTERNAL\+c\]=encExtIgn[\s\S]{0,150}payload\[V10_A2\.EXTERNAL\+15\+c\]=encExtPct/,
   'External Adjustment patch order changed');
+must(/payload\[V10_A2\.CONFIG\+2\+i\]=clamp\(Math\.round\(Math\.max\(0,Number\(v\[i\]\)\)\/5\),0,255\)/,
+  'AutoClutch must patch only CONFIG timer bytes +2..+6 using raw=ms/5');
+must(/autoStart=decAutoRpm\(configRaw\[1\]\)[\s\S]{0,120}auto=Array\.from\(configRaw\.slice\(2,7\),x=>Number\(x\)\*5\)[\s\S]{0,120}password=Array\.from\(configRaw\.slice\(7,11\)\)/,
+  'V10 CONFIG layout must remain feature/startRPM/5 timers/password');
 
-// Partial writers must preserve CONFIG/password, Option, ECT Start, TPS/RPM,
-// vAFR and every sibling block unless that specific block is being edited.
+// Partial writers preserve Option, ECT Start, TPS/RPM, vAFR and every sibling
+// block. AutoClutch is allowed to patch only CONFIG bytes +2..+6; config byte0,
+// Start RPM byte1 and password bytes +7..+10 remain untouched.
 const writer=between('async function writeV10A2KnownFeature(id){','async function writeV10EctMotor');
-for(const forbidden of ['V10_A2.CONFIG','V10_A2.OPTION','V10_A2.ECT_START','V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
+for(const forbidden of ['V10_A2.OPTION','V10_A2.ECT_START','V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
   if(writer.includes('payload['+forbidden)||writer.includes('payload.set('+forbidden)){
     console.error('FAIL: partial V10 A2 writer patches preserved block '+forbidden);
+    process.exitCode=1;
+  }
+}
+
+
+// AutoClutch must not patch the CONFIG feature byte, Start RPM or password.
+mustNot(/payload\[V10_A2\.CONFIG\](?!\+)/,
+  'AutoClutch must preserve CONFIG feature byte');
+mustNot(/payload\[V10_A2\.CONFIG\+1\]/,
+  'AutoClutch must preserve Start RPM byte');
+for(const n of [7,8,9,10]){
+  if(writer.includes('payload[V10_A2.CONFIG+'+n+']')){
+    console.error('FAIL: AutoClutch must preserve password byte CONFIG+'+n);
     process.exitCode=1;
   }
 }
