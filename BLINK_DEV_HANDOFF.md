@@ -47,14 +47,14 @@
 - Page 0x62 direct read returns **63B** on MAP No.1.
 - Earlier strict equality gates 133B/30B were wrong and were removed.
 
-### Critical page-0x62 status - PB 3.79.40 HARDWARE TEST PENDING
+### Critical page-0x62 status - PB 3.79.40 REAL-HARDWARE TRANSPORT PASS
 
 Historical failures on PB <=3.79.39:
 - Idle/Limit -> **ECU không ACK CD 62 · RX 0B**
 - ECT Motor -> **ECU không ACK CD 62 · RX 0B**
 - The failed experiments used wrong 30B/63B write assumptions.
 
-PB 3.79.40 now reproduces the original 9.2 page-6 serializer as **62 writable bytes**. This exact 62B implementation has NOT yet been confirmed on the user's real ECU. Do not call it WORKING until ACK + readback succeeds.
+PB 3.79.40 reproduces the original 9.2 page-6 serializer as **62 writable bytes**. On 2026-10-05 the user tested a real REDLEO 9.2 and reported that BOTH Idle/Limit and ECT Motor save successfully. Because the success path only reports after ECU ACK + post-write byte readback, page-0x62 transport/persistence is now considered REAL-HARDWARE PASS on this ECU. Final semantic-value certification (UI scale/physical meaning) still needs a controlled one-value change or original-PC cross-check.
 
 ### Important IL evidence from original REDLEO ECU Pro 9.2
 
@@ -117,10 +117,12 @@ Confirmed byte structure from original IL:
 
 ### Current task to solve next
 
-1. Real-hardware test PB 3.79.40 on REDLEO 9.2 using a READ first.
-2. Test a no-change write for Idle/Limit, then ECT Motor.
-3. Required success: CD62 ACK + post-write readback match.
-4. If PB 3.79.40 still returns RX 0B, do NOT change length/page again. Investigate transport/state/timing or a remaining byte-level serializer mismatch against the original generated TX frame.
+1. Page 0x62 transport is no longer blocked: real 9.2 saves succeed on PB 3.79.40.
+2. Do one controlled semantic test:
+   - change ONE Idle value by a small known amount -> SAVE -> READ again -> confirm only that displayed Idle value changes;
+   - change ONE ECT Motor cell by a small known amount -> SAVE -> READ again -> confirm only that displayed motor value changes.
+3. Strongest optional cross-check: connect the same ECU with original REDLEO ECU Pro 9.2 and confirm the displayed values match Blink after the write.
+4. If the controlled values match, page 0x62 can move from TRANSPORT PASS to RELEASE-CERTIFIED for this 9.2 hardware.
 
 ## 4. REDLEO 9.2 writer status
 
@@ -281,3 +283,13 @@ At the end of every meaningful session:
 7. Commit this file in the same repo.
 
 The next developer/ChatGPT MUST continue from this note, not restart protocol assumptions from scratch.
+
+
+## Hardware confirmation update - 2026-10-05
+
+- PB: 3.79.40
+- REDLEO 9.2 real ECU:
+  - Idle/Limit SAVE: **SUCCESS reported by user**
+  - ECT Motor SAVE: **SUCCESS reported by user**
+- Since the Blink success path requires ACK + post-write byte verification, this confirms the former `CD 62 · RX 0B` failure is fixed on the tested ECU.
+- Remaining uncertainty is semantic scaling only, not byte persistence/collateral-page corruption.
