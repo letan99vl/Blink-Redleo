@@ -293,3 +293,16 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   - ECT Motor SAVE: **SUCCESS reported by user**
 - Since the Blink success path requires ACK + post-write byte verification, this confirms the former `CD 62 · RX 0B` failure is fixed on the tested ECU.
 - Remaining uncertainty is semantic scaling only, not byte persistence/collateral-page corruption.
+
+
+## Hardware semantic certification update - 2026-10-05
+
+- PB: 3.79.40
+- REDLEO 9.2 real ECU page 0x62:
+  - Controlled single-value Idle change -> SAVE -> READ back: **PASS reported by user**.
+  - Controlled single-cell ECT Motor change -> SAVE -> READ back: **PASS reported by user**.
+  - User reports behavior is correct after readback; no collateral-value issue observed in this controlled test.
+- Status change:
+  - Idle/Limit page 0x62: **RELEASE-CERTIFIED on tested REDLEO 9.2 hardware**.
+  - ECT Motor page 0x62: **RELEASE-CERTIFIED on tested REDLEO 9.2 hardware**.
+- Keep this certification scoped to the tested REDLEO 9.2 family. Do NOT reuse its 62B serializer for V9.1X, V10.2, Ultra Pro1, V8, or ATE V11.1.
