@@ -271,7 +271,7 @@ function isDirectVerifiedFeature(id){
   // These layouts and row orientation are already handled explicitly below,
   // so they can use the same page-read -> page-write safety gate as the main maps.
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
-  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor'].includes(id))return true;
+  if(isV10Direct()&&['ect_inj','ect_ign','map_inj'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -3000,8 +3000,11 @@ async function writeV11A2KnownFeature(id){
 }
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
-  if(isV10Direct()&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id)){
-    throw new Error('REDLEO V10 · '+id+' đang khóa ghi an toàn: đã đọc/giải mã được A2 prefix 140B nhưng chưa xác minh độ dài TX page A2 mà ECU chấp nhận.');
+  if(isV10Direct()&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map','idle_limit','ect_idle_motor'].includes(id)){
+    throw new Error('REDLEO V10 · '+id+' đang khóa ghi an toàn: chưa xác minh serializer/TX length riêng của page này.');
+  }
+  if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&!usesNewThermalAxis()&&['idle_limit','ect_idle_motor'].includes(id)){
+    throw new Error('REDLEO 9.1X · '+id+' đang khóa ghi an toàn: page6 serializer riêng chưa xác minh.');
   }
   const isMain=isDirectVerifiedFeature(id);
 
@@ -3076,6 +3079,7 @@ async function writeFeatureReal(id){
 async function writeIdleReal(){
   if(isV92Direct())return writeV92IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
   if(isV10Direct())throw new Error('REDLEO V10 · Idle/ECT Motor tạm khóa: serializer page6 khác 9.2 và đang được xác minh riêng, không gửi CD page6 để tránh RX 0B.');
+  if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&!usesNewThermalAxis())throw new Error('REDLEO 9.1X · Idle/ECT Motor tạm khóa: page6 gốc khác 9.2 và đang được xác minh riêng. Không dùng serializer 30B cũ.');
   await ensureV9FullWriteReady('Ghi Idle/Limit');
   assertSafeWriteLayout();
   const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);
