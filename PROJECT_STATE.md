@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.24`
+`BLINK_PB_VERSION = 3.79.41`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.
+- Android/web production: `main`, currently PB 3.79.41.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -295,3 +295,12 @@ The assistant should then:
 - App identity: BLINK REDLEO / `vn.blinkredleo.app` / 1.0 (1) / iOS 15+.
 - BLE UUID contract is documented above.
 - Do not merge/sync platform branches automatically.
+
+
+## 14. Latest main protocol checkpoint - PB 3.79.41
+
+- REDLEO 9.2 page 0x62 Idle/Limit + ECT Motor has passed controlled real-hardware SAVE + READBACK tests and is release-certified on the tested 9.2 ECU.
+- REDLEO V10.2 page family 6 has now been corrected from the old unsafe 30B assumption to the original-software serializer: **Idle/Limit only, exactly 18 writable bytes**.
+- V10.2 ECT Motor is not on page6; it remains locked with the incomplete A2 writer until the full A2 TX layout is proven.
+- V10.2 Idle/Limit still requires a real V10.2 hardware test before release certification.
+- Regression checks now cover both REDLEO 9.2 page6 and REDLEO V10.2 page6 invariants.
