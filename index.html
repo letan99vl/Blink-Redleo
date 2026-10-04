@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.5';
+  window.BLINK_PB_VERSION = '3.79.6';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3257,7 +3257,13 @@ function delayedAfr(now){
 function recordSample(now){
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
   const cur=currentCell();
-  if(cur.key!==state.lastCellKey){state.lastCellKey=cur.key;state.cellEnteredAt=now;return;}
+  if(cur.key!==state.lastCellKey){
+    state.lastCellKey=cur.key;
+    state.cellEnteredAt=now;
+    // With zero settle time, accept the very first AFR sample in the new cell.
+    // Previously this unconditional return made fast cursor passes leave holes.
+    if(state.cal.settleMs>0)return;
+  }
   if(now-state.cellEnteredAt<state.cal.settleMs)return;
   const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<9||afr>22)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0;
