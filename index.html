@@ -1188,6 +1188,184 @@
   }
   .mapSelectionPad[aria-hidden="true"]{display:none!important}
 
+  /* ===== v16 STANDALONE FUEL EDITOR + SAFE CUSTOM NUMERIC KEYPAD ===== */
+  #mapEditorScreen.standaloneFuel{--fuel-keypad-h:304px}
+  #mapEditorScreen.standaloneFuel .autoTuneEditorOnly,
+  #mapEditorScreen.standaloneFuel .editorTabs{display:none!important}
+  #mapEditorScreen.standaloneFuel .editToolbar{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:5px!important;
+    padding:0 8px 5px!important;
+  }
+  #mapEditorScreen.standaloneFuel .editToolbar button{
+    height:36px!important;
+    min-height:36px!important;
+    padding:0 7px!important;
+    border-radius:9px!important;
+    font-size:9px!important;
+  }
+  #mapEditorScreen.standaloneFuel .editorInfo{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:4px!important;
+    padding:0 8px 5px!important;
+  }
+  #mapEditorScreen.standaloneFuel .editorInfo .livebox{
+    min-height:42px!important;
+    padding:5px 7px!important;
+    border-radius:9px!important;
+  }
+  #mapEditorScreen.standaloneFuel .editorInfo .livebox .k{font-size:7px!important}
+  #mapEditorScreen.standaloneFuel .editorInfo .livebox .v{font-size:14px!important;margin-top:1px!important}
+  #mapEditorScreen.standaloneFuel .editorStepBar{
+    padding:0 8px 5px!important;
+    min-height:34px!important;
+  }
+
+  /* Floating save/+/- is anchored to the editor coordinate system rather than
+     viewport coordinates. This stays correct when Blink rotates the whole
+     editor 90deg while the phone's hardware rotation remains locked. */
+  .mapSelectionPad{
+    position:absolute!important;
+    z-index:250040!important;
+  }
+
+  .fuelKeypadToggle{
+    display:none;
+    position:absolute;
+    right:max(10px,env(safe-area-inset-right));
+    bottom:max(10px,env(safe-area-inset-bottom));
+    z-index:250045;
+    width:52px;
+    height:52px;
+    min-width:52px;
+    min-height:52px;
+    padding:0;
+    border-radius:16px;
+    border:1px solid #8b2d39;
+    background:rgba(18,13,17,.96);
+    color:#fff;
+    font-size:24px;
+    line-height:1;
+    box-shadow:0 10px 28px #0009,0 0 16px rgba(255,45,63,.16);
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+  }
+  #mapEditorScreen.standaloneFuel .fuelKeypadToggle{display:grid;place-items:center}
+  #mapEditorScreen.mapKeypadOpen .fuelKeypadToggle{display:none!important}
+
+  .fuelKeypad{
+    display:none;
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    z-index:250050;
+    height:var(--fuel-keypad-h,304px);
+    box-sizing:border-box;
+    padding:8px max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
+    background:rgba(7,7,10,.985);
+    border-top:1px solid #63222c;
+    box-shadow:0 -14px 36px rgba(0,0,0,.62);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    flex-direction:column;
+    gap:7px;
+    touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #mapEditorScreen.standaloneFuel.mapKeypadOpen .fuelKeypad{display:flex}
+  .fuelKeypadHead{
+    height:38px;
+    min-height:38px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:0 8px;
+    border:1px solid #3a1b21;
+    border-radius:10px;
+    background:#0d0d11;
+    color:#9297a1;
+    font-size:10px;
+    overflow:hidden;
+  }
+  .fuelKeypadHead span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fuelKeypadHead strong{color:#fff;font-size:17px;white-space:nowrap}
+  .fuelKeypadGrid{
+    flex:1 1 auto;
+    min-height:0;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    grid-template-rows:repeat(5,minmax(0,1fr));
+    gap:6px;
+  }
+  .fuelKeypadGrid button{
+    min-width:0;
+    min-height:0;
+    padding:0;
+    border-radius:11px;
+    border:1px solid #3d252a;
+    background:#15151a;
+    color:#fff;
+    font-size:20px;
+    font-weight:900;
+    box-shadow:none;
+    touch-action:manipulation;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  .fuelKeypadGrid button:active{transform:scale(.96);filter:brightness(1.25)}
+  .fuelKeypadGrid .clear{background:#4b151d;border-color:#a52d3b;color:#ffb3bd}
+  .fuelKeypadGrid .backspace{background:#3b2023;border-color:#765057}
+  .fuelKeypadGrid .enter{background:#0b4a27;border-color:#20c968;color:#9bffbe;font-size:14px}
+  .fuelKeypadGrid .hide{background:#17171c;border-color:#6a5960;color:#ddd}
+
+  /* Normal editor: reserve real map space instead of covering cells. */
+  #mapEditorScreen.standaloneFuel.mapKeypadOpen #mapWrap{
+    margin-bottom:var(--fuel-keypad-h)!important;
+  }
+  /* Zoom editor is absolutely laid out, so reduce its bottom edge instead. */
+  body.mapZoomMode #mapEditorScreen.standaloneFuel.mapKeypadOpen #mapWrap{
+    bottom:var(--fuel-keypad-h)!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin-bottom:0!important;
+  }
+
+  @media (orientation:landscape){
+    #mapEditorScreen.standaloneFuel{--fuel-keypad-h:132px}
+    .fuelKeypad{padding-top:5px;gap:4px}
+    .fuelKeypadHead{height:28px;min-height:28px;font-size:9px;border-radius:8px}
+    .fuelKeypadHead strong{font-size:14px}
+    .fuelKeypadGrid{
+      grid-template-columns:repeat(8,minmax(0,1fr));
+      grid-template-rows:repeat(2,minmax(0,1fr));
+      gap:4px;
+    }
+    .fuelKeypadGrid button{border-radius:8px;font-size:16px}
+    .fuelKeypadGrid .enter{grid-column:span 2;font-size:11px}
+  }
+  /* Software-landscape uses the same compact keypad even when the physical
+     device remains portrait and CSS orientation media queries do not change. */
+  body.appForceLandscape #mapEditorScreen.standaloneFuel{--fuel-keypad-h:132px}
+  body.appForceLandscape .fuelKeypad{padding-top:5px;gap:4px}
+  body.appForceLandscape .fuelKeypadHead{height:28px;min-height:28px;font-size:9px;border-radius:8px}
+  body.appForceLandscape .fuelKeypadHead strong{font-size:14px}
+  body.appForceLandscape .fuelKeypadGrid{
+    grid-template-columns:repeat(8,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr));
+    gap:4px;
+  }
+  body.appForceLandscape .fuelKeypadGrid button{border-radius:8px;font-size:16px}
+  body.appForceLandscape .fuelKeypadGrid .enter{grid-column:span 2;font-size:11px}
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel.mapKeypadOpen #mapWrap{
+    bottom:var(--fuel-keypad-h)!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+  }
+
 </style>
 </head>
 <body>
@@ -1242,14 +1420,26 @@
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="clearMeasuredEditorBtn" class="danger" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
-    <main class="mapwrap" id="mapWrap"><table id="mapTable"></table><div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div></main>
+    <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
+    <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div>
     <div id="mapZoomHud" aria-live="polite">
       <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
       <button id="mapZoomExit" type="button">THU NHỎ</button>
+    </div>
+    <button id="fuelKeypadToggle" class="fuelKeypadToggle" type="button" aria-label="Mở bàn phím nhập thời gian phun" title="Bàn phím số">⌨</button>
+    <div id="fuelKeypad" class="fuelKeypad" aria-hidden="true">
+      <div class="fuelKeypadHead"><span id="fuelKeypadCell">Chưa chọn ô</span><strong id="fuelKeypadValue">-- ms</strong></div>
+      <div class="fuelKeypadGrid">
+        <button type="button" data-fuel-key="1">1</button><button type="button" data-fuel-key="2">2</button><button type="button" data-fuel-key="3">3</button>
+        <button type="button" data-fuel-key="4">4</button><button type="button" data-fuel-key="5">5</button><button type="button" data-fuel-key="6">6</button>
+        <button type="button" data-fuel-key="7">7</button><button type="button" data-fuel-key="8">8</button><button type="button" data-fuel-key="9">9</button>
+        <button type="button" class="clear" data-fuel-key="clear">C</button><button type="button" data-fuel-key="0">0</button><button type="button" data-fuel-key=".">.</button>
+        <button type="button" class="backspace" data-fuel-key="backspace">⌫</button><button type="button" class="enter" data-fuel-key="enter">✓ NHẬP</button><button type="button" class="hide" data-fuel-key="hide">▾</button>
+      </div>
     </div>
     
     <div class="editorFooter"><span><span id="rxDot" class="dot"></span> RX BLE</span><span id="sampleInfo">0 mẫu</span><span id="selectionInfo">Chưa chọn ô</span><span id="saveInfo">Auto save: ON</span><span id="autoFollowInfo">TỰ CUỘN LIVE: ON</span></div>
@@ -1742,6 +1932,11 @@ function commitCell(td){
 function isEditableTab(){return !state.threeRun.active&&(state.tab==='target'||state.tab==='inject')}
 function beginEdit(td){
   if(!isEditableTab())return;
+  if(state.tab==='inject'&&window.BlinkFuelKeypad?.preferCustom?.()){
+    setSelection(+td.dataset.r,+td.dataset.c,false);
+    window.BlinkFuelKeypad.open();
+    return;
+  }
   if(state.editingCell&&state.editingCell!==td)state.editingCell.blur();
   state.editingCell=td;
   td.setAttribute('contenteditable','true');
@@ -4648,9 +4843,14 @@ window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
 function openOurEditor(tab,fromTune=false){
   const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};
+  const screen=document.getElementById('mapEditorScreen');
+  const standaloneFuel=tab==='inject'&&!fromTune;
+  window.hideFuelKeypad?.();
+  screen?.classList.toggle('standaloneFuel',standaloneFuel);
+  screen?.classList.toggle('autoTuneMap',!standaloneFuel);
   document.getElementById('editorTitle').textContent=names[tab]||'Bản đồ';
-  document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS × RPM · ms':'AUTO TUNE CỦA BLINK');
-  setTab(tab);document.querySelector('.editorTabs').style.display=(tab==='inject'&&!fromTune)?'none':'grid';
+  document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS/RPM ECU · '+(ecuAxisMeta.source||'AXIS'):'AUTO TUNE CỦA BLINK');
+  setTab(tab);document.querySelector('.editorTabs').style.display=standaloneFuel?'none':'grid';
   document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';
   syncBanks();showScreen('editor');
   if(state.ecuConnected)setTimeout(async()=>{
@@ -4843,8 +5043,8 @@ function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textCont
 document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()=>showScreen(e.dataset.nav)));
 document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',()=>{selectMapBank(Number(e.dataset.mapbank),true);syncBanks();if(currentFeature?.banked)renderFeature()}));
 document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>openFeature(e.dataset.feature)));
-document.getElementById('editorBackBtn')?.addEventListener('click',()=>showScreen('maps'));document.getElementById('redEditorBack')?.addEventListener('click',()=>showScreen('maps'));
-document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>openOurEditor(e.dataset.autoTab,true)));
+document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen('maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>showScreen('maps'));
+document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject')}));
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
 document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redPlus')?.addEventListener('click',()=>bump(redStep));document.getElementById('redMinus')?.addEventListener('click',()=>bump(-redStep));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);document.getElementById('redCopyBtn')?.addEventListener('click',()=>{if(currentFeature)redClipboard=featureData(currentFeature,state.activeMap).map(r=>r.slice())});document.getElementById('redPasteBtn')?.addEventListener('click',()=>{if(currentFeature&&redClipboard&&redClipboard.length===currentFeature.rows){featureStore[keyFor(currentFeature,state.activeMap)]=redClipboard.map(r=>r.slice());saveFeatureStore();renderFeature()}});
 document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>document.getElementById('backupFile').click());document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
@@ -4879,7 +5079,11 @@ const table=document.getElementById('mapTable'),wrap=document.getElementById('ma
       selectionPad=document.getElementById('mapSelectionPad'),
       floatSaveBtn=document.getElementById('mapFloatSaveBtn'),
       floatPlusBtn=document.getElementById('mapFloatPlusBtn'),
-      floatMinusBtn=document.getElementById('mapFloatMinusBtn');
+      floatMinusBtn=document.getElementById('mapFloatMinusBtn'),
+      fuelKeypad=document.getElementById('fuelKeypad'),
+      fuelKeypadToggle=document.getElementById('fuelKeypadToggle'),
+      fuelKeypadCell=document.getElementById('fuelKeypadCell'),
+      fuelKeypadValue=document.getElementById('fuelKeypadValue');
 function updateMapControls(){
   document.querySelectorAll('[data-mapstep]').forEach(b=>b.classList.toggle('on',Number(b.dataset.mapstep)===mapStep));
   document.querySelectorAll('[data-mapmode]').forEach(b=>b.classList.toggle('on',b.dataset.mapmode===mapMode));
@@ -4897,6 +5101,7 @@ function adjustMap(sign){
     dst[r][c]=Number(next.toFixed(state.tab==='inject'?3:2));
   }
   render();saveSoon();
+  try{syncFuelKeypadSelection(true)}catch(_e){}
   const n=(b.r1-b.r0+1)*(b.c1-b.c0+1),sym=sign>0?'+':'−';
   $('selectionInfo').textContent=`${sym}${mapStep}${mapMode==='percent'?'%':''} · ${n} ô`;
 }
@@ -4924,31 +5129,26 @@ function mapCellBoxInWrap(td){
 function updateMapSelectionPad(){
   if(!selectionPad||!wrap||!table)return;
   const screen=document.getElementById('mapEditorScreen');
-  // Fixed-position shortcut: show only for INJECTION TIME when a selection exists.
+  // Editor-local positioning remains valid through physical rotation AND the
+  // 90deg transform used by Blink when device rotation is locked.
   if(!screen?.classList.contains('active')||state.tab!=='inject'||!state.selection.active||scanPointer!==null){
     hideMapSelectionPad();
     return;
   }
   const cells=table.querySelectorAll('td.mapcell.selected');
   if(!cells.length){hideMapSelectionPad();return}
-
-  // Fixed to the RIGHT-CENTER of the visible map viewport.
-  // It does not follow the selected cell or horizontal/vertical map scrolling.
-  const wr=wrap.getBoundingClientRect();
-  if(wr.width<20||wr.height<20){hideMapSelectionPad();return}
-
-  selectionPad.classList.add('show');
-  selectionPad.setAttribute('aria-hidden','false');
-
   const padW=selectionPad.offsetWidth||48;
   const padH=selectionPad.offsetHeight||158;
   const edge=8;
-  let x=wr.right-padW-edge;
-  let y=wr.top+(wr.height-padH)/2;
+  const mapTop=Number(wrap.offsetTop||0);
+  const mapH=Number(wrap.clientHeight||0);
+  const screenW=Number(screen.clientWidth||0);
+  if(screenW<40||mapH<30){hideMapSelectionPad();return}
 
-  x=Math.max(edge,Math.min(x,window.innerWidth-padW-edge));
-  y=Math.max(edge,Math.min(y,window.innerHeight-padH-edge));
-
+  selectionPad.classList.add('show');
+  selectionPad.setAttribute('aria-hidden','false');
+  const x=Math.max(edge,screenW-padW-edge);
+  const y=Math.max(mapTop+edge,mapTop+(mapH-padH)/2);
   selectionPad.style.left=Math.round(x)+'px';
   selectionPad.style.top=Math.round(y)+'px';
 }
@@ -4956,9 +5156,115 @@ const baseHighlightSelectionForPad=highlightSelection;
 highlightSelection=function(){
   baseHighlightSelectionForPad();
   requestAnimationFrame(updateMapSelectionPad);
+  try{syncFuelKeypadSelection(false)}catch(_e){}
 };
 
 function cellAt(x,y){const el=document.elementFromPoint(x,y);return el?.closest?.('#mapTable td.mapcell')||null}
+
+let fuelKeypadBuffer='',fuelKeypadDirty=false,fuelKeypadSelectionKey='';
+function standaloneFuelEditorActive(){
+  const screen=document.getElementById('mapEditorScreen');
+  return !!(screen?.classList.contains('active')&&screen.classList.contains('standaloneFuel')&&state.tab==='inject');
+}
+function preferCustomFuelKeypad(){
+  if(!standaloneFuelEditorActive())return false;
+  try{return matchMedia('(pointer:coarse)').matches||innerWidth<=1100}catch(_e){return innerWidth<=1100}
+}
+function selectedFuelMeta(){
+  if(!state.selection.active)return null;
+  const b=selectionBounds(),r=state.selection.focusR,c=state.selection.focusC;
+  const v=Number(state.inject?.[r]?.[c]);
+  return {b,r,c,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),key:b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+c};
+}
+function formatFuelEntry(v){
+  if(!Number.isFinite(Number(v)))return '';
+  return Number(v).toFixed(3).replace(/0+$/,'').replace(/.$/,'');
+}
+function syncFuelKeypadSelection(force=false){
+  if(!fuelKeypad||fuelKeypad.getAttribute('aria-hidden')==='true')return;
+  const m=selectedFuelMeta();
+  if(!m){fuelKeypadCell.textContent='Chưa chọn ô';fuelKeypadValue.textContent='-- ms';return}
+  if(force||m.key!==fuelKeypadSelectionKey||!fuelKeypadDirty){
+    fuelKeypadSelectionKey=m.key;
+    fuelKeypadBuffer=formatFuelEntry(m.v);
+    fuelKeypadDirty=false;
+  }
+  const tps=TPS_ROWS[m.r]==='IDLE'?'IDLE':TPS_ROWS[m.r]+'%';
+  fuelKeypadCell.textContent=tps+' · '+RPMS[m.c]+' RPM · '+m.count+' ô';
+  fuelKeypadValue.textContent=(fuelKeypadBuffer||'--')+' ms';
+}
+function keepFuelSelectionVisible(){
+  if(!fuelKeypad||fuelKeypad.getAttribute('aria-hidden')==='true'||!wrap)return;
+  const m=selectedFuelMeta();if(!m)return;
+  const td=table?.querySelector('td.mapcell[data-r="'+m.r+'"][data-c="'+m.c+'"]');if(!td)return;
+  const box=mapCellBoxInWrap(td);if(!box)return;
+  const edge=10,left=wrap.scrollLeft,top=wrap.scrollTop,vw=wrap.clientWidth,vh=wrap.clientHeight;
+  let nx=left,ny=top;
+  if(box.left<left+edge)nx=Math.max(0,box.left-edge);
+  else if(box.right>left+vw-edge)nx=Math.max(0,box.right-vw+edge);
+  if(box.top<top+edge)ny=Math.max(0,box.top-edge);
+  else if(box.bottom>top+vh-edge)ny=Math.max(0,box.bottom-vh+edge);
+  if(nx!==left||ny!==top)wrap.scrollTo({left:nx,top:ny,behavior:'auto'});
+}
+function openFuelKeypad(){
+  if(!standaloneFuelEditorActive()||!isEditableTab())return;
+  ensureSelection();
+  document.getElementById('mapEditorScreen')?.classList.add('mapKeypadOpen');
+  fuelKeypad?.setAttribute('aria-hidden','false');
+  fuelKeypadDirty=false;fuelKeypadSelectionKey='';
+  syncFuelKeypadSelection(true);
+  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+  setTimeout(()=>{updateMapSelectionPad();keepFuelSelectionVisible()},90);
+}
+function hideFuelKeypad(){
+  document.getElementById('mapEditorScreen')?.classList.remove('mapKeypadOpen');
+  fuelKeypad?.setAttribute('aria-hidden','true');
+  fuelKeypadBuffer='';fuelKeypadDirty=false;fuelKeypadSelectionKey='';
+  requestAnimationFrame(updateMapSelectionPad);
+}
+function fuelKeypadAppend(ch){
+  if(!fuelKeypadDirty){fuelKeypadBuffer='';fuelKeypadDirty=true}
+  if(ch==='.'){
+    if(fuelKeypadBuffer.includes('.'))return;
+    fuelKeypadBuffer=fuelKeypadBuffer?fuelKeypadBuffer+'.':'0.';
+  }else if(/^\d$/.test(ch)){
+    if(fuelKeypadBuffer.length>=8)return;
+    fuelKeypadBuffer+=ch;
+  }
+  syncFuelKeypadSelection(false);
+}
+function fuelKeypadBackspace(){
+  if(!fuelKeypadDirty){const m=selectedFuelMeta();fuelKeypadBuffer=formatFuelEntry(m?.v);fuelKeypadDirty=true}
+  fuelKeypadBuffer=fuelKeypadBuffer.slice(0,-1);
+  syncFuelKeypadSelection(false);
+}
+function fuelKeypadCommit(){
+  if(!standaloneFuelEditorActive()||!isEditableTab())return;
+  const v=Number(fuelKeypadBuffer);
+  if(!Number.isFinite(v)||fuelKeypadBuffer===''){
+    fuelKeypadValue.textContent='GIÁ TRỊ?';
+    return;
+  }
+  const safe=clamp(v,0,fuelProtocolMaxMs()),b=selectionBounds();
+  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)state.inject[r][c]=Number(safe.toFixed(3));
+  fuelKeypadBuffer=formatFuelEntry(safe);fuelKeypadDirty=false;
+  render();saveSoon();
+  $('selectionInfo').textContent='Đã nhập '+fuelKeypadBuffer+' ms · '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô';
+  syncFuelKeypadSelection(true);
+  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+}
+fuelKeypadToggle?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openFuelKeypad()});
+fuelKeypad?.querySelectorAll('[data-fuel-key]').forEach(btn=>btn.addEventListener('click',e=>{
+  e.preventDefault();e.stopPropagation();
+  const k=btn.dataset.fuelKey;
+  if(k==='clear'){fuelKeypadBuffer='';fuelKeypadDirty=true;syncFuelKeypadSelection(false);return}
+  if(k==='backspace'){fuelKeypadBackspace();return}
+  if(k==='enter'){fuelKeypadCommit();return}
+  if(k==='hide'){hideFuelKeypad();return}
+  fuelKeypadAppend(k);
+}));
+window.BlinkFuelKeypad={preferCustom:preferCustomFuelKeypad,open:openFuelKeypad,hide:hideFuelKeypad,sync:syncFuelKeypadSelection};
+window.hideFuelKeypad=hideFuelKeypad;
 function startScan(e){if(!scanMode)return;const td=e.target.closest('td.mapcell');if(!td)return;e.preventDefault();scanPointer=e.pointerId;setSelection(+td.dataset.r,+td.dataset.c,false);try{wrap.setPointerCapture(e.pointerId)}catch(_e){}}
 function moveScan(e){if(!scanMode||scanPointer!==e.pointerId)return;e.preventDefault();const td=cellAt(e.clientX,e.clientY);if(!td)return;state.selection.focusR=+td.dataset.r;state.selection.focusC=+td.dataset.c;highlightSelection()}
 function endScan(e){if(scanPointer!==e.pointerId)return;scanPointer=null;try{wrap.releasePointerCapture(e.pointerId)}catch(_e){};requestAnimationFrame(updateMapSelectionPad)}
@@ -4979,10 +5285,13 @@ floatSaveBtn?.addEventListener('click',e=>{
   if(btn&&!btn.disabled)btn.click();
   else showEcuNotice('error','CHƯA THỂ LƯU HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
 });
-window.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
-window.addEventListener('orientationchange',()=>setTimeout(updateMapSelectionPad,120));
+function refreshFuelEditorGeometry(){
+  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+}
+window.addEventListener('resize',refreshFuelEditorGeometry);
+window.addEventListener('orientationchange',()=>setTimeout(refreshFuelEditorGeometry,140));
 try{
-  window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(updateMapSelectionPad));
+  window.visualViewport?.addEventListener('resize',refreshFuelEditorGeometry);
 }catch(_e){}
 
 let mapZoomActive=false,mapZoomOwnFullscreen=false,mapZoomPrevLandscapeRequest=false;
@@ -5026,7 +5335,7 @@ async function enterMapZoom(){
   }catch(_e){}
   syncAppOrientation();
   syncMirrors();
-  setTimeout(()=>{try{highlightCurrent()}catch(_e){}},180);
+  setTimeout(()=>{try{highlightCurrent();refreshFuelEditorGeometry()}catch(_e){}},180);
 }
 async function exitMapZoom(){
   if(!mapZoomActive)return;
@@ -5039,7 +5348,7 @@ async function exitMapZoom(){
     try{await document.exitFullscreen?.()}catch(_e){}
   }
   mapZoomOwnFullscreen=false;
-  setTimeout(()=>{try{highlightCurrent()}catch(_e){}},120);
+  setTimeout(()=>{try{highlightCurrent();refreshFuelEditorGeometry()}catch(_e){}},120);
 }
 function syncMapZoomOrientation(){
   // Device auto-rotation may change the physical viewport. Keep zoom active and
