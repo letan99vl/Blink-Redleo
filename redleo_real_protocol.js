@@ -1659,9 +1659,12 @@ function parseReadAll(a,preferredCmd=null){
     if(x)candidates.push({s,frame:x});
   }
   candidates.sort((x,y)=>{
+    // Longest valid full frame wins. Command preference is only a tie-breaker;
+    // otherwise an AB/8B/AE byte inside a real ~10 KB payload could be mistaken
+    // for the outer response when the ECU chooses a different valid header.
+    if(x.frame.length!==y.frame.length)return y.frame.length-x.frame.length;
     const dx=(x.s===pref?1:0),dy=(y.s===pref?1:0);
-    if(dx!==dy)return dy-dx;
-    return y.frame.length-x.frame.length;
+    return dy-dx;
   });
   const f=candidates.length?candidates[0].frame:null;
   if(!f)throw new Error('Read All không tìm thấy frame AB/8B/AE checksum hợp lệ trong RX '+a.length+'B');
