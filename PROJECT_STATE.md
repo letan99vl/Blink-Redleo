@@ -17,10 +17,10 @@
 Production Android/web line.
 
 Current verified head when this checkpoint was written:
-`575a696ee4ebe75a7192f79a7c0bf5d1488828ba`
+`60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.21`
+`BLINK_PB_VERSION = 3.79.22`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -35,6 +35,11 @@ Important current state:
   - V8 readback comparison accounts for 0.05 ms wire quantization; V9+ keeps the existing tighter tolerance.
   - Legacy BLE READ_MAP uses a temporary 420-cell buffer and never pre-clears the current map to zero.
 - ATE V11 restore 0x8B flow is hardened: a valid 9958-byte restore image is authoritative, AB/AE/8B response headers are supported, and follow-up 0xAB is a secondary verification rather than a false-failure trigger.
+- PB 3.79.22 Auto Tune quick-map actions:
+  - Auto Tune keeps only the four quick views: AFR measured, AFR target, corrected fuel map, and injection time; no MAP 1-4 bank strip was added.
+  - Removed the redundant XEM MAP button from Auto Tune.
+  - Added a full-width MAP PHUN ĐÃ BÙ → ECU action in the Auto Tune quick-view cluster.
+  - The new action delegates to the existing applyCorrectedBtn safe path, so profile gating, three-run routing, write recovery, and readback verification are preserved.
 - PB 3.79.21 ATE V11 restore UX/safety fix:
   - Restore button has a dedicated capture handler and no longer shares the generic ECU command listener.
   - Restore uses Blink's in-app confirmation dialog instead of native `window.confirm()`, avoiding silent no-op behavior in Android/WebView launchers.
