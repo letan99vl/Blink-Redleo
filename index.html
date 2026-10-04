@@ -2376,7 +2376,10 @@ async function writeCurrentFuelMap(){
 }
 
 async function applyCorrectedAndWrite(){
-  if(state.threeRun.active)return alert('MODE CHẠY 3 LƯỢT đang hoạt động. Hãy dùng nút KẾT THÚC LƯỢT.');
+  if(state.threeRun.active){
+    if(state.threeRun.phase==='recording')return finishThreeRunPass();
+    return alert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
+  }
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
   const corrected=correctedMatrix();
   const next=blankMatrix(0);
@@ -2513,7 +2516,7 @@ function threeRunStatusText(){
 }
 function renderThreeRunUi(){
   const isThree=state.mode==='three';$('threeRunPanel').hidden=!isThree;$('recordBtn').style.display=isThree?'none':'';$('clearMeasured').style.display=isThree?'none':'';
-  $('applyCorrectedBtn').disabled=state.threeRun.active;
+  $('applyCorrectedBtn').disabled=$('applyCorrectedBtn').dataset.profileBlocked==='1'||$('applyCorrectedBtn').dataset.ioBusy==='1'||(state.threeRun.active&&state.threeRun.phase!=='recording');
   // Do not hard-disable READ/SAVE during 3-run: a disabled HTML button cannot
   // emit a click, which previously made LƯU HIỆN TẠI look completely dead.
   // The handlers now show a clear safety message/prompt instead.
