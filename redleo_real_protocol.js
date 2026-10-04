@@ -907,7 +907,7 @@ function installAfrListener(){
     const afrVCal=clamp(volts,0,2.66);
     const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
     state.live.afr=blinkRealMedianAfr5(afrRaw);
-    const now=performance.now();if(Array.isArray(state.afrHistory)){state.afrHistory.push({t:now,v:state.live.afr});while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();}
+    const now=performance.now();window.blinkAfrLastPacketAt=now;if(Array.isArray(state.afrHistory)){state.afrHistory.push({t:now,v:state.live.afr});while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();}
     try{updateLive();if(state.recording)recordSample(now);highlightCurrent();}catch(_e){}
   });
 }
