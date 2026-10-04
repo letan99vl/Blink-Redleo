@@ -853,6 +853,7 @@ function parseLiveReal(a){
   state.live.tpsV=liveVolt10(rawTps);
   const den=Number(state.cal?.tpsMax)-Number(state.cal?.tpsMin);
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
+  try{window.noteBlinkTpsTrend?.(state.live.tps,performance.now());}catch(_e){}
   state.live.rpm=u16be(a,6);
   // Verified profile-specific live injection SUM:
   // V10/Ultra = byte14..15 /640; ATE V11 = byte14..15 /500.
@@ -885,30 +886,24 @@ function parseLiveReal(a){
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
   try{updateLive();highlightCurrent();syncMirrors();}catch(_e){}
 }
-const blinkRealAfrMedianSamples=[];
-function blinkRealMedianAfr5(value){
-  if(!Number.isFinite(value))return NaN;
-  blinkRealAfrMedianSamples.push(value);
-  if(blinkRealAfrMedianSamples.length>5)blinkRealAfrMedianSamples.shift();
-  if(blinkRealAfrMedianSamples.length<3){
-    return blinkRealAfrMedianSamples.reduce((a,b)=>a+b,0)/blinkRealAfrMedianSamples.length;
-  }
-  const sorted=blinkRealAfrMedianSamples.slice().sort((a,b)=>a-b);
-  const mid=Math.floor(sorted.length/2);
-  return sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
-}
-
 function installAfrListener(){
   const ch=window.blinkLiveChar;if(!ch||ch.__blinkRealAfr)return;ch.__blinkRealAfr=true;
   ch.addEventListener('characteristicvaluechanged',ev=>{
-    const d=ev.target.value;if(!d||d.byteLength<3)return;const v=new DataView(d.buffer,d.byteOffset,d.byteLength);if(v.getUint8(0)!==0xA3)return;
-    const mv=v.getUint16(1,true),volts=mv/1000;if(typeof state==='undefined')return;state.live.afrV=volts;
-    // Keep Blink's established analog AFR calibration used by this project.
-    const afrVCal=clamp(volts,0,2.66);
-    const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
-    state.live.afr=blinkRealMedianAfr5(afrRaw);
-    const now=performance.now();window.blinkAfrLastPacketAt=now;if(Array.isArray(state.afrHistory)){state.afrHistory.push({t:now,v:state.live.afr});while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();}
-    try{updateLive();if(state.recording)recordSample(now);highlightCurrent();}catch(_e){}
+    const d=ev.target.value;
+    if(!d||d.byteLength<3)return;
+    const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+    if(v.getUint8(0)!==0xA3)return;
+    const mv=v.getUint16(1,true),volts=mv/1000;
+    // Production FW1.8 sends only raw millivolts in A3. Delegate conversion,
+    // AFR history, throttle-close gating and recording to the single Blink
+    // pipeline in index.html. No median/EMA or fixed 0..2.66V calibration here.
+    if(typeof window.blinkProcessAfrPacket==='function'){
+      window.blinkProcessAfrPacket({afrV:volts,source:'BLE_A3'});
+      return;
+    }
+    // Fail-safe for an unexpectedly old page: show raw voltage but do not
+    // invent a second AFR formula or record Auto Tune samples.
+    if(typeof state!=='undefined')state.live.afrV=volts;
   });
 }
 async function handshakeReal(){
@@ -1778,6 +1773,7 @@ function syncCurrentFuel(bank,matrix,frameLen){
   if(typeof state==='undefined')return;
   bank=clamp(Math.round(bank),1,4);
   if(state.mapBanks&&state.mapBanks[bank-1])state.mapBanks[bank-1].inject=matrix.map(r=>r.slice());
+  if(Array.isArray(state.fuelSyncUnknown)&&state.fuelSyncUnknown.length===4)state.fuelSyncUnknown[bank-1]=false;
   try{
     if(state.activeMap===bank)render();
     updateLive();
