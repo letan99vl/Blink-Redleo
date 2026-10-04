@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.42**.
+- Current displayed PB: **3.79.43**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -245,6 +245,7 @@ Recent PB progression:
 - 3.79.40 REDLEO 9.2 page6 exact 62B serializer + real 11-point ECT Motor grid; unverified V9.1/V10 page6 writers locked
 - 3.79.41 V10.2 page6 exact 18B Idle/Limit serializer from original IL; ECT Motor removed from V10 page6 surface and routed to A2 work
 - 3.79.42 V10.2 exact 268B A2 serializer; verified partial RMW writers for IAT/MAP motor/ECT motor/external/voltage; Ultra remains separate
+- 3.79.43 V10.2 AutoClutch timer writer: edits only CONFIG bytes +2..+6 (raw=ms/5), preserves feature byte + Start RPM + password
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -405,3 +406,25 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Final regression repairs: `560a24e1ef6cce7ab77fbacce0b4042db5689a2b`, `d02fbc23c269c61b11e97601b277eec0a085a96e`.
 - PB bump: `bd3a6d80aecb327585dd99c237e0d8e897b8c5f2`.
 - Hardware status: **NEEDS REAL V10.2 TEST**. Do not release-certify A2 writers until real V10.2 READ -> one small controlled change -> SAVE -> READBACK passes.
+
+
+## V10.2 AutoClutch update - 2026-10-05
+
+- PB: **3.79.43**.
+- Original V10.2 evidence re-checked in `UartDat::programSpaceOut` and `proReadAutoClutchPassword`.
+- CONFIG block remains 11B:
+  - byte +0: feature/config flags
+  - byte +1: AutoClutch Start RPM (raw × 50 RPM)
+  - bytes +2..+6: five AutoClutch timer values (UI ms = raw × 5)
+  - bytes +7..+10: four password nibbles
+- Blink now exposes the existing 1×5 AutoClutch table for direct V10.2 only.
+- V10.2 AutoClutch writer patches ONLY CONFIG bytes +2..+6 using `raw = round(ms / 5)`.
+- It preserves CONFIG feature byte, Start RPM, password, all other A2 blocks, and any reply-only tail.
+- Ultra is not broadened: direct V10.2 gate remains mandatory.
+- Backup: `backup-pb-3.79.42-pre-v10-autoclutch`.
+- Core commit: `ce130db5f97029083e2119daf0edd5464450bc5e`.
+- Regression extension: `d32d0c807053cb4ddba404e1f8bdf7bbdcea533f`.
+- CI run **37243092053** passed syntax + row orientation + 9.2 page6 + V10.2 page6 + V10.2 A2 checks.
+- PB bump: `0e82911ebfcfb4e9ac56fcdfc770e10d0a6cc574`.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Do not release-certify until a real V10.2 timer cell change survives SAVE + READBACK.
+- Next exact V10 task: reconstruct and expose V10.2 **ECT Start Add 3×11 / 33B** with its row-specific units; keep Option/TPS-axis writes locked until separately proven.
