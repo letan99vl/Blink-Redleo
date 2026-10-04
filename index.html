@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.10';
+  window.BLINK_PB_VERSION = '3.79.11';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1445,7 +1445,7 @@ const state={
   ecuReadAllQueued:false,
   ecuTpsStudyQueued:false, ecuTpsStudyToken:0,
   ecuWriteQueued:false, ecuWriteFrames:null, ecuWriteStep:0, ecuVerifyAfterWrite:false,
-  ecuWriteSnapshot:null, ecuWriteMapNo:1,
+  ecuWriteSnapshot:null, ecuWriteMapNo:1, pendingAfrClearMapNo:0,
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
@@ -2405,9 +2405,11 @@ async function applyCorrectedAndWrite(){
   if(!ok)return;
 
   state.inject=next;
+  state.pendingAfrClearMapNo=state.activeMap;
   saveSoon();
   if(state.tab==='inject'||state.tab==='corrected')render();
-  await startFuelWrite({skipConfirm:true});
+  const writeStarted=await startFuelWrite({skipConfirm:true});
+  if(!writeStarted)state.pendingAfrClearMapNo=0;
 }
 
 
@@ -2589,7 +2591,21 @@ function resetThreeRunCancelled(msg='ĐÃ HỦY PHIÊN 3 LƯỢT'){
   $('mapSelect').disabled=false;
   renderThreeRunUi();saveSoon();flashSave(msg);
 }
+function clearMeasuredAfterCorrectedWrite(mapNo){
+  const pending=Number(state.pendingAfrClearMapNo)||0;
+  if(!pending)return false;
+  if(mapNo!==pending)return false;
+  state.pendingAfrClearMapNo=0;
+  const bank=state.mapBanks[mapNo-1];
+  if(bank){bank.measured=blankMatrix(null);bank.counts=blankMatrix(0);}
+  state.lastCellKey='';
+  if(state.activeMap===mapNo&&state.tab==='measured')render();
+  saveSoon();
+  flashSave('GHI MAP ĐÃ BÙ OK · ĐÃ XÓA BẢNG AFR · MAP No.'+mapNo);
+  return true;
+}
 function onFuelWriteVerified(mapNo){
+  if(!state.threeRun.active)clearMeasuredAfterCorrectedWrite(mapNo);
   const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
   if(tr.cancelRequested){resetThreeRunCancelled('GHI ACK OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
   if(!tr.pendingNextPass)return;
@@ -2599,6 +2615,7 @@ function onFuelWriteVerified(mapNo){
   beginThreeRunPass(next,false);flashSave('GHI ACK OK · tự bắt đầu LƯỢT '+next+'/3');
 }
 function onFuelWriteVerifyFailed(mapNo,cmp){
+  if(Number(state.pendingAfrClearMapNo)===mapNo)state.pendingAfrClearMapNo=0;
   const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
   if(tr.cancelRequested){resetThreeRunCancelled('GHI ECU LỖI · PHIÊN 3 LƯỢT ĐÃ HỦY');return;}
   tr.phase='error';tr.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();
