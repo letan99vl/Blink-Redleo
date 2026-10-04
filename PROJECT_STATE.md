@@ -17,10 +17,10 @@
 Production Android/web line.
 
 Current verified head when this checkpoint was written:
-`457771f1b3e03f651fb9bf25b6a3ff39426784ba`
+`575a696ee4ebe75a7192f79a7c0bf5d1488828ba`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.20`
+`BLINK_PB_VERSION = 3.79.21`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -35,6 +35,11 @@ Important current state:
   - V8 readback comparison accounts for 0.05 ms wire quantization; V9+ keeps the existing tighter tolerance.
   - Legacy BLE READ_MAP uses a temporary 420-cell buffer and never pre-clears the current map to zero.
 - ATE V11 restore 0x8B flow is hardened: a valid 9958-byte restore image is authoritative, AB/AE/8B response headers are supported, and follow-up 0xAB is a secondary verification rather than a false-failure trigger.
+- PB 3.79.21 ATE V11 restore UX/safety fix:
+  - Restore button has a dedicated capture handler and no longer shares the generic ECU command listener.
+  - Restore uses Blink's in-app confirmation dialog instead of native `window.confirm()`, avoiding silent no-op behavior in Android/WebView launchers.
+  - Tap feedback appears before confirmation, and the Restore button is locked from the first tap through completion/cancel to prevent double-dispatch.
+  - Restore still sends the verified 0x8B flow and uses 0xAB as secondary readback.
 - PB 3.79.20 fuel-map UI split:
   - INJ VE / Thời gian phun is a standalone clean editor state; Auto Tune AFR/target/corrected controls stay in the Auto Tune flow.
   - Manual XOAY NGANG button was removed. PHÓNG TO MAP remains the single control that enters Blink's software-landscape/fullscreen map mode.
