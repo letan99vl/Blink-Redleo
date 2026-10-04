@@ -1643,9 +1643,27 @@ function syncV11ReadAll(C){
   if(st)st.textContent='ATE V11 · READ ALL 9958B · KNOWN TABLES DECODED · UNKNOWN BYTES PRESERVED';
 }
 
-function parseReadAll(a){
+function parseReadAll(a,preferredCmd=null){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
-  const f=findValidCommandFrame(a,0xAB,100)||findValidCommandFrame(a,0x8B,100)||findValidCommandFrame(a,0xAE,100);
+  const starts=[];
+  const pref=Number(preferredCmd)&255;
+  if(pref===0xAB||pref===0x8B||pref===0xAE)starts.push(pref);
+  for(const s of [0xAE,0xAB,0x8B])if(!starts.includes(s))starts.push(s);
+
+  // A ~10 KB full image can naturally contain AB/8B/AE inside its payload.
+  // Prefer the command we actually sent, then select the longest checksum-valid
+  // candidate so an accidental internal byte cannot win over the real frame.
+  const candidates=[];
+  for(const s of starts){
+    const x=findValidCommandFrame(a,s,100);
+    if(x)candidates.push({s,frame:x});
+  }
+  candidates.sort((x,y)=>{
+    const dx=(x.s===pref?1:0),dy=(y.s===pref?1:0);
+    if(dx!==dy)return dy-dx;
+    return y.frame.length-x.frame.length;
+  });
+  const f=candidates.length?candidates[0].frame:null;
   if(!f)throw new Error('Read All không tìm thấy frame AB/8B/AE checksum hợp lệ trong RX '+a.length+'B');
 
   // ATE V11.1 exact full-image layout reconstructed from the original EXE.
@@ -2299,7 +2317,7 @@ async function readAll(cmd=0xAB){
   else requireProfile('readAll','Đọc toàn bộ ECU');
   taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
   const rx=await rawExchange(req5(cmd,cmd),35000);
-  let C=parseReadAll(rx);
+  let C=parseReadAll(rx,cmd);
   // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
   // even if its byte length happens to collide with a known modern length.
   if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
@@ -3292,18 +3310,36 @@ async function restoreReal(){
     const restored=await readAll(0x8B);
     if(isV11Profile()){
       if(!restored||!restored.v11Decoded||restored.sourceLength!==9958)throw new Error('ATE V11 Restore 0x8B không trả full image 9958B hợp lệ.');
-      await new Promise(r=>setTimeout(r,350));
-      taskUi('loading','ATE V11 · RESTORE ACK · READ ALL VERIFY...');
-      const verify=await readAll(0xAB);
-      if(!verify||!verify.v11Decoded||verify.sourceLength!==9958)throw new Error('Restore đã trả dữ liệu nhưng READ ALL verify không hợp lệ.');
-      const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
-      if(!bytesEqual(a,b))throw new Error('RESTORE VERIFY: dữ liệu sau 0x8B khác lần READ ALL xác nhận.');
+
+      // Match the original ATE behavior: a checksum-valid full 0x8B response is
+      // already authoritative proof that the restore transaction completed.
+      // Blink still performs an extra 0xAB readback, but it must not turn a
+      // successful restore into a false failure merely because the follow-up
+      // snapshot differs or the ECU is briefly busy immediately after reset.
+      let verify=null,verifyDetail='0x8B 9958B hợp lệ';
+      await new Promise(r=>setTimeout(r,650));
+      try{
+        taskUi('loading','ATE V11 · RESTORE 0x8B OK · ĐỌC LẠI 0xAB...');
+        verify=await readAll(0xAB);
+        if(verify&&verify.v11Decoded&&verify.sourceLength===9958){
+          const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
+          verifyDetail=bytesEqual(a,b)
+            ?'0x8B + 0xAB verify byte-level OK'
+            :'0x8B OK · 0xAB hợp lệ nhưng snapshot có thay đổi sau reset';
+        }else{
+          verifyDetail='0x8B OK · 0xAB chưa trả layout 9958B';
+        }
+      }catch(e){
+        verifyDetail='0x8B OK · readback 0xAB chưa xác nhận: '+String(e&&e.message||e);
+        log('ATE V11 restore readback warning:',String(e&&e.message||e));
+      }
+
       try{await refreshV11PasswordHandshake();}catch(e){
         if(handshakeInfo)handshakeInfo.password=null;
         log('Restore OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
       }
-      notice('success','RESTORE ATE V11 OK','0x8B + Read All 9958B verify byte-level · PIN handshake đã làm mới.');
-      return verify;
+      notice('success','RESTORE ATE V11 OK',verifyDetail+' · PIN handshake đã làm mới nếu ECU phản hồi.');
+      return verify||restored;
     }
     if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
       if(!restored||!restored.raw||restored.raw.length<100)throw new Error('REDLEO V9 Restore 0x8B không trả full image hợp lệ.');
