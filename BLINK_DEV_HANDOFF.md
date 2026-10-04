@@ -156,26 +156,27 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
 
 ## 6. V10.2 status
 
-- V10 and Ultra share MODERN_V10 profile, so gate carefully.
+- V10 and Ultra share MODERN_V10 profile in Blink, but original writers are NOT identical. Keep serializer gates separate.
 - V10 vs Ultra is separated using handshake text containing ULTRA.
-- Known read A2 prefix: first **140B**:
-  - TPS 14B
-  - RPM 60B
-  - vAFR 11B
-  - vECT 11B
-  - vIAT 11B
-  - vMAP 11B
-  - IAT INJ 11B
-  - MAP Motor 11B
-- IMPORTANT: A2 direct-write for V10 was deliberately re-locked because readable 140B does NOT prove accepted TX length.
-- Do not re-enable V10 A2 until original V10 writer TX length is reconstructed.
-- V10 page6 assumptions must also be verified against original V10 software before real hardware claims.
+- Static IL from original V10.2 confirms:
+  - page family 6 serializes **only Dgv_Idle_Limit[bank]** via `proUartDgvNumOption`; it does NOT serialize ECT Motor there.
+  - therefore V10 page6 is structurally different from REDLEO 9.2 page6.
+  - A2 writer starts with `proUartDgvNumVoltage`, which serializes TPS + RPM + vAFR + vECT + vIAT + vMAP + IAT INJ + MAP Motor (the known 140B prefix), then appends Options + ECT Motor + ECT Start Add + External Adjustment + password-related bytes.
+  - firmware-dependent Spare may also be included in the voltage prefix on older firmware.
+- IMPORTANT: A2 direct-write for V10 remains deliberately LOCKED because readable 140B does NOT prove the complete accepted TX length.
+- V10 Idle/page6 writer also remains LOCKED in Blink until the exact original V10 Idle 18B TX/readback path is implemented separately.
+- Never reuse the 9.2 62B page6 serializer for V10.
 
 ## 7. Ultra Pro1 status
 
-- Ultra executable is highly similar to V10 but must be treated as a separate writer-validation target.
-- Ultra remains excluded from V10 direct writer gates until separately proven.
-- Next planned ECU family after 9.2 page-0x62 is solved.
+- Ultra executable is highly similar to V10 but its original writer differs materially.
+- Static IL from original Ultra Pro1 confirms:
+  - page family 6 serializes **Idle Limit + AutoShift + Four-Spare** for the selected bank.
+  - ECT Motor and ECT Start Add are NOT on page6; they are serialized in A2.
+  - Ultra A2 serializes TPS/RPM/voltages/IAT INJ/MAP Motor prefix, then Options + ECT Motor + ECT Start Add + One-Spare + External Adjustment; newer firmware may also append CHG.
+- Therefore Ultra must have its own page6/A2 writer and must NOT reuse V10.2 or 9.2 TX assumptions.
+- Ultra remains LOCKED for these extended writers until exact block dimensions/TX length are reconstructed.
+- Main fuel/angle/dwell support remains separate from this extended-writer work.
 
 ## 8. V8 status
 
