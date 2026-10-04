@@ -1484,6 +1484,46 @@
     }
   }
 
+  /* PB 3.79.26 · zoom/fullscreen toolbar must also remain fully visible. */
+  body.mapZoomMode #mapEditorScreen .editorStepBar{
+    display:grid!important;
+    grid-template-columns:minmax(0,1.7fr) minmax(76px,.65fr) minmax(0,1.35fr) minmax(106px,.9fr)!important;
+    grid-template-rows:34px!important;
+    height:42px!important;
+    min-height:42px!important;
+    flex-wrap:unset!important;
+    overflow:visible!important;
+    white-space:normal!important;
+  }
+  body.mapZoomMode #mapEditorScreen .mapStepGroup{grid-column:1;grid-row:1}
+  body.mapZoomMode #mapEditorScreen #mapScanToggle{grid-column:2;grid-row:1;min-width:0!important}
+  body.mapZoomMode #mapEditorScreen .mapModeGroup{grid-column:3;grid-row:1}
+  body.mapZoomMode #mapEditorScreen #mapLiveCursorToggle{grid-column:4;grid-row:1;min-width:0!important}
+  body.mapZoomMode #mapEditorScreen .mapToolGroup .stepChip{
+    min-width:0!important;
+    width:100%!important;
+    padding-left:3px!important;
+    padding-right:3px!important;
+  }
+  @media(max-width:600px){
+    body.mapZoomMode #mapEditorScreen .editorStepBar{
+      grid-template-columns:minmax(0,1.7fr) minmax(82px,.9fr)!important;
+      grid-template-rows:32px 32px!important;
+      height:72px!important;
+      min-height:72px!important;
+    }
+    body.mapZoomMode #mapEditorScreen .mapStepGroup{grid-column:1;grid-row:1}
+    body.mapZoomMode #mapEditorScreen #mapScanToggle{grid-column:2;grid-row:1}
+    body.mapZoomMode #mapEditorScreen .mapModeGroup{grid-column:1;grid-row:2}
+    body.mapZoomMode #mapEditorScreen #mapLiveCursorToggle{grid-column:2;grid-row:2}
+    body.mapZoomMode #mapWrap{
+      top:72px!important;
+      height:calc(100dvh - 72px)!important;
+      min-height:calc(100dvh - 72px)!important;
+      max-height:calc(100dvh - 72px)!important;
+    }
+  }
+
 </style>
 </head>
 <body>
