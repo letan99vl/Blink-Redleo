@@ -262,6 +262,10 @@ function mainFeaturePage(id,bank){
 }
 function isDirectVerifiedFeature(id){
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
+  // REDLEO 9.2+ uses dedicated compensation pages 0x72/0x82/0x92.
+  // These layouts and row orientation are already handled explicitly below,
+  // so they can use the same page-read -> page-write safety gate as the main maps.
+  if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -2790,8 +2794,23 @@ async function writeFeatureReal(id){
       await waitForEcuIdle(16000);
       await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,5)?25:120));
       await writePageChecked(pg,payload,false,1,'mainWrite');
+
+      // REDLEO 9.2 compensation pages are now direct-write enabled. Verify the
+      // whole payload after ACK so a lost/partial write cannot look successful.
+      if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj'].includes(id)){
+        const verify=await readDirectPageReal(pg,payload.length,'XÁC MINH '+id.toUpperCase(),false);
+        const got=verify.data;
+        let mismatch=-1;
+        for(let i=0;i<payload.length;i++){
+          if(got[i]!==payload[i]){mismatch=i;break;}
+        }
+        if(mismatch>=0){
+          throw new Error('ECU ACK nhưng đọc lại '+id+' khác dữ liệu ghi tại byte '+mismatch+' · expected '+payload[mismatch]+' · got '+got[mismatch]);
+        }
+      }
+
       cacheAckedPage(pg,payload);
-      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK');
+      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ECU ACK'+((ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj'].includes(id))?' + READBACK OK':''));
       return {ack:true,page:pg,payload:Uint8Array.from(payload)};
     }finally{
       if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(380);
