@@ -261,7 +261,6 @@ function mainFeaturePage(id,bank){
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
-  if(v10&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
@@ -272,7 +271,7 @@ function isDirectVerifiedFeature(id){
   // These layouts and row orientation are already handled explicitly below,
   // so they can use the same page-read -> page-write safety gate as the main maps.
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
-  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id))return true;
+  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -2955,6 +2954,9 @@ async function writeV11A2KnownFeature(id){
 }
 async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
+  if(isV10Direct()&&['iat_inj','map_idle_motor','v_ect','v_iat','v_map'].includes(id)){
+    throw new Error('REDLEO V10 · '+id+' đang khóa ghi an toàn: đã đọc/giải mã được A2 prefix 140B nhưng chưa xác minh độ dài TX page A2 mà ECU chấp nhận.');
+  }
   const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
