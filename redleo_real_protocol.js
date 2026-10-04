@@ -1638,6 +1638,24 @@ function syncV11ReadAll(C){
   if(st)st.textContent='ATE V11 · READ ALL 9958B · KNOWN TABLES DECODED · UNKNOWN BYTES PRESERVED';
 }
 
+function parseRestoreResponse(a){
+  if(!(a instanceof Uint8Array))a=new Uint8Array(a||[]);
+  const candidates=[];
+  for(const s of [0x8B,0xAB,0xAE]){
+    const f=findValidCommandFrame(a,s,3);
+    if(f)candidates.push({s,frame:f});
+  }
+  candidates.sort((x,y)=>y.frame.length-x.frame.length);
+  const best=candidates[0]||null;
+  if(!best)throw new Error('ATE V11 Restore 0x8B không trả frame checksum hợp lệ · RX '+a.length+'B');
+  return {
+    raw:best.frame.slice(),
+    sourceLength:best.frame.length,
+    command:best.s,
+    checksumValid:true
+  };
+}
+
 function parseReadAll(a,preferredCmd=null){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   const starts=[];
@@ -2313,11 +2331,11 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
   return R;
 }
-async function readAll(cmd=0xAB){
+async function readAll(cmd=0xAB,timeoutMs=35000){
   if(cmd===0x8B)requireProfile('restore','Khôi phục ECU');
   else requireProfile('readAll','Đọc toàn bộ ECU');
   taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
-  const rx=await rawExchange(req5(cmd,cmd),35000);
+  const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
   let C=parseReadAll(rx,cmd);
   // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
   // even if its byte length happens to collide with a known modern length.
@@ -3361,40 +3379,56 @@ async function restoreReal(){
   const resume=liveRunning;stopLiveLoop();
   try{
     taskUi('loading','ATE · RESTORE 0x8B · ĐANG CHỜ ECU...');
-    const restored=await readAll(0x8B);
+
     if(isV11Profile()){
-      if(!restored||!restored.v11Decoded||restored.sourceLength!==9958)throw new Error('ATE V11 Restore 0x8B không trả full image 9958B hợp lệ.');
+      // Restore 0x8B is its own transaction. Do NOT force its response through
+      // the 9958-byte 0xAB Read-All decoder; real V11 ECUs can return a different
+      // checksum-valid restore response layout.
+      const rx=await rawExchange(req5(0x8B,0x8B),35000);
+      const restored=parseRestoreResponse(rx);
+      taskUi('loading','ATE V11 · 0x8B ACK '+restored.sourceLength+'B · ĐANG XÁC MINH 0xAB...');
 
-      // Match the original ATE behavior: a checksum-valid full 0x8B response is
-      // already authoritative proof that the restore transaction completed.
-      // Blink still performs an extra 0xAB readback, but it must not turn a
-      // successful restore into a false failure merely because the follow-up
-      // snapshot differs or the ECU is briefly busy immediately after reset.
-      let verify=null,verifyDetail='0x8B 9958B hợp lệ';
-      await new Promise(r=>setTimeout(r,650));
-      try{
-        taskUi('loading','ATE V11 · RESTORE 0x8B OK · ĐỌC LẠI 0xAB...');
-        verify=await readAll(0xAB);
-        if(verify&&verify.v11Decoded&&verify.sourceLength===9958){
-          const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
-          verifyDetail=bytesEqual(a,b)
-            ?'0x8B + 0xAB verify byte-level OK'
-            :'0x8B OK · 0xAB hợp lệ nhưng snapshot có thay đổi sau reset';
-        }else{
-          verifyDetail='0x8B OK · 0xAB chưa trả layout 9958B';
+      let verify=null,lastVerify=null,lastVerifyError=null;
+      const delays=[850,1800];
+      for(let attempt=0;attempt<delays.length&&!verify;attempt++){
+        await new Promise(r=>setTimeout(r,delays[attempt]));
+        try{
+          taskUi('loading','ATE V11 · 0x8B OK '+restored.sourceLength+'B · VERIFY 0xAB '+(attempt+1)+'/'+delays.length);
+          const C=await readAll(0xAB,20000);
+          lastVerify=C;
+          if(C&&C.v11Decoded&&C.sourceLength===9958)verify=C;
+          else log('ATE V11 restore verify returned alternate valid Read All',C&&C.sourceLength,C&&C.layoutInfo);
+        }catch(e){
+          lastVerifyError=e;
+          log('ATE V11 restore readback attempt '+(attempt+1)+' warning:',String(e&&e.message||e));
         }
-      }catch(e){
-        verifyDetail='0x8B OK · readback 0xAB chưa xác nhận: '+String(e&&e.message||e);
-        log('ATE V11 restore readback warning:',String(e&&e.message||e));
       }
 
-      try{await refreshV11PasswordHandshake();}catch(e){
+      let handshakeOk=false;
+      try{
+        await refreshV11PasswordHandshake();
+        handshakeOk=true;
+      }catch(e){
         if(handshakeInfo)handshakeInfo.password=null;
-        log('Restore OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
+        log('Restore ACK OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
       }
-      notice('success','RESTORE ATE V11 OK',verifyDetail+' · PIN handshake đã làm mới nếu ECU phản hồi.');
-      return verify||restored;
+
+      if(verify){
+        notice('success','RESTORE ATE V11 OK','0x8B ACK '+restored.sourceLength+'B checksum OK · 0xAB Read All 9958B verify OK'+(handshakeOk?' · handshake OK':'')+'.');
+        return verify;
+      }
+
+      const readbackDetail=lastVerify
+        ?'0xAB trả frame checksum hợp lệ '+lastVerify.sourceLength+'B nhưng chưa phải layout 9958B'
+        :(lastVerifyError?'0xAB chưa xác minh: '+String(lastVerifyError&&lastVerifyError.message||lastVerifyError):'0xAB chưa xác minh');
+      taskUi('success','ATE V11 · RESTORE 0x8B ĐÃ PHẢN HỒI',4200);
+      if(typeof window.showEcuNotice==='function'){
+        showEcuNotice('info','RESTORE ATE V11 ĐÃ THỰC HIỆN','0x8B trả '+restored.sourceLength+'B checksum hợp lệ. '+readbackDetail+'.'+(handshakeOk?' ECU đã handshake lại thành công.':'')+' Không báo lỗi giả; hãy ĐỌC TOÀN BỘ lại nếu cần xác minh full image.',0);
+      }
+      return restored;
     }
+
+    const restored=await readAll(0x8B);
     if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
       if(!restored||!restored.raw||restored.raw.length<100)throw new Error('REDLEO V9 Restore 0x8B không trả full image hợp lệ.');
       await new Promise(r=>setTimeout(r,350));
