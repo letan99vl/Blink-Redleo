@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.9';
+  window.BLINK_PB_VERSION = '3.79.10';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1306,7 +1306,7 @@
       <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
       <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>ESP32 OTA qua Wi-Fi</p><span class="tiny">SYS_05</span></div>
     </div>
-    <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div><div class="field"><label>AFR sàn không dùng</label><input id="afrFloor" type="number" min="9.5" max="11" step="0.01" value="10.05"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
+    <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
     <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
       <div class="settingsGrid">
@@ -1448,7 +1448,7 @@ const state={
   ecuWriteSnapshot:null, ecuWriteMapNo:1,
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
-  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30,afrFloor:10.05},
+  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
@@ -1566,11 +1566,11 @@ function syncControls(){
   if(!Number.isFinite(state.cal.afrValueMin))state.cal.afrValueMin=9;
   if(!Number.isFinite(state.cal.afrValueMax))state.cal.afrValueMax=18;
   $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
-  $('settleMs').value=state.cal.settleMs; $('afrVoltMin').value=state.cal.afrVoltMin; $('afrVoltMax').value=state.cal.afrVoltMax; $('afrValueMin').value=state.cal.afrValueMin; $('afrValueMax').value=state.cal.afrValueMax; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('afrFloor').value=state.cal.afrFloor; $('tuneMode').value=state.mode;
+  $('settleMs').value=state.cal.settleMs; $('afrVoltMin').value=state.cal.afrVoltMin; $('afrVoltMax').value=state.cal.afrVoltMax; $('afrValueMin').value=state.cal.afrValueMin; $('afrValueMax').value=state.cal.afrValueMax; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('tuneMode').value=state.mode;
 }
 function pullControls(){
   state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
-  state.cal.settleMs=Math.max(0,num($('settleMs').value,0)); state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,5); state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,2.66),0.01,5); if(state.cal.afrVoltMax<=state.cal.afrVoltMin+0.001)state.cal.afrVoltMax=Math.min(5,state.cal.afrVoltMin+0.01); state.cal.afrValueMin=clamp(num($('afrValueMin').value,9),5,25); state.cal.afrValueMax=clamp(num($('afrValueMax').value,18),5.1,30); if(state.cal.afrValueMax<=state.cal.afrValueMin+0.1)state.cal.afrValueMax=Math.min(30,state.cal.afrValueMin+0.1); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); state.cal.afrFloor=clamp(num($('afrFloor').value,10.05),9.5,11); saveSoon();
+  state.cal.settleMs=Math.max(0,num($('settleMs').value,0)); state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,5); state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,2.66),0.01,5); if(state.cal.afrVoltMax<=state.cal.afrVoltMin+0.001)state.cal.afrVoltMax=Math.min(5,state.cal.afrVoltMin+0.01); state.cal.afrValueMin=clamp(num($('afrValueMin').value,9),5,25); state.cal.afrValueMax=clamp(num($('afrValueMax').value,18),5.1,30); if(state.cal.afrValueMax<=state.cal.afrValueMin+0.1)state.cal.afrValueMax=Math.min(30,state.cal.afrValueMin+0.1); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); saveSoon();
 }
 
 function matrixFor(tab){
@@ -2439,22 +2439,20 @@ function matrixToWritable(base,proposal){
   return out;
 }
 function adaptiveThirdMap(run1,run2,targetMap){
-  const out=cloneMatrix(run2.pw),floor=state.cal.afrFloor,lim=state.cal.threeRunLimitPct/100;
-  const stats={response2Point:0,fallbackRun2:0,ignoredRun1Floor:0,ignoredRun2Floor:0,noData:0,noResponse:0,limited:0};
+  const out=cloneMatrix(run2.pw),lim=state.cal.threeRunLimitPct/100;
+  const stats={response2Point:0,fallbackRun2:0,noData:0,noResponse:0,limited:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const p1=num(run1.pw[r][c],0),p2=num(run2.pw[r][c],0),a1=Number(run1.afr[r][c]),a2=Number(run2.afr[r][c]),t=num(targetMap[r][c],0);
     const n1=num(run1.counts[r][c],0),n2=num(run2.counts[r][c],0);
-    if(p2<=0||t<=0||n2<=0||!Number.isFinite(a2)){stats.noData++;continue;}
-    if(a2<=floor){stats.ignoredRun2Floor++;continue;}
+    if(p2<=0||t<=0||n2<=0||!Number.isFinite(a2)||a2<=0){stats.noData++;continue;}
     if(Math.abs(a2-t)<=0.03)continue;
     let predicted=NaN;
-    const run1Usable=n1>0&&Number.isFinite(a1)&&a1>floor&&p1>0;
+    const run1Usable=n1>0&&Number.isFinite(a1)&&a1>0&&p1>0;
     if(run1Usable){
       const dP=Math.log(p2/p1),dA=Math.log(a2/a1),k=Math.abs(dP)>0.002?(-dA/dP):NaN;
       if(Number.isFinite(k)&&k>=0.20&&k<=3.00){predicted=p2*Math.pow(a2/t,1/k);stats.response2Point++;}
       else{predicted=p2*(a2/t);stats.noResponse++;stats.fallbackRun2++;}
     }else{
-      if(n1>0&&Number.isFinite(a1)&&a1<=floor)stats.ignoredRun1Floor++;
       predicted=p2*(a2/t);stats.fallbackRun2++;
     }
     const lo=Math.max(0,p2*(1-lim)),hi=p2*(1+lim),limited=clamp(predicted,lo,hi);
@@ -2465,27 +2463,22 @@ function adaptiveThirdMap(run1,run2,targetMap){
 }
 
 function adaptiveFinalMap(run2,run3,targetMap){
-  // FINAL correction after pass 3. Use the newest response (run2 -> run3)
-  // when both AFR points are trustworthy. If run2 was saturated at the AFR
-  // floor but run3 is valid, fall back to the normal AFR ratio from run3.
-  // If run3 is still at/below the AFR floor, keep PW unchanged because the
-  // true richness is unknown.
-  const out=cloneMatrix(run3.pw),floor=state.cal.afrFloor,lim=state.cal.threeRunLimitPct/100;
-  const stats={response2Point:0,fallbackRun3:0,ignoredRun2Floor:0,ignoredRun3Floor:0,noData:0,noResponse:0,limited:0,alreadyOnTarget:0};
+  // FINAL correction after pass 3. Every positive finite AFR sample is usable.
+  // Prefer the learned run2 -> run3 response; fall back to the direct AFR ratio.
+  const out=cloneMatrix(run3.pw),lim=state.cal.threeRunLimitPct/100;
+  const stats={response2Point:0,fallbackRun3:0,noData:0,noResponse:0,limited:0,alreadyOnTarget:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const p2=num(run2.pw[r][c],0),p3=num(run3.pw[r][c],0),a2=Number(run2.afr[r][c]),a3=Number(run3.afr[r][c]),t=num(targetMap[r][c],0);
     const n2=num(run2.counts[r][c],0),n3=num(run3.counts[r][c],0);
-    if(p3<=0||t<=0||n3<=0||!Number.isFinite(a3)){stats.noData++;continue;}
-    if(a3<=floor){stats.ignoredRun3Floor++;continue;}
+    if(p3<=0||t<=0||n3<=0||!Number.isFinite(a3)||a3<=0){stats.noData++;continue;}
     if(Math.abs(a3-t)<=0.03){stats.alreadyOnTarget++;continue;}
     let predicted=NaN;
-    const run2Usable=n2>0&&Number.isFinite(a2)&&a2>floor&&p2>0;
+    const run2Usable=n2>0&&Number.isFinite(a2)&&a2>0&&p2>0;
     if(run2Usable){
       const dP=Math.log(p3/p2),dA=Math.log(a3/a2),k=Math.abs(dP)>0.002?(-dA/dP):NaN;
       if(Number.isFinite(k)&&k>=0.20&&k<=3.00){predicted=p3*Math.pow(a3/t,1/k);stats.response2Point++;}
       else{predicted=p3*(a3/t);stats.noResponse++;stats.fallbackRun3++;}
     }else{
-      if(n2>0&&Number.isFinite(a2)&&a2<=floor)stats.ignoredRun2Floor++;
       predicted=p3*(a3/t);stats.fallbackRun3++;
     }
     const lo=Math.max(0,p3*(1-lim)),hi=p3*(1+lim),limited=clamp(predicted,lo,hi);
@@ -2512,8 +2505,8 @@ function threeRunStatusText(){
   if(!tr.active){const last=state.threeRunHistory[0];return last?'<b>Mode chạy 3 lượt:</b> sẵn sàng · phiên gần nhất MAP No.'+last.mapNo+' hoàn tất '+new Date(last.completedAt).toLocaleString():'<b>Mode chạy 3 lượt:</b> chưa bắt đầu. 3 lượt chạy = 3 lần chỉnh MAP; kết thúc lượt 3 sẽ ghi FINAL vào ECU.';}
   const phase=tr.cancelRequested?'ĐANG HỦY · CHỜ GHI ECU XONG':tr.phase==='recording'?'ĐANG GHI AFR':tr.phase==='paused'?'TẠM DỪNG':tr.phase==='writing'?'ĐANG GHI ECU':tr.phase==='error'?'LỖI / CHỜ XỬ LÝ':tr.phase.toUpperCase();
   let extra='';
-  if(tr.phase==='writing'&&tr.pendingNextPass===4&&tr.finalAdaptiveStats){const x=tr.finalAdaptiveStats;extra=' · FINAL: 2 điểm '+x.response2Point+' ô · fallback L3 '+x.fallbackRun3+' · AFR3 sàn giữ nguyên '+x.ignoredRun3Floor;}
-  else if(tr.lastAdaptiveStats){const x=tr.lastAdaptiveStats;extra=' · L2→L3: 2 điểm '+x.response2Point+' ô · bỏ AFR1≤'+state.cal.afrFloor.toFixed(2)+': '+x.ignoredRun1Floor+' · fallback lượt 2: '+x.fallbackRun2+' · AFR2 sàn giữ nguyên: '+x.ignoredRun2Floor;}
+  if(tr.phase==='writing'&&tr.pendingNextPass===4&&tr.finalAdaptiveStats){const x=tr.finalAdaptiveStats;extra=' · FINAL: 2 điểm '+x.response2Point+' ô · fallback L3 '+x.fallbackRun3;}
+  else if(tr.lastAdaptiveStats){const x=tr.lastAdaptiveStats;extra=' · L2→L3: 2 điểm '+x.response2Point+' ô · fallback lượt 2: '+x.fallbackRun2;}
   return '<b>MAP No.'+tr.mapNo+' · LƯỢT '+tr.pass+'/3 · '+phase+'</b>'+extra;
 }
 function renderThreeRunUi(){
@@ -2586,7 +2579,7 @@ async function finishThreeRunPass(){
   }
   let nextMap,detail='';
   if(pass===1){const proposal=correctedFrom(run.pw,run.afr,tr.target,state.cal.limitPct);nextMap=matrixToWritable(run.pw,proposal);run.nextPw=cloneMatrix(nextMap);detail='Lượt 1 → 2: bù AFR theo công thức chuẩn.';}
-  else{const adaptive=adaptiveThirdMap(tr.runs[0],run,tr.target);nextMap=adaptive.map;tr.lastAdaptiveStats=adaptive.stats;run.nextPw=cloneMatrix(nextMap);run.adaptiveStats=adaptive.stats;detail='Lượt 2 → 3: học phản ứng PW/AFR hai lượt; AFR1 chạm sàn không tham gia mô hình.';}
+  else{const adaptive=adaptiveThirdMap(tr.runs[0],run,tr.target);nextMap=adaptive.map;tr.lastAdaptiveStats=adaptive.stats;run.nextPw=cloneMatrix(nextMap);run.adaptiveStats=adaptive.stats;detail='Lượt 2 → 3: học phản ứng PW/AFR hai lượt; mọi giá trị AFR hợp lệ đều tham gia mô hình.';}
   state.inject=cloneMatrix(nextMap);tr.phase='writing';tr.pendingNextPass=pass+1;if(state.tab==='inject'||state.tab==='corrected')render();renderThreeRunUi();saveSoon();flashSave(detail+' Đang ghi ECU...');
   const started=await startFuelWrite({skipConfirm:true});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
 }
@@ -2639,7 +2632,7 @@ function cancelThreeRun(){
 }
 function renderThreeRunHistory(){
   const box=$('threeHistoryList');if(!state.threeRunHistory.length){box.innerHTML='<div class="historyRow muted">Chưa có phiên 3 lượt hoàn tất.</div>';return;}
-  box.innerHTML=state.threeRunHistory.map((x,i)=>{const rs=(x.runs||[]).map(r=>afrRunStats(r)),fs=z=>z&&z.cells?`${z.cells} ô · AFR TB ${fmt(z.avg,2)} · ${z.samples} mẫu`:'không dữ liệu',a=x.lastAdaptiveStats||{},f=x.finalAdaptiveStats||{};return `<div class="historyRow"><b>#${i+1} · MAP No.${x.mapNo}</b> · ${new Date(x.completedAt).toLocaleString()}<br>L1: ${fs(rs[0])}<br>L2: ${fs(rs[1])}<br>L3: ${fs(rs[2])}<br><span class="muted">L2→L3: 2 điểm ${a.response2Point||0} ô · fallback L2 ${a.fallbackRun2||0} · AFR2 sàn giữ nguyên ${a.ignoredRun2Floor||0}<br>FINAL sau L3: 2 điểm ${f.response2Point||0} ô · fallback L3 ${f.fallbackRun3||0} · AFR3 sàn giữ nguyên ${f.ignoredRun3Floor||0} · giới hạn bước ${f.limited||0}</span></div>`;}).join('');
+  box.innerHTML=state.threeRunHistory.map((x,i)=>{const rs=(x.runs||[]).map(r=>afrRunStats(r)),fs=z=>z&&z.cells?`${z.cells} ô · AFR TB ${fmt(z.avg,2)} · ${z.samples} mẫu`:'không dữ liệu',a=x.lastAdaptiveStats||{},f=x.finalAdaptiveStats||{};return `<div class="historyRow"><b>#${i+1} · MAP No.${x.mapNo}</b> · ${new Date(x.completedAt).toLocaleString()}<br>L1: ${fs(rs[0])}<br>L2: ${fs(rs[1])}<br>L3: ${fs(rs[2])}<br><span class="muted">L2→L3: 2 điểm ${a.response2Point||0} ô · fallback L2 ${a.fallbackRun2||0}<br>FINAL sau L3: 2 điểm ${f.response2Point||0} ô · fallback L3 ${f.fallbackRun3||0} · giới hạn bước ${f.limited||0}</span></div>`;}).join('');
 }
 function openThreeRunHistory(){renderThreeRunHistory();$('threeHistoryDialog').showModal();}
 function downloadLatestThreeRun(){const x=state.threeRunHistory[0];if(!x)return alert('Chưa có phiên 3 lượt hoàn tất.');const blob=new Blob([JSON.stringify(x,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='AFR_3RUN_MAP'+x.mapNo+'_'+String(x.completedAt).replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
@@ -3275,7 +3268,7 @@ function recordSample(now){
     if(state.cal.settleMs>0)return;
   }
   if(now-state.cellEnteredAt<state.cal.settleMs)return;
-  const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<9||afr>22)return;
+  const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<=0)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0;
   state.measured[r][c]=afr; state.counts[r][c]=n+1;
   if(state.tab==='measured'){
@@ -3370,7 +3363,7 @@ $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEc
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
 $('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;syncControls();saveSoon();};
 $('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;syncControls();saveSoon();};
-['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrValueMin','afrValueMax','afrDelayMs','limitPct','threeRunLimitPct','afrFloor'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
+['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrValueMin','afrValueMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 
 function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
