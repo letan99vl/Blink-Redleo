@@ -3302,9 +3302,40 @@ async function copyBankReal(dest){
   const s=readCache.banks[src-1];for(const d of dests){const t=readCache.banks[d-1];t.inj=s.inj.map(r=>r.slice());t.injDegree=s.injDegree.map(r=>r.slice());t.ignDegree=s.ignDegree.map(r=>r.slice());t.ignTime=s.ignTime.map(r=>r.slice());t.idle=s.idle.slice();t.ectMotor=s.ectMotor.map(r=>r.slice());state.mapBanks[d-1].inject=t.inj.map(r=>r.slice());await writeBankAll(d);}await readAll();notice('success','COPY MAP REAL OK','MAP No.'+src+' → '+(dest==='all'?'ALL':dest));
 }
 
+let restoreInFlight=false;
+async function confirmRestoreReal(){
+  const title='KHÔI PHỤC DỮ LIỆU GỐC ECU';
+  const message='ATE gốc dùng lệnh 0x8B.\n\nThao tác này thay đổi dữ liệu ECU. Giữ nguồn ECU ổn định, không tắt khóa điện và không ngắt BLE cho tới khi Blink báo hoàn tất.';
+  if(typeof window.blinkConfirm==='function'){
+    return !!(await window.blinkConfirm(title,message,'KHÔI PHỤC','HỦY'));
+  }
+  try{return !!window.confirm(title+'?\n\n'+message)}catch(_e){return false}
+}
 async function restoreReal(){
   requireProfile('restore','Khôi phục dữ liệu gốc');
-  if(!confirm('KHÔI PHỤC DỮ LIỆU GỐC ECU?\n\nATE gốc dùng lệnh 0x8B. Thao tác này thay đổi dữ liệu ECU. Giữ nguồn ECU ổn định và không tắt khóa điện giữa chừng.'))return;
+  const restoreBtn=document.getElementById('restoreEcuBtn')||document.querySelector('[data-ecucmd="RESTORE"]');
+  if(restoreInFlight){
+    taskUi('loading','ATE · KHÔI PHỤC ĐANG CHẠY...');
+    return false;
+  }
+
+  // Acknowledge the tap before opening any dialog. Android/WebView launchers may
+  // suppress native JS dialogs, so Restore must never appear to do nothing.
+  taskUi('loading','ĐÃ NHẬN LỆNH KHÔI PHỤC · CHỜ XÁC NHẬN');
+  const confirmed=await confirmRestoreReal();
+  if(!confirmed){
+    taskUi('offline','KHÔI PHỤC ĐÃ HỦY',1600);
+    return false;
+  }
+
+  restoreInFlight=true;
+  if(restoreBtn){
+    restoreBtn.dataset.restoreBusy='1';
+    restoreBtn.disabled=true;
+    restoreBtn.dataset.restoreIdleText=restoreBtn.textContent;
+    restoreBtn.textContent='⏳ ĐANG KHÔI PHỤC...';
+  }
+
   const resume=liveRunning;stopLiveLoop();
   try{
     taskUi('loading','ATE · RESTORE 0x8B · ĐANG CHỜ ECU...');
@@ -3356,6 +3387,14 @@ async function restoreReal(){
     notice('success','RESTORE ECU OK','0x8B hoàn tất · ECU trả '+restored.raw.length+'B.');
     return restored;
   }finally{
+    restoreInFlight=false;
+    if(restoreBtn){
+      restoreBtn.textContent=restoreBtn.dataset.restoreIdleText||'↺ KHÔI PHỤC DỮ LIỆU GỐC';
+      delete restoreBtn.dataset.restoreIdleText;
+      delete restoreBtn.dataset.restoreBusy;
+      // Respect the profile gate after Restore completes or fails.
+      restoreBtn.disabled=restoreBtn.dataset.profileBlocked==='1';
+    }
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),350);
   }
 }
@@ -3718,8 +3757,11 @@ function installUI(){
     throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
   },'MAP ĐÃ BÙ');
   capture('studyTpsBtn',tpsStudyReal);
+  capture('restoreEcuBtn',restoreReal);
 
-  document.querySelectorAll('[data-ecucmd]').forEach(b=>b.addEventListener('click',protect(async()=>{
+  document.querySelectorAll('[data-ecucmd]').forEach(b=>{
+    if(b.dataset.ecucmd==='RESTORE')return;
+    b.addEventListener('click',protect(async()=>{
     const cmd=b.dataset.ecucmd;
     if(cmd==='READ_CURRENT'){const R=await readCurrentFuelBank(state.activeMap);notice('success','READ CURRENT OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');return;}
     if(cmd==='READ_ALL'){const C=await readAll();notice('success','READ ALL OK',C.sourceLength+'B · '+(C.rawOnly?'RAW backup':'decoded'));return;}
@@ -3734,7 +3776,8 @@ function installUI(){
     if(cmd==='LOGIN'){loginReal();return;}
     if(cmd==='LOGOUT'){logoutReal();return;}
     if(cmd==='CHANGE_PASSWORD'){await changePasswordReal();return;}
-  }),true));
+    }),true);
+  });
   document.querySelectorAll('[data-copybank]').forEach(b=>b.addEventListener('click',protect(()=>copyBankReal(b.dataset.copybank)),true));
 
   document.getElementById('idleLimitBankSelect')?.addEventListener('change',()=>setTimeout(()=>{if(readCache)syncIdle(state.activeMap)},0),true);
