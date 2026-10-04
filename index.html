@@ -2520,6 +2520,7 @@ function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
     setTimeout(()=>{try{ok.focus()}catch(_e){}},0);
   });
 }
+window.blinkConfirm=blinkConfirm;
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
