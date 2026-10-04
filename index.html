@@ -1899,6 +1899,26 @@
     padding:0!important;
   }
 
+  /* PB 3.79.31 final precedence: fullscreen landscape owns the row height. */
+  body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #mapTable th,
+  body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #mapTable td{
+    height:clamp(18px,calc((100dvh - 44px)/15),42px)!important;
+    min-height:clamp(18px,calc((100dvh - 44px)/15),42px)!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel #mapWrap{
+    top:42px!important;
+    height:calc(100% - 42px)!important;
+    min-height:calc(100% - 42px)!important;
+    max-height:calc(100% - 42px)!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel #mapTable th,
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel #mapTable td{
+    height:clamp(16px,calc((100dvw - 44px)/15),42px)!important;
+    min-height:clamp(16px,calc((100dvw - 44px)/15),42px)!important;
+    font-size:clamp(8px,2.15dvw,11px)!important;
+    line-height:1!important;
+  }
+
 </style>
 </head>
 <body>
