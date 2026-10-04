@@ -1,7 +1,7 @@
 # BLINK REDLEO - PROJECT STATE
 
 > Source of truth for cross-chat continuity.
-> Last verified: 2026-10-04 (Asia/Ho_Chi_Minh).
+> Last verified: 2026-10-05 (Asia/Ho_Chi_Minh).
 > Read this file before making changes in a new chat.
 > After any meaningful architecture/release change, update this file on the active branches.
 
@@ -17,13 +17,24 @@
 Production Android/web line.
 
 Current verified head when this checkpoint was written:
-`9a4b2c08293e9e85a0cc744478cc9d82d00092a5`
+`f88798c631d05ad05ceb60959c44e9ca116311cd`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79`
+`BLINK_PB_VERSION = 3.79.19`
 
 Important current state:
-- Main ECU protocol was rolled back to the PB 3.79 state.
+- Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
+- PB 3.79.19 release hardening:
+  - Production AFR A3 uses the same user calibration path as serial/test AFR; no median/EMA/fixed BLE-only AFR formula remains.
+  - TPS falling detection is fed by REAL 0x69 live data; AFR recording is blocked while throttle is closing and while TPS/RPM telemetry is stale.
+  - AFR delay never substitutes a current sample when delayed history is not yet available, and delayed samples captured while throttle was closing are rejected.
+  - Automated corrected-map and 3-run fuel writes use read-back verification before clearing AFR or advancing passes.
+  - Lost ACK / half-write failures trigger automatic READ CURRENT recovery. If ECU state cannot be read back, that bank is write-locked until a successful READ CURRENT.
+  - Ambiguous/partial failed writes invalidate measured AFR so the same AFR cannot be applied twice.
+  - Fuel guard rejects incomplete/non-finite/negative/out-of-protocol maps and 420/420 all-zero maps without imposing a new 16 ms limit.
+  - V8 readback comparison accounts for 0.05 ms wire quantization; V9+ keeps the existing tighter tolerance.
+  - Legacy BLE READ_MAP uses a temporary 420-cell buffer and never pre-clears the current map to zero.
+- ATE V11 restore 0x8B flow is hardened: a valid 9958-byte restore image is authoritative, AB/AE/8B response headers are supported, and follow-up 0xAB is a secondary verification rather than a false-failure trigger.
 - Treat `main` as Android/web production.
 - Do not change Android/main while fixing iOS unless the user explicitly asks to sync both platforms.
 
