@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.12';
+  window.BLINK_PB_VERSION = '3.79.13';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -67,7 +67,7 @@
   td.rowhead{position:sticky;left:0;z-index:3;background:var(--head);color:#fff;width:70px;min-width:70px;font-weight:600}
   td.rowhead.idle{background:#20b93e}
   table,th,td{-webkit-user-select:none;user-select:none}
-  td.mapcell{background:var(--cell);color:var(--cellText);cursor:cell;outline:none}
+  td.mapcell{background:var(--cell);color:var(--cellText);cursor:cell;outline:none;position:relative}
   td.mapcell:hover{background:#e0f2ff}
   td.mapcell.current{box-shadow:inset 0 0 0 3px #007ad0;background:#d5f1ff}
   td.mapcell.selected{background:#087dce!important;color:#fff!important;box-shadow:inset 0 0 0 1px #005b99}
@@ -77,6 +77,11 @@
   td.mapcell.afr-red{background:#e54855;color:#fff;font-weight:800}
   td.mapcell.afr-green{background:#21a65a;color:#fff;font-weight:800}
   td.mapcell.afr-orange{background:#f39a21;color:#111;font-weight:800}
+  td.mapcell.corrected-add{background:#e54855;color:#fff;font-weight:800}
+  td.mapcell.corrected-cut{background:#ffd54a;color:#241800;font-weight:800}
+  td.mapcell.corrected-add::after,td.mapcell.corrected-cut::after{content:attr(data-fuel-dir);position:absolute;top:1px;right:3px;font-size:10px;line-height:1;font-weight:1000;pointer-events:none}
+  td.mapcell.corrected-add::after{color:#fff}
+  td.mapcell.corrected-cut::after{color:#6b4200}
   td.mapcell[contenteditable="true"]{-webkit-user-select:text;user-select:text;cursor:text}
   td.mapcell[contenteditable="true"]:focus{background:#fff8c8!important;color:#111!important;box-shadow:inset 0 0 0 2px #dc9d00}
   .footer{display:flex;gap:8px;align-items:center;background:var(--panel);padding:6px 9px;border:1px solid #22364a;border-radius:8px;color:var(--muted);font-size:12px;overflow:auto;white-space:nowrap}
@@ -397,6 +402,10 @@
   td.mapcell.afr-red{background:#db1f33!important;color:#fff!important}
   td.mapcell.afr-green{background:#1ea94e!important;color:#fff!important}
   td.mapcell.afr-orange{background:#ff9f0a!important;color:#1a1002!important}
+  td.mapcell.corrected-add{background:#db1f33!important;color:#fff!important}
+  td.mapcell.corrected-cut{background:#ffd23f!important;color:#281900!important}
+  td.mapcell.corrected-add::after{color:#fff!important}
+  td.mapcell.corrected-cut::after{color:#6b4200!important}
   td.mapcell[contenteditable="true"]:focus{background:#fff0a8!important;box-shadow:inset 0 0 0 2px #ff9f0a!important}
   .footer{color:#a9afb7}
   .ecuNotice{background:#14141a;border-color:#ff3b30;box-shadow:0 14px 40px rgba(0,0,0,.45)}
@@ -1620,7 +1629,7 @@ function render(){
     html+=`<tr><td class="rowhead${idle}">${rh==='IDLE'?'IDLE':rh+'%'}</td>`;
     for(let c=0;c<C;c++){
       const v=data[r][c],txt=displayValue(state.tab,r,c);
-      let cls='mapcell',cellStyle='';
+      let cls='mapcell',cellStyle='',cellAttr='';
       if(state.tab==='inject'&&v!=null&&Number.isFinite(Number(v))){
         cls+=' inj-heat';
         cellStyle=' style="--inj-heat:'+injectionHeatColor(v)+'"';
@@ -1633,8 +1642,15 @@ function render(){
           else cls+=' afr-orange';
         }
       }
-      if(state.tab==='corrected'&&v!=null){const base=num(state.inject[r][c],0); const change=base>0?(v/base-1)*100:0; cls+=Math.abs(change)>20?' bad':Math.abs(change)>10?' warn':' good';}
-      html+=`<td class="${cls}"${cellStyle} data-r="${r}" data-c="${c}">${txt}</td>`;
+      if(state.tab==='corrected'&&v!=null){
+        const base=num(state.inject[r][c],0),meas=Number(state.measured[r][c]),samples=num(state.counts[r][c],0);
+        if(base>0&&samples>0&&Number.isFinite(meas)&&meas>0){
+          const change=(Number(v)/base-1)*100;
+          if(change>0.0001){cls+=' corrected-add';cellAttr=' data-fuel-dir="+" title="Bù +'+change.toFixed(1)+'% xăng"';}
+          else if(change<-0.0001){cls+=' corrected-cut';cellAttr=' data-fuel-dir="−" title="Bù '+change.toFixed(1)+'% xăng"';}
+        }
+      }
+      html+=`<td class="${cls}"${cellStyle}${cellAttr} data-r="${r}" data-c="${c}">${txt}</td>`;
     }
     html+='</tr>';
   }
