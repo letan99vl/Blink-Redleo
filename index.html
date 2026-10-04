@@ -2415,9 +2415,53 @@ async function startFuelWrite(opts={}){
     $('mapSelect').disabled=true;
     try{
       await realApi.writeCurrentFuelAndVerify(mapNo);
+
+      // Automated correction/3-run writes must be stronger than ACK-only:
+      // read the 420 cells back before clearing AFR or advancing the next pass.
+      // Manual SAVE stays on the fast ACK path unless explicitly requested.
+      if(opts.verifyReadback){
+        let verifyR;
+        try{
+          await new Promise(r=>setTimeout(r,120));
+          verifyR=await realApi.readCurrentFuelBank(mapNo,false);
+        }catch(verifyErr){
+          state.ecuWriteSnapshot=null;
+          state.ecuPhase='live';
+          $('mapSelect').disabled=state.threeRun.active;
+          setFuelMapSyncUnknown(mapNo,true);
+          if(state.mapBanks&&state.mapBanks[mapNo-1]){
+            state.mapBanks[mapNo-1].measured=blankMatrix(null);
+            state.mapBanks[mapNo-1].counts=blankMatrix(0);
+            state.lastCellKey='';
+          }
+          try{if(state.activeMap===mapNo)render();saveSoon();}catch(_e){}
+          onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
+          showEcuNotice('error','ECU ACK NHƯNG CHƯA XÁC MINH','ECU đã ACK lệnh ghi nhưng READ CURRENT kiểm tra thất bại: '+String(verifyErr&&verifyErr.message||verifyErr)+'. MAP bị khóa ghi cho đến khi ĐỌC HIỆN TẠI thành công.',0);
+          return false;
+        }
+        const verifyCmp=compareFuelMaps(verifyR.matrix,attemptedMap);
+        if(verifyCmp.bad>0){
+          state.ecuWriteSnapshot=null;
+          state.ecuPhase='live';
+          $('mapSelect').disabled=state.threeRun.active;
+          setFuelMapSyncUnknown(mapNo,false); // actual ECU map is known from readback
+          if(state.mapBanks&&state.mapBanks[mapNo-1]){
+            state.mapBanks[mapNo-1].measured=blankMatrix(null);
+            state.mapBanks[mapNo-1].counts=blankMatrix(0);
+            state.lastCellKey='';
+          }
+          try{if(state.activeMap===mapNo)render();saveSoon();}catch(_e){}
+          onFuelWriteVerifyFailed(mapNo,verifyCmp);
+          const p=verifyCmp.first;
+          showEcuNotice('error','GHI MAP KHÔNG KHỚP READBACK','ECU đã ACK nhưng '+verifyCmp.bad+'/420 ô đọc lại không khớp'+(p?' · ô '+(p.r+1)+','+(p.c+1)+' gửi '+p.y.toFixed(3)+' / ECU '+p.x.toFixed(3)+' ms':'')+'. Auto Tune đã dừng và AFR cũ đã xóa.',0);
+          return false;
+        }
+      }
+
       state.ecuWriteSnapshot=null;
       state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
+      setFuelMapSyncUnknown(mapNo,false);
       onFuelWriteVerified(mapNo);
       return true;
     }catch(e){
@@ -2566,7 +2610,7 @@ async function applyCorrectedAndWrite(){
   state.pendingAfrClearMapNo=state.activeMap;
   saveSoon();
   if(state.tab==='inject'||state.tab==='corrected')render();
-  const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap});
+  const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap,verifyReadback:true});
   if(!writeStarted)state.pendingAfrClearMapNo=0;
 }
 
@@ -2738,7 +2782,7 @@ async function finishThreeRunPass(){
     if(state.tab==='inject'||state.tab==='corrected')render();
     renderThreeRunUi();saveSoon();
     flashSave('Lượt 3 → FINAL: đang tính phản ứng L2→L3 và ghi MAP lần 3 vào ECU...');
-    const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw});
+    const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw,verifyReadback:true});
     if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
     return;
   }
@@ -2746,7 +2790,7 @@ async function finishThreeRunPass(){
   if(pass===1){const proposal=correctedFrom(run.pw,run.afr,tr.target,state.cal.limitPct);nextMap=matrixToWritable(run.pw,proposal);run.nextPw=cloneMatrix(nextMap);detail='Lượt 1 → 2: bù AFR theo công thức chuẩn.';}
   else{const adaptive=adaptiveThirdMap(tr.runs[0],run,tr.target);nextMap=adaptive.map;tr.lastAdaptiveStats=adaptive.stats;run.nextPw=cloneMatrix(nextMap);run.adaptiveStats=adaptive.stats;detail='Lượt 2 → 3: học phản ứng PW/AFR hai lượt; mọi giá trị AFR hợp lệ đều tham gia mô hình.';}
   state.inject=cloneMatrix(nextMap);tr.phase='writing';tr.pendingNextPass=pass+1;if(state.tab==='inject'||state.tab==='corrected')render();renderThreeRunUi();saveSoon();flashSave(detail+' Đang ghi ECU...');
-  const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
+  const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw,verifyReadback:true});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
 }
 function resetThreeRunCancelled(msg='ĐÃ HỦY PHIÊN 3 LƯỢT'){
   setRecording(false);
