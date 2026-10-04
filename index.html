@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79';
+  window.BLINK_PB_VERSION = '3.79.1';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3212,14 +3212,29 @@ async function queueReadAll(){
   }
 }
 
+const blinkAfrMedianSamples=[];
+function blinkMedianAfr5(value){
+  if(!Number.isFinite(value))return NaN;
+  blinkAfrMedianSamples.push(value);
+  if(blinkAfrMedianSamples.length>5)blinkAfrMedianSamples.shift();
+  if(blinkAfrMedianSamples.length<3){
+    return blinkAfrMedianSamples.reduce((a,b)=>a+b,0)/blinkAfrMedianSamples.length;
+  }
+  const sorted=blinkAfrMedianSamples.slice().sort((a,b)=>a-b);
+  const mid=Math.floor(sorted.length/2);
+  return sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
+}
+
 function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    const afrVCal=clamp(state.live.afrV,0,2.66); state.live.afr=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
+    const afrVCal=clamp(state.live.afrV,0,2.66);
+    const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
+    state.live.afr=blinkMedianAfr5(afrRaw);
     ok=true;
   }else if(Number.isFinite(+p.afr)){
-    state.live.afr=+p.afr; ok=true;
+    state.live.afr=blinkMedianAfr5(+p.afr); ok=true;
   }
   if(!ok)return;
   state.totalSamples++;
