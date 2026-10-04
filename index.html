@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.27';
+  window.BLINK_PB_VERSION = '3.79.28';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1671,6 +1671,60 @@
     min-height:clamp(14px,calc((100dvw - 74px)/15),34px)!important;
     font-size:clamp(7px,2dvw,10px)!important;
     line-height:1!important;
+  }
+
+  /* ===== PB 3.79.28 · LARGE BACK BUTTON WITHOUT LOSING TPS HEIGHT ===== */
+  #mapEditorScreen.standaloneFuel .screenHeader{
+    position:relative!important;
+    min-height:32px!important;
+    height:32px!important;
+    margin-bottom:0!important;
+    padding-left:6px!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+    position:absolute!important;
+    left:6px!important;
+    top:50%!important;
+    transform:translateY(-50%)!important;
+    width:40px!important;
+    height:40px!important;
+    min-width:40px!important;
+    min-height:40px!important;
+    border-radius:11px!important;
+    font-size:25px!important;
+    z-index:20!important;
+    padding:0!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenTitleWrap{
+    margin-left:46px!important;
+  }
+  @media (orientation:landscape){
+    #mapEditorScreen.standaloneFuel .screenHeader{
+      min-height:32px!important;
+      height:32px!important;
+      margin-bottom:0!important;
+    }
+    #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+      width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;font-size:25px!important;
+    }
+    #mapEditorScreen.standaloneFuel #mapTable th,
+    #mapEditorScreen.standaloneFuel #mapTable td{
+      height:clamp(13px,calc((100dvh - 148px)/15),28px)!important;
+      min-height:clamp(13px,calc((100dvh - 148px)/15),28px)!important;
+    }
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenHeader{
+    min-height:32px!important;
+    height:32px!important;
+    margin-bottom:0!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+    width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;font-size:25px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable th,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable td{
+    height:clamp(13px,calc((100dvw - 148px)/15),28px)!important;
+    min-height:clamp(13px,calc((100dvw - 148px)/15),28px)!important;
   }
 
 </style>
