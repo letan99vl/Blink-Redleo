@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.14';
+  window.BLINK_PB_VERSION = '3.79.15';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1501,7 +1501,7 @@ const state={
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
-  recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0,
+  recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
   selection:{active:false,anchorR:0,anchorC:0,focusR:0,focusC:0,dragging:false},
@@ -2117,6 +2117,7 @@ function processLiveFrame(f){
     state.live.tpsV=rawTps*5/1024;
     const den=state.cal.tpsMax-state.cal.tpsMin;
     state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
+    noteTpsTrend(state.live.tps,performance.now());
     state.live.rpm=((f[6]<<8)|f[7])>>>0;
     updateLive();
     highlightCurrent();
@@ -3333,8 +3334,33 @@ function delayedAfr(now){
   for(const x of state.afrHistory){if(x.t<=targetT)best=x;else break;}
   return best?best.v:state.live.afr;
 }
+function noteTpsTrend(tps,now=performance.now()){
+  tps=Number(tps);
+  if(!Number.isFinite(tps))return;
+  const h=state.tpsTrendHistory||(state.tpsTrendHistory=[]);
+  h.push({t:now,v:tps});
+  while(h.length&&now-h[0].t>500)h.shift();
+
+  // Detect throttle closing from a short trend window instead of one packet.
+  // A small deadband ignores normal 0.1-0.3% TPS/ADC jitter.
+  let ref=null;
+  for(const x of h){
+    if(now-x.t>=220){ref=x;break;}
+  }
+  if(!ref&&h.length>=2)ref=h[0];
+  const delta=ref?tps-ref.v:0;
+  state.tpsFalling=!!ref&&delta<-0.4;
+}
+function throttleClosingLock(now=performance.now()){
+  const h=state.tpsTrendHistory||[];
+  if(!h.length)return false;
+  // If TPS telemetry has gone stale, do not invent a falling trend.
+  if(now-h[h.length-1].t>700)return false;
+  return !!state.tpsFalling;
+}
 function recordSample(now){
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
+  if(throttleClosingLock(now))return;
   const cur=currentCell();
   if(cur.key!==state.lastCellKey){
     state.lastCellKey=cur.key;
@@ -4114,13 +4140,14 @@ window.addEventListener('beforeunload',save);
     if(d.byteLength<12||v.getUint8(0)!==0xA1)return;
     state.live.rpm=v.getUint16(1,true);
     state.live.tps=v.getUint16(3,true)/10;
+    const now=performance.now();
+    noteTpsTrend(state.live.tps,now);
     state.live.afr=v.getUint16(5,true)/100;
     state.live.tpsV=v.getUint16(7,true)/1000;
     state.live.afrV=v.getUint16(9,true)/1000;
     const m=v.getUint8(11);
     if(m>=1&&m<=4&&m!==state.activeMap&&!state.threeRun.active){state.activeMap=m;$('mapSelect').value=String(m);}
     state.totalSamples++;
-    const now=performance.now();
     state.afrHistory.push({t:now,v:state.live.afr});
     while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
     updateLive();highlightCurrent();
