@@ -885,13 +885,28 @@ function parseLiveReal(a){
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
   try{updateLive();highlightCurrent();syncMirrors();}catch(_e){}
 }
+const blinkRealAfrMedianSamples=[];
+function blinkRealMedianAfr5(value){
+  if(!Number.isFinite(value))return NaN;
+  blinkRealAfrMedianSamples.push(value);
+  if(blinkRealAfrMedianSamples.length>5)blinkRealAfrMedianSamples.shift();
+  if(blinkRealAfrMedianSamples.length<3){
+    return blinkRealAfrMedianSamples.reduce((a,b)=>a+b,0)/blinkRealAfrMedianSamples.length;
+  }
+  const sorted=blinkRealAfrMedianSamples.slice().sort((a,b)=>a-b);
+  const mid=Math.floor(sorted.length/2);
+  return sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
+}
+
 function installAfrListener(){
   const ch=window.blinkLiveChar;if(!ch||ch.__blinkRealAfr)return;ch.__blinkRealAfr=true;
   ch.addEventListener('characteristicvaluechanged',ev=>{
     const d=ev.target.value;if(!d||d.byteLength<3)return;const v=new DataView(d.buffer,d.byteOffset,d.byteLength);if(v.getUint8(0)!==0xA3)return;
     const mv=v.getUint16(1,true),volts=mv/1000;if(typeof state==='undefined')return;state.live.afrV=volts;
     // Keep Blink's established analog AFR calibration used by this project.
-    const afrVCal=clamp(volts,0,2.66); state.live.afr=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
+    const afrVCal=clamp(volts,0,2.66);
+    const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
+    state.live.afr=blinkRealMedianAfr5(afrRaw);
     const now=performance.now();if(Array.isArray(state.afrHistory)){state.afrHistory.push({t:now,v:state.live.afr});while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();}
     try{updateLive();if(state.recording)recordSample(now);highlightCurrent();}catch(_e){}
   });
