@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.29';
+  window.BLINK_PB_VERSION = '3.79.30';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -5406,7 +5406,7 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
     if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
   },0);
 }
-function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',f.rows===14&&f.cols===30);if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
+function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',(f.rows===14&&f.cols===30)||f.id==='ect_inj');if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -5431,6 +5431,7 @@ document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>
 function fmtV(v){if(v==null||v==='')return '--';const n=Number(v);if(!Number.isFinite(n))return '--';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
 function redBounds(){return {r0:Math.min(redSel.r0,redSel.r1),r1:Math.max(redSel.r0,redSel.r1),c0:Math.min(redSel.c0,redSel.c1),c1:Math.max(redSel.c0,redSel.c1)}}
 function red420EditorActive(){return !!(currentFeature&&currentFeature.rows===14&&currentFeature.cols===30&&currentFeature.editor!=='fuel')}
+function redKeypadEditorActive(){return !!(red420EditorActive()||currentFeature?.id==='ect_inj')}
 function hideRedSelectionPad(){
   const pad=document.getElementById('redSelectionPad');if(!pad)return;
   pad.classList.remove('show');pad.setAttribute('aria-hidden','true');
@@ -5447,7 +5448,7 @@ function updateRedSelectionPad(){
 }
 let redKeypadBuffer='',redKeypadDirty=false,redKeypadSelectionKey='';
 function selectedRedMeta(){
-  if(!red420EditorActive())return null;
+  if(!redKeypadEditorActive())return null;
   const b=redBounds(),r=Math.max(0,Math.min(currentFeature.rows-1,redSel.r1)),cc=Math.max(0,Math.min(currentFeature.cols-1,redSel.c1));
   const d=featureData(currentFeature,state.activeMap),v=Number(d?.[r]?.[cc]);
   return {b,r,c:cc,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),key:currentFeature.id+':'+state.activeMap+':'+b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+cc};
@@ -5468,7 +5469,7 @@ function syncRedKeypadSelection(force=false){
   if(val)val.textContent=(redKeypadBuffer||'--')+(currentFeature.unit?' '+currentFeature.unit:'');
 }
 function keepRedSelectionVisible(){
-  if(!red420EditorActive())return;
+  if(!redKeypadEditorActive())return;
   const wrap=document.querySelector('#redleoEditorScreen .redTableWrap'),m=selectedRedMeta();if(!wrap||!m)return;
   const td=document.querySelector('#redFeatureTable .redCell[data-rr="'+m.r+'"][data-rc="'+m.c+'"]');if(!td)return;
   const wr=wrap.getBoundingClientRect(),tr=td.getBoundingClientRect(),edge=12,rightPad=64;
@@ -5480,7 +5481,7 @@ function keepRedSelectionVisible(){
   if(Math.abs(dx)>1||Math.abs(dy)>1)wrap.scrollBy({left:dx,top:dy,behavior:'auto'});
 }
 function openRedKeypad(){
-  if(!red420EditorActive())return;
+  if(!redKeypadEditorActive())return;
   const screen=document.getElementById('redleoEditorScreen'),kp=document.getElementById('redKeypad');
   screen?.classList.add('redMapKeypadOpen');kp?.setAttribute('aria-hidden','false');
   redKeypadDirty=false;redKeypadSelectionKey='';syncRedKeypadSelection(true);
@@ -5495,7 +5496,7 @@ function hideRedKeypad(){
 }
 window.hideRedKeypad=hideRedKeypad;
 function applyRedKeypadLive(){
-  if(!red420EditorActive())return;
+  if(!redKeypadEditorActive())return;
   const typed=redKeypadBuffer,parsed=typed===''?0:Number(typed);if(!Number.isFinite(parsed))return;
   const d=featureData(currentFeature,state.activeMap),b=redBounds();
   for(let r=b.r0;r<=b.r1;r++)for(let cc=b.c0;cc<=b.c1;cc++)d[r][cc]=Number(parsed.toFixed(4));
