@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.32';
+  window.BLINK_PB_VERSION = '3.79.33';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1917,6 +1917,34 @@
     min-height:clamp(16px,calc((100dvw - 44px)/15),42px)!important;
     font-size:clamp(8px,2.15dvw,11px)!important;
     line-height:1!important;
+  }
+
+  /* ===== PB 3.79.33 · KEEP ZOOM HUD CLEAR OF THE ROTATED RIGHT TOOL RAIL ===== */
+  body.mapZoomMode #mapZoomHud{
+    z-index:250060!important;
+  }
+  /* In Blink software-landscape the editor itself is rotated 90deg. Local
+     "top" becomes the visual horizontal offset, so move the HUD inward far
+     enough that ECT + THU NHỎ are not covered by the vertical tool rail. */
+  body.appForceLandscape.mapZoomMode #mapZoomHud{
+    top:112px!important;
+    right:max(8px,env(safe-area-inset-right))!important;
+    gap:5px!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapZoomHud .zoomStat{
+    min-width:104px!important;
+    height:36px!important;
+    padding:0 8px!important;
+    font-size:10px!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapZoomHud .zoomStat b{
+    font-size:13px!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapZoomHud button{
+    height:36px!important;
+    min-width:72px!important;
+    padding:0 9px!important;
+    font-size:10px!important;
   }
 
 </style>
