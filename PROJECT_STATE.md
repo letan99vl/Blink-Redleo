@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.42`
+`BLINK_PB_VERSION = 3.79.43`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.42.
+- Android/web production: `main`, currently PB 3.79.43.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -316,3 +316,14 @@ The assistant should then:
 - Ultra remains a separate serializer target and is not allowed to use the V10.2 268B writer.
 - CI run 37242896117 passed all protocol regression checks.
 - V10.2 A2 is **NEEDS REAL HARDWARE TEST**, not release-certified yet.
+
+
+## 16. V10.2 AutoClutch checkpoint - PB 3.79.43
+
+- Direct V10.2 AutoClutch 1×5 timer table is now enabled on the exact 268B A2 read-modify-write baseline.
+- Writer edits only CONFIG bytes +2..+6 with raw = ms/5.
+- CONFIG feature flags, Start RPM, password and all sibling A2 blocks remain preserved.
+- Ultra remains excluded from this writer.
+- CI run 37243092053 passed all protocol checks.
+- Still needs real V10.2 hardware SAVE + READBACK validation.
+- Next V10.2 target: ECT Start Add 3×11 / 33B.
