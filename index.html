@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.26';
+  window.BLINK_PB_VERSION = '3.79.27';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1522,6 +1522,155 @@
       min-height:calc(100dvh - 72px)!important;
       max-height:calc(100dvh - 72px)!important;
     }
+  }
+
+  /* ===== PB 3.79.27 · COMPACT INJ VE HEADER + FULL TPS HEIGHT ===== */
+  #mapEditorScreen.standaloneFuel .screenHeader{
+    min-height:28px!important;
+    height:28px!important;
+    margin-bottom:2px!important;
+    padding:0 7px!important;
+    gap:6px!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+    width:28px!important;
+    height:28px!important;
+    min-width:28px!important;
+    border-radius:8px!important;
+    font-size:18px!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenTitleWrap{
+    min-width:0!important;
+    overflow:hidden!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenTitle{
+    font-size:14px!important;
+    line-height:14px!important;
+    letter-spacing:-.2px!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenSub{
+    font-size:7px!important;
+    line-height:8px!important;
+    margin-top:1px!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+  #mapEditorScreen.standaloneFuel .miniStatus{
+    min-height:22px!important;
+    padding:3px 6px!important;
+    font-size:8px!important;
+  }
+
+  /* Real landscape: keep every control visible in one compact row and spend
+     the recovered height on all 14 TPS rows + the RPM header row. */
+  @media (orientation:landscape){
+    #mapEditorScreen.standaloneFuel .screenHeader{
+      min-height:26px!important;
+      height:26px!important;
+      margin-bottom:1px!important;
+    }
+    #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+      width:26px!important;height:26px!important;min-width:26px!important;font-size:17px!important;
+    }
+    #mapEditorScreen.standaloneFuel .screenTitle{font-size:12px!important;line-height:12px!important}
+    #mapEditorScreen.standaloneFuel .screenSub{display:none!important}
+    #mapEditorScreen.standaloneFuel .miniStatus{min-height:20px!important;padding:2px 5px!important;font-size:7px!important}
+    #mapEditorScreen.standaloneFuel .editToolbar{padding-bottom:2px!important}
+    #mapEditorScreen.standaloneFuel .editToolbar button{height:28px!important;min-height:28px!important;font-size:7px!important}
+    #mapEditorScreen.standaloneFuel .editorInfo{padding-bottom:2px!important}
+    #mapEditorScreen.standaloneFuel .editorInfo .livebox{min-height:30px!important;padding:2px 5px!important}
+    #mapEditorScreen.standaloneFuel .editorInfo .livebox .k{font-size:6px!important}
+    #mapEditorScreen.standaloneFuel .editorInfo .livebox .v{font-size:12px!important}
+    #mapEditorScreen.standaloneFuel .editorStepBar{
+      grid-template-columns:minmax(0,1.7fr) minmax(76px,.7fr) minmax(0,1.3fr) minmax(106px,.9fr)!important;
+      grid-template-rows:30px!important;
+      min-height:34px!important;
+      padding-bottom:2px!important;
+    }
+    #mapEditorScreen.standaloneFuel .mapStepGroup{grid-column:1;grid-row:1}
+    #mapEditorScreen.standaloneFuel #mapScanToggle{grid-column:2;grid-row:1}
+    #mapEditorScreen.standaloneFuel .mapModeGroup{grid-column:3;grid-row:1}
+    #mapEditorScreen.standaloneFuel #mapLiveCursorToggle{grid-column:4;grid-row:1}
+    #mapEditorScreen.standaloneFuel .editorStepBar .stepChip,
+    #mapEditorScreen.standaloneFuel #mapScanToggle,
+    #mapEditorScreen.standaloneFuel #mapLiveCursorToggle{
+      height:30px!important;min-height:30px!important;font-size:8px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editorFooter{min-height:18px!important;height:18px!important;padding:1px 6px!important;font-size:7px!important}
+    #mapEditorScreen.standaloneFuel #mapTable th,
+    #mapEditorScreen.standaloneFuel #mapTable td{
+      height:clamp(14px,calc((100dvh - 142px)/15),28px)!important;
+      min-height:clamp(14px,calc((100dvh - 142px)/15),28px)!important;
+      font-size:clamp(7px,1.9dvh,10px)!important;
+      line-height:1!important;
+    }
+  }
+
+  /* Blink's software-landscape is rotated while the device may still report
+     portrait. Use viewport width as the visual height after the 90deg rotation. */
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenHeader{
+    min-height:26px!important;height:26px!important;margin-bottom:1px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenHeader .backBtn{
+    width:26px!important;height:26px!important;min-width:26px!important;font-size:17px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenTitle{font-size:12px!important;line-height:12px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenSub{display:none!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .miniStatus{min-height:20px!important;padding:2px 5px!important;font-size:7px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar{padding-bottom:2px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar button{height:28px!important;min-height:28px!important;font-size:7px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo{padding-bottom:2px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo .livebox{min-height:30px!important;padding:2px 5px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo .livebox .k{font-size:6px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo .livebox .v{font-size:12px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorStepBar{
+    grid-template-columns:minmax(0,1.7fr) minmax(76px,.7fr) minmax(0,1.3fr) minmax(106px,.9fr)!important;
+    grid-template-rows:30px!important;
+    min-height:34px!important;
+    padding-bottom:2px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .mapStepGroup{grid-column:1;grid-row:1}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapScanToggle{grid-column:2;grid-row:1}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .mapModeGroup{grid-column:3;grid-row:1}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapLiveCursorToggle{grid-column:4;grid-row:1}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorStepBar .stepChip,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapScanToggle,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapLiveCursorToggle{
+    height:30px!important;min-height:30px!important;font-size:8px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorFooter{min-height:18px!important;height:18px!important;padding:1px 6px!important;font-size:7px!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable th,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable td{
+    height:clamp(14px,calc((100dvw - 142px)/15),28px)!important;
+    min-height:clamp(14px,calc((100dvw - 142px)/15),28px)!important;
+    font-size:clamp(7px,1.9dvw,10px)!important;
+    line-height:1!important;
+  }
+
+  /* Fullscreen map: exactly budget the visible height for 1 RPM header + 14 TPS rows. */
+  body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen #mapTable th,
+  body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen #mapTable td{
+    height:clamp(18px,calc((100dvh - 44px)/15),34px)!important;
+    min-height:clamp(18px,calc((100dvh - 44px)/15),34px)!important;
+    font-size:clamp(8px,2dvh,11px)!important;
+    line-height:1!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapWrap{
+    top:72px!important;
+    height:calc(100% - 72px)!important;
+    min-height:calc(100% - 72px)!important;
+    max-height:calc(100% - 72px)!important;
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen #mapTable th,
+  body.appForceLandscape.mapZoomMode #mapEditorScreen #mapTable td{
+    height:clamp(14px,calc((100dvw - 74px)/15),34px)!important;
+    min-height:clamp(14px,calc((100dvw - 74px)/15),34px)!important;
+    font-size:clamp(7px,2dvw,10px)!important;
+    line-height:1!important;
   }
 
 </style>
