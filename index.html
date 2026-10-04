@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.6';
+  window.BLINK_PB_VERSION = '3.79.7';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1190,7 +1190,7 @@
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="clearMeasuredEditorBtn" class="danger" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost">▦ LỊCH SỬ</button><button id="rotateLandscapeBtn" class="ghost" type="button">↻ XOAY NGANG</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="applyCorrectedBtn" class="danger">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button><span class="controlDivider"></span><button class="stepChip nudgeInline" id="mapMinusBtn" type="button" aria-label="Giảm vùng chọn">−</button><button class="stepChip nudgeInline" id="mapPlusBtn" type="button" aria-label="Tăng vùng chọn">＋</button><span class="controlDivider"></span><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
@@ -2515,7 +2515,7 @@ function threeRunStatusText(){
   return '<b>MAP No.'+tr.mapNo+' · LƯỢT '+tr.pass+'/3 · '+phase+'</b>'+extra;
 }
 function renderThreeRunUi(){
-  const isThree=state.mode==='three';$('threeRunPanel').hidden=!isThree;$('recordBtn').style.display=isThree?'none':'';$('clearMeasured').style.display=isThree?'none':'';
+  const isThree=state.mode==='three';$('threeRunPanel').hidden=!isThree;$('recordBtn').style.display=isThree?'none':'';$('clearMeasured').style.display=isThree?'none':'';syncMeasuredClearButton();
   $('applyCorrectedBtn').disabled=$('applyCorrectedBtn').dataset.profileBlocked==='1'||$('applyCorrectedBtn').dataset.ioBusy==='1'||(state.threeRun.active&&state.threeRun.phase!=='recording');
   // Do not hard-disable READ/SAVE during 3-run: a disabled HTML button cannot
   // emit a click, which previously made LƯU HIỆN TẠI look completely dead.
@@ -3334,7 +3334,17 @@ async function disconnectAfr(){
   $('connectAfrBtn').disabled=false;
 }
 
-function setTab(tab){resetQuickType();state.tab=tab;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));render();}
+function syncMeasuredClearButton(){const b=$('clearMeasuredEditorBtn');if(!b)return;b.style.display=state.tab==='measured'?'':'none';b.disabled=state.threeRun.active;}
+function clearMeasuredMap(){
+  if(state.threeRun.active)return alert('Không thể xóa AFR khi MODE 3 LƯỢT đang chạy.');
+  if(!confirm('Xóa toàn bộ AFR đã đo của MAP No.'+state.activeMap+'?'))return;
+  state.measured=blankMatrix(null);
+  state.counts=blankMatrix(0);
+  if(state.tab==='measured')render();
+  saveSoon();
+  flashSave('Đã xóa bảng AFR đo · MAP No.'+state.activeMap);
+}
+function setTab(tab){resetQuickType();state.tab=tab;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));syncMeasuredClearButton();render();}
 async function toggleRecord(){
   if(state.threeRun.active)return;
   if(!state.recording){
@@ -3343,7 +3353,7 @@ async function toggleRecord(){
   setRecording(!state.recording);
 }
 
-load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);render();updateLive();renderThreeRunUi();renderThreeRunHistory();
+load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);syncMeasuredClearButton();render();updateLive();renderThreeRunUi();renderThreeRunHistory();
 
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
@@ -3351,7 +3361,7 @@ $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn'
 $('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;syncControls();saveSoon();};
 $('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;syncControls();saveSoon();};
 ['tpsMin','tpsMax','settleMs','afrDelayMs','limitPct','threeRunLimitPct','afrFloor'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();render();renderThreeRunUi();}));
-$('clearMeasured').onclick=()=>{if(state.threeRun.active)return;if(confirm('Xóa toàn bộ AFR đã đo?')){state.measured=blankMatrix(null);state.counts=blankMatrix(0);render();saveSoon();}};
+$('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 
 function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
 function pcMapKeyboardEnabled(){
