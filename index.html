@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.11';
+  window.BLINK_PB_VERSION = '3.79.12';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1628,7 +1628,7 @@ function render(){
       if(state.tab==='measured'&&v!=null){
         const afr=Number(v);
         if(Number.isFinite(afr)){
-          if(afr<12.5) cls+=' afr-red';
+          if(afr<12) cls+=' afr-red';
           else if(afr<=14) cls+=' afr-green';
           else cls+=' afr-orange';
         }
@@ -3294,7 +3294,7 @@ function recordSample(now){
       td.textContent=fmt(state.measured[r][c],2);
       td.classList.remove('afr-red','afr-green','afr-orange');
       const a=Number(state.measured[r][c]);
-      if(Number.isFinite(a))td.classList.add(a<12.5?'afr-red':a<=14?'afr-green':'afr-orange');
+      if(Number.isFinite(a))td.classList.add(a<12?'afr-red':a<=14?'afr-green':'afr-orange');
     }
   }
   saveSoon();
