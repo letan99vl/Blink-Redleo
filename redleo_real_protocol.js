@@ -256,6 +256,9 @@ function mainFeaturePage(id,bank){
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
+  const v92=!!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
+  if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
+  if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
@@ -265,7 +268,7 @@ function isDirectVerifiedFeature(id){
   // REDLEO 9.2+ uses dedicated compensation pages 0x72/0x82/0x92.
   // These layouts and row orientation are already handled explicitly below,
   // so they can use the same page-read -> page-write safety gate as the main maps.
-  if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj'].includes(id))return true;
+  if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -2589,6 +2592,99 @@ function matrixFromMaybe(id,fallback){
 }
 function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[...document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]')];if(cells.length)return matrixFromRedTable(2,15);}return fallback.map(r=>r.slice())}
 
+function isV92Direct(){
+  return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
+}
+function requireExactCachedPage(pg,len,label){
+  const cached=pageCache.get(pg&255);
+  if(!cached||cached.length!==len){
+    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' đúng '+len+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
+  }
+  return new Uint8Array(cached);
+}
+async function verifyExactDirectPage(pg,payload,label){
+  const R=await readDirectPageReal(pg,payload.length,'XÁC MINH '+label,false);
+  if(R.data.length!==payload.length||!bytesEqual(R.data,payload)){
+    let mismatch=-1;
+    const n=Math.min(R.data.length,payload.length);
+    for(let i=0;i<n;i++){if(R.data[i]!==payload[i]){mismatch=i;break;}}
+    if(mismatch<0&&R.data.length!==payload.length)mismatch=n;
+    throw new Error(label+' · ECU ACK nhưng READBACK page 0x'+(pg&255).toString(16).toUpperCase()+' không khớp'+(mismatch>=0?' tại byte '+mismatch:'')+'.');
+  }
+  return R;
+}
+async function writeV92A2KnownFeature(id){
+  if(!isV92Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO 9.2+.');
+  const payload=requireExactCachedPage(0xA2,133,'REDLEO 9.2 '+id);
+  let m;
+  const row11=(off,enc)=>{
+    m=matrixFromRedTable(1,11);
+    if(!m[0]||m[0].length!==11||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error(id+' chưa có đủ 11 giá trị hợp lệ.');
+    for(let i=0;i<11;i++)payload[off+i]=enc(m[0][i]);
+  };
+  switch(id){
+    case 'v_ect':row11(25,encVolt);break;
+    case 'v_iat':row11(36,encVolt);break;
+    case 'v_map':row11(47,encVolt);break;
+    case 'iat_inj':row11(58,encOil);break;
+    case 'map_idle_motor':row11(69,v=>clamp(Math.round(Number(v)),0,255));break;
+    case 'auto_clutch':
+      m=matrixFromRedTable(1,5);
+      if(!m[0]||m[0].length!==5||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch chưa có đủ 5 giá trị hợp lệ.');
+      for(let i=0;i<5;i++)payload[82+i]=clamp(Math.round(Number(m[0][i])/5),0,255);
+      break;
+    case 'external_adjust':
+      m=matrixFromRedTable(2,15);
+      if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa đủ 2 × 15 giá trị.');
+      for(let i=0;i<15;i++)payload[103+i]=encExtIgn(m[1][i]);
+      for(let i=0;i<15;i++)payload[118+i]=encExtPct(m[0][i]);
+      break;
+    default:throw new Error('REDLEO 9.2 chưa có A2 direct writer cho '+id);
+  }
+  taskUi('loading','REDLEO 9.2 · GHI '+id.toUpperCase()+' · A2 133B · GIỮ NGUYÊN BYTE KHÁC');
+  await writePageChecked(0xA2,payload,false,1,'mainWrite');
+  await verifyExactDirectPage(0xA2,payload,'REDLEO 9.2 '+id);
+  cacheAckedPage(0xA2,payload);
+  notice('success','GHI REDLEO 9.2 OK',id+' · A2 133B · ECU ACK + READBACK BYTE-LEVEL OK');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
+}
+async function writeV92EctMotor(bank){
+  if(!isV92Direct())throw new Error('ECT Motor direct writer chỉ dùng REDLEO 9.2+.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank),payload=requireExactCachedPage(pg,30,'REDLEO 9.2 ECT Motor');
+  const m=matrixFromRedTable(1,12);
+  if(!m[0]||m[0].length!==12||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor chưa đủ 12 giá trị.');
+  for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(Number(m[0][i])/2),0,255);
+  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · GIỮ NGUYÊN 18B IDLE');
+  await writePageChecked(pg,payload,false,1,'mainWrite');
+  await verifyExactDirectPage(pg,payload,'REDLEO 9.2 ECT Motor MAP '+bank);
+  cacheAckedPage(pg,payload);
+  notice('success','GHI ECT MOTOR 9.2 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
+}
+async function writeV92IdleLimit(bank){
+  if(!isV92Direct())throw new Error('Idle/Limit direct writer chỉ dùng REDLEO 9.2+.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank),payload=requireExactCachedPage(pg,30,'REDLEO 9.2 Idle/Limit');
+  const specs=[
+    ['idleCold',0,v=>Math.round(v)],['idleHot',1,v=>Math.round(v)],['maxSpeed',2,v=>Math.round(v)],
+    ['returnCold',3,v=>Math.round(v)],['returnHot',4,v=>Math.round(v)],['accelPct',5,v=>Math.round(v*64/50)],
+    ['idleSensitivity',6,v=>Math.round(v)]
+  ];
+  for(const [key,idx,enc] of specs){
+    const el=document.querySelector('[data-idleopt="'+key+'"]'),v=Number(el&&el.value);
+    if(!Number.isFinite(v))continue;
+    const raw=clamp(enc(v),0,65535);
+    payload[idx*2]=(raw>>8)&255;payload[idx*2+1]=raw&255;
+  }
+  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · GIỮ NGUYÊN 12B ECT MOTOR');
+  await writePageChecked(pg,payload,false,1,'mainWrite');
+  await verifyExactDirectPage(pg,payload,'REDLEO 9.2 Idle/Limit MAP '+bank);
+  cacheAckedPage(pg,payload);
+  notice('success','GHI IDLE/LIMIT 9.2 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
+}
+
 async function writeV11AutoShift(bank){
   if(!isV11Profile())throw new Error('AutoShift writer chỉ dùng cho ATE V11.');
   bank=normalizeBankForProfile(bank);
@@ -2810,6 +2906,8 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='alternate_table')return writeV11AlternateTable();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
+    if(isV92Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV92A2KnownFeature(id);
+    if(isV92Direct()&&id==='ect_idle_motor')return writeV92EctMotor(bank);
 
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
@@ -2877,6 +2975,7 @@ async function writeFeatureReal(id){
   return {ack:true,page:pg,payload:Uint8Array.from(payload)};
 }
 async function writeIdleReal(){
+  if(isV92Direct())return writeV92IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
   await ensureV9FullWriteReady('Ghi Idle/Limit');
   assertSafeWriteLayout();
   const bank=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4),pg=page(6,bank);
