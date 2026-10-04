@@ -261,7 +261,7 @@ function mainFeaturePage(id,bank){
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&id==='idle_limit')return page(6,bank);
-  if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
@@ -274,7 +274,7 @@ function isDirectVerifiedFeature(id){
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
   // Original V10.2 IL confirms page family 6 writes only the 18B Idle/Limit block.
   // ECT Motor is NOT on page6 for V10; it remains locked with the unverified A2 tail.
-  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return true;
+  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -323,7 +323,7 @@ function profileSupportsFeature(id,p=ecuProfile){
   // proven only for a current non-ULTRA V10 session. Never broaden them by
   // profile key alone.
   const currentV10Direct=p===ecuProfile&&isV10Direct();
-  if(currentV10Direct&&['ect_idle_motor','external_adjust'].includes(id))return true;
+  if(currentV10Direct&&['ect_idle_motor','external_adjust','auto_clutch'].includes(id))return true;
   const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
   return set.has(id);
 }
@@ -2920,6 +2920,13 @@ async function writeV10A2KnownFeature(id){
     for(let c=0;c<15;c++)payload[V10_A2.EXTERNAL+c]=encExtIgn(m[1][c]);
     for(let c=0;c<15;c++)payload[V10_A2.EXTERNAL+15+c]=encExtPct(m[0][c]);
     label='External Adjustment';
+  }else if(id==='auto_clutch'){
+    // Original programSpaceOut() CONFIG block:
+    // +0 feature/config byte, +1 Start RPM, +2..+6 five AutoClutch timers,
+    // +7..+10 password. This writer edits only the five timer bytes.
+    const v=v10A2UiMatrix(1,5,'AutoClutch')[0];
+    for(let i=0;i<5;i++)payload[V10_A2.CONFIG+2+i]=clamp(Math.round(Math.max(0,Number(v[i]))/5),0,255);
+    label='AutoClutch Timer';
   }else{
     throw new Error('REDLEO V10.2 A2 chưa mở writer cho '+id+'.');
   }
@@ -3182,7 +3189,7 @@ async function writeFeatureReal(id){
     if(isV92Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV92A2KnownFeature(id);
     if(isV92Direct()&&id==='ect_idle_motor')return writeV92EctMotor(bank);
     if(isV10Direct()&&id==='idle_limit')return writeV10IdleLimit(bank);
-    if(isV10Direct()&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return writeV10A2KnownFeature(id);
+    if(isV10Direct()&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV10A2KnownFeature(id);
 
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
