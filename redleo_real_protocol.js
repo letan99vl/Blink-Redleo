@@ -2811,12 +2811,17 @@ async function writeFuelBank(bank){
   if(inj.some(r=>r.some(v=>v==null||v===''||!Number.isFinite(Number(v)))))throw new Error('MAP hiện tại đang trống/chưa đọc đủ từ ECU. Hãy chờ ĐỌC HIỆN TẠI báo OK trước khi ghi.');
 
   const fuelMax=ecuProfile&&ecuProfile.family==='v8'?12.75:(65535/500);
-  let badCell=null;
+  let badCell=null,positiveCells=0;
   outer:for(let r=0;r<14;r++)for(let c=0;c<30;c++){
     const v=Number(inj[r][c]);
     if(v<0||v>fuelMax){badCell={r,c,v};break outer;}
+    if(v>0)positiveCells++;
   }
   if(badCell)throw new Error('MAP phun vượt giới hạn 0–'+fuelMax.toFixed(3)+' ms tại TPS row '+(badCell.r+1)+', RPM col '+(badCell.c+1)+' · '+badCell.v+' ms');
+  // Release safety guard: a complete 14x30 zero table is never a valid map to
+  // send accidentally. Do not impose tighter PW limits here; profile-specific
+  // protocol limits and every legitimate non-zero map keep the existing writer.
+  if(positiveCells===0)throw new Error('ĐÃ CHẶN GHI: MAP phun 420/420 ô đều bằng 0. Hãy ĐỌC HIỆN TẠI từ ECU trước khi ghi.');
 
   if(ecuProfile&&ecuProfile.family==='v8'){
     taskUi('loading','ĐANG GHI V8 MAP NO.'+bank+' · PAGE 0x'+page(1,bank).toString(16).toUpperCase());
@@ -3298,6 +3303,17 @@ async function restoreReal(){
         log('Restore OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
       }
       notice('success','RESTORE ATE V11 OK','0x8B + Read All 9958B verify byte-level · PIN handshake đã làm mới.');
+      return verify;
+    }
+    if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
+      if(!restored||!restored.raw||restored.raw.length<100)throw new Error('REDLEO V9 Restore 0x8B không trả full image hợp lệ.');
+      await new Promise(r=>setTimeout(r,350));
+      taskUi('loading','REDLEO V9 · RESTORE 0x8B · READ ALL VERIFY...');
+      const verify=await readAll(0xAB);
+      if(!verify||!verify.raw||verify.raw.length!==restored.raw.length)throw new Error('RESTORE VERIFY: độ dài dữ liệu sau 0x8B không khớp lần READ ALL xác nhận.');
+      const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
+      if(!bytesEqual(a,b))throw new Error('RESTORE VERIFY: dữ liệu sau 0x8B khác lần READ ALL xác nhận.');
+      notice('success','RESTORE REDLEO V9 OK','0x8B + Read All verify byte-level · '+verify.raw.length+'B.');
       return verify;
     }
     notice('success','RESTORE ECU OK','0x8B hoàn tất · ECU trả '+restored.raw.length+'B.');
