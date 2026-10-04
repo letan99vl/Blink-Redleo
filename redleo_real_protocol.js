@@ -3315,27 +3315,49 @@ async function restoreReal(){
   requireProfile('restore','Khôi phục dữ liệu gốc');
   const restoreBtn=document.getElementById('restoreEcuBtn')||document.querySelector('[data-ecucmd="RESTORE"]');
   if(restoreInFlight){
-    taskUi('loading','ATE · KHÔI PHỤC ĐANG CHẠY...');
+    taskUi('loading','ATE · KHÔI PHỤC / XÁC NHẬN ĐANG HOẠT ĐỘNG...');
     return false;
+  }
+
+  // Lock from the very first tap, including the confirmation phase. This avoids
+  // two rapid taps replacing the in-app dialog and leaving the first Promise
+  // unresolved.
+  restoreInFlight=true;
+  if(restoreBtn){
+    restoreBtn.dataset.restoreBusy='1';
+    restoreBtn.dataset.restoreIdleText=restoreBtn.textContent;
+    restoreBtn.disabled=true;
+    restoreBtn.textContent='? XÁC NHẬN KHÔI PHỤC...';
   }
 
   // Acknowledge the tap before opening any dialog. Android/WebView launchers may
   // suppress native JS dialogs, so Restore must never appear to do nothing.
   taskUi('loading','ĐÃ NHẬN LỆNH KHÔI PHỤC · CHỜ XÁC NHẬN');
-  const confirmed=await confirmRestoreReal();
+
+  let confirmed=false;
+  try{
+    confirmed=await confirmRestoreReal();
+  }catch(e){
+    restoreInFlight=false;
+    if(restoreBtn){
+      restoreBtn.textContent=restoreBtn.dataset.restoreIdleText||'↺ KHÔI PHỤC DỮ LIỆU GỐC';
+      delete restoreBtn.dataset.restoreIdleText;delete restoreBtn.dataset.restoreBusy;
+      restoreBtn.disabled=restoreBtn.dataset.profileBlocked==='1';
+    }
+    throw e;
+  }
   if(!confirmed){
+    restoreInFlight=false;
+    if(restoreBtn){
+      restoreBtn.textContent=restoreBtn.dataset.restoreIdleText||'↺ KHÔI PHỤC DỮ LIỆU GỐC';
+      delete restoreBtn.dataset.restoreIdleText;delete restoreBtn.dataset.restoreBusy;
+      restoreBtn.disabled=restoreBtn.dataset.profileBlocked==='1';
+    }
     taskUi('offline','KHÔI PHỤC ĐÃ HỦY',1600);
     return false;
   }
 
-  restoreInFlight=true;
-  if(restoreBtn){
-    restoreBtn.dataset.restoreBusy='1';
-    restoreBtn.disabled=true;
-    restoreBtn.dataset.restoreIdleText=restoreBtn.textContent;
-    restoreBtn.textContent='⏳ ĐANG KHÔI PHỤC...';
-  }
-
+  if(restoreBtn)restoreBtn.textContent='⏳ ĐANG KHÔI PHỤC...';
   const resume=liveRunning;stopLiveLoop();
   try{
     taskUi('loading','ATE · RESTORE 0x8B · ĐANG CHỜ ECU...');
