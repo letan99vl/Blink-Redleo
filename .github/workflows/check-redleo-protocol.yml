@@ -8,6 +8,7 @@ on:
       - 'redleo_real_protocol.js'
       - 'tools/check-row-orientation.js'
       - 'tools/check-v92-page6.js'
+      - 'tools/check-v10-page6.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -24,3 +25,5 @@ jobs:
         run: node tools/check-row-orientation.js
       - name: REDLEO 9.2 page6 regression
         run: node tools/check-v92-page6.js
+      - name: REDLEO V10.2 page6 regression
+        run: node tools/check-v10-page6.js
