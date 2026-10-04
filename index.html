@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.3';
+  window.BLINK_PB_VERSION = '3.79.4';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3226,10 +3226,10 @@ async function queueReadAll(){
 }
 
 const blinkAfrMedianSamples=[];
-function blinkMedianAfr5(value){
+function blinkMedianAfr3(value){
   if(!Number.isFinite(value))return NaN;
   blinkAfrMedianSamples.push(value);
-  if(blinkAfrMedianSamples.length>5)blinkAfrMedianSamples.shift();
+  if(blinkAfrMedianSamples.length>3)blinkAfrMedianSamples.shift();
   if(blinkAfrMedianSamples.length<3){
     return blinkAfrMedianSamples.reduce((a,b)=>a+b,0)/blinkAfrMedianSamples.length;
   }
@@ -3244,10 +3244,10 @@ function processAfrPacket(p){
     state.live.afrV=+p.afrV;
     const afrVCal=clamp(state.live.afrV,0,2.66);
     const afrRaw=afrVCal<=1.271 ? 9+(afrVCal/1.271)*3.1 : 12.1+((afrVCal-1.271)/(2.66-1.271))*5.9;
-    state.live.afr=blinkMedianAfr5(afrRaw);
+    state.live.afr=blinkMedianAfr3(afrRaw);
     ok=true;
   }else if(Number.isFinite(+p.afr)){
-    state.live.afr=blinkMedianAfr5(+p.afr); ok=true;
+    state.live.afr=blinkMedianAfr3(+p.afr); ok=true;
   }
   if(!ok)return;
   state.totalSamples++;
@@ -3274,7 +3274,7 @@ function recordSample(now){
   if(now-state.cellEnteredAt<state.cal.settleMs)return;
   const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<9||afr>22)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0,old=state.measured[r][c];
-  state.measured[r][c]=old==null?afr:(old*n+afr)/(n+1); state.counts[r][c]=n+1;
+  state.measured[r][c]=old==null?afr:(old+(afr-old)*0.65); state.counts[r][c]=n+1;
   if(state.tab==='measured'){
     const td=document.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
     if(td){
