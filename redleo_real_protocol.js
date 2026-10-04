@@ -357,8 +357,36 @@ function applyProfileUi(){
   const directReady=activeFeatureId?mainFeatureReady(activeFeatureId,(typeof state!=='undefined'&&state.activeMap)||1):false;
   const legacyFullReady=activeFeatureId&&activeFeatureSupported&&profileCap('fullWrite');
   const canRedWrite=activeFeatureId?(directReady||legacyFullReady):profileCap('fullWrite');
-  setProfileDisabled(document.getElementById('redWriteBtn'),!canRedWrite,reason);
-  setProfileDisabled(document.getElementById('idleLimitWriteBtn'),!profileCap('fullWrite'),reason);
+  const redWriteBtn=document.getElementById('redWriteBtn');
+  setProfileDisabled(redWriteBtn,!canRedWrite,reason);
+  // A hard-disabled HTML button swallows taps completely. For write controls we
+  // keep the safety flag but allow the REAL handler to receive the tap and
+  // explain why the write is blocked. writeFeatureReal() still performs the
+  // profile/page-cache guard before any ECU transport starts.
+  if(redWriteBtn){
+    if(!canRedWrite){
+      redWriteBtn.disabled=false;
+      redWriteBtn.dataset.profileGuarded='1';
+      redWriteBtn.setAttribute('aria-disabled','true');
+    }else{
+      delete redWriteBtn.dataset.profileGuarded;
+      redWriteBtn.removeAttribute('aria-disabled');
+    }
+  }
+
+  const idleWriteBtn=document.getElementById('idleLimitWriteBtn');
+  const canIdleWrite=profileCap('fullWrite');
+  setProfileDisabled(idleWriteBtn,!canIdleWrite,reason);
+  if(idleWriteBtn){
+    if(!canIdleWrite){
+      idleWriteBtn.disabled=false;
+      idleWriteBtn.dataset.profileGuarded='1';
+      idleWriteBtn.setAttribute('aria-disabled','true');
+    }else{
+      delete idleWriteBtn.dataset.profileGuarded;
+      idleWriteBtn.removeAttribute('aria-disabled');
+    }
+  }
   setProfileDisabled(document.getElementById('readMapBtn'),!profileCap('fuelRead')||!profileSupportsFeature('inj_ve',p),reason);
   setProfileDisabled(document.getElementById('redReadBtn'),!profileCap('pageRead')||!activeFeatureSupported,reason);
   setProfileDisabled(document.getElementById('idleLimitReadBtn'),!profileCap('idleRead')||!profileSupportsFeature('idle_limit',p),reason);
