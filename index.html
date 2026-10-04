@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.1';
+  window.BLINK_PB_VERSION = '3.79.2';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2536,12 +2536,22 @@ function beginThreeRunPass(pass,keepMeasured=false){
   const tr=state.threeRun;tr.pass=pass;tr.phase='recording';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);
   if(!keepMeasured){state.measured=blankMatrix(null);state.counts=blankMatrix(0);}setRecording(true);state.selection.active=false;setTab('measured');renderThreeRunUi();saveSoon();
 }
+function afrStreamReady(maxAgeMs=2200){
+  if(state.afrPort&&state.afrKeepReading)return true;
+  const last=Number(window.blinkAfrLastPacketAt);
+  return Number.isFinite(last)&&Number.isFinite(state.live.afr)&&(performance.now()-last)<=maxAgeMs;
+}
 async function startThreeRunSession(){
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!state.afrPort||!state.afrKeepReading)return alert('Hãy kết nối AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
+  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return alert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
   if(!await ensureActiveEcuAxes(true))return;
   let maxPw=0;for(const row of state.inject)for(const v of row)maxPw=Math.max(maxPw,num(v,0));if(maxPw<=0)return alert('Chưa có MAP phun ECU. Hãy bấm Đọc MAP ECU trước.');
-  const ok=confirm('BẮT ĐẦU MODE CHẠY 3 LƯỢT trên MAP No.'+state.activeMap+'?\n\nLượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi + VERIFY ECU lần 3.\n\nChỉ sau khi FINAL VERIFY thành công phiên mới hoàn tất. Trong lúc chạy, MAP và chỉnh tay sẽ bị khóa.');if(!ok)return;
+  const ok=await blinkConfirm(
+    'BẮT ĐẦU MODE CHẠY 3 LƯỢT · MAP No.'+state.activeMap,
+    'Lượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi ECU lần 3.\n\nSau mỗi lượt, MAP phun chính trong Blink được cập nhật trước rồi mới gửi ECU. Chỉ sau khi ECU ACK thành công mới chuyển sang lượt tiếp theo.',
+    'BẮT ĐẦU',
+    'HỦY'
+  );if(!ok)return;
   state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:null,runPw:null,target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};beginThreeRunPass(1,false);
 }
 function captureThreeRun(pass){
@@ -2549,7 +2559,7 @@ function captureThreeRun(pass){
 }
 async function finishThreeRunPass(){
   const tr=state.threeRun;if(!tr.active)return;
-  if(tr.phase==='paused'){if(!state.ecuConnected||!state.afrPort)return alert('Kết nối lại ECU và AFR trước khi tiếp tục.');tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;}
+  if(tr.phase==='paused'){if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;}
   if(tr.phase!=='recording')return;setRecording(false);const pass=tr.pass,run=captureThreeRun(pass);
   if(run.summary.cells<1){setRecording(true);tr.phase='recording';return alert('Lượt '+pass+' chưa có ô AFR hợp lệ nào. Hãy chạy xe và ghi dữ liệu trước.');}
   if(pass===3){
@@ -2587,7 +2597,7 @@ function onFuelWriteVerified(mapNo){
   if(!tr.pendingNextPass)return;
   const next=tr.pendingNextPass;tr.pendingNextPass=0;
   if(next===4){completeThreeRunSession();return;}
-  if(!state.afrPort||!state.afrKeepReading){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · kết nối lại AFR để chạy LƯỢT '+next);return;}
+  if(!afrStreamReady()){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · chờ AFR BLE để chạy LƯỢT '+next);return;}
   beginThreeRunPass(next,false);flashSave('GHI ACK OK · tự bắt đầu LƯỢT '+next+'/3');
 }
 function onFuelWriteVerifyFailed(mapNo,cmp){
@@ -3239,6 +3249,7 @@ function processAfrPacket(p){
   if(!ok)return;
   state.totalSamples++;
   const now=performance.now();
+  window.blinkAfrLastPacketAt=now;
   state.afrHistory.push({t:now,v:state.live.afr});
   while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
   updateLive();
@@ -4206,9 +4217,11 @@ window.addEventListener('beforeunload',save);
   $('writeMapBtn').onclick=writeTest;
   $('applyCorrectedBtn').onclick=writeTest;
   $('studyTpsBtn').onclick=tpsStudyTest;
-  $('threeRunStartBtn').onclick=uiStart3;
-  $('threeRunStepBtn').onclick=uiNext3;
-  $('threeRunCancelBtn').onclick=uiCancel3;
+  // Production 3-run must use the real autotune state machine.
+  // The old UI-test handlers only advanced the pass counter and never wrote fuel.
+  $('threeRunStartBtn').onclick=startThreeRunSession;
+  $('threeRunStepBtn').onclick=finishThreeRunPass;
+  $('threeRunCancelBtn').onclick=cancelThreeRun;
   $('connectAfrBtn').onclick=()=>{};$('disconnectAfrBtn').onclick=()=>{};
 
   $('disconnectEcuBtn').disabled=true;
