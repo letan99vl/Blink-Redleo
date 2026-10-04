@@ -2025,11 +2025,13 @@ async function readA2SensorPageReal(showUi=true){
   if(typeof state!=='undefined'&&C.options){
     if(Number.isFinite(C.options.tpsMinEcu))state.cal.tpsMin=C.options.tpsMinEcu;
     if(Number.isFinite(C.options.tpsMaxEcu))state.cal.tpsMax=C.options.tpsMaxEcu;
+    try{window.resetBlinkTpsTrend?.();}catch(_e){}
     try{syncControls();}catch(_e){}
   }else if(typeof state!=='undefined'&&v11&&C.ateOptions&&C.ateOptions[0]){
     const lo=Number(C.ateOptions[0][0]),hi=Number(C.ateOptions[0][1]);
     if(Number.isFinite(lo)&&Number.isFinite(hi)&&hi>lo+.1){
       state.cal.tpsMin=lo;state.cal.tpsMax=hi;
+      try{window.resetBlinkTpsTrend?.();}catch(_e){}
       try{syncControls();saveSoon();}catch(_e){}
     }
   }
@@ -3375,6 +3377,7 @@ async function tpsStudyReal(){
     const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
     if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
       state.cal.tpsMin=min;state.cal.tpsMax=max;
+      try{window.resetBlinkTpsTrend?.();}catch(_e){}
       try{syncControls();saveSoon();}catch(_e){}
     }
     notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
@@ -3394,6 +3397,7 @@ async function tpsStudyReal(){
   const min=rx[92]*20/1024,max=rx[93]*20/1024;
   if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
   state.cal.tpsMin=min;state.cal.tpsMax=max;
+  try{window.resetBlinkTpsTrend?.();}catch(_e){}
   try{syncControls();saveSoon();}catch(_e){}
   notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
 }
