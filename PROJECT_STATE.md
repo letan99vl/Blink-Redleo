@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.23`
+`BLINK_PB_VERSION = 3.79.24`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -35,6 +35,13 @@ Important current state:
   - V8 readback comparison accounts for 0.05 ms wire quantization; V9+ keeps the existing tighter tolerance.
   - Legacy BLE READ_MAP uses a temporary 420-cell buffer and never pre-clears the current map to zero.
 - ATE V11 restore 0x8B flow is hardened: a valid 9958-byte restore image is authoritative, AB/AE/8B response headers are supported, and follow-up 0xAB is a secondary verification rather than a false-failure trigger.
+- PB 3.79.24 fuel keypad live-entry UX:
+  - Removed the keypad ENTER button.
+  - Number/decimal entry updates the selected fuel cell/range immediately in local MAP state; ECU writes still require the existing SAVE action.
+  - C clears the current entry and immediately sets the selected cell/range to 0.000 ms.
+  - Backspace updates the selected cell/range after each deletion; deleting the final digit results in 0.000 ms.
+  - C and backspace are placed in the right-side keypad action column in portrait; landscape/software-landscape remain compact.
+  - Fixed fuel entry formatting so only a trailing decimal point is removed, never the last digit.
 - PB 3.79.23 ATE V11 restore response fix:
   - V11 Restore 0x8B now has a dedicated strict checksum parser and is no longer forced through the 9958-byte 0xAB Read-All decoder.
   - A checksum-valid 0x8B response confirms the restore transaction response even when its length differs from 9958B.
