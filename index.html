@@ -1498,6 +1498,10 @@ const state={
   ecuTpsStudyQueued:false, ecuTpsStudyToken:0,
   ecuWriteQueued:false, ecuWriteFrames:null, ecuWriteStep:0, ecuVerifyAfterWrite:false,
   ecuWriteSnapshot:null, ecuWriteMapNo:1, pendingAfrClearMapNo:0,
+  // Transient safety latch. A failed two-half write can leave the ECU in an
+  // unknown mixed state if readback also fails. Never persist this across app
+  // launches; a fresh BLE session clears ECU-derived maps anyway.
+  fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
@@ -1633,6 +1637,30 @@ function matrixFor(tab){
 }
 function fuelProtocolMaxMs(){
   try{return window.BlinkRealProtocol?.profile?.family==='v8'?12.75:(65535/500)}catch(_e){return 65535/500}
+}
+function inspectFuelMap(map){
+  const maxMs=fuelProtocolMaxMs();
+  if(!validMatrix(map))return {ok:false,reason:'MAP chưa đủ ma trận 14 × 30.',positive:0};
+  let positive=0,min=Infinity,max=-Infinity;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const raw=map[r][c];
+    if(raw==null||raw===''||!Number.isFinite(Number(raw)))return {ok:false,reason:'MAP có ô trống/không hợp lệ tại hàng '+(r+1)+', cột '+(c+1)+'.',positive};
+    const v=Number(raw);
+    if(v<0||v>maxMs+0.0001)return {ok:false,reason:'MAP có giá trị '+v.toFixed(3)+' ms ngoài giới hạn protocol 0–'+maxMs.toFixed(3)+' ms tại hàng '+(r+1)+', cột '+(c+1)+'.',positive};
+    if(v>0)positive++;
+    if(v<min)min=v;if(v>max)max=v;
+  }
+  if(positive===0)return {ok:false,reason:'MAP phun 420/420 ô đều bằng 0. Hãy ĐỌC HIỆN TẠI từ ECU trước khi ghi.',positive,min:0,max:0};
+  return {ok:true,positive,min,max,maxMs};
+}
+function fuelMapSyncUnknown(bank=state.activeMap){
+  bank=clamp(Math.round(Number(bank)||1),1,4);
+  return !!(Array.isArray(state.fuelSyncUnknown)&&state.fuelSyncUnknown[bank-1]);
+}
+function setFuelMapSyncUnknown(bank,on=true){
+  bank=clamp(Math.round(Number(bank)||1),1,4);
+  if(!Array.isArray(state.fuelSyncUnknown)||state.fuelSyncUnknown.length!==4)state.fuelSyncUnknown=[false,false,false,false];
+  state.fuelSyncUnknown[bank-1]=!!on;
 }
 function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
   const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100, maxMs=fuelProtocolMaxMs();
@@ -2300,6 +2328,16 @@ function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
+  const rollbackMap=validMatrix(opts.rollbackMap)?cloneMatrix(opts.rollbackMap):null;
+  let rollbackBank=clamp(Math.round(Number(state.activeMap)||1),1,4);
+  const rollbackBeforeTransport=()=>{
+    if(rollbackMap&&state.mapBanks&&state.mapBanks[rollbackBank-1]){
+      state.mapBanks[rollbackBank-1].inject=cloneMatrix(rollbackMap);
+      if(Number(state.pendingAfrClearMapNo)===rollbackBank)state.pendingAfrClearMapNo=0;
+      try{if(state.activeMap===rollbackBank&&(state.tab==='inject'||state.tab==='corrected'))render();saveSoon();}catch(_e){}
+    }
+    return false;
+  };
 
   // Manual SAVE never opens a browser/WebView confirmation dialog.
   // While 3-run is active, keep the safety interlock: do not silently cancel
@@ -2313,7 +2351,7 @@ async function startFuelWrite(opts={}){
   // Click acknowledgement is owned by the single-flight UI layer.
   // Do not announce "received/write" here; the truthful ĐANG GHI stage is set
   // only by rawExchange after acquiring the real transport mutex.
-  if(!state.ecuConnected){showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi ghi.',0);return false;}
+  if(!state.ecuConnected){showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi ghi.',0);return rollbackBeforeTransport();}
 
   // BLE REDLEO REAL has its own atomic transport mutex. Do not use ecuPhase as
   // a transport lock: ecuPhase is shared with the old/native state machine and
@@ -2327,34 +2365,37 @@ async function startFuelWrite(opts={}){
     // future Live polls and waited for the in-flight transaction to finish.
     if(state.ecuPhase==='handshake'||state.ecuPhase==='online'||state.ecuPhase==='idle'||state.ecuPhase==='profile-locked'){
       showEcuNotice('error','ECU CHƯA SẴN SÀNG','Trạng thái hiện tại: '+state.ecuPhase+'. Hãy đợi ECU nhận diện xong.',3500);
-      return false;
+      return rollbackBeforeTransport();
     }
     // Self-heal stale UI phases once manual I/O has priority.
     if(state.ecuPhase!=='live')state.ecuPhase='live';
   }else if(state.ecuPhase!=='live'){
     // Keep the legacy/native path conservative.
     showEcuNotice('error','ECU ĐANG BẬN','Trạng thái hiện tại: '+state.ecuPhase+'. Chờ Live ổn định rồi thử lại.',0);
-    return false;
-  }
-
-  if(!await ensureActiveEcuAxes(true))return false;
-
-  let min=Infinity,max=-Infinity;
-  for(const row of state.inject)for(const v0 of row){
-    const v=num(v0,0); if(v<min)min=v;if(v>max)max=v;
-  }
-  if(!Number.isFinite(min)||!Number.isFinite(max))return alert('MAP ECU không hợp lệ.');
-
-  const protocolMaxMs=fuelProtocolMaxMs();
-  if(min<0||max>protocolMaxMs+0.0001){
-    alert('MAP có giá trị '+min.toFixed(3)+'–'+max.toFixed(3)+' ms vượt giới hạn protocol 0–'+protocolMaxMs.toFixed(3)+' ms.');
-    return false;
+    return rollbackBeforeTransport();
   }
 
   const realApi=window.BlinkRealProtocol;
   const mapNo=realApi&&typeof realApi.normalizeBank==='function'
     ?realApi.normalizeBank(state.activeMap)
     :state.activeMap;
+  rollbackBank=mapNo;
+
+  // If a previous write failed after transport started and Blink could not read
+  // the ECU back, do not allow another correction/write to compound an unknown
+  // half-written state. Only a successful READ CURRENT clears this latch.
+  if(fuelMapSyncUnknown(mapNo)){
+    showEcuNotice('error','MAP ECU CHƯA XÁC ĐỊNH','Lần ghi trước bị lỗi và chưa đọc lại được ECU. Hãy bấm ĐỌC HIỆN TẠI thành công trước khi ghi hoặc chạy Auto Tune tiếp.',0);
+    return rollbackBeforeTransport();
+  }
+
+  if(!await ensureActiveEcuAxes(true))return rollbackBeforeTransport();
+
+  const mapCheck=inspectFuelMap(state.inject);
+  if(!mapCheck.ok){
+    showEcuNotice('error','ĐÃ CHẶN GHI MAP',mapCheck.reason,0);
+    return rollbackBeforeTransport();
+  }
 
   // No confirmation popup here. A tap on LƯU HIỆN TẠI starts the
   // write immediately; the REDLEO REAL capture layer shows press feedback,
@@ -2364,8 +2405,11 @@ async function startFuelWrite(opts={}){
   // This is essential for V8, whose fuel map is one U8 page rather than the
   // two U16 half-pages used by V9+.
   if(realApi&&typeof realApi.writeCurrentFuelAndVerify==='function'){
+    const attemptedMap=cloneMatrix(state.inject);
     state.ecuWriteMapNo=mapNo;
-    state.ecuWriteSnapshot=cloneMatrix(state.inject);
+    // Snapshot is the known pre-correction/pre-pass map when supplied. Manual
+    // SAVE uses the current map because no local transformation happened first.
+    state.ecuWriteSnapshot=rollbackMap?cloneMatrix(rollbackMap):cloneMatrix(state.inject);
     state.ecuWriteQueued=false;
     state.ecuPhase='write1'; // also blocks MAP switching/cancel until safe completion
     $('mapSelect').disabled=true;
@@ -2377,11 +2421,50 @@ async function startFuelWrite(opts={}){
       onFuelWriteVerified(mapNo);
       return true;
     }catch(e){
+      const knownBefore=state.ecuWriteSnapshot?cloneMatrix(state.ecuWriteSnapshot):null;
       state.ecuWriteSnapshot=null;
       state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
-      onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
-      showEcuNotice('error','GHI MAP THẤT BẠI',String(e&&e.message||e),0);
+
+      // A V9+ fuel write is two independent half-pages. If half 1 succeeded and
+      // half 2 failed, blindly rolling the UI back would lie about ECU state.
+      // First try to read the actual 420 cells back. If the attempted map is
+      // already there, treat a lost ACK as verified success. If readback differs,
+      // keep the real ECU map and stop the tuning sequence. If readback itself
+      // fails, restore the known local baseline only for display and latch the
+      // bank UNKNOWN so no further write/Auto Tune can proceed.
+      let resynced=false,verifiedDespiteError=false,resyncError=null,cmp=null;
+      if(realApi&&typeof realApi.readCurrentFuelBank==='function'&&window.blinkCommandChar&&window.blinkMapChar){
+        try{
+          await new Promise(r=>setTimeout(r,180));
+          const R=await realApi.readCurrentFuelBank(mapNo,false);
+          resynced=!!(R&&validMatrix(R.matrix));
+          if(resynced){
+            cmp=compareFuelMaps(R.matrix,attemptedMap);
+            verifiedDespiteError=cmp.bad===0;
+            setFuelMapSyncUnknown(mapNo,false);
+          }
+        }catch(readErr){resyncError=readErr;}
+      }
+
+      if(verifiedDespiteError){
+        onFuelWriteVerified(mapNo);
+        showEcuNotice('success','GHI MAP ĐÃ XÁC MINH','ECU không trả ACK như dự kiến nhưng READ CURRENT xác nhận đủ 420 ô đã đúng với MAP cần ghi.',5000);
+        return true;
+      }
+
+      if(!resynced){
+        if(knownBefore&&state.mapBanks&&state.mapBanks[mapNo-1])state.mapBanks[mapNo-1].inject=cloneMatrix(knownBefore);
+        setFuelMapSyncUnknown(mapNo,true);
+        try{if(state.activeMap===mapNo&&(state.tab==='inject'||state.tab==='corrected'))render();saveSoon();}catch(_e){}
+      }
+
+      onFuelWriteVerifyFailed(mapNo,cmp||{bad:420,first:null});
+      const baseMsg=String(e&&e.message||e);
+      const safetyMsg=resynced
+        ?' Đã đọc lại MAP thật từ ECU; Auto Tune dừng để tránh bù chồng.'
+        :' Không đọc lại được ECU'+(resyncError?' ('+String(resyncError&&resyncError.message||resyncError)+')':'')+'. MAP này đã bị KHÓA GHI cho đến khi ĐỌC HIỆN TẠI thành công.';
+      showEcuNotice('error','GHI MAP THẤT BẠI',baseMsg+safetyMsg,0);
       return false;
     }
   }
@@ -2390,7 +2473,7 @@ async function startFuelWrite(opts={}){
   // writer. That fallback is retained only for the separate native/serial path.
   if(window.blinkCommandChar){
     showEcuNotice('error','KHÔNG THỂ GHI MAP','Protocol REDLEO REAL chưa sẵn sàng; đã chặn writer cũ để tránh ghi sai ECU.',0);
-    return false;
+    return rollbackBeforeTransport();
   }
 
   // Legacy desktop/native fallback retained only when the real protocol layer
@@ -2398,7 +2481,7 @@ async function startFuelWrite(opts={}){
   state.ecuWriteMapNo=mapNo;
   state.ecuWriteFrames=prepareFuelWriteFrames(state.ecuWriteMapNo);
   state.ecuWriteStep=0;
-  state.ecuWriteSnapshot=cloneMatrix(state.inject);
+  state.ecuWriteSnapshot=rollbackMap?cloneMatrix(rollbackMap):cloneMatrix(state.inject);
   $('mapSelect').disabled=true;
   state.ecuWriteQueued=true;
   state.ecuVerifyAfterWrite=false;
@@ -2443,6 +2526,10 @@ async function applyCorrectedAndWrite(){
     return alert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
   }
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  if(fuelMapSyncUnknown(state.activeMap))return showEcuNotice('error','MAP ECU CHƯA XÁC ĐỊNH','Hãy ĐỌC HIỆN TẠI thành công trước khi tính hoặc ghi MAP đã bù.',0);
+  const baseCheck=inspectFuelMap(state.inject);
+  if(!baseCheck.ok)return showEcuNotice('error','MAP GỐC CHƯA AN TOÀN',baseCheck.reason,0);
+  const baseMap=cloneMatrix(state.inject);
   const corrected=correctedMatrix();
   const next=blankMatrix(0);
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
@@ -2455,12 +2542,11 @@ async function applyCorrectedAndWrite(){
   }
   if(!changed.length)return alert('Chưa có ô AFR đo nào làm thay đổi map.');
 
-  const ok=confirm(
-    'ĐƯA MAP PHUN ĐÃ BÙ → MAP ECU No.'+state.activeMap+' VÀ GHI LUÔN?\\n\\n'+
-    'Ô có AFR đo: dùng giá trị đã bù.\\n'+
-    'Ô chưa đo: GIỮ NGUYÊN map ECU hiện tại.\\n'+
-    'Số ô thay đổi: '+changed.length+' / 420.\\n\\n'+
-    'Sau khi ECU ACK đủ 2 phần, tool sẽ báo GHI OK và không tự đọc lại MAP.'
+  const ok=await blinkConfirm(
+    'ĐƯA MAP ĐÃ BÙ → ECU · MAP NO.'+state.activeMap,
+    'Ô có AFR đo: dùng giá trị đã bù.\nÔ chưa đo: GIỮ NGUYÊN map ECU hiện tại.\nSố ô thay đổi: '+changed.length+' / 420.\n\nBlink sẽ tự đọc lại MAP nếu quá trình ghi gặp lỗi để tránh bù chồng.',
+    'GHI MAP',
+    'HỦY'
   );
   if(!ok)return;
 
@@ -2468,7 +2554,7 @@ async function applyCorrectedAndWrite(){
   state.pendingAfrClearMapNo=state.activeMap;
   saveSoon();
   if(state.tab==='inject'||state.tab==='corrected')render();
-  const writeStarted=await startFuelWrite({skipConfirm:true});
+  const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap});
   if(!writeStarted)state.pendingAfrClearMapNo=0;
 }
 
@@ -2604,8 +2690,9 @@ function afrStreamReady(maxAgeMs=2200){
 async function startThreeRunSession(){
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return alert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
+  if(fuelMapSyncUnknown(state.activeMap))return alert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
   if(!await ensureActiveEcuAxes(true))return;
-  let maxPw=0;for(const row of state.inject)for(const v of row)maxPw=Math.max(maxPw,num(v,0));if(maxPw<=0)return alert('Chưa có MAP phun ECU. Hãy bấm Đọc MAP ECU trước.');
+  const baseCheck=inspectFuelMap(state.inject);if(!baseCheck.ok)return alert(baseCheck.reason);
   const ok=await blinkConfirm(
     'BẮT ĐẦU MODE CHẠY 3 LƯỢT · MAP No.'+state.activeMap,
     'Lượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi ECU lần 3.\n\nSau mỗi lượt, MAP phun chính trong Blink được cập nhật trước rồi mới gửi ECU. Chỉ sau khi ECU ACK thành công mới chuyển sang lượt tiếp theo.',
@@ -2619,7 +2706,11 @@ function captureThreeRun(pass){
 }
 async function finishThreeRunPass(){
   const tr=state.threeRun;if(!tr.active)return;
-  if(tr.phase==='paused'){if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;}
+  if(tr.phase==='paused'){
+    if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');
+    if(fuelMapSyncUnknown(tr.mapNo)||!inspectFuelMap(state.inject).ok)return alert('Không thể tiếp tục phiên 3 lượt vì MAP ECU chưa được xác nhận sau gián đoạn/lỗi ghi. Hãy HỦY PHIÊN, ĐỌC HIỆN TẠI rồi bắt đầu lại.');
+    tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;
+  }
   if(tr.phase!=='recording')return;setRecording(false);const pass=tr.pass,run=captureThreeRun(pass);
   if(run.summary.cells<1){setRecording(true);tr.phase='recording';return alert('Lượt '+pass+' chưa có ô AFR hợp lệ nào. Hãy chạy xe và ghi dữ liệu trước.');}
   if(pass===3){
@@ -2635,7 +2726,7 @@ async function finishThreeRunPass(){
     if(state.tab==='inject'||state.tab==='corrected')render();
     renderThreeRunUi();saveSoon();
     flashSave('Lượt 3 → FINAL: đang tính phản ứng L2→L3 và ghi MAP lần 3 vào ECU...');
-    const started=await startFuelWrite({skipConfirm:true});
+    const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw});
     if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
     return;
   }
@@ -2643,7 +2734,7 @@ async function finishThreeRunPass(){
   if(pass===1){const proposal=correctedFrom(run.pw,run.afr,tr.target,state.cal.limitPct);nextMap=matrixToWritable(run.pw,proposal);run.nextPw=cloneMatrix(nextMap);detail='Lượt 1 → 2: bù AFR theo công thức chuẩn.';}
   else{const adaptive=adaptiveThirdMap(tr.runs[0],run,tr.target);nextMap=adaptive.map;tr.lastAdaptiveStats=adaptive.stats;run.nextPw=cloneMatrix(nextMap);run.adaptiveStats=adaptive.stats;detail='Lượt 2 → 3: học phản ứng PW/AFR hai lượt; mọi giá trị AFR hợp lệ đều tham gia mô hình.';}
   state.inject=cloneMatrix(nextMap);tr.phase='writing';tr.pendingNextPass=pass+1;if(state.tab==='inject'||state.tab==='corrected')render();renderThreeRunUi();saveSoon();flashSave(detail+' Đang ghi ECU...');
-  const started=await startFuelWrite({skipConfirm:true});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
+  const started=await startFuelWrite({skipConfirm:true,rollbackMap:run.pw});if(!started){tr.phase='error';tr.pendingNextPass=0;renderThreeRunUi();saveSoon();}
 }
 function resetThreeRunCancelled(msg='ĐÃ HỦY PHIÊN 3 LƯỢT'){
   setRecording(false);
@@ -3301,26 +3392,28 @@ function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    const vMin=Number.isFinite(state.cal.afrVoltMin)?state.cal.afrVoltMin:0;
-    const vMax=Number.isFinite(state.cal.afrVoltMax)?state.cal.afrVoltMax:2.66;
-    const span=Math.max(0.001,vMax-vMin);
-    const x=clamp((state.live.afrV-vMin)/span,0,1);
+    let vMin=Number(state.cal.afrVoltMin),vMax=Number(state.cal.afrVoltMax);
+    if(!Number.isFinite(vMin))vMin=0;if(!Number.isFinite(vMax)||vMax<=vMin+0.001){vMin=0;vMax=2.66;}
+    let afrMin=Number(state.cal.afrValueMin),afrMax=Number(state.cal.afrValueMax);
+    if(!Number.isFinite(afrMin))afrMin=9;if(!Number.isFinite(afrMax)||afrMax<=afrMin+0.1){afrMin=9;afrMax=18;}
+    const x=clamp((state.live.afrV-vMin)/(vMax-vMin),0,1);
+    // Preserve Blink's established two-slope sensor curve, but scale both axes
+    // from the user's current voltage/AFR endpoints. No median/EMA/floor.
     const knee=1.271/2.66;
-    const afrMin=Number.isFinite(state.cal.afrValueMin)?state.cal.afrValueMin:9;
-    const afrMax=Number.isFinite(state.cal.afrValueMax)?state.cal.afrValueMax:18;
-    const afrSpan=Math.max(0.1,afrMax-afrMin);
-    const kneeAfr=afrMin+afrSpan*(3.1/9);
-    const afrRaw=x<=knee ? afrMin+(x/knee)*(kneeAfr-afrMin) : kneeAfr+((x-knee)/(1-knee))*(afrMax-kneeAfr);
-    state.live.afr=afrRaw;
+    const kneeAfr=afrMin+(afrMax-afrMin)*(3.1/9);
+    state.live.afr=x<=knee
+      ?afrMin+(x/knee)*(kneeAfr-afrMin)
+      :kneeAfr+((x-knee)/(1-knee))*(afrMax-kneeAfr);
     ok=true;
   }else if(Number.isFinite(+p.afr)){
-    state.live.afr=+p.afr; ok=true;
+    state.live.afr=+p.afr;ok=true;
   }
-  if(!ok)return;
+  if(!ok||!Number.isFinite(state.live.afr)||state.live.afr<=0)return;
   state.totalSamples++;
   const now=performance.now();
   window.blinkAfrLastPacketAt=now;
-  state.afrHistory.push({t:now,v:state.live.afr});
+  const blocked=throttleClosingLock(now);
+  state.afrHistory.push({t:now,v:state.live.afr,blocked});
   while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
   updateLive();
   if(state.recording)recordSample(now);
@@ -3329,10 +3422,12 @@ function processAfrPacket(p){
   clearTimeout(window.rxTimer);
   window.rxTimer=setTimeout(()=>$('rxDot').classList.remove('on'),200);
 }
+window.blinkProcessAfrPacket=processAfrPacket;
 function delayedAfr(now){
-  const targetT=now-state.cal.afrDelayMs; let best=null;
+  const targetT=now-state.cal.afrDelayMs;let best=null;
   for(const x of state.afrHistory){if(x.t<=targetT)best=x;else break;}
-  return best?best.v:state.live.afr;
+  if(best)return best.blocked?NaN:best.v;
+  return throttleClosingLock(now)?NaN:state.live.afr;
 }
 function noteTpsTrend(tps,now=performance.now()){
   tps=Number(tps);
@@ -3358,6 +3453,8 @@ function throttleClosingLock(now=performance.now()){
   if(now-h[h.length-1].t>700)return false;
   return !!state.tpsFalling;
 }
+window.noteBlinkTpsTrend=noteTpsTrend;
+window.blinkThrottleClosingLock=throttleClosingLock;
 function recordSample(now){
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
   if(throttleClosingLock(now))return;
@@ -4140,19 +4237,15 @@ window.addEventListener('beforeunload',save);
     if(d.byteLength<12||v.getUint8(0)!==0xA1)return;
     state.live.rpm=v.getUint16(1,true);
     state.live.tps=v.getUint16(3,true)/10;
-    const now=performance.now();
-    noteTpsTrend(state.live.tps,now);
-    state.live.afr=v.getUint16(5,true)/100;
+    noteTpsTrend(state.live.tps,performance.now());
     state.live.tpsV=v.getUint16(7,true)/1000;
-    state.live.afrV=v.getUint16(9,true)/1000;
+    const afrV=v.getUint16(9,true)/1000;
     const m=v.getUint8(11);
     if(m>=1&&m<=4&&m!==state.activeMap&&!state.threeRun.active){state.activeMap=m;$('mapSelect').value=String(m);}
-    state.totalSamples++;
-    state.afrHistory.push({t:now,v:state.live.afr});
-    while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
-    updateLive();highlightCurrent();
-    $('rxDot').classList.add('on');clearTimeout(window.rxTimer);window.rxTimer=setTimeout(()=>$('rxDot').classList.remove('on'),180);
-    if(state.recording)recordSample(now);
+    // Legacy/test A1 packets use the exact same AFR calibration/recording path
+    // as production A3 packets. Ignore the precomputed AFR field in A1 so there
+    // is only one source of truth for user calibration.
+    processAfrPacket({afrV});
   }
 
   function parseMap(ev){
@@ -4407,6 +4500,8 @@ function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSO
 function resetEcuMapUiForNewSession(){
   // Keep AFR measured/target/local autotune data, but remove all ECU-derived maps.
   for(let b=0;b<state.mapBanks.length;b++)state.mapBanks[b].inject=blankMatrix(null);
+  state.fuelSyncUnknown=[false,false,false,false];
+  state.tpsTrendHistory=[];state.tpsFalling=false;
   for(const k of Object.keys(featureStore))delete featureStore[k];
   state.selection.active=false;
   state.lastCellKey='';
