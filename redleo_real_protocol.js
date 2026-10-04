@@ -2601,9 +2601,11 @@ function isV92Direct(){
 }
 function requireExactCachedPage(pg,len,label){
   const cached=pageCache.get(pg&255);
-  if(!cached||cached.length!==len){
-    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' đúng '+len+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
+  if(!cached||cached.length<len){
+    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' tối thiểu '+len+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
   }
+  // V9.2 real ECUs can expose build-specific tail bytes (observed A2 134B
+  // and page 6x 63B). Preserve the complete page and patch only verified blocks.
   return new Uint8Array(cached);
 }
 async function verifyExactDirectPage(pg,payload,label){
@@ -2645,11 +2647,11 @@ async function writeV92A2KnownFeature(id){
       break;
     default:throw new Error('REDLEO 9.2 chưa có A2 direct writer cho '+id);
   }
-  taskUi('loading','REDLEO 9.2 · GHI '+id.toUpperCase()+' · A2 133B · GIỮ NGUYÊN BYTE KHÁC');
+  taskUi('loading','REDLEO 9.2 · GHI '+id.toUpperCase()+' · A2 '+payload.length+'B · PATCH 133B ĐÃ BIẾT + GIỮ NGUYÊN TAIL');
   await writePageChecked(0xA2,payload,false,1,'mainWrite');
   await verifyExactDirectPage(0xA2,payload,'REDLEO 9.2 '+id);
   cacheAckedPage(0xA2,payload);
-  notice('success','GHI REDLEO 9.2 OK',id+' · A2 133B · ECU ACK + READBACK BYTE-LEVEL OK');
+  notice('success','GHI REDLEO 9.2 OK',id+' · A2 '+payload.length+'B · ACK + READBACK TOÀN PAGE OK · tail giữ nguyên');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 async function writeV92EctMotor(bank){
@@ -2659,7 +2661,7 @@ async function writeV92EctMotor(bank){
   const m=matrixFromRedTable(1,12);
   if(!m[0]||m[0].length!==12||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor chưa đủ 12 giá trị.');
   for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(Number(m[0][i])/2),0,255);
-  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · GIỮ NGUYÊN 18B IDLE');
+  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · PAGE '+payload.length+'B · GIỮ NGUYÊN 18B IDLE + TAIL');
   await writePageChecked(pg,payload,false,1,'mainWrite');
   await verifyExactDirectPage(pg,payload,'REDLEO 9.2 ECT Motor MAP '+bank);
   cacheAckedPage(pg,payload);
@@ -2681,7 +2683,7 @@ async function writeV92IdleLimit(bank){
     const raw=clamp(enc(v),0,65535);
     payload[idx*2]=(raw>>8)&255;payload[idx*2+1]=raw&255;
   }
-  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · GIỮ NGUYÊN 12B ECT MOTOR');
+  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · PAGE '+payload.length+'B · GIỮ NGUYÊN 12B ECT MOTOR + TAIL');
   await writePageChecked(pg,payload,false,1,'mainWrite');
   await verifyExactDirectPage(pg,payload,'REDLEO 9.2 Idle/Limit MAP '+bank);
   cacheAckedPage(pg,payload);
