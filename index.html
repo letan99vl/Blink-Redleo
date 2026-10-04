@@ -2739,7 +2739,6 @@ function beginThreeRunPass(pass,keepMeasured=false){
   if(!keepMeasured){state.measured=blankMatrix(null);state.counts=blankMatrix(0);}setRecording(true);state.selection.active=false;setTab('measured');renderThreeRunUi();saveSoon();
 }
 function afrStreamReady(maxAgeMs=2200){
-  if(state.afrPort&&state.afrKeepReading)return true;
   const last=Number(window.blinkAfrLastPacketAt);
   return Number.isFinite(last)&&Number.isFinite(state.live.afr)&&(performance.now()-last)<=maxAgeMs;
 }
@@ -2748,6 +2747,7 @@ async function startThreeRunSession(){
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return alert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
   if(fuelMapSyncUnknown(state.activeMap))return alert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
   if(!await ensureActiveEcuAxes(true))return;
+  if(!tpsTelemetryFresh())return alert('Chưa có dữ liệu TPS/RPM live mới từ ECU. Hãy chờ Live hoạt động rồi bắt đầu 3 lượt.');
   const baseCheck=inspectFuelMap(state.inject);if(!baseCheck.ok)return alert(baseCheck.reason);
   const ok=await blinkConfirm(
     'BẮT ĐẦU MODE CHẠY 3 LƯỢT · MAP No.'+state.activeMap,
@@ -2764,6 +2764,7 @@ async function finishThreeRunPass(){
   const tr=state.threeRun;if(!tr.active)return;
   if(tr.phase==='paused'){
     if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');
+    if(!tpsTelemetryFresh())return alert('Chưa có TPS/RPM live mới từ ECU. Hãy chờ Live ổn định trước khi tiếp tục.');
     if(fuelMapSyncUnknown(tr.mapNo)||!inspectFuelMap(state.inject).ok)return alert('Không thể tiếp tục phiên 3 lượt vì MAP ECU chưa được xác nhận sau gián đoạn/lỗi ghi. Hãy HỦY PHIÊN, ĐỌC HIỆN TẠI rồi bắt đầu lại.');
     tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;
   }
@@ -3506,19 +3507,24 @@ function noteTpsTrend(tps,now=performance.now()){
   const delta=ref?tps-ref.v:0;
   state.tpsFalling=!!ref&&delta<-0.4;
 }
-function throttleClosingLock(now=performance.now()){
+function tpsTelemetryFresh(now=performance.now()){
   const h=state.tpsTrendHistory||[];
-  if(!h.length)return false;
-  // If TPS telemetry has gone stale, do not invent a falling trend.
-  if(now-h[h.length-1].t>700)return false;
+  return !!(h.length&&now-h[h.length-1].t<=700);
+}
+function throttleClosingLock(now=performance.now()){
+  if(!tpsTelemetryFresh(now))return false;
   return !!state.tpsFalling;
 }
 function resetTpsTrendState(){state.tpsTrendHistory=[];state.tpsFalling=false;}
 window.noteBlinkTpsTrend=noteTpsTrend;
 window.blinkThrottleClosingLock=throttleClosingLock;
+window.blinkTpsTelemetryFresh=tpsTelemetryFresh;
 window.resetBlinkTpsTrend=resetTpsTrendState;
 function recordSample(now){
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
+  // AFR can keep arriving from the ESP32 even if ECU live polling stalls.
+  // Never write into a stale TPS/RPM cell.
+  if(!tpsTelemetryFresh(now))return;
   if(throttleClosingLock(now))return;
   const cur=currentCell();
   if(cur.key!==state.lastCellKey){
