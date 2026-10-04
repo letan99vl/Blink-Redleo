@@ -2599,47 +2599,50 @@ function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[
 function isV92Direct(){
   return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
 }
-function requireExactCachedPage(pg,len,label){
+function requireCachedPageAtLeast(pg,minLen,label){
   const cached=pageCache.get(pg&255);
-  if(!cached||cached.length<len){
-    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' tối thiểu '+len+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
+  if(!cached||cached.length<minLen){
+    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' tối thiểu '+minLen+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
   }
-  // V9.2 real ECUs can expose build-specific tail bytes (observed A2 134B
-  // and page 6x 63B). Preserve the complete page and patch only verified blocks.
   return new Uint8Array(cached);
 }
-async function verifyExactDirectPage(pg,payload,label){
-  const R=await readDirectPageReal(pg,payload.length,'XÁC MINH '+label,false);
-  if(R.data.length!==payload.length||!bytesEqual(R.data,payload)){
-    let mismatch=-1;
-    const n=Math.min(R.data.length,payload.length);
-    for(let i=0;i<n;i++){if(R.data[i]!==payload[i]){mismatch=i;break;}}
-    if(mismatch<0&&R.data.length!==payload.length)mismatch=n;
-    throw new Error(label+' · ECU ACK nhưng READBACK page 0x'+(pg&255).toString(16).toUpperCase()+' không khớp'+(mismatch>=0?' tại byte '+mismatch:'')+'.');
+async function verifyWritablePrefixAndTail(pg,writePayload,baselineFull,label){
+  const tx=writePayload instanceof Uint8Array?writePayload:Uint8Array.from(writePayload||[]);
+  const base=baselineFull instanceof Uint8Array?baselineFull:Uint8Array.from(baselineFull||[]);
+  if(base.length<tx.length)throw new Error(label+' baseline ngắn hơn writable payload.');
+  const R=await readDirectPageReal(pg,tx.length,'XÁC MINH '+label,false);
+  const got=R.data;
+  for(let i=0;i<tx.length;i++){
+    if(got[i]!==tx[i]){
+      throw new Error(label+' · ECU ACK nhưng READBACK writable byte '+i+' không khớp · expected '+tx[i]+' · got '+got[i]);
+    }
+  }
+  if(base.length>tx.length){
+    if(got.length!==base.length){
+      throw new Error(label+' · tail length thay đổi sau ghi · trước '+base.length+'B / sau '+got.length+'B.');
+    }
+    for(let i=tx.length;i<base.length;i++){
+      if(got[i]!==base[i]){
+        throw new Error(label+' · tail/reserved byte '+i+' bị thay đổi ngoài vùng writable.');
+      }
+    }
+  }
+  pageCache.set(pg&255,got.slice());
+  if((pg&255)===0xA2){
+    try{cacheAckedPage(pg,got);}catch(_e){}
   }
   return R;
 }
-function buildPreservedDirectPayload(pg,knownBytes,label='PAGE'){
-  pg&=255;
-  const known=knownBytes instanceof Uint8Array?knownBytes:Uint8Array.from(knownBytes||[]);
-  const cached=pageCache.get(pg);
-  if(!cached||cached.length<known.length){
-    throw new Error(label+' cần ĐỌC page 0x'+pg.toString(16).toUpperCase()+' tối thiểu '+known.length+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
-  }
-  const payload=new Uint8Array(cached);
-  payload.set(known,0);
-  return payload;
-}
-async function writePreservedDirectPage(pg,payload,label,cap='mainWrite',retries=1){
-  const u=payload instanceof Uint8Array?payload:Uint8Array.from(payload||[]);
-  await writePageChecked(pg,u,false,retries,cap);
-  await verifyExactDirectPage(pg,u,label);
-  cacheAckedPage(pg,u);
-  return u;
+async function writeWritablePrefixPage(pg,writePayload,baselineFull,label,cap='mainWrite',retries=1){
+  const tx=writePayload instanceof Uint8Array?writePayload:Uint8Array.from(writePayload||[]);
+  await writePageChecked(pg,tx,false,retries,cap);
+  await verifyWritablePrefixAndTail(pg,tx,baselineFull,label);
+  return tx;
 }
 async function writeV92A2KnownFeature(id){
   if(!isV92Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO 9.2+.');
-  const payload=requireExactCachedPage(0xA2,133,'REDLEO 9.2 '+id);
+  const baseline=requireCachedPageAtLeast(0xA2,133,'REDLEO 9.2 '+id);
+  const payload=baseline.slice(0,133);
   let m;
   const row11=(off,enc)=>{
     m=matrixFromRedTable(1,11);
@@ -2665,31 +2668,27 @@ async function writeV92A2KnownFeature(id){
       break;
     default:throw new Error('REDLEO 9.2 chưa có A2 direct writer cho '+id);
   }
-  taskUi('loading','REDLEO 9.2 · GHI '+id.toUpperCase()+' · A2 '+payload.length+'B · PATCH 133B ĐÃ BIẾT + GIỮ NGUYÊN TAIL');
-  await writePageChecked(0xA2,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(0xA2,payload,'REDLEO 9.2 '+id);
-  cacheAckedPage(0xA2,payload);
-  notice('success','GHI REDLEO 9.2 OK',id+' · A2 '+payload.length+'B · ACK + READBACK TOÀN PAGE OK · tail giữ nguyên');
+  taskUi('loading','REDLEO 9.2 · GHI '+id.toUpperCase()+' · TX 133B · READ baseline '+baseline.length+'B');
+  await writeWritablePrefixPage(0xA2,payload,baseline,'REDLEO 9.2 '+id,'mainWrite',1);
+  notice('success','GHI REDLEO 9.2 OK',id+' · TX 133B · ACK + READBACK writable OK · tail '+Math.max(0,baseline.length-133)+'B giữ nguyên');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 async function writeV92EctMotor(bank){
   if(!isV92Direct())throw new Error('ECT Motor direct writer chỉ dùng REDLEO 9.2+.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),payload=requireExactCachedPage(pg,30,'REDLEO 9.2 ECT Motor');
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO 9.2 ECT Motor'),payload=baseline.slice(0,30);
   const m=matrixFromRedTable(1,12);
   if(!m[0]||m[0].length!==12||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor chưa đủ 12 giá trị.');
   for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(Number(m[0][i])/2),0,255);
-  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · PAGE '+payload.length+'B · GIỮ NGUYÊN 18B IDLE + TAIL');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(pg,payload,'REDLEO 9.2 ECT Motor MAP '+bank);
-  cacheAckedPage(pg,payload);
-  notice('success','GHI ECT MOTOR 9.2 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  taskUi('loading','REDLEO 9.2 · GHI ECT MOTOR · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO 9.2 ECT Motor MAP '+bank,'mainWrite',1);
+  notice('success','GHI ECT MOTOR 9.2 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail '+Math.max(0,baseline.length-30)+'B giữ nguyên');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 async function writeV92IdleLimit(bank){
   if(!isV92Direct())throw new Error('Idle/Limit direct writer chỉ dùng REDLEO 9.2+.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),payload=requireExactCachedPage(pg,30,'REDLEO 9.2 Idle/Limit');
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO 9.2 Idle/Limit'),payload=baseline.slice(0,30);
   const specs=[
     ['idleCold',0,v=>Math.round(v)],['idleHot',1,v=>Math.round(v)],['maxSpeed',2,v=>Math.round(v)],
     ['returnCold',3,v=>Math.round(v)],['returnHot',4,v=>Math.round(v)],['accelPct',5,v=>Math.round(v*64/50)],
@@ -2701,11 +2700,9 @@ async function writeV92IdleLimit(bank){
     const raw=clamp(enc(v),0,65535);
     payload[idx*2]=(raw>>8)&255;payload[idx*2+1]=raw&255;
   }
-  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · PAGE '+payload.length+'B · GIỮ NGUYÊN 12B ECT MOTOR + TAIL');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(pg,payload,'REDLEO 9.2 Idle/Limit MAP '+bank);
-  cacheAckedPage(pg,payload);
-  notice('success','GHI IDLE/LIMIT 9.2 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  taskUi('loading','REDLEO 9.2 · GHI IDLE/LIMIT · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO 9.2 Idle/Limit MAP '+bank,'mainWrite',1);
+  notice('success','GHI IDLE/LIMIT 9.2 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail '+Math.max(0,baseline.length-30)+'B giữ nguyên');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
@@ -2714,15 +2711,9 @@ function isV10Direct(){
   const txt=(String(handshakeInfo&&handshakeInfo.ident||'')+' '+String(handshakeInfo&&handshakeInfo.firmware||'')+' '+String(handshakeInfo&&handshakeInfo.classify||'')).toUpperCase();
   return !/ULTRA/.test(txt);
 }
-function requireCachedPageAtLeast(pg,minLen,label){
-  const cached=pageCache.get(pg&255);
-  if(!cached||cached.length<minLen){
-    throw new Error(label+' cần ĐỌC page 0x'+(pg&255).toString(16).toUpperCase()+' tối thiểu '+minLen+'B trước khi GHI. Hiện '+(cached?cached.length:0)+'B.');
-  }
-  return new Uint8Array(cached);
-}
 async function writeV10A2KnownFeature(id){
   if(!isV10Direct())throw new Error('Writer A2 trực tiếp này chỉ dùng REDLEO V10.2; Ultra được giữ khóa cho lượt xác minh riêng.');
+  throw new Error('REDLEO V10 · A2 direct-write tạm khóa: đã xác minh prefix đọc 140B nhưng chưa xác minh độ dài TX mà ECU chấp nhận. Không ghi để tránh lỗi RX 0B như REDLEO 9.2.');
   const payload=requireCachedPageAtLeast(0xA2,140,'REDLEO V10 '+id);
   let m;
   const row11=(off,enc)=>{
@@ -2751,21 +2742,19 @@ async function writeV10A2KnownFeature(id){
 async function writeV10EctMotor(bank){
   if(!isV10Direct())throw new Error('ECT Motor direct writer chỉ dùng REDLEO V10.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),payload=requireCachedPageAtLeast(pg,30,'REDLEO V10 ECT Motor');
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO V10 ECT Motor'),payload=baseline.slice(0,30);
   const m=matrixFromRedTable(1,12);
   if(!m[0]||m[0].length!==12||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('ECT Motor V10 chưa đủ 12 giá trị.');
   for(let i=0;i<12;i++)payload[18+i]=clamp(Math.round(Number(m[0][i])/2),0,255);
-  taskUi('loading','REDLEO V10 · GHI ECT MOTOR · MAP NO.'+bank+' · GIỮ NGUYÊN IDLE + TAIL');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(pg,payload,'REDLEO V10 ECT Motor MAP '+bank);
-  cacheAckedPage(pg,payload);
-  notice('success','GHI ECT MOTOR V10 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  taskUi('loading','REDLEO V10 · GHI ECT MOTOR · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO V10 ECT Motor MAP '+bank,'mainWrite',1);
+  notice('success','GHI ECT MOTOR V10 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail giữ nguyên');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 async function writeV10IdleLimit(bank){
   if(!isV10Direct())throw new Error('Idle/Limit direct writer chỉ dùng REDLEO V10.');
   bank=normalizeBankForProfile(bank);
-  const pg=page(6,bank),payload=requireCachedPageAtLeast(pg,30,'REDLEO V10 Idle/Limit');
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,30,'REDLEO V10 Idle/Limit'),payload=baseline.slice(0,30);
   const specs=[
     ['idleCold',0,v=>Math.round(v)],['idleHot',1,v=>Math.round(v)],['maxSpeed',2,v=>Math.round(v)],
     ['returnCold',3,v=>Math.round(v)],['returnHot',4,v=>Math.round(v)],['accelPct',5,v=>Math.round(v*64/50)],
@@ -2777,11 +2766,9 @@ async function writeV10IdleLimit(bank){
     const raw=clamp(enc(v),0,65535);
     payload[idx*2]=(raw>>8)&255;payload[idx*2+1]=raw&255;
   }
-  taskUi('loading','REDLEO V10 · GHI IDLE/LIMIT · MAP NO.'+bank+' · GIỮ NGUYÊN ECT MOTOR + TAIL');
-  await writePageChecked(pg,payload,false,1,'mainWrite');
-  await verifyExactDirectPage(pg,payload,'REDLEO V10 Idle/Limit MAP '+bank);
-  cacheAckedPage(pg,payload);
-  notice('success','GHI IDLE/LIMIT V10 OK','MAP No.'+bank+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK OK');
+  taskUi('loading','REDLEO V10 · GHI IDLE/LIMIT · MAP NO.'+bank+' · TX 30B · READ baseline '+baseline.length+'B');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO V10 Idle/Limit MAP '+bank,'mainWrite',1);
+  notice('success','GHI IDLE/LIMIT V10 OK','MAP No.'+bank+' · TX 30B · ACK + READBACK OK · tail giữ nguyên');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
@@ -3016,17 +3003,16 @@ async function writeFeatureReal(id){
       case 'map_inj':m=matrixFromRedTable(11,30);pg=0x92;known=compRowsForwardOnWire()?encodeRowsByteForward(m,encMapInj):encodeRowsByte(m,encMapInj);break;
       default:throw new Error('Chưa có page ghi trực tiếp cho '+id);
     }
-    // Never assume the page ends exactly where the known matrix ends. Preserve
-    // any build-specific tail bytes learned from the successful READ operation.
-    payload=buildPreservedDirectPayload(pg,known,id.toUpperCase());
+    const baseline=requireCachedPageAtLeast(pg,known.length,id.toUpperCase());
+    payload=known instanceof Uint8Array?known:Uint8Array.from(known);
 
     const resumeLive=liveRunning;
     stopLiveLoop();
     try{
       await waitForEcuIdle(16000);
       await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,5)?25:120));
-      await writePreservedDirectPage(pg,payload,id.toUpperCase(),'mainWrite',1);
-      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · ACK + READBACK TOÀN PAGE OK · tail giữ nguyên');
+      await writeWritablePrefixPage(pg,payload,baseline,id.toUpperCase(),'mainWrite',1);
+      notice('success','GHI ECU OK',id+' · page 0x'+pg.toString(16).toUpperCase()+' · TX '+payload.length+'B · ACK + READBACK OK · tail giữ nguyên');
       return {ack:true,page:pg,payload:Uint8Array.from(payload)};
     }finally{
       if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(380);
