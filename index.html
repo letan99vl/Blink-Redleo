@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.30';
+  window.BLINK_PB_VERSION = '3.79.31';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1654,22 +1654,22 @@
   /* Fullscreen map: exactly budget the visible height for 1 RPM header + 14 TPS rows. */
   body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen #mapTable th,
   body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen #mapTable td{
-    height:clamp(18px,calc((100dvh - 44px)/15),34px)!important;
-    min-height:clamp(18px,calc((100dvh - 44px)/15),34px)!important;
+    height:clamp(18px,calc((100dvh - 44px)/15),42px)!important;
+    min-height:clamp(18px,calc((100dvh - 44px)/15),42px)!important;
     font-size:clamp(8px,2dvh,11px)!important;
     line-height:1!important;
   }
   body.appForceLandscape.mapZoomMode #mapWrap{
-    top:72px!important;
-    height:calc(100% - 72px)!important;
-    min-height:calc(100% - 72px)!important;
-    max-height:calc(100% - 72px)!important;
+    top:42px!important;
+    height:calc(100% - 42px)!important;
+    min-height:calc(100% - 42px)!important;
+    max-height:calc(100% - 42px)!important;
   }
   body.appForceLandscape.mapZoomMode #mapEditorScreen #mapTable th,
   body.appForceLandscape.mapZoomMode #mapEditorScreen #mapTable td{
-    height:clamp(14px,calc((100dvw - 74px)/15),34px)!important;
-    min-height:clamp(14px,calc((100dvw - 74px)/15),34px)!important;
-    font-size:clamp(7px,2dvw,10px)!important;
+    height:clamp(16px,calc((100dvw - 44px)/15),42px)!important;
+    min-height:clamp(16px,calc((100dvw - 44px)/15),42px)!important;
+    font-size:clamp(8px,2.15dvw,11px)!important;
     line-height:1!important;
   }
 
