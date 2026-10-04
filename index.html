@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.28';
+  window.BLINK_PB_VERSION = '3.79.29';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1727,6 +1727,178 @@
     min-height:clamp(13px,calc((100dvw - 148px)/15),28px)!important;
   }
 
+  /* ===== PB 3.79.29 · BACK BUTTON INSIDE MAP ACTION ROW ===== */
+  #mapEditorScreen.standaloneFuel .screenHeader{
+    min-height:24px!important;
+    height:24px!important;
+    margin-bottom:2px!important;
+    padding:0 8px!important;
+    gap:5px!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenTitleWrap{
+    margin-left:0!important;
+    min-width:0!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenTitle{
+    font-size:13px!important;
+    line-height:13px!important;
+  }
+  #mapEditorScreen.standaloneFuel .screenSub{
+    font-size:7px!important;
+    line-height:7px!important;
+    margin-top:1px!important;
+  }
+  #mapEditorScreen.standaloneFuel .miniStatus{
+    min-height:18px!important;
+    padding:2px 5px!important;
+    font-size:7px!important;
+  }
+
+  #mapEditorScreen.standaloneFuel .editToolbar{
+    grid-template-columns:44px repeat(3,minmax(0,1fr))!important;
+    gap:4px!important;
+    padding:0 6px 4px!important;
+    align-items:stretch!important;
+  }
+  #mapEditorScreen.standaloneFuel .editToolbar .toolbarBackBtn{
+    width:44px!important;
+    min-width:44px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:0!important;
+    border-radius:11px!important;
+    font-size:28px!important;
+    line-height:1!important;
+    background:#111116!important;
+    border:1px solid #5a2228!important;
+    color:#ff4b4b!important;
+  }
+  #mapEditorScreen.standaloneFuel .editToolbar #readMapBtn,
+  #mapEditorScreen.standaloneFuel .editToolbar #writeMapBtn,
+  #mapEditorScreen.standaloneFuel .editToolbar #mapZoomBtn{
+    min-width:0!important;
+    width:100%!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:0 4px!important;
+    font-size:8px!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+
+  @media(max-width:380px){
+    #mapEditorScreen.standaloneFuel .editToolbar{
+      grid-template-columns:42px repeat(3,minmax(0,1fr))!important;
+      gap:3px!important;
+      padding-left:4px!important;
+      padding-right:4px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editToolbar .toolbarBackBtn{
+      width:42px!important;
+      min-width:42px!important;
+      height:40px!important;
+      min-height:40px!important;
+      font-size:27px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editToolbar #readMapBtn,
+    #mapEditorScreen.standaloneFuel .editToolbar #writeMapBtn,
+    #mapEditorScreen.standaloneFuel .editToolbar #mapZoomBtn{
+      font-size:7px!important;
+      padding-left:2px!important;
+      padding-right:2px!important;
+    }
+  }
+
+  @media (orientation:landscape){
+    #mapEditorScreen.standaloneFuel .screenHeader{
+      min-height:20px!important;
+      height:20px!important;
+      margin-bottom:1px!important;
+    }
+    #mapEditorScreen.standaloneFuel .screenTitle{
+      font-size:11px!important;
+      line-height:11px!important;
+    }
+    #mapEditorScreen.standaloneFuel .screenSub{display:none!important}
+    #mapEditorScreen.standaloneFuel .miniStatus{
+      min-height:16px!important;
+      padding:1px 4px!important;
+      font-size:7px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editToolbar{
+      grid-template-columns:44px repeat(3,minmax(0,1fr))!important;
+      gap:3px!important;
+      padding:0 5px 2px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editToolbar .toolbarBackBtn{
+      width:44px!important;
+      min-width:44px!important;
+      height:40px!important;
+      min-height:40px!important;
+      font-size:28px!important;
+    }
+    #mapEditorScreen.standaloneFuel .editToolbar #readMapBtn,
+    #mapEditorScreen.standaloneFuel .editToolbar #writeMapBtn,
+    #mapEditorScreen.standaloneFuel .editToolbar #mapZoomBtn{
+      height:40px!important;
+      min-height:40px!important;
+      font-size:7px!important;
+    }
+    #mapEditorScreen.standaloneFuel #mapTable th,
+    #mapEditorScreen.standaloneFuel #mapTable td{
+      height:clamp(13px,calc((100dvh - 146px)/15),28px)!important;
+      min-height:clamp(13px,calc((100dvh - 146px)/15),28px)!important;
+    }
+  }
+
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenHeader{
+    min-height:20px!important;
+    height:20px!important;
+    margin-bottom:1px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenTitle{
+    font-size:11px!important;
+    line-height:11px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .screenSub{display:none!important}
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .miniStatus{
+    min-height:16px!important;
+    padding:1px 4px!important;
+    font-size:7px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar{
+    grid-template-columns:44px repeat(3,minmax(0,1fr))!important;
+    gap:3px!important;
+    padding:0 5px 2px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar .toolbarBackBtn{
+    width:44px!important;
+    min-width:44px!important;
+    height:40px!important;
+    min-height:40px!important;
+    font-size:28px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar #readMapBtn,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar #writeMapBtn,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editToolbar #mapZoomBtn{
+    height:40px!important;
+    min-height:40px!important;
+    font-size:7px!important;
+  }
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable th,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel #mapTable td{
+    height:clamp(13px,calc((100dvw - 146px)/15),28px)!important;
+    min-height:clamp(13px,calc((100dvw - 146px)/15),28px)!important;
+  }
+
+  /* Non-standalone map editor still keeps the back button large and usable. */
+  #mapEditorScreen:not(.standaloneFuel) .editToolbar .toolbarBackBtn{
+    min-width:42px!important;
+    font-size:25px!important;
+    padding:0!important;
+  }
+
 </style>
 </head>
 <body>
@@ -1780,8 +1952,8 @@
   </section>
 
   <section id="mapEditorScreen" class="screen">
-    <div class="screenHeader"><button class="backBtn" id="editorBackBtn" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO</button><button class="tab" data-tab="target">AFR MỤC TIÊU</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
