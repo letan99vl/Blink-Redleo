@@ -82,7 +82,7 @@ must(/writeWritablePrefixPage\(pg,payload,baseline,id\.toUpperCase\(\),'mainWrit
   'Ultra Pro1 compensation writes must keep ACK + readback verification');
 
 // Safe Ultra A2 feature surface. Option/AutoClutch/One-Spare/CHG stay unexposed.
-must(/isUltraDirect\(\)&&\['idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)/,
+must(/isUltraDirect\(\)&&\['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'Ultra direct verified feature set changed');
 must(/currentUltraDirect&&\['ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis'\]\.includes\(id\)/,
   'Ultra dynamic feature gate changed');
