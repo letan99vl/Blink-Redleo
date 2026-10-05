@@ -50,6 +50,9 @@ must(/v10Direct\?parseV10A2Data\(R\.data\):\(ultra\?parseUltraA2Data\(R\.data\)/
 must(/writeV10A2KnownFeature[\s\S]{0,250}if\(!isV10Direct\(\)\)throw/,
   'V10 A2 writer must reject Ultra');
 
+must(/function cacheAckedPage\(pg,payload\)[\s\S]*isV10Direct\(\)\?parseV10A2Data\(u\)[\s\S]*isUltraDirect\(\)\?parseUltraA2Data\(u\)/,
+  'V10 A2 ACK/readback cache must use parseV10A2Data and remain separate from Ultra');
+
 // Every partial A2 write starts from exact 268B read baseline, sends exactly
 // 268 writable bytes, and lets writeWritablePrefixPage verify any reply tail.
 must(/requireCachedPageAtLeast\(0xA2,V10_A2\.LEN,'REDLEO V10\.2 A2'\)/,
