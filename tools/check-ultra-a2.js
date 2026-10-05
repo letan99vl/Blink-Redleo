@@ -57,6 +57,10 @@ must(/externalRaw=data\.slice\(L\.EXTERNAL,L\.EXTERNAL\+30\)/,
 must(/chgRaw=data\.length>=L\.CHG\+8\?data\.slice\(L\.CHG,L\.CHG\+8\):new Uint8Array\(0\)/,
   'Ultra optional CHG 8B boundary changed');
 
+// ACK/readback cache must also parse Ultra with the exact family parser.
+must(/function cacheAckedPage\(pg,payload\)[\s\S]*isV10Direct\(\)\?parseV10A2Data\(u\)[\s\S]*isUltraDirect\(\)\?parseUltraA2Data\(u\)/,
+  'Ultra A2 ACK/readback cache must use parseUltraA2Data, never the historical 140B parser');
+
 // Exact read path must no longer use historical 140B parser for an Ultra session.
 must(/const ultra=isUltraDirect\(\)[\s\S]*minData=[\s\S]*ultra\?\(ultraLayout\?ultraLayout\.len:ULTRA_A2\.BASE_LEN\)/,
   'Ultra A2 read minimum must use 277/285 exact layout');
