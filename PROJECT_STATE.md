@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.57`
+`BLINK_PB_VERSION = 3.79.58`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.57.
+- Android/web production: `main`, currently PB 3.79.58.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -567,3 +567,18 @@ The assistant should then:
 - OFF cells display dark - but retain hidden target value for later ON.
 - Backup: backup-pb-3.79.56-pre-all-ecu-air-fuel-ratio.
 - Final CI run **37324845570 = SUCCESS**.
+
+## 32. Cam-based INJ degree calculator checkpoint - PB 3.79.58
+
+- INJ degree editor now includes **TÍNH GÓC PHUN THEO GÓC CAM**.
+- Calculator convention: 0° = compression TDC; larger value = earlier injection.
+- Inputs: IVC °ABDC + desired EOI margin before IVC.
+- Per-cell model:
+  - EOI = 180 - IVC + margin;
+  - duration deg = PW(ms) × RPM × 0.006;
+  - SOI = EOI + duration deg.
+- Uses the current fuel-time map from the same bank.
+- Adapts output encoding to legacy ~720° families vs V11/Ultra Pro2 ~360° family.
+- Requires valid fuel and INJ degree baselines; never auto-writes ECU.
+- Backup: backup-pb-3.79.57-pre-injection-cam-calculator.
+- Final CI run **37332812725 = SUCCESS**.
