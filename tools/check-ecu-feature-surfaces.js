@@ -15,10 +15,10 @@ function mustNot(re,msg){
 // family-specific serializers proven from original software. A visible card
 // must either have a direct read/write path or be deliberately hidden/read-only.
 
-// V8: MAIN TUNE only.
-must(/LEGACY_V8:new Set\(\['inj_ve','inj_degree','ign_degree','ign_time'\]\)/,
+// V8: original MAIN TUNE + original Air fuel ratio table.
+must(/LEGACY_V8:new Set\(\['inj_ve','inj_degree','ign_degree','ign_time','afr_map'\]\)/,
   'V8 visible feature surface changed');
-must(/family==='v8'&&!\['inj_degree','ign_degree','ign_time'\]\.includes\(id\)/,
+must(/family==='v8'&&!\['inj_degree','ign_degree','ign_time','afr_map'\]\.includes\(id\)/,
   'V8 auxiliary direct-read guard missing');
 
 // REDLEO 9.1X: verified direct pages, but AutoClutch and whole Options write stay out.
@@ -57,6 +57,12 @@ must(/if\(p===ecuProfile&&isUltraPro2Direct\(\)&&id==='auto_clutch'\)return fals
   'Ultra Pro2 AutoClutch UI hide missing');
 must(/if\(isUltraPro2Direct\(\)&&id==='auto_clutch'\)return false/,
   'Ultra Pro2 AutoClutch direct-write gate missing');
+
+// Original ECU Air fuel ratio is a real page-5 table across identified families.
+must(/if\(id==='afr_map'&&ecuProfile&&\['v8','modern','v11'\]\.includes\(ecuProfile\.family\)\)return page\(5,bank\)/,
+  'Air fuel ratio page-5 routing changed');
+must(/if\(id==='afr_map'&&ecuProfile&&\['v8','modern','v11'\]\.includes\(ecuProfile\.family\)\)return true/,
+  'Air fuel ratio direct-write gate missing');
 
 // Shared direct page routing must remain exact.
 must(/if\(id==='ect_inj'\)return 0x72;[\s\S]{0,80}if\(id==='ect_ign'\)return 0x82;[\s\S]{0,80}if\(id==='map_inj'\)return 0x92;/,
