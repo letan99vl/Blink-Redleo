@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.55**.
+- Current displayed PB: **3.79.56**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -977,3 +977,27 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Core commit: `175ff604e2164b8b64bc47db303b83cf87449f62`.
 - Regression update: `b62c89cd79ca371da34648b43d0b7ff9d678bbf4`.
 - Final CI run **37308785976 = SUCCESS**.
+
+
+## All-map keypad / floating controls + small-map single-cell UX - PB 3.79.56 - 2026-10-05
+
+- User requested that simple/short tables such as **IGN Time / Dwell 1×30** must not use two-corner or scan selection.
+- User also requested numeric keypad and floating **SAVE / + / -** controls on every editable ECU map, not only large 420-cell editors.
+- New editor capability split:
+  - **redValueEditor** = every REDLEO value-table editor except the dedicated fuel editor; gets numeric keypad + floating save/+/-.
+  - **redRangeEditor** = dense 2D maps only: rows > 1, cols > 1, total cells >= 100; gets QUÉT + two-corner selection.
+- Consequences:
+  - 14×30 and 11×30 maps keep QUÉT / two-corner rectangle selection.
+  - 1×30 Dwell, 1×11 sensor/IAT tables, 2×15 External Adjustment, 4×11 ECT Start, 2×11 ECT Motor, Options, AutoShift, axes, etc. use **single-cell tap only**.
+  - simple-table tap always selects exactly one cell; no pending corner state is created.
+  - keypad and floating `↓ / + / -` remain available on those simple tables.
+- `openFeature()` now resets scan state on every editor transition so scan mode from a large map cannot leak into a small table.
+- The legacy Idle/Limit editor is a special screen outside `redleoEditorScreen`; its ECT Motor row now also has:
+  - direct single-cell selection;
+  - floating save/+/-;
+  - numeric keypad;
+  - floating save routes to the existing verified `idleLimitWriteBtn` writer.
+- Backup before this work: `backup-pb-3.79.55-pre-editor-controls-all-maps`.
+- Main all-map controls commit: `b9f64248f26814dfe64ba06b8f58c15aa8728c6c`.
+- Legacy Idle ECT controls commit: `d350ed7d6143187c829dcf404c00d03a4df7b509`.
+- Regression protection extended in `tools/check-map-selection.js` by commits `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3` and `56dac9997835f89233424b5cfd830482af6fe1e5`.
