@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.60**.
+- Current displayed PB: **3.79.61**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1130,3 +1130,21 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main fix commit: 7de4cdb9499b086c7f74cef3ebd9d842d75c0192.
 - Regression update: 883cee7f150ab71d4d738c26490cf834e3880aef.
 - Final CI run **37335952882 = SUCCESS**. All 17 protocol/UI checks passed.
+
+## Cam calculator auto-reads required ECU maps - PB 3.79.61 - 2026-10-05
+
+- Fixed user case where TÍNH THỬ reported MAP fuel row 1 / col 1 empty while the operator was already inside the INJ degree editor.
+- Root cause: the calculator depended on `state.inject` for the same bank, but that fuel map may not have been read yet in the current session.
+- New behavior:
+  - TÍNH THỬ now runs an async preflight;
+  - if the current bank fuel map is missing/invalid/unknown, Blink automatically calls the real-protocol current fuel reader for that same MAP bank;
+  - if the INJ degree baseline is missing, Blink automatically reads the INJ degree page for the same MAP bank;
+  - progress is shown inside the cam dialog: checking data -> auto-reading fuel / angle -> calculating;
+  - duplicate TÍNH THỬ taps are ignored while the preflight/read is already running;
+  - after successful auto-read, normal IVO/IVC calculation continues;
+  - if ECU is disconnected or auto-read fails, the dialog explains the failure instead of asking the user to manually visit another map first.
+- No change to the IVO/IVC formula, family angle quantization, or explicit GHI ECU requirement.
+- Backup: backup-pb-3.79.60-pre-cam-auto-read-required-maps.
+- Main implementation commit: 4ab234da28da1152a63b7c691dbc822e2d89937f.
+- Regression updates: 70e2a509d14fdb282a0a554cb76aecb60e561c4f and dfa98763433fe758db17fd959cd6ee803caf2580.
+- Final CI run **37338194002 = SUCCESS**. All 17 checks passed.
