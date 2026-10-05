@@ -467,6 +467,6 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Workflow now also triggers on `index.html` profile-layout changes: `13271be44aa2a812a53869c0be788928de09b4c7`.
 - PB bump: `2f12e6570f8dae669acda24182e0cf6e57ad4aaa`.
 - Local/source validation after final patch: JS syntax parse PASS; A2 routing PASS; 33B decoder PASS; 33B encoder PASS; exact block patch PASS; UI 3×11 PASS; Ultra guard PASS.
-- GitHub Actions run for the updated checker was queued at the time of this note; do not treat hardware status as certified from CI alone.
+- GitHub Actions final run **37259543263** completed **SUCCESS** after PB 3.79.44; syntax + row orientation + 9.2 page6 + V10.2 page6 + V10.2 A2/Start Add regression all passed. CI success is not a substitute for real V10.2 hardware certification.
 - Hardware status: **NEEDS REAL V10.2 TEST**. Recommended test: change one Start Add cell slightly -> SAVE -> READBACK -> confirm only that displayed cell changes.
 - Next V10.2 target after hardware test or further static proof: Option 18B semantics and/or controlled Start RPM handling; TPS/RPM axis writes remain locked.
