@@ -28,8 +28,8 @@ must(/function pageLow\(bank\)[\s\S]*family==='v8'[\s\S]*if\(mode===1\)return 2[
 // Fuel read/write = 420 one-byte cells, raw/20 <-> ms.
 must(/const v8=ecuProfile&&ecuProfile\.family==='v8';[\s\S]*if\(v8\)out\.push\(clamp\(Math\.round\(v\*20\),0,255\)\)/,
   'V8 fuel encoder must stay raw=ms*20');
-must(/if\(v8\)[\s\S]*r2\(raw\/20\)/,
-  'V8 fuel decoder must stay ms=raw/20');
+must(/if\(ecuProfile&&ecuProfile\.family==='v8'\)[\s\S]*for\(let wireRow=0;wireRow<14;wireRow\+\+\)[\s\S]*out\[uiRow\]\[c\]=r2\(f\[p\+\+\]\/20\)/,
+  'V8 fuel decoder must stay ms=raw/20 with reversed wire-row order');
 must(/const fuelMax=ecuProfile&&ecuProfile\.family==='v8'\?12\.75:/,
   'V8 fuel upper bound must remain 12.75ms for uint8 raw*20');
 
