@@ -26,15 +26,15 @@ must(/function isUltraDirect\(\)[\s\S]{0,220}MODERN_V10[\s\S]{0,180}\/ULTRA\//,
   'Ultra detector must require MODERN_V10 + ULTRA identity');
 must(/if\(ultra&&id==='idle_limit'\)return page\(6,bank\)/,
   'Ultra idle_limit must route to page6');
-must(/if\(isUltraDirect\(\)&&\['idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)\)return true/,
-  'Ultra direct-write set must keep page6 Idle plus only separately verified A2 surfaces');
+must(/if\(isUltraDirect\(\)&&\['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)\)return true/,
+  'Ultra direct-write set must keep page6 Idle plus verified compensation/A2 surfaces');
 {
   const router=between('function mainFeaturePage','function isDirectVerifiedFeature');
   if(!/if\(ultra&&id==='idle_limit'\)return page\(6,bank\);/.test(router)){
     console.error('FAIL: Ultra Idle must remain the only Ultra feature routed to page6');
     process.exitCode=1;
   }
-  if(/ultra&&\[[^\]]*(?:ect_idle_motor|external_adjust|ect_start|tps_axis|rpm_axis|v_ect|v_iat|v_map|iat_inj|map_idle_motor)[^\]]*\]\.includes\(id\)\)return page\(6,bank\)/.test(router)){
+  if(/ultra&&\[[^\]]*(?:ect_inj|ect_ign|map_inj|ect_idle_motor|external_adjust|ect_start|tps_axis|rpm_axis|v_ect|v_iat|v_map|iat_inj|map_idle_motor)[^\]]*\]\.includes\(id\)\)return page\(6,bank\)/.test(router)){
     console.error('FAIL: verified Ultra A2 surfaces must never be routed into page6');
     process.exitCode=1;
   }
