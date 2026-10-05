@@ -1005,18 +1005,21 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Final CI for PB 3.79.56: GitHub Actions run **37309555962 = SUCCESS**. Map-selection/editor-control regression plus all ECU family regressions passed.
 
 
-## Corrected hardware finding: Ultra Pro2 software has only partial REDLEO 9.2 compatibility - 2026-10-05
+## Corrected hardware finding: Ultra Pro1/Ultra Pro2 software share only partial current-page compatibility with REDLEO 9.2 - 2026-10-05
 
-- User clarified the real-hardware result: original **Ultra Pro2 PC software is NOT fully compatible with REDLEO 9.2**.
-- What works on the tested 9.2 ECU:
-  - **Đọc hiện tại / Lưu hiện tại** on the specific main maps the user tested: **map phun xăng, map đánh lửa, góc đánh lửa**.
-- What does NOT work correctly:
-  - **Đọc tất cả** is wrong;
-  - **Ghi/Lưu tất cả** is wrong.
-- Therefore this is only evidence that Ultra Pro2 shares or reuses some **current-page commands/serializers** with 9.2 for those tested maps. It is NOT evidence of a complete 9.2 runtime branch, full-image compatibility, or safe cross-family restore/full-write behavior.
+- Real-hardware findings on the tested REDLEO **9.2 ECU**:
+  - original **Ultra Pro2 PC software** can **Đọc hiện tại / Lưu hiện tại** on the specific main maps the user tested: **map phun xăng, map đánh lửa, góc đánh lửa**;
+  - original **Ultra Pro1 PC software** can also **Đọc hiện tại** on the 9.2 ECU in a similar way.
+- Scope discipline:
+  - Ultra Pro1 is currently confirmed here only for **Đọc hiện tại**; do not assume Ultra Pro1 Lưu hiện tại / Đọc tất cả / Ghi tất cả until separately hardware-tested;
+  - Ultra Pro2 **Đọc tất cả** is wrong;
+  - Ultra Pro2 **Ghi/Lưu tất cả** is wrong.
+- Interpretation: multiple REDLEO generations likely reuse some **current-page read/write commands or page serializers**, especially for main tune pages, while their full-image layouts and auxiliary pages diverge.
+- This is NOT evidence of complete backward compatibility, one common serializer, or safe cross-family restore/full-write behavior.
 - Important existing wire differences remain:
   - REDLEO 9.2 page6 uses the verified **62B writable layout**;
+  - Ultra Pro1 has its own verified V10/Ultra page6/A2 layouts;
   - Ultra Pro2 / V11-generation uses its own **43B page6 / A2-286** path.
-- Blink must keep 9.2 and Ultra Pro2 serializers and full-image paths strictly separated.
-- The Ultra Pro2 original app may be used only as a **limited reference for the tested current-map read/write paths** on 9.2. Do not use its READ ALL / WRITE ALL behavior as a 9.2 reference.
-- Future reverse engineering should locate exactly which current-page commands are shared and where the Ultra Pro2 software diverges into its incorrect full-image path on a 9.2 ECU.
+- Blink must keep 9.2, Ultra Pro1 and Ultra Pro2 full-image/auxiliary serializers strictly separated.
+- Original Ultra Pro1/Ultra Pro2 software may be used as **limited references for only the hardware-verified current-page operations** above. Do not use either app as a 9.2 full-image reference without a matching real-hardware pass.
+- Future reverse engineering should compare the shared current-page command path across 9.2 / Ultra Pro1 / Ultra Pro2, then identify exactly where each application diverges for auxiliary pages and full-image operations.
