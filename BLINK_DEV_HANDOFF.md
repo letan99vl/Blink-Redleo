@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.56**.
+- Current displayed PB: **3.79.57**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1023,3 +1023,38 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Blink must keep 9.2, Ultra Pro1 and Ultra Pro2 full-image/auxiliary serializers strictly separated.
 - Original Ultra Pro1/Ultra Pro2 software may be used as **limited references for only the hardware-verified current-page operations** above. Do not use either app as a 9.2 full-image reference without a matching real-hardware pass.
 - Future reverse engineering should compare the shared current-page command path across 9.2 / Ultra Pro1 / Ultra Pro2, then identify exactly where each application diverges for auxiliary pages and full-image operations.
+
+## Original ECU Air fuel ratio split from Blink AFR target - PB 3.79.57 - 2026-10-05
+
+- User requirement: every supported ECU generation must expose **two separate AFR concepts**:
+  - **AFR mục tiêu của Blink**: lives only inside Blink Auto Tune and is used by Blink's own tuning algorithm.
+  - **Air fuel ratio**: original ECU auto-tuner/AFR table, lives under **Bản đồ**, keeps original ECU semantics, and has ON/OFF per cell.
+- Source evidence:
+  - Original Ultra Pro1 software screenshot shows an **Air fuel ratio** table with OFF/ON control.
+  - DN multi-generation APK independently confirms the original target-AFR table across ECU systems:
+    - table/page family = **0x5x**;
+    - payload = **420 bytes = 14×30**;
+    - ON cell wire byte = AFR×10 in range **90..180**;
+    - OFF cell toggles bit **0x80**; decoder restores the hidden AFR with **raw XOR 0x80**, then /10.
+- Blink implementation:
+  - afr_map is now visible for **V8, V9.x, V10/Ultra Pro1, V11/Ultra Pro2**.
+  - Direct read uses 0x9A + page(5,bank) and requires 420 data bytes.
+  - Direct write uses cached page baseline + exact 420-byte payload + ECU ACK + post-write readback verification.
+  - Canonical Read All now decodes and publishes the original ECU Air fuel ratio instead of preserving it only as hidden raw bytes.
+  - Legacy/modern SEND ALL now carries edited Air fuel ratio values + ON/OFF state instead of always preserving afRaw unchanged.
+  - V11/Ultra Pro2 continues using the same proven 420B codec, now through the generic cross-family implementation.
+- UI:
+  - Bản đồ card/title is now exactly **Air fuel ratio**, subtitle **Auto tuner zin của ECU**.
+  - Auto Tune labels are explicit: **AFR ĐO (BLINK)** / **AFR MỤC TIÊU (BLINK)**.
+  - OFF cells use original-style dark display with **-**, while the hidden numeric AFR remains preserved in data-value so turning the cell ON restores the target.
+  - ON/OFF controls now appear for Air fuel ratio on every supported ECU profile.
+- Compatibility:
+  - protocol accepts both old source label Air fuel ratio map and new Air fuel ratio.
+  - old blinkV11AfrMeta remains as a compatibility alias; new generic state is blinkEcuAfrMeta.
+- Backup before change: backup-pb-3.79.56-pre-all-ecu-air-fuel-ratio.
+- Main protocol commit: 8b4a5e0c30929e2631a54eed520d9ddb6788e388.
+- Alias fix: f2218b43718fa7117a86b7ddabdd3a5c8a9f2078.
+- UI / naming commit: 4c7d85daf1d2dae6d9447afbf5c8a0f7ef1c52a1.
+- Source-label routing commit: d8170d7ec6c1bed3b9969f910ae69f433b7ef99c.
+- Regression updates: bb5f04a7e07db45316a55b7a19aa682aca11a4c6, 68dba9e4a87d6a763a439f90e7330ac3418a7d9c, 3d9189f3e3a7656263ebfa445a542dbf9586c7af, f395c1f3a4796c2e5c08342b1de3cbe763ac07de.
+- Final CI run **37324845570 = SUCCESS**. All protocol regressions passed.
