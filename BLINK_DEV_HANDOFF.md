@@ -1001,3 +1001,5 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main all-map controls commit: `b9f64248f26814dfe64ba06b8f58c15aa8728c6c`.
 - Legacy Idle ECT controls commit: `d350ed7d6143187c829dcf404c00d03a4df7b509`.
 - Regression protection extended in `tools/check-map-selection.js` by commits `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3` and `56dac9997835f89233424b5cfd830482af6fe1e5`.
+
+- Final CI for PB 3.79.56: GitHub Actions run **37309555962 = SUCCESS**. Map-selection/editor-control regression plus all ECU family regressions passed.
