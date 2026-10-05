@@ -11,6 +11,7 @@ on:
       - 'tools/check-ecu-feature-surfaces.js'
       - 'tools/check-v8-main.js'
       - 'tools/check-v91.js'
+      - 'tools/check-v9-version-routing.js'
       - 'tools/check-v92-page6.js'
       - 'tools/check-v10-page6.js'
       - 'tools/check-v10-a2.js'
@@ -37,6 +38,8 @@ jobs:
         run: node tools/check-v8-main.js
       - name: REDLEO 9.1X regression
         run: node tools/check-v91.js
+      - name: REDLEO V9 firmware routing regression
+        run: node tools/check-v9-version-routing.js
       - name: REDLEO 9.2 page6 regression
         run: node tools/check-v92-page6.js
       - name: REDLEO V10.2 page6 regression
