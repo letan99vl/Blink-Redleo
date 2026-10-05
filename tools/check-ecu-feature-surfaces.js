@@ -30,7 +30,7 @@ must(/if\(isV91Direct\(\)\)throw new Error\('REDLEO 9\.1X Â· Ghi Options 12B váº
   '9.1X whole Options write must stay locked');
 
 // REDLEO 9.2: keep direct compensation/page6/A2 surfaces separate from 9.1.
-must(/isV92Direct\(\)&&\['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'\]\.includes\(id\)\)return true/,
+must(/ecuProfile&&ecuProfile\.key==='MODERN_V9'&&usesNewThermalAxis\(\)&&\['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'\]\.includes\(id\)\)return true/,
   '9.2 direct feature matrix changed');
 
 // V10.2 direct session: base features + the verified V10-only A2 surfaces.
@@ -59,7 +59,7 @@ must(/if\(isUltraPro2Direct\(\)&&id==='auto_clutch'\)return false/,
   'Ultra Pro2 AutoClutch direct-write gate missing');
 
 // Shared direct page routing must remain exact.
-must(/if\(\['ect_inj','ect_ign','map_inj'\]\.includes\(id\)\)return \{ect_inj:0x72,ect_ign:0x82,map_inj:0x92\}\[id\]/,
+must(/if\(id==='ect_inj'\)return 0x72;[\s\S]{0,80}if\(id==='ect_ign'\)return 0x82;[\s\S]{0,80}if\(id==='map_inj'\)return 0x92;/,
   'Compensation page routing changed');
 must(/if\(v91&&\['idle_limit','ect_idle_motor'\]\.includes\(id\)\)return page\(6,bank\)/,
   '9.1X page6 route missing');
@@ -88,11 +88,16 @@ must(/idleLimitReadBtn[\s\S]{0,1200}readIdlePageReal/,
 must(/idleLimitWriteBtn[\s\S]{0,1200}writeIdleReal/,
   'Idle WRITE button is not captured by real protocol handler');
 
-// Cross-family anti-fallback rules.
-mustNot(/isUltraDirect\(\)[\s\S]{0,400}writeV10A2KnownFeature/,
-  'Ultra Pro1 must not fall through to V10 A2 writer');
-mustNot(/isV91Direct\(\)[\s\S]{0,400}writeV92A2KnownFeature/,
-  '9.1X must not fall through to 9.2 A2 writer');
+// Cross-family anti-fallback rules. Check the exact dispatch lines rather than
+// proximity: adjacent family branches are intentionally close in source.
+must(/if\(isUltraDirect\(\)&&\[[^\]]*'iat_inj'[^\]]*\]\.includes\(id\)\)return writeUltraA2KnownFeature\(id\);/,
+  'Ultra Pro1 must dispatch A2 edits to writeUltraA2KnownFeature');
+must(/if\(isV10Direct\(\)&&\[[^\]]*'iat_inj'[^\]]*\]\.includes\(id\)\)return writeV10A2KnownFeature\(id\);/,
+  'V10.2 must dispatch A2 edits to writeV10A2KnownFeature');
+must(/if\(isV91Direct\(\)&&\[[^\]]*'iat_inj'[^\]]*\]\.includes\(id\)\)return writeV91A2KnownFeature\(id\);/,
+  '9.1X must dispatch A2 edits to writeV91A2KnownFeature');
+must(/if\(isV92Direct\(\)&&\[[^\]]*'iat_inj'[^\]]*\]\.includes\(id\)\)return writeV92A2KnownFeature\(id\);/,
+  '9.2 must dispatch A2 edits to writeV92A2KnownFeature');
 
 if(process.exitCode)process.exit(process.exitCode);
 console.log('OK: ECU feature visibility/read/write matrix remains aligned with family-specific verified serializers.');
