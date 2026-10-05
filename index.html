@@ -5338,6 +5338,13 @@ function featureData(f,bank=state.activeMap){const k=keyFor(f,bank),cur=featureS
 function featureForProfile(id){
   const base=F[id];if(!base)return null;
   let f={...base,x:Array.isArray(base.x)?base.x.slice():base.x,y:Array.isArray(base.y)?base.y.slice():base.y};
+  const ultra2=state.ecuProfile==='MODERN_V11'&&state.ecuVariant==='ULTRA_PRO2';
+  const v11Name=ultra2?'REDLEO Ultra Pro2':'ATE V11';
+  if(ultra2){
+    f.desc=String(f.desc||'').split('ATE V11').join('REDLEO Ultra Pro2');
+    if(id==='ate_options'){f.title='Tuỳ chọn REDLEO Ultra Pro2';f.source='Dgv_Option';}
+    if(id==='afr_map')f.title='AFR / O2 mục tiêu · Ultra Pro2';
+  }
 
   // Main tune RPM/TPS breakpoints: fixed on V8/V9, ECU-provided on V10/Ultra/V11.
   if(id==='inj_ve'||id==='inj_degree'||id==='ign_degree'||id==='afr_map'){
@@ -5363,9 +5370,9 @@ function featureForProfile(id){
     f.x=ECU_AUX_AXES.iat.slice();
   }
 
-  if(id==='idle_limit'&&state.ecuProfile==='MODERN_V11')return {...f,rows:4,cols:3,x:['G1','G2','G3'],y:['Idle RPM 1','Idle RPM 2','Raw','RPM/64'],desc:'ATE V11 · Idle/Limit page 6x · 12 byte đã xác minh; AutoShift và ECT Motor được giữ nguyên.'};
+  if(id==='idle_limit'&&state.ecuProfile==='MODERN_V11')return {...f,rows:4,cols:3,x:['G1','G2','G3'],y:['Idle RPM 1','Idle RPM 2','Raw','RPM/64'],desc:v11Name+' · Idle/Limit page 6x · 12 byte đã xác minh; AutoShift và ECT Motor được giữ nguyên.'};
   if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V10')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_Ect_Motor 2×11 = 22 byte; wire đảo hàng; tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
-  if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:'ATE V11 · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
+  if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:v11Name+' · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   if(id==='auto_clutch'&&state.ecuProfile==='MODERN_V11')return {...f,rows:1,cols:6,x:['Low RPM','High RPM','Low Angle','High Angle','Close RPM','ECT On (V)'],y:['AUTO CLUTCH'],unit:'mixed',desc:'ATE V11 Dgv_Dzfm · RPM / góc trễ / ngưỡng điện áp ECT. Bit bật/tắt chức năng được giữ nguyên, Blink chỉ sửa 6 byte dữ liệu đã xác minh.'};
   if(id==='ect_start'&&state.ecuProfile==='MODERN_V10')return {...f,rows:3,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Time(Second)','INJ VE(ms)','StrtAdd(ms)'],unit:'mixed',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_EctStrt_Add 3×11 = 33 byte. Wire đảo hàng; Time dùng bước 0.2s, hai hàng INJ dùng scale Oil gốc.'};
   if(id==='ate_options'&&state.ecuProfile==='MODERN_V10')return {...f,title:'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:'REDLEO V10.2 · Dgv_Option 18B: 15 mục có nhãn/unit từ phần mềm gốc được phép sửa; 3 byte dự phòng cuối luôn giữ nguyên raw.'};
