@@ -79,7 +79,7 @@ must(/writeV10EctMotor[\s\S]{0,180}writeV10A2KnownFeature\('ect_idle_motor'\)/,
 mustNot(/writeV10IdleLimit[\s\S]{0,700}slice\(0,62\)/,
   'V10 must never reuse the REDLEO 9.2 62B page6 payload');
 {
-  const v10MotorWriter=between('async function writeV10EctMotor','async function writeV10IdleLimit');
+  const v10MotorWriter=between('async function writeV10EctMotor','async function writeUltraIdleLimit');
   if(/page\(6,bank\)/.test(v10MotorWriter)){
     console.error('FAIL: V10 ECT Motor must never regain a page6 writer');
     process.exitCode=1;
