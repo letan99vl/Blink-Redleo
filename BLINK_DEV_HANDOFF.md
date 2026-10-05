@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.45**.
+- Current displayed PB: **3.79.46**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -248,6 +248,7 @@ Recent PB progression:
 - 3.79.43 V10.2 AutoClutch timer writer: edits only CONFIG bytes +2..+6 (raw=ms/5), preserves feature byte + Start RPM + password
 - 3.79.44 V10.2 ECT Start Add 3x11 writer: exact original row labels/order/scale, A2 268B RMW, Ultra excluded
 - 3.79.45 V10.2 Dgv_Option 18B writer: 15 verified semantic cells editable, reserved bytes 15..17 preserved raw, Ultra excluded
+- 3.79.46 V10.2 TPS/RPM axis writers: exact original normalization + A2 offsets, TPS voltage row regenerated from Option Min/Max, Ultra excluded
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -534,3 +535,54 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - For unfinished families (including Ultra/V8/other unverified REDLEO variants), AutoClutch may remain hidden/locked and is no longer a required release-unlock target.
 - Do not broaden an existing AutoClutch serializer across families.
 - Continue priority work on core tuning maps / axes / verified options instead.
+
+
+## V10.2 TPS/RPM axis update - 2026-10-05
+
+- PB: **3.79.46**.
+- Backup before axis work: `backup-pb-3.79.45-pre-v10-axis`.
+- Original V10.2 methods re-checked from **ECU Pro 10.2.exe**:
+  - `UartDatRx::proUartDgvNumVoltage`
+  - `UartDatRx::__UartToDgvTps`
+  - `OutProgramFile::proDgvUnit`
+  - `macroReckon::proCheckTpsOption`
+  - `macroReckon::proCheckRpmOption`
+  - `macroReckon::VoltageToNumber`
+- Exact A2 axis layout:
+  - bytes **0..13** = TPS derived voltage row (14 × uint8)
+  - bytes **14..27** = visible TPS percentage row (14 × uint8, raw = TPS% × 2)
+  - bytes **28..87** = RPM axis (30 × uint16-BE, raw = RPM / 20)
+- TPS axis rules reproduced from original software:
+  - exactly 14 points
+  - point 1 forced to **0%**
+  - range **0..100%**
+  - values below 10% normalized to **0.5%** steps
+  - values from 10% upward normalized to **1%** steps
+  - all points must be strictly increasing after normalization
+  - the 14-byte voltage row is regenerated from V10.2 Dgv_Option TPS Voltage Min/Max using `V = Min + (Max-Min) × TPS% / 100`, rounded to 2 decimals, then encoded with the original voltage conversion.
+- RPM axis rules reproduced from original software:
+  - exactly 30 points
+  - range **500..15000 RPM**
+  - normalized to **20 RPM** steps
+  - all points must be strictly increasing after normalization
+  - wire encoding is 30 × uint16-BE of `RPM/20`.
+- Blink implementation:
+  - dedicated direct-V10-only editors: **TPS Axis 1×14** and **RPM Axis 1×30**.
+  - TPS writer patches only A2 bytes 0..27.
+  - RPM writer patches only A2 bytes 28..87.
+  - every axis write still starts from the exact V10.2 **268B A2 read baseline**, sends the canonical 268B payload, preserves all sibling blocks and any reply-only tail, and requires ECU ACK + post-write readback.
+  - after verified READBACK, Blink reparses A2 and republishes the ECU TPS/RPM axes so the visible main-map headers/rows follow the confirmed ECU values.
+- Ultra protection:
+  - `tps_axis` and `rpm_axis` are NOT present in the shared MODERN_V10 base feature set.
+  - they are enabled only through current-session `isV10Direct()`.
+  - Ultra has an explicit axis guard and cannot use the V10.2 axis writer.
+- Core axis protocol commit: `065406317105757aeb83049d05c611fa67d8f026`.
+- Axis UI commit: `e0d78f4b3c63d60fa60bed4c29ad2f0c015d4efd`.
+- A2 regression extension: `27df398f3e01494fcdc4d06a001aa82737402816`.
+- Cross-family checker hardening commits: `2e2339e68fd0b4758f39feff8d5c61e3e799f4e2`, `c5fbc3d146ac35183b877084e579bd2f0ea14d24`, `36f2065c73591eff0e7e886707dbce1aad47c4d5`.
+- PB bump: `34be9e8b5859744e4e036364ebcd623d5fdf3895`.
+- Final GitHub Actions run **37261463129**: **SUCCESS** — syntax, row orientation, REDLEO 9.2 page6, V10.2 page6 and V10.2 A2/axis regression all passed.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Recommended order:
+  1. RPM axis first: change one middle breakpoint by +20 RPM while preserving order -> SAVE -> READBACK -> confirm only that breakpoint/header changes.
+  2. TPS axis second: make one small legal middle-point change -> SAVE -> READBACK -> confirm displayed TPS breakpoint and map row update, with the associated derived voltage row changing consistently.
+- AutoClutch scope reminder: per user decision, do NOT spend further work implementing AutoClutch on unfinished ECU families. Keep already-completed V10.2/V11 implementations only.
