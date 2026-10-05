@@ -62,7 +62,7 @@ must(/A2 TX 268B/,
   'V10 A2 status must expose exact TX length');
 
 // Only verified editable surfaces are patched in this pass.
-must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ect_start','v_ect','v_iat','v_map'\]\.includes\(id\)/,
+must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'V10 A2 verified feature dispatch changed');
 must(/payload\[V10_A2\.IAT_INJ\+i\]=encOil/,
   'IAT INJ patch must stay at exact block');
@@ -77,16 +77,53 @@ must(/payload\[V10_A2\.CONFIG\+2\+i\]=clamp\(Math\.round\(Math\.max\(0,Number\(v
 must(/autoStart=decAutoRpm\(configRaw\[1\]\)[\s\S]{0,120}auto=Array\.from\(configRaw\.slice\(2,7\),x=>Number\(x\)\*5\)[\s\S]{0,120}password=Array\.from\(configRaw\.slice\(7,11\)\)/,
   'V10 CONFIG layout must remain feature/startRPM/5 timers/password');
 
-// Partial writers preserve Option, TPS/RPM, vAFR and every sibling block.
+// Partial writers preserve TPS/RPM, vAFR and every sibling block. Option is now
+// a verified 18B block, but only its first 15 semantic bytes may be changed.
 // AutoClutch may patch only CONFIG +2..+6. ECT Start may patch only its 33B block.
 const writer=between('async function writeV10A2KnownFeature(id){','async function writeV10EctMotor');
-for(const forbidden of ['V10_A2.OPTION','V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
+for(const forbidden of ['V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
   if(writer.includes('payload['+forbidden)||writer.includes('payload.set('+forbidden)){
     console.error('FAIL: partial V10 A2 writer patches preserved block '+forbidden);
     process.exitCode=1;
   }
 }
 
+
+
+// V10.2 Dgv_Option exact 18B semantics.
+// Original UI exposes 15 labeled/unit cells; bytes 15..17 are unlabeled and
+// Blink must preserve them byte-for-byte from the direct-read baseline.
+must(/function decodeV10Option18\(raw,vEct\)[\s\S]*decVolt\(raw\[0\]\)[\s\S]*decEctIgn\(\(raw\[4\]&255\)\+64\)[\s\S]*ectRawToTemp\(raw\[7\]&255,vEct\)[\s\S]*decAutoRpm\(raw\[10\]\)[\s\S]*decV10OptionFuelPct\(raw\[11\]\)[\s\S]*decAutoRpm\(raw\[12\]\)[\s\S]*reserved:raw\.slice\(15,18\)/,
+  'V10 Option 18B decoder mapping/reserved tail changed');
+must(/function encV10OptionFuelPct\(v\)[\s\S]*Math\.round\(128\*v\/25\)[\s\S]*x>=128\?127/,
+  'V10 Option O2 fuel-adjust 0..25% encoder changed');
+must(/function encodeV10Option15\(matrix,baselineRaw,vEct\)[\s\S]*new Uint8Array\(baselineRaw\|\|\[\]\)[\s\S]*out\[0\]=encVolt\(v\[0\]\)[\s\S]*out\[4\]=clamp\(encEctIgn\(v\[4\]\)-64,0,255\)[\s\S]*out\[7\]=ectTempToRaw\(v\[7\],vEct\)[\s\S]*out\[9\]=clamp\(Math\.round\(Math\.max\(0,v\[9\]\)\*5\),0,255\)[\s\S]*out\[14\]=clamp\(Math\.round\(Math\.max\(0,v\[14\]\)\/2\),0,255\)/,
+  'V10 Option encoder mapping changed');
+const optionCodec=between('function encodeV10Option15','function decodeV10EctStart33');
+for(const n of [15,16,17]){
+  if(optionCodec.includes('out['+n+']=')){
+    console.error('FAIL: V10 Option reserved byte '+n+' must remain from baseline');
+    process.exitCode=1;
+  }
+}
+must(/const v10Option=decodeV10Option18\(optionRaw,vEct\)[\s\S]*const optionReserved=v10Option\.reserved/,
+  'V10 Option parser must retain semantic matrix and reserved tail');
+must(/if\(v10Direct&&C\.v10Options\)emitFeature\(N\.ate_options,C\.v10Options\)/,
+  'V10 Option must be emitted after A2 read');
+must(/const baseOpt=baseline\.slice\(V10_A2\.OPTION,V10_A2\.OPTION\+18\)[\s\S]*encodeV10Option15\(m,baseOpt,parsed\.vEct\)[\s\S]*payload\.set\(opt,V10_A2\.OPTION\)/,
+  'V10 Option writer must patch the exact 18B block from a baseline copy');
+must(/currentV10Direct&&\['ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start'\]\.includes\(id\)/,
+  'V10 Option must be enabled only by the direct-V10 dynamic feature gate');
+mustNot(/MODERN_V10:new Set\(\[[^\]]*'ate_options'/,
+  'Base MODERN_V10 profile must not expose V10 Option to Ultra');
+if(!/id==='ate_options'&&state\.ecuProfile==='MODERN_V10'[\s\S]{0,900}source:'Dgv_Option'[\s\S]{0,120}rows:1,cols:15[\s\S]{0,700}TPS Voltage \(Min\.\)[\s\S]{0,700}O2S adjusts fuel injection[\s\S]{0,500}Idle Motor Minimum/.test(ui)){
+  console.error('FAIL: index.html must render the dedicated V10.2 Option 1x15 surface');
+  process.exitCode=1;
+}
+if(!/REDLEO ULTRA · Dgv_Option thuộc serializer A2 riêng/.test(src)){
+  console.error('FAIL: Ultra Option must remain explicitly separated from V10.2');
+  process.exitCode=1;
+}
 
 // AutoClutch must not patch the CONFIG feature byte, Start RPM or password.
 mustNot(/payload\[V10_A2\.CONFIG\](?!\+)/,
