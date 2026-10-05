@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.54**.
+- Current displayed PB: **3.79.55**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -957,3 +957,23 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - `tools/check-map-selection.js` updated so regression now requires one-tap collapse-to-cell instead of tap-to-cancel.
 
 - Final CI for PB 3.79.54: GitHub Actions run **37307497978 = SUCCESS**. Selection regression plus all ECU family regressions passed.
+
+
+## Free single-cell navigation with top-left rectangle rule - PB 3.79.55 - 2026-10-05
+
+- UX correction after PB 3.79.54:
+  - top-left-first must constrain only rectangle creation;
+  - it must never block moving a single-cell selection around the map.
+- New behavior:
+  - if current corner/origin is at a lower-right cell and user taps a cell above or left, Blink immediately moves the single selected cell to the new tap;
+  - that new cell becomes the new corner #1;
+  - no reverse rectangle is created;
+  - the next tap can create a rectangle only if it is at/right and at/below the new origin.
+- Existing behavior remains:
+  - tapping inside an already selected rectangle collapses directly to that single cell;
+  - QUÉT drag still works normally.
+- Applied to main fuel/target maps and REDLEO multi-cell editors.
+- Backup: `backup-pb-3.79.54-pre-anchor-relocate`.
+- Core commit: `175ff604e2164b8b64bc47db303b83cf87449f62`.
+- Regression update: `b62c89cd79ca371da34648b43d0b7ff9d678bbf4`.
+- Final CI run **37308785976 = SUCCESS**.
