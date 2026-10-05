@@ -466,3 +466,5 @@ The assistant should then:
 - Backup branch: `backup-pb-3.79.50-pre-v9-version-classifier`.
 - Relevant commits: `c563f0693cc8a0fccd3800e7da9114c81e7cafa1`, `60a3bbf4ab9842ca8086e801c3d86bc088b6b328`, `7a1a15fb1d571941e924f7881f38a55ffa83f0b0`, `dba9c30254cf87feba10a885a472c5af7db09b4d`, `71f7794765dc230133927956c20f93eae8953d22`, `cece84670b1af23bf2e7e1da23dfd7468656f848`.
 - This fix does **not** expand hardware certification. 9.1X still requires a real ECU one-cell SAVE/READBACK validation; tested REDLEO 9.2 and ATE V11.1 remain the hardware references.
+
+- Final protocol CI for PB 3.79.51: run **37268197492 = SUCCESS**; all family regression layers including the new V9 firmware-generation classifier passed.
