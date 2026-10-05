@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.58**.
+- Current displayed PB: **3.79.59**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1089,3 +1089,28 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Regression commit: 228ee45b7dca6f10c62c2110c8b33ccef814f531.
 - CI wiring commit: 44dc4a5fd6734fb992323a5d58510750540673f0.
 - Final CI run **37332812725 = SUCCESS**. All 17 checks passed.
+
+## IVO/IVC cam model + built-in keypad - PB 3.79.59 - 2026-10-05
+
+- Replaced the PB 3.79.58 manual IVC + EOI-margin UI with exactly two cam inputs:
+  - IN OPEN / IVO in degrees BTDC;
+  - IN CLOSE / IVC in degrees ABDC.
+- Blink computes intake duration automatically: 180 + IVO + IVC.
+- The EOI safety margin is no longer entered by the user. Current heuristic is 5% of intake duration, clamped to 8–20 degrees.
+- Per-cell injection timing still uses the current fuel PW map and RPM:
+  - EOI target = 180 - IVC + automatic margin;
+  - injection duration deg = PW(ms) × RPM × 0.006;
+  - SOI recommendation = EOI + injection duration deg.
+- Angle quantization remains family adaptive:
+  - V8 / V9.x / V10 / Ultra Pro1: legacy ~720-degree domain;
+  - V11 / Ultra Pro2: ~360-degree domain.
+- Mobile input requirement:
+  - IVO and IVC inputs are readonly text inputs with inputmode=none;
+  - tapping a field does not open iOS/Android keyboard;
+  - values are entered only through the built-in numeric keypad inside the dialog;
+  - keypad includes digits, decimal point, clear, backspace, next-field and done.
+- Safety remains unchanged: requires valid fuel and injection-angle baselines, preview first, APPLY only edits local map, separate GHI ECU is still required.
+- Backup: backup-pb-3.79.58-pre-ivo-ivc-cam-model.
+- Main implementation commit: 99af73c6ace25a764d38991e1f72290ae64b5211.
+- Regression update: 2276a858d49af1031538f898055619583649cc17.
+- Final CI run **37334627131 = SUCCESS**.
