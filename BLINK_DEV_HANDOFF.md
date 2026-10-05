@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.47**.
+- Current displayed PB: **3.79.48**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -250,6 +250,7 @@ Recent PB progression:
 - 3.79.45 V10.2 Dgv_Option 18B writer: 15 verified semantic cells editable, reserved bytes 15..17 preserved raw, Ultra excluded
 - 3.79.46 V10.2 TPS/RPM axis writers: exact original normalization + A2 offsets, TPS voltage row regenerated from Option Min/Max, Ultra excluded
 - 3.79.47 Ultra Pro1 page6 exact 42B Idle writer: Idle 24B + AutoShift 9B + Four-Spare 9B; only 8 labeled Idle values editable; hidden/sibling blocks preserved
+- 3.79.48 Ultra Pro1 exact A2 277/285B serializer: family-specific parser/RMW writers, correct CONFIG semantics, exact readback cache parser; Option/One-Spare/CHG/config remain raw-preserved
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -623,7 +624,7 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   - bytes 16..23 (4 hidden Idle words), bytes 24..32 (AutoShift), bytes 33..41 (Four-Spare), and any reply-only tail are preserved.
   - writer sends exactly 42B using `writeWritablePrefixPage`, therefore ECU ACK + post-write readback + tail preservation are mandatory.
   - Ultra-only `VVT Open RPM` input is shown on the dedicated Idle screen.
-  - co-located ECT Motor panel is hidden on Ultra because Ultra ECT Motor belongs to A2 and has not yet been reconstructed.
+  - co-located ECT Motor panel stays hidden on the Ultra Idle/page6 screen because Ultra ECT Motor belongs to the separate A2 editor; its A2 serializer is implemented from PB 3.79.48.
 - AutoShift/Four-Spare remain read-preserved only; they are not editable.
 - AutoClutch Ultra remains out of scope per user decision.
 - Core protocol commit: `c504efa46189c0c07e19e475171f9e48619778b6`.
@@ -634,4 +635,85 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - PB bump: `263fa070af965e744502735e89d82841c4085821`.
 - Final GitHub Actions run **37262145034**: **SUCCESS** — syntax, row orientation, REDLEO 9.2 page6, V10.2 page6, V10.2 A2 and Ultra page6 regression all passed.
 - Hardware status: **NEEDS REAL ULTRA PRO1 TEST**. Recommended test: READ Idle -> change one low-risk known Idle value slightly -> SAVE -> READBACK -> verify only that semantic value changes; then optionally test VVT Open RPM separately.
-- Next Ultra target: reconstruct the **Ultra-specific A2 serializer**. Do not reuse the V10.2 268B A2 layout; AutoClutch is not required for this target.
+- Ultra-specific A2 serializer was reconstructed in PB 3.79.48. Never reuse the V10.2 268B A2 layout; AutoClutch remains out of scope.
+
+
+## Ultra Pro1 A2 implementation update - 2026-10-05
+
+- PB: **3.79.48**.
+- Backup before change: `backup-pb-3.79.47-pre-ultra-a2`.
+- Original source: `Redleo ECU Ultra Pro1(1).rar` / extracted `ECU Pro Ultra Pro1.exe`.
+- Relevant original methods re-checked include `proUartSendToEcu`, `proUartDgvNumVoltage`, `proUartDgvNumOption`, `programSpaceOut`, `PasswordPcToEcu`, TPS/RPM readback methods, and the common grid codecs.
+- Original Ultra page A2 order and exact writable offsets:
+  - 0..13: TPS derived voltage row = 14B
+  - 14..27: visible TPS percentage row = 14B
+  - 28..87: RPM axis = 30 × uint16-BE = 60B
+  - 88..98: vAFR = 11B
+  - 99..109: vECT = 11B
+  - 110..120: vIAT = 11B
+  - 121..131: vMAP = 11B
+  - 132..142: IAT INJ = 11B
+  - 143..153: MAP Idle Motor = 11B
+  - 154..164: Ultra CONFIG = **feature flags 1B + Spare Built-in 6B + password 4B**
+  - 165..182: Option = 18B
+  - 183..204: ECT Motor = 22B
+  - 205..237: ECT Start Add = 33B
+  - 238..246: One-Spare = 9B
+  - 247..276: External Adjustment = 30B
+  - 277..284: CHG = 8B only when original firmware condition `myEcuVer > 10.2` is true.
+- Therefore the exact Ultra writable A2 size is:
+  - firmware **≤10.2: 277B**
+  - firmware **>10.2: 285B**.
+- If Blink cannot determine the exact Ultra 10.x minor firmware, **A2 write stays locked** rather than guessing 277B vs 285B.
+- Critical family difference: Ultra bytes 154..164 are **NOT V10.2 AutoClutch**. They are feature flags + 6 Spare Built-in bytes + 4 password bytes. Never decode or patch them with the V10 AutoClutch codec.
+- PB 3.79.48 adds `ULTRA_A2`, `ultraA2LayoutForSession()`, and `parseUltraA2Data()`; active Ultra reads no longer use the historical 140B prefix parser.
+- Verified Ultra A2 editable surfaces now use exact 277/285B read-modify-write:
+  - TPS Axis 1×14
+  - RPM Axis 1×30
+  - IAT INJ 1×11
+  - MAP Idle Motor 1×11
+  - ECT Motor **2×11**
+  - ECT Start Add 3×11
+  - External Adjustment 2×15
+  - vECT 1×11
+  - vIAT 1×11
+  - vMAP 1×11.
+- TPS axis uses the same original 14-point normalization and regenerates its 14B voltage row using Ultra Option raw TPS Min/Max bytes 0/1. Option itself is **not exposed for Ultra editing**.
+- RPM axis remains 30 × uint16-BE with original 20-RPM unit rules.
+- Ultra ECT Motor UI is corrected to **2×11** (Step/Time + INJ VE) and stays in the A2 editor, not the page6 Idle screen.
+- Every Ultra A2 writer:
+  - requires a successful A2 baseline matching the firmware-selected writable length,
+  - copies the complete 277B/285B baseline,
+  - patches only its verified block,
+  - sends the exact canonical writable payload,
+  - requires ECU ACK + post-write READBACK,
+  - verifies any longer reply-only tail remains unchanged.
+- Blocks intentionally preserved raw on all current Ultra A2 writes:
+  - CONFIG 11B
+  - Option 18B
+  - One-Spare 9B
+  - optional CHG 8B
+  - vAFR 11B
+  - every unrelated sibling block.
+- AutoClutch Ultra remains out of scope per user decision. Do not infer it from the Ultra CONFIG block.
+- Additional bug found/fixed during this pass: `cacheAckedPage(0xA2)` still parsed every `MODERN_V10` readback through the obsolete 140B parser. This could leave V10/Ultra sensor/axis cache semantically wrong even after a correct verified write. It now routes:
+  - V10.2 -> `parseV10A2Data()` exact 268B layout
+  - Ultra -> `parseUltraA2Data()` exact 277/285B layout
+  - historical prefix parser only remains as a non-direct fallback.
+- Core Ultra A2 commit: `045d69c666a274b6ca24738d8af51a93dc150926`.
+- UI dimension/axis-label correction: `16dfb6afdabaf42c77a08a778fed75177e15e7d1`.
+- Ultra A2 regression checker: `58f4432c1a6efc9ec1e6573d8800c68b7ba97d4b`.
+- CI wiring: `bd53b5049dad02ca830c41c56be877d7cf3619f1`.
+- V10/Ultra checker separation repairs: `6372a0faba029e54e3a3de3f2cc888bf3b68f8b3`, `51f8e3bb5529831f851119d41907e8243299bd3e`.
+- Exact A2 ACK/readback cache parser fix: `aade9d4ee4cfc7f34a2f28a1b5493f0e84f65a1c`.
+- Cache-parser regression guards: `425393f7be18a538334fd4671f5864cf92ceaf1a`, `aca45c279f686f7350c22c597ac4a28d1fa7ec1b`.
+- PB bump: `c44e0416f83ed6788af5a685b44b7e897b61be93`.
+- Final GitHub Actions run **37262942801**: **SUCCESS** — syntax, compensation orientation, REDLEO 9.2 page6, V10.2 page6, V10.2 A2, Ultra page6 and Ultra A2 checks all passed.
+- Hardware status: **NEEDS REAL ULTRA PRO1 TEST** before release certification.
+- Recommended real-hardware test order:
+  1. READ A2 and note actual Ultra firmware/read length; Blink must select 277B or 285B consistently.
+  2. Change one low-risk vIAT/vECT or IAT INJ point slightly -> SAVE -> READBACK.
+  3. Test one ECT Motor cell, then one ECT Start cell.
+  4. Change one middle RPM breakpoint by +20 RPM while preserving order -> SAVE -> READBACK.
+  5. Finally make one small legal TPS breakpoint change and confirm the displayed TPS axis plus derived voltage row are consistent.
+- Next family-level audit after Ultra: return to **REDLEO 9.1X** exact locked page6/full-write behavior, unless real Ultra hardware testing exposes a semantic mismatch first.
