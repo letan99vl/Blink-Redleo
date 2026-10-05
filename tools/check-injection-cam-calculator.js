@@ -1,1 +1,71 @@
-#!/usr/bin/env node\n'use strict';\n\nconst fs=require('fs');\nconst src=fs.readFileSync('index.html','utf8');\n\nfunction must(re,msg){ if(!re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }\nfunction mustNot(re,msg){ if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }\n\nmust(/BLINK_PB_VERSION = '3\.79\.63'/,'PB version not bumped to 3.79.63');\nmust(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');\n\n// IVO/IVC-only input + built-in keypad.\nmust(/id="injCamIvo" type="text" inputmode="none" readonly[^>]*value="3"/,'IVO virtual-keypad input missing');\nmust(/id="injCamIvc" type="text" inputmode="none" readonly[^>]*value="31"/,'IVC virtual-keypad input missing');\nmustNot(/id="injCamMargin"/,'manual margin input must not return');\nmust(/id="injCamKeypad"/,'built-in cam keypad missing');\nmust(/function injCamKey\(key\)/,'virtual keypad handler missing');\nmust(/pointerdown'[\s\S]{0,220}preventDefault\(\)[\s\S]{0,220}injCamSelectField/,'cam field tap must suppress native keyboard');\n\n// 3/31 reference-curve strategy.\nmust(/const INJ_CAM_REF_500=\[24,23,21,19,18,16,14,12,10,8,6,5,3,3\]/,'3/31 500-rpm reference row missing');\nmust(/const INJ_CAM_REF_5000=\[195,187,177,168,158,147,136,124,111,99,89,82,75,73\]/,'3/31 5000-rpm reference row missing');\nmust(/const INJ_CAM_STRATEGY_MAX=295/,'strategy cap must remain 295 degrees');\nmust(/function injCamReferenceAngle\(row,rpm\)/,'reference-curve interpolator missing');\nmust(/Math\.max\(0,Math\.min\(INJ_CAM_STRATEGY_MAX,Math\.round\(v\)\)\)/,'reference curve must clamp to 0..295');\nmust(/const refDuration=214/,'3/31 reference duration changed');\nmust(/const refCenter=104/,'3/31 reference intake center changed');\nmust(/const durationScale=Math\.max\(0\.85,Math\.min\(1\.15,Math\.sqrt\(refDuration\/camDuration\)\)\)/,'conservative duration scaling changed');\nmust(/const phaseAdjust=Math\.max\(-20,Math\.min\(20,refCenter-intakeCenter\)\)/,'conservative cam-center phase adjustment changed');\nmust(/const unclamped=base\*durationScale\+phaseAdjust/,'reference curve cam adjustment changed');\nmust(/const next=Math\.max\(0,Math\.min\(INJ_CAM_STRATEGY_MAX,Math\.round\(unclamped\)\)\)/,'final strategy clamp changed');\n\n// No PW/fuel-map dependency in the cam strategy anymore.\nmustNot(/function injCamBuildPreview\(\)[\s\S]{0,1800}inspectFuelMap\(/,'cam strategy must not depend on current fuel map');\nmustNot(/function injCamBuildPreview\(\)[\s\S]{0,1800}pw\*rpm\*0\.006/,'old PW-based cam formula must not return');\nmustNot(/ensureInjCamRequiredMaps/,'auto-read fuel dependency must be removed');\n\n// Responsive local-only UI semantics.\nmust(/async function runInjCamPreview\(\)/,'preview runner missing');\nmust(/if\(injCamPreviewBusy\)return/,'duplicate preview taps must be blocked');\nmust(/Đang tính MAP góc phun theo IVO \/ IVC/,'preview progress message missing');\nmust(/function applyInjCamPreview\(\)[\s\S]{0,500}CHƯA CÓ MAP ĐỀ XUẤT/,'apply-before-preview feedback missing');\nmust(/saveFeatureStore\(\);renderFeature\(\)/,'APPLY must remain local before GHI ECU');\nmust(/Bảng 3\/31 là chuẩn tham chiếu[\s\S]{0,120}không cho góc vượt 295°/,'dialog reference guidance missing');\n\n// Independent reproduction of the 3/31 table anchors.\nconst ref500=[24,23,21,19,18,16,14,12,10,8,6,5,3,3];\nconst ref5000=[195,187,177,168,158,147,136,124,111,99,89,82,75,73];\nconst hi=[19.2,18,17.333,16.143,15.25,14.2,13.083,11.929,10.588,9.45,8.35,7.75,7.05,6.75];\nfunction ref(row,rpm){\n  rpm=Math.max(500,Math.min(15000,rpm));\n  let v;\n  if(rpm<=5000){const t=(rpm-500)/4500;v=ref500[row]+(ref5000[row]-ref500[row])*t;}\n  else v=ref5000[row]+hi[row]*((rpm-5000)/500);\n  return Math.max(0,Math.min(295,Math.round(v)));\n}\nconst anchors=[\n  [0,500,24],[0,3500,138],[0,5000,195],[0,7500,291],[0,15000,295],\n  [5,500,16],[5,5000,147],[5,10000,289],\n  [13,500,3],[13,5000,73],[13,15000,208]\n];\nfor(const [r,rpm,want] of anchors){\n  const got=ref(r,rpm);\n  if(got!==want){console.error('FAIL: 3/31 reference anchor',r,rpm,'want',want,'got',got);process.exitCode=1;}\n}\n// The failure that triggered this regression: 100% / 15000 must never become 523°.\nif(ref(0,15000)!==295){console.error('FAIL: high-rpm strategy cap broken');process.exitCode=1;}\n\nif(process.exitCode)process.exit(process.exitCode);\nconsole.log('OK: 3/31 cam reference curve reproduces key anchors, caps at 295°, ignores PW, and keeps local-only apply safety.');\n
+#!/usr/bin/env node
+'use strict';
+
+const fs=require('fs');
+const src=fs.readFileSync('index.html','utf8');
+
+function must(re,msg){ if(!re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }
+function mustNot(re,msg){ if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }
+
+must(/BLINK_PB_VERSION = '3\.79\.64'/,'PB version not bumped to 3.79.64');
+must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
+
+// IVO/IVC-only input + built-in keypad.
+must(/id="injCamIvo" type="text" inputmode="none" readonly[^>]*value="3"/,'IVO virtual-keypad input missing');
+must(/id="injCamIvc" type="text" inputmode="none" readonly[^>]*value="31"/,'IVC virtual-keypad input missing');
+mustNot(/id="injCamMargin"/,'manual margin input must not return');
+must(/id="injCamKeypad"/,'built-in cam keypad missing');
+must(/function injCamKey\(key\)/,'virtual keypad handler missing');
+must(/pointerdown'[\s\S]{0,220}preventDefault\(\)[\s\S]{0,220}injCamSelectField/,'cam field tap must suppress native keyboard');
+
+// Physical timing model: PW ms -> crank degrees, then back-calculate SOI from IVO/EOI target.
+must(/function injCamPulseDegrees\(pwMs,rpm\)/,'PW-to-crank-degree helper missing');
+must(/return pwMs\*rpm\*0\.006/,'physical PW x RPM x 0.006 conversion missing');
+must(/const eoiTarget=ivo/,'EOI target must currently be anchored at IVO');
+must(/const rawTarget=eoiTarget\+durationDeg/,'SOI must be back-calculated from EOI target + pulse duration');
+must(/const camDuration=180\+ivo\+ivc/,'cam duration diagnostic missing');
+must(/const intakeCenter=90\+\(ivc-ivo\)\/2/,'cam center diagnostic missing');
+must(/Do NOT add injector dead-time separately here/,'dead-time double-count warning missing');
+
+// The old heuristic must not drive the calculation anymore.
+mustNot(/const INJ_CAM_STRATEGY_MAX=295/,'295 degree strategy cap must not drive physical model');
+mustNot(/const durationScale=Math\.max\(0\.85/,'old duration scaling must be removed');
+mustNot(/const phaseAdjust=Math\.max\(-20/,'old cam-center phase heuristic must be removed');
+mustNot(/const unclamped=base\*durationScale\+phaseAdjust/,'old reference-curve formula must be removed');
+
+// 3/31 table stays only as a comparison reference, never a clamp/driver.
+must(/const INJ_CAM_REFERENCE_IVO=3/,'3/31 reference IVO missing');
+must(/const INJ_CAM_REFERENCE_IVC=31/,'3/31 reference IVC missing');
+must(/injCamReferenceAngle\(r,rpm\)/,'3/31 reference comparison missing');
+must(/chỉ tham chiếu, không ép trần 295°/,'UI must explain 295 is reference-only');
+
+// Fuel + angle preflight is required again because the physical model needs real PW.
+must(/async function ensureInjCamRequiredMaps\(\)/,'cam auto-read preflight missing');
+must(/inspectFuelMap\(state\.inject\)/,'cam preflight must validate fuel map');
+must(/readFeaturePageReal\('inj_ve',bank,false\)/,'cam preflight must auto-read fuel map');
+must(/readFeaturePageReal\('inj_degree',bank,false\)/,'cam preflight must auto-read angle baseline');
+must(/const auto=await ensureInjCamRequiredMaps\(\)/,'preview must run preflight before calculation');
+
+// Local-only apply remains mandatory.
+must(/saveFeatureStore\(\);renderFeature\(\)/,'APPLY must remain local before GHI ECU');
+must(/Bấm ÁP DỤNG chỉ thay bảng cục bộ/,'local-only apply guidance missing');
+
+// Independent physics checks.
+function pulseDeg(pw,rpm){ return pw*rpm*0.006; }
+function soi(ivo,pw,rpm){ return ivo+pulseDeg(pw,rpm); }
+
+const cases=[
+  ['8ms @ 10000rpm pulse',pulseDeg(8,10000),480],
+  ['3/31, 6.4ms @ 5000rpm SOI',soi(3,6.4,5000),195],
+  ['3/31, 7ms @ 500rpm SOI',soi(3,7,500),24],
+  ['30deg IVO, 8ms @ 10000rpm SOI',soi(30,8,10000),510]
+];
+for(const [name,got,want] of cases){
+  if(Math.abs(got-want)>1e-9){
+    console.error('FAIL:',name,'want',want,'got',got);
+    process.exitCode=1;
+  }
+}
+
+if(process.exitCode)process.exit(process.exitCode);
+console.log('OK: physical cam calculator uses SOI = IVO + PW*RPM*0.006, restores fuel preflight, keeps 3/31 as reference only, and preserves local-only apply safety.');
