@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.48**.
+- Current displayed PB: **3.79.49**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -254,6 +254,7 @@ Recent PB progression:
 - 3.79.46 V10.2 TPS/RPM axis writers: exact original normalization + A2 offsets, TPS voltage row regenerated from Option Min/Max, Ultra excluded
 - 3.79.47 Ultra Pro1 page6 exact 42B Idle writer: Idle 24B + AutoShift 9B + Four-Spare 9B; only 8 labeled Idle values editable; hidden/sibling blocks preserved
 - 3.79.48 Ultra Pro1 exact A2 277/285B serializer: family-specific parser/RMW writers, correct CONFIG semantics, exact readback cache parser; Option/One-Spare/CHG/config remain raw-preserved
+- 3.79.49 REDLEO Ultra Pro2 support: V11-generation detection, exact page6 43B + strict A2-286 routing, product-specific UI labels; AutoClutch hidden by scope decision
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -268,7 +269,7 @@ Useful backup branches include:
 
 Until hardware proof exists:
 - Official: REDLEO 9.2 core tested, ATE V11.1 tested.
-- Beta: 9.1X, V10.2, Ultra, V8.
+- Beta: 9.1X, V10.2, Ultra Pro1, **Ultra Pro2**, V8.
 - Not supported: generic ECU Pro 2017 legacy.
 
 Do not claim an untested ECU family is guaranteed to write safely.
@@ -720,3 +721,73 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   4. Change one middle RPM breakpoint by +20 RPM while preserving order -> SAVE -> READBACK.
   5. Finally make one small legal TPS breakpoint change and confirm the displayed TPS axis plus derived voltage row are consistent.
 - Next family-level audit after Ultra: return to **REDLEO 9.1X** exact locked page6/full-write behavior, unless real Ultra hardware testing exposes a semantic mismatch first.
+
+
+## REDLEO Ultra Pro2 implementation update - 2026-10-05
+
+- PB: **3.79.49**.
+- User-supplied original archive: `Redleo ECU Ultra Pro2.rar`.
+- Extracted original PC executable analyzed: `ECU Pro 11.exe`.
+- SHA256 of analyzed executable: `c41b8d987afa60ec9025e42d68c2b92a094c6a5f2afa2f52971411db568a49b4`.
+- Original executable identity:
+  - namespace / product generation: `tqmcu_ECU_V11`
+  - assembly version: **11.1.7.0**
+  - embedded product string: **Ultra Pro2**
+  - original product selector reports **REDLEO=true**, **ATE=false**.
+- Architectural conclusion: **Ultra Pro2 is a REDLEO-branded V11-generation ECU, not Ultra Pro1/V10**.
+- Critical detection fix:
+  - before PB 3.79.49, `profileFromHandshake()` checked generic `ULTRA` before firmware major and could misclassify Ultra Pro2 as MODERN_V10 / Ultra Pro1.
+  - PB 3.79.49 recognizes explicit `ULTRA PRO2` or `ULTRA + firmware major 11` first and routes it to **MODERN_V11**.
+  - generic Ultra / Ultra Pro1 remains MODERN_V10.
+- Ultra Pro2 page-family 6 original writer matches V11 exactly:
+  - Idle/Limit = **12B**
+  - AutoShift = **9B** at offset 12
+  - ECT Motor = **22B** at offset 21
+  - total writable page6 = **43B**.
+- Ultra Pro2 A2 original writer is **exactly the V11 A2-286 layout**:
+  - 0..13 TPS voltage row = 14B
+  - 14..27 TPS percentage row = 14B
+  - 28..87 RPM axis = 60B
+  - 88..98 vAFR = 11B
+  - 99..109 vECT = 11B
+  - 110..120 vIAT = 11B
+  - 121..131 vMAP = 11B
+  - 132..142 IAT INJ = 11B
+  - 143..153 MAP Motor = 11B
+  - 154..164 CONFIG/Dzfm/password = 11B
+  - 165..194 Option = 30B
+  - 195..238 ECT Start = 44B
+  - 239..247 One-Spare / Global Aux = 9B
+  - 248..277 External Adjustment = 30B
+  - 278..285 CHG = 8B
+  - total writable A2 = **286B**.
+- Safety rule for Pro2: direct Ultra Pro2 sessions accept **only A2-286**. A 272B V11 page is not accepted as a Pro2 A2 baseline.
+- Blink reuses the already reconstructed V11 serializers only where the Pro2 original EXE proves the byte layout is the same; it does **not** route Pro2 through Ultra Pro1 277/285B or V10.2 268B serializers.
+- Current Pro2 V11 surfaces include the existing verified V11 feature set such as page6 Idle/AutoShift/ECT Motor, A2 Option/ECT Start/External/CHG/Alternate, sensor compensation and main tune.
+- Per user scope decision, **AutoClutch is intentionally hidden/blocked for Ultra Pro2** even though the original Pro2 EXE contains the V11 `Dgv_Dzfm` structure. Do not spend further work on Pro2 AutoClutch unless the user explicitly changes scope.
+- Full ReadAll / full-image safety:
+  - current V11 full-image writer still requires exact decoded **9958B** through `v11FullImageReady()`.
+  - Ultra Pro2 static analysis did **not** independently prove a different full-ReadAll length, so PB 3.79.49 does not loosen the 9958B gate.
+  - if real Pro2 ReadAll does not decode to the verified 9958B layout, full-send remains safely locked.
+- Product/UI identification:
+  - ECU badge/status shows **ULTRA PRO2** rather than generic ATE.
+  - editor descriptions use **REDLEO Ultra Pro2** for the Pro2 V11 variant.
+  - Options editor title is **Tuỳ chọn REDLEO Ultra Pro2**.
+- Backup before work: `backup-pb-3.79.48-pre-ultra-pro2`.
+- Core detection/routing commit: `e3f52c7d315edc84d4915ac7547a7b97747cef59`.
+- Pro2 regression checker: `3455d579014105bea3d79f3178f0ce57c4740c64`.
+- CI wiring: `1e75e3a9053a5c7432a6e4f2c0eda80b18d4424a`.
+- V10 cross-family checker adjustment: `65c594c7d63e3a8824bed5d0fe61b74894877cd9`.
+- Pro2 checker repairs: `70c00cf5a2a259a063b3ecda7e59dd3336249909`, `916ee70bbfaa5c42ddc160b26365c6ec0b5fd3b7`.
+- PB bump: `6ee1471d38ab48c5b054c625afa155537413e5e6`.
+- Variant state/UI labels: `1ecd8322a0c0464306595da31de72ed9633f4009`, `0822274e1d706bfeabfeebe818814c84f8122aba`.
+- UI-label regression protection: `521a232a412211d847da3dad9c0c716b13eaf6e9`.
+- Final GitHub Actions run **37264169593**: **SUCCESS** — syntax, compensation orientation, REDLEO 9.2, V10.2 page6/A2, Ultra Pro1 page6/A2 and Ultra Pro2 regression all passed.
+- Hardware status: **NEEDS REAL ULTRA PRO2 TEST** before release certification.
+- Recommended first real-hardware test order:
+  1. connect and verify badge/profile reads **ULTRA PRO2**, not Ultra Pro1/V10 or ATE;
+  2. open an A2-backed table and confirm the direct A2 read is **286B**;
+  3. make one small low-risk vECT/vIAT or IAT INJ change -> SAVE -> READBACK;
+  4. test one page6 Idle value -> SAVE -> READBACK;
+  5. then test ECT Motor / ECT Start / Option / CHG one block at a time;
+  6. test READ ALL; full-send must remain locked unless exact 9958B decoding succeeds.
