@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.51`
+`BLINK_PB_VERSION = 3.79.52`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.51.
+- Android/web production: `main`, currently PB 3.79.52.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -468,3 +468,18 @@ The assistant should then:
 - This fix does **not** expand hardware certification. 9.1X still requires a real ECU one-cell SAVE/READBACK validation; tested REDLEO 9.2 and ATE V11.1 remain the hardware references.
 
 - Final protocol CI for PB 3.79.51: run **37268197492 = SUCCESS**; all family regression layers including the new V9 firmware-generation classifier passed.
+
+
+## 25. Two-corner map selection checkpoint - PB 3.79.52
+
+- Multi-cell maps now support two selection methods simultaneously:
+  - existing drag/QUÉT selection;
+  - two-corner rectangle selection by tapping corner #1 then the opposite corner.
+- Tapping a cell already inside the current highlighted rectangle cancels the selection.
+- Tapping outside a completed rectangle starts a new rectangle.
+- The behavior is implemented for both the main fuel/target map and REDLEO multi-cell map editors.
+- REDLEO keypad, +/- and AFR region controls now require a real active selection, preventing accidental edits to the default first cell when nothing is selected.
+- Duplicate legacy touch selection handler was removed to prevent double-processing on mobile/iOS.
+- Backup: `backup-pb-3.79.51-pre-two-corner-selection`.
+- Implementation commit: `38469824d2c1026d9f505ece3e2d486ce1fe48fc`.
+- Final protocol CI run **37306927432 = SUCCESS**.
