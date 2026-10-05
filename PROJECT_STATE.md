@@ -536,3 +536,12 @@ The assistant should then:
 - Main UI commit: `b9f64248f26814dfe64ba06b8f58c15aa8728c6c`.
 - Idle ECT controls commit: `d350ed7d6143187c829dcf404c00d03a4df7b509`.
 - Regression commits: `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3`, `56dac9997835f89233424b5cfd830482af6fe1e5`.
+
+
+## 30. Original Ultra Pro2 software can operate REDLEO 9.2
+
+- User hardware test confirmed the original **Ultra Pro2 PC software can read and write a REDLEO 9.2 ECU**.
+- Architectural interpretation: Ultra Pro2 software is backward-compatible and likely switches protocol/layout internally after identification.
+- This does not mean Blink should reuse the Ultra Pro2 serializer for 9.2; the audited 9.2 and Ultra Pro2 page layouts are still different.
+- Keep 9.2 and Ultra Pro2 serializers separated until the vendor compatibility branch is traced directly.
+- Use Ultra Pro2 original software as an additional source of truth in future 9.2 protocol audits.
