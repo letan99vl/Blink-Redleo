@@ -1003,3 +1003,15 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Regression protection extended in `tools/check-map-selection.js` by commits `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3` and `56dac9997835f89233424b5cfd830482af6fe1e5`.
 
 - Final CI for PB 3.79.56: GitHub Actions run **37309555962 = SUCCESS**. Map-selection/editor-control regression plus all ECU family regressions passed.
+
+
+## New hardware finding: REDLEO 9.2 works with original Ultra Pro2 PC software - 2026-10-05
+
+- User real-hardware observation: a REDLEO **9.2 ECU can currently be read and written successfully by the original Ultra Pro2 PC software**.
+- Treat this as strong evidence that the Ultra Pro2 PC application contains a backward-compatible **9.2 branch / runtime protocol switch**, not as evidence that 9.2 and Ultra Pro2 share one serializer.
+- Important existing wire differences remain:
+  - REDLEO 9.2 page6 uses the verified **62B writable layout**;
+  - Ultra Pro2 / V11-generation uses its own **43B page6 / A2-286** path.
+- Therefore Blink must keep profile-specific serializers and may use the original Ultra Pro2 application as an additional reference implementation for auditing 9.2 detection/login/page routing.
+- Do **not** collapse 9.2 into the Ultra Pro2 writer solely because the vendor Ultra Pro2 software can operate both.
+- This finding should be used in the next original-software audit to locate the exact compatibility branch and see whether any 9.2 feature coverage can be safely expanded.
