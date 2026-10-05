@@ -300,7 +300,7 @@ function mainFeaturePage(id,bank){
   if(id==='inj_degree')return page(2,bank);
   if(id==='ign_degree')return page(3,bank);
   if(id==='ign_time')return page(4,bank);
-  if(ecuProfile&&ecuProfile.family==='v11'&&id==='afr_map')return page(5,bank);
+  if(id==='afr_map'&&ecuProfile&&['v8','modern','v11'].includes(ecuProfile.family))return page(5,bank);
   if(id==='ect_inj')return 0x72;
   if(id==='ect_ign')return 0x82;
   if(id==='map_inj')return 0x92;
@@ -323,6 +323,9 @@ function mainFeaturePage(id,bank){
 function isDirectVerifiedFeature(id){
   if(isUltraPro2Direct()&&id==='auto_clutch')return false;
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
+  // DN multi-generation app + original REDLEO UI confirm Air fuel ratio is a
+  // real 420-byte page-5 table across identified ECU generations.
+  if(id==='afr_map'&&ecuProfile&&['v8','modern','v11'].includes(ecuProfile.family))return true;
   // REDLEO 9.1X original ECU Pro 9.1X.exe proves: page6=30B (Idle 18 + ECT Motor 12),
   // A2=133B, and compensation pages 0x72/0x82/0x92 are 11x30 byte grids.
   // AutoClutch/Options remain out of the direct-write surface; their A2 bytes are preserved raw.
@@ -371,9 +374,9 @@ function setProfileDisabled(el,blocked,reason=''){
   }
 }
 const PROFILE_FEATURES=Object.freeze({
-  LEGACY_V8:new Set(['inj_ve','inj_degree','ign_degree','ign_time']),
-  MODERN_V9:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map']),
-  MODERN_V10:new Set(['inj_ve','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','map_idle_motor','v_ect','v_iat','v_map']),
+  LEGACY_V8:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map']),
+  MODERN_V9:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map']),
+  MODERN_V10:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map','ect_inj','ect_ign','map_inj','iat_inj','idle_limit','map_idle_motor','v_ect','v_iat','v_map']),
   MODERN_V11:new Set(['inj_ve','inj_degree','ign_degree','ign_time','afr_map','ect_inj','ect_ign','map_inj','iat_inj','ect_start','idle_limit','ect_idle_motor','map_idle_motor','external_adjust','auto_shift','auto_clutch','chg_params','ate_options','alternate_table','v_ect','v_iat','v_map']),
   LEGACY_PROBE:new Set(),
   UNKNOWN:new Set()
@@ -805,38 +808,49 @@ function encColdStart(v){return clamp(Math.round(Math.max(0,Number(v))*20*50/64)
 function decAutoRpm(raw){return raw*50}
 function encAutoRpm(v){return clamp(Math.round(Number(v)/50),0,255)}
 
-function decodeV11Afr420(raw){
+function decodeEcuAfr420(raw){
   raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
-  if(raw.length<420)throw new Error('ATE V11 AFR cần 420 byte.');
+  if(raw.length<420)throw new Error('Air fuel ratio ECU cần 420 byte.');
   const matrix=Array.from({length:14},()=>Array(30).fill(0));
   const enabled=Array.from({length:14},()=>Array(30).fill(true));
   let p=0;
   for(let wr=0;wr<14;wr++){
     const ur=13-wr;
     for(let c=0;c<30;c++,p++){
-      const x=(raw[p]&255)/10;
-      const on=x>=9&&x<=18;
+      const b=raw[p]&255;
+      const on=b>=90&&b<=180;
+      // Original/DN rule: OFF cells set bit 0x80. XOR restores the hidden
+      // AFR target, so an OFF cell can be turned ON again without losing value.
       enabled[ur][c]=on;
-      matrix[ur][c]=r1(on?x:(x<9?x+12.8:x-12.8));
+      matrix[ur][c]=r1((on?b:(b^0x80))/10);
     }
   }
   return {matrix,enabled,raw:raw.slice(0,420)};
 }
-function setV11AfrMeta(bank,decoded){
+function setEcuAfrMeta(bank,decoded){
   bank=clamp(Math.round(bank),1,4);
-  if(!window.blinkV11AfrMeta)window.blinkV11AfrMeta={};
-  window.blinkV11AfrMeta[bank]={
+  if(!window.blinkEcuAfrMeta)window.blinkEcuAfrMeta={};
+  const meta={
     enabled:decoded.enabled.map(r=>r.slice()),
     baseEnabled:decoded.enabled.map(r=>r.slice()),
     baseMatrix:decoded.matrix.map(r=>r.slice()),
     raw:Array.from(decoded.raw||[])
   };
+  window.blinkEcuAfrMeta[bank]=meta;
+  // Compatibility alias for older UI/test code created when only V11 exposed AFR.
+  if(!window.blinkV11AfrMeta)window.blinkV11AfrMeta={};
+  window.blinkV11AfrMeta[bank]=meta;
+  return meta;
 }
-function encodeV11AfrChanged(matrix,meta,baselineRaw){
-  if(!Array.isArray(matrix)||matrix.length!==14||matrix.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('ATE V11 AFR cần bảng 14 × 30.');
-  if(!meta||!Array.isArray(meta.enabled)||!Array.isArray(meta.baseEnabled)||!Array.isArray(meta.baseMatrix))throw new Error('ATE V11 AFR chưa có trạng thái ON/OFF từ ECU. Hãy ĐỌC bảng trước.');
+function ecuAfrMeta(bank){
+  bank=clamp(Math.round(bank),1,4);
+  return window.blinkEcuAfrMeta?.[bank]||window.blinkV11AfrMeta?.[bank]||null;
+}
+function encodeEcuAfrChanged(matrix,meta,baselineRaw){
+  if(!Array.isArray(matrix)||matrix.length!==14||matrix.some(r=>!Array.isArray(r)||r.length!==30))throw new Error('Air fuel ratio ECU cần bảng 14 × 30.');
+  if(!meta||!Array.isArray(meta.enabled)||!Array.isArray(meta.baseEnabled)||!Array.isArray(meta.baseMatrix))throw new Error('Air fuel ratio chưa có trạng thái ON/OFF từ ECU. Hãy ĐỌC bảng trước.');
   const out=new Uint8Array(baselineRaw||[]);
-  if(out.length<420)throw new Error('ATE V11 AFR baseline thiếu 420 byte.');
+  if(out.length<420)throw new Error('Air fuel ratio baseline thiếu 420 byte.');
   let p=0;
   for(let wr=0;wr<14;wr++){
     const ur=13-wr;
@@ -845,13 +859,15 @@ function encodeV11AfrChanged(matrix,meta,baselineRaw){
       const on=meta.enabled[ur][c]!==false,baseOn=meta.baseEnabled[ur][c]!==false;
       if(!v11ValueChanged(v,base)&&on===baseOn)continue;
       if(!Number.isFinite(v)||v<9||v>18)throw new Error('AFR phải trong 9.0–18.0 tại TPS row '+(ur+1)+', RPM col '+(c+1)+' · '+v);
-      let wire=v;
-      if(!on)wire=v>=12.8?v-12.8:v+12.8;
-      out[p]=clamp(Math.round(wire*10),0,255);
+      const rawOn=clamp(Math.round(v*10),90,180);
+      out[p]=on?rawOn:(rawOn^0x80);
     }
   }
   return out;
 }
+function decodeV11Afr420(raw){return decodeEcuAfr420(raw)}
+function setEcuAfrMeta(bank,decoded){return setEcuAfrMeta(bank,decoded)}
+function encodeV11AfrChanged(matrix,meta,baselineRaw){return encodeEcuAfrChanged(matrix,meta,baselineRaw)}
 
 function decodeRowsByte(a,off,rows,cols,dec=x=>x){
   const out=Array.from({length:rows},()=>Array(cols).fill(0));let p=off;
@@ -1535,7 +1551,7 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
     z=decodeRowsByte(a,p,14,30,decOilAngle);b.injDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,14,30,decIgn);b.ignDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,1,30,decOil);b.ignTime=z.data;p=z.next;
-    b.afRaw=a.slice(p,p+420);p+=420;
+    b.afRaw=a.slice(p,p+420);{const A=decodeEcuAfr420(b.afRaw);b.afr=A.matrix;b.afrEnabled=A.enabled;}p+=420;
     const idle=[];for(let i=0;i<9;i++){idle.push(u16be(a,p));p+=2;}b.idle=idle;
     b.ectMotor=[Array.from(a.slice(p,p+12),x=>x*2)];p+=12;
     C.banks.push(b);C.afRaw.push(b.afRaw);
@@ -1712,7 +1728,7 @@ function parseV11ReadAll9958(f){
     B.ignTimeRaw=f.slice(p,p+30);
     z=decodeRowsByte(f,p,1,30,decMainDwell);B.ignTime=z.data;p=z.next;
     B.afRaw=f.slice(p,p+420);
-    {const A=decodeV11Afr420(B.afRaw);B.afr=A.matrix;B.afrEnabled=A.enabled;}
+    {const A=decodeEcuAfr420(B.afRaw);B.afr=A.matrix;B.afrEnabled=A.enabled;}
     p+=420;
     B.idleRaw=f.slice(p,p+24);p+=24;
     B.auxRaw=f.slice(p,p+9);p+=9;
@@ -1751,7 +1767,7 @@ function syncV11ReadAll(C){
     emitFeature(N.ign_degree,b.ignDegree,b.bank);
     emitFeature(N.ign_time,b.ignTime,b.bank);
     if(b.afr&&b.afrEnabled){
-      setV11AfrMeta(b.bank,{matrix:b.afr,enabled:b.afrEnabled,raw:b.afRaw});
+      setEcuAfrMeta(b.bank,{matrix:b.afr,enabled:b.afrEnabled,raw:b.afRaw});
       emitFeature(N.afr_map,b.afr,b.bank);
     }
   }
@@ -1914,7 +1930,10 @@ function syncIdle(bank){
 function syncAll(C){
   readCache=C;window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,extension:C.extension128||null};syncFuel(C);syncOptions(C);
   try{applyProfileUi();}catch(_e){}
-  for(const b of C.banks){emitFeature(N.inj_degree,b.injDegree,b.bank);emitFeature(N.ign_degree,b.ignDegree,b.bank);emitFeature(N.ign_time,b.ignTime,b.bank);emitFeature(N.ect_idle_motor,b.ectMotor,b.bank);}
+  for(const b of C.banks){
+    emitFeature(N.inj_degree,b.injDegree,b.bank);emitFeature(N.ign_degree,b.ignDegree,b.bank);emitFeature(N.ign_time,b.ignTime,b.bank);emitFeature(N.ect_idle_motor,b.ectMotor,b.bank);
+    if(b.afr&&b.afrEnabled){setEcuAfrMeta(b.bank,{matrix:b.afr,enabled:b.afrEnabled,raw:b.afRaw});emitFeature(N.afr_map,b.afr,b.bank);}
+  }
   emitFeature(N.ect_inj,C.ectInj);emitFeature(N.ect_ign,C.ectIgn);emitFeature(N.map_inj,C.mapInj);emitFeature(N.iat_inj,[C.iatInj]);emitFeature(N.map_idle_motor,[C.mapMotor]);emitFeature(N.external_adjust,C.external);emitFeature(N.auto_clutch,[C.auto]);emitFeature(N.v_ect,[C.vEct]);emitFeature(N.v_iat,[C.vIat]);emitFeature(N.v_map,[C.vMap]);
   syncIdle((typeof state!=='undefined'&&state.activeMap)||1);
   document.querySelectorAll('[data-feature]').forEach(b=>{const id=b.dataset.feature;if(id==='spare'){b.dataset.protocol='legacy';}else{b.dataset.protocol='real';}});
@@ -2836,7 +2855,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if(ecuProfile&&(ecuProfile.key==='MODERN_V10'||ecuProfile.key==='MODERN_V11')&&['inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj'].includes(id)){
     await ensureEcuAxesReal(false);
   }
-  if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time'].includes(id)){
+  if(ecuProfile&&ecuProfile.family==='v8'&&!['inj_degree','ign_degree','ign_time','afr_map'].includes(id)){
     throw new Error(ecuProfile.label+': hiện chỉ mở phần chính (Thời gian phun / Góc phun / Góc lửa / Ignition Time). Bảng '+id+' vẫn khóa chờ layout riêng.');
   }
   if(ecuProfile&&ecuProfile.family==='v11'&&!['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','inj_degree','ign_degree','ign_time','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id)){
@@ -2847,11 +2866,12 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
   if((isV10Direct()||isUltraDirect())&&id==='ect_idle_motor')return readA2SensorPageReal(showUi);
   if(id==='afr_map'){
     const pg=page(5,bank);
-    const R=await readDirectPageReal(pg,420,'ATE V11 · AFR / O2 TARGET · MAP NO.'+bank,showUi);
-    const A=decodeV11Afr420(R.data.slice(0,420));
-    setV11AfrMeta(bank,A);
+    const label=(ecuProfile?.short||'REDLEO')+' · AIR FUEL RATIO · MAP NO.'+bank;
+    const R=await readDirectPageReal(pg,420,label,showUi);
+    const A=decodeEcuAfr420(R.data.slice(0,420));
+    setEcuAfrMeta(bank,A);
     emitFeature(N.afr_map,A.matrix,bank);
-    if(showUi)taskUi('success','ATE V11 · AFR MAP NO.'+bank+' · 420B OK');
+    if(showUi)taskUi('success',(ecuProfile?.short||'REDLEO')+' · AIR FUEL RATIO MAP NO.'+bank+' · 420B + ON/OFF OK');
     return {...R,matrix:A.matrix,enabled:A.enabled,rawPayload:R.data.slice(0,420)};
   }
 
@@ -2942,7 +2962,13 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
 // ----- write builders -----
 function matrixFromRedTable(rows,cols){
   const m=Array.from({length:rows},()=>Array(cols).fill(0));
-  document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]').forEach(td=>{const r=+td.dataset.rr,c=+td.dataset.rc;if(r<rows&&c<cols){const n=Number(td.textContent);if(Number.isFinite(n))m[r][c]=n;}});return m;
+  document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]').forEach(td=>{
+    const r=+td.dataset.rr,c=+td.dataset.rc;
+    if(r<rows&&c<cols){
+      const raw=(td.dataset&&td.dataset.value!=null&&td.dataset.value!=='')?td.dataset.value:td.textContent;
+      const n=Number(raw);if(Number.isFinite(n))m[r][c]=n;
+    }
+  });return m;
 }
 function currentSource(){return (document.getElementById('redSourceName')?.textContent||'').trim()}
 function currentFeatureId(){return FEAT[currentSource()]||null}
@@ -3567,23 +3593,28 @@ async function writeV11AutoShift(bank){
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
-async function writeV11AfrMap(bank){
-  if(!isV11Profile())throw new Error('AFR writer chỉ dùng cho ATE V11.');
+async function writeEcuAfrMap(bank){
   bank=normalizeBankForProfile(bank);
   const pg=page(5,bank),cached=pageCache.get(pg);
-  if(!cached||cached.length<420)throw new Error('Hãy ĐỌC AFR MAP No.'+bank+' thành công trước khi GHI.');
+  if(!cached||cached.length<420)throw new Error('Hãy ĐỌC Air fuel ratio MAP No.'+bank+' thành công trước khi GHI.');
   const baseline=new Uint8Array(cached);
-  const meta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[bank];
-  if(!meta)throw new Error('Thiếu trạng thái AFR ON/OFF của MAP No.'+bank+'. Hãy ĐỌC lại bảng.');
+  const meta=ecuAfrMeta(bank);
+  if(!meta)throw new Error('Thiếu trạng thái Air fuel ratio ON/OFF của MAP No.'+bank+'. Hãy ĐỌC lại bảng.');
   const m=matrixFromRedTable(14,30);
-  const afrRaw=encodeV11AfrChanged(m,meta,baseline.slice(0,420));
+  const afrRaw=encodeEcuAfrChanged(m,meta,baseline.slice(0,420));
   const payload=baseline.slice(0,420);
   payload.set(afrRaw,0);
-  taskUi('loading','ATE V11 · GHI AFR MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
-  await writeWritablePrefixPage(pg,payload,baseline,'ATE V11 AFR MAP '+bank,'mainWrite',1);
-  notice('success','GHI AFR ATE V11 OK','MAP No.'+bank+' · ECU ACK · 420 ô + ON/OFF đã gửi.');
+  const label=(ecuProfile?.short||'REDLEO')+' Air fuel ratio MAP '+bank;
+  taskUi('loading',(ecuProfile?.short||'REDLEO')+' · GHI AIR FUEL RATIO MAP NO.'+bank+' · PAGE 0x'+pg.toString(16).toUpperCase());
+  await writeWritablePrefixPage(pg,payload,baseline,label,'mainWrite',1);
+  // After verified readback, make current state the new baseline for future edits.
+  meta.baseEnabled=meta.enabled.map(r=>r.slice());
+  meta.baseMatrix=m.map(r=>r.slice());
+  meta.raw=Array.from(payload);
+  notice('success','GHI AIR FUEL RATIO ECU OK','MAP No.'+bank+' · ECU ACK + READBACK · 420 ô + ON/OFF đã gửi.');
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
+async function writeV11AfrMap(bank){return writeEcuAfrMap(bank)}
 
 async function writeV11EctMotor(bank){
   if(!isV11Profile())throw new Error('ECT Motor writer chỉ dùng cho ATE V11.');
@@ -3761,8 +3792,8 @@ async function writeFeatureReal(id){
   const isMain=isDirectVerifiedFeature(id);
 
   if(isMain){
+    if(id==='afr_map')return writeEcuAfrMap(bank);
     if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
-    if(isV11Profile()&&id==='afr_map')return writeV11AfrMap(bank);
     if(isV11Profile()&&id==='auto_shift')return writeV11AutoShift(bank);
     if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
     if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
@@ -3944,8 +3975,13 @@ async function writeBankAll(bank){
   await writePageChecked(page(2,bank),encodeRowsByte(b.injDegree,encOilAngle));
   await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encIgn));
   await writePageChecked(page(4,bank),encodeRowsByte(b.ignTime,encOil));
-  // Hidden REDLEO AFR table is never exposed/modified by Blink, but Send All preserves it byte-for-byte.
-  await writePageChecked(page(5,bank),Array.from(b.afRaw));
+  // Air fuel ratio is now exposed on all identified families. Preserve exact
+  // raw bytes unless the user changed target/ON-OFF state in Blink.
+  const afrBase=b.afr||decodeEcuAfr420(b.afRaw).matrix;
+  const afrEdited=v11StoreMatrix('afr_map',bank,afrBase);
+  const afrMeta=ecuAfrMeta(bank);
+  const afrRaw=afrMeta?encodeEcuAfrChanged(afrEdited,afrMeta,b.afRaw):new Uint8Array(b.afRaw);
+  await writePageChecked(page(5,bank),Array.from(afrRaw));
   await writePageChecked(page(6,bank),idlePayload(bank,false));
 }
 function v11ValueChanged(a,b,tol=1e-4){
@@ -4157,7 +4193,7 @@ function v11BuildFullWritePlan(){
     const injDegreeRaw=patchRowsBytePreserve(old.injDegreeRaw,injAngle,old.injDegree,encMainInjAngle);
     const ignDegreeRaw=patchRowsBytePreserve(old.ignDegreeRaw,ign,old.ignDegree,encMainIgn);
     const ignTimeRaw=patchRowsBytePreserve(old.ignTimeRaw,dwell,old.ignTime,encMainDwell);
-    const afRaw=encodeV11AfrChanged(afr,afrMeta,old.afRaw);
+    const afRaw=encodeEcuAfrChanged(afr,afrMeta,old.afRaw);
     const idleRaw=new Uint8Array(old.idleRaw),auxRaw=new Uint8Array(old.auxRaw),ectMotorRaw=new Uint8Array(old.ectMotorRaw);
     const page6Base=new Uint8Array(pageCache.get(page(6,b))||[]);
     if(page6Base.length<43)throw new Error('ATE V11 SEND ALL thiếu baseline page 6 trực tiếp của MAP No.'+b+'.');
@@ -4278,7 +4314,7 @@ async function copyBankV11Real(dest){
   const srcAfr=v11StoreMatrix('afr_map',src,srcBase.afr);
   const srcAfrMeta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[src];
   if(!srcAfrMeta)throw new Error('ATE V11 COPY thiếu AFR ON/OFF baseline MAP nguồn. Hãy READ ALL lại.');
-  const srcAfRaw=encodeV11AfrChanged(srcAfr,srcAfrMeta,srcBase.afRaw);
+  const srcAfRaw=encodeEcuAfrChanged(srcAfr,srcAfrMeta,srcBase.afRaw);
   const srcInj=v11FuelMatrix(src,srcBase.inj);
   const srcInjAngle=v11StoreMatrix('inj_degree',src,srcBase.injDegree);
   const srcIgn=v11StoreMatrix('ign_degree',src,srcBase.ignDegree);
