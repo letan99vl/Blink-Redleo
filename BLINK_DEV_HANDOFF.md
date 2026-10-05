@@ -525,3 +525,12 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Final GitHub Actions run **37260282172**: **SUCCESS** — syntax, row orientation, 9.2 page6, V10.2 page6 and V10.2 A2/Option checks all passed.
 - Hardware status: **NEEDS REAL V10.2 TEST**. Recommended controlled test: change one low-risk Option cell slightly (for example fan temperature or Idle Motor Maximum), SAVE, READBACK, and confirm only that semantic cell changes while the reserved tail remains untouched.
 - Next V10.2 static-analysis targets: controlled AutoClutch Start RPM handling and TPS/RPM axis write path. Do not open either without verifying the exact original write semantics and preservation requirements.
+
+
+## Scope decision - AutoClutch on unfinished ECU families - 2026-10-05
+
+- User decision: **do not spend further work implementing AutoClutch on ECU families where it has not already been reconstructed/implemented**.
+- Keep already-implemented V10.2/V11 AutoClutch paths as-is.
+- For unfinished families (including Ultra/V8/other unverified REDLEO variants), AutoClutch may remain hidden/locked and is no longer a required release-unlock target.
+- Do not broaden an existing AutoClutch serializer across families.
+- Continue priority work on core tuning maps / axes / verified options instead.
