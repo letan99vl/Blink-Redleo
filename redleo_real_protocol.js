@@ -866,7 +866,7 @@ function encodeEcuAfrChanged(matrix,meta,baselineRaw){
   return out;
 }
 function decodeV11Afr420(raw){return decodeEcuAfr420(raw)}
-function setEcuAfrMeta(bank,decoded){return setEcuAfrMeta(bank,decoded)}
+function setV11AfrMeta(bank,decoded){return setEcuAfrMeta(bank,decoded)}
 function encodeV11AfrChanged(matrix,meta,baselineRaw){return encodeEcuAfrChanged(matrix,meta,baselineRaw)}
 
 function decodeRowsByte(a,off,rows,cols,dec=x=>x){
