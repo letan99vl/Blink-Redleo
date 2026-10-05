@@ -69,6 +69,18 @@ must(/ultra\?parseUltraA2Data\(R\.data\)/,
 mustNot(/ultra\?parseModernA2Prefix\(R\.data\)/,
   'Ultra must never return to the old 140B prefix parser');
 
+// Original Ultra Pro1 also has dedicated compensation page families 0x72/0x82/0x92.
+must(/isUltraDirect\(\)&&\[[^\]]*'ect_inj'[^\]]*'ect_ign'[^\]]*'map_inj'[^\]]*\]\.includes\(id\)\)return true/,
+  'Ultra Pro1 compensation pages must stay direct-verified');
+must(/case 'ect_inj':m=matrixFromRedTable\(11,30\);pg=0x72/,
+  'Ultra Pro1 ECT INJ direct writer missing');
+must(/case 'ect_ign':m=matrixFromRedTable\(11,30\);pg=0x82/,
+  'Ultra Pro1 ECT IGN direct writer missing');
+must(/case 'map_inj':m=matrixFromRedTable\(11,30\);pg=0x92/,
+  'Ultra Pro1 MAP INJ direct writer missing');
+must(/writeWritablePrefixPage\(pg,payload,baseline,id\.toUpperCase\(\),'mainWrite',1\)/,
+  'Ultra Pro1 compensation writes must keep ACK + readback verification');
+
 // Safe Ultra A2 feature surface. Option/AutoClutch/One-Spare/CHG stay unexposed.
 must(/isUltraDirect\(\)&&\['idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'Ultra direct verified feature set changed');
