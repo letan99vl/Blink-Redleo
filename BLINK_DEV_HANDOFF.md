@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.46**.
+- Current displayed PB: **3.79.47**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -249,6 +249,7 @@ Recent PB progression:
 - 3.79.44 V10.2 ECT Start Add 3x11 writer: exact original row labels/order/scale, A2 268B RMW, Ultra excluded
 - 3.79.45 V10.2 Dgv_Option 18B writer: 15 verified semantic cells editable, reserved bytes 15..17 preserved raw, Ultra excluded
 - 3.79.46 V10.2 TPS/RPM axis writers: exact original normalization + A2 offsets, TPS voltage row regenerated from Option Min/Max, Ultra excluded
+- 3.79.47 Ultra Pro1 page6 exact 42B Idle writer: Idle 24B + AutoShift 9B + Four-Spare 9B; only 8 labeled Idle values editable; hidden/sibling blocks preserved
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -586,3 +587,51 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   1. RPM axis first: change one middle breakpoint by +20 RPM while preserving order -> SAVE -> READBACK -> confirm only that breakpoint/header changes.
   2. TPS axis second: make one small legal middle-point change -> SAVE -> READBACK -> confirm displayed TPS breakpoint and map row update, with the associated derived voltage row changing consistently.
 - AutoClutch scope reminder: per user decision, do NOT spend further work implementing AutoClutch on unfinished ECU families. Keep already-completed V10.2/V11 implementations only.
+
+
+## Ultra Pro1 page6 implementation update - 2026-10-05
+
+- PB: **3.79.47**.
+- Backup before change: `backup-pb-3.79.46-pre-ultra-page6`.
+- Original archive: `Redleo ECU Ultra Pro1(1).rar`; original executable extracted as `ECU Pro Ultra Pro1.exe`.
+- Static IL/readback evidence confirms selected-bank page-family 6 ordering:
+  1. `Dgv_Idle_Limit[bank]` through `proUartDgvNumOption`
+  2. `Dgv_AutoShift[bank]` through `proUartDgvNum`
+  3. `Dgv_Four_Spare[bank]` through `proUartDgvNum`
+- Exact original writable dimensions:
+  - Idle Limit: grid 4 rows × 3 transmitted values; each value uint16-BE = **24B**
+  - AutoShift: 1 × 9 byte values = **9B**
+  - Four-Spare: 1 × 9 byte values = **9B**
+  - total selected-bank page6 writable payload = **42B**.
+- Ultra Idle 24B = 12 uint16-BE values. Embedded original LNG_EN + IL provide labels/semantics for indexes 0..7:
+  - 0 Idle Speed (Cold)
+  - 1 Idle Speed (Hot)
+  - 2 Enter (leave) idle sensitivity
+  - 3 Maximum Speed
+  - 4 Idle Return INJ (Cold)
+  - 5 Idle Return INJ (Hot)
+  - 6 Acceleration Setup Percentage
+  - 7 VVT Open RPM
+- Idle indexes **8..11 have no verified original labels** and are preserved byte-for-byte.
+- Acceleration Setup Percentage conversion follows original percent path:
+  - decode `round(raw × 50 / 64)`
+  - encode `round(value × 64 / 50)`.
+- Blink implementation:
+  - adds explicit `isUltraDirect()` using handshake identity text containing `ULTRA`.
+  - Ultra Idle READ requires at least 42B and splits exactly 24B Idle + 9B AutoShift + 9B Four-Spare.
+  - only the first 8 Idle uint16 values can be modified.
+  - bytes 16..23 (4 hidden Idle words), bytes 24..32 (AutoShift), bytes 33..41 (Four-Spare), and any reply-only tail are preserved.
+  - writer sends exactly 42B using `writeWritablePrefixPage`, therefore ECU ACK + post-write readback + tail preservation are mandatory.
+  - Ultra-only `VVT Open RPM` input is shown on the dedicated Idle screen.
+  - co-located ECT Motor panel is hidden on Ultra because Ultra ECT Motor belongs to A2 and has not yet been reconstructed.
+- AutoShift/Four-Spare remain read-preserved only; they are not editable.
+- AutoClutch Ultra remains out of scope per user decision.
+- Core protocol commit: `c504efa46189c0c07e19e475171f9e48619778b6`.
+- UI commit: `2104785532ea2bea5f3cc0659193f0dc0a02462f`.
+- Ultra regression checker: `b961c79a15608b8f62d96e1d990b6e429309a0c5`.
+- CI wiring: `dbed8fc8e7441de0f7e2db9808fd2ea6c2e01afd`.
+- Cross-family checker repair: `869ee7bc7a566ecac7b2d68aeb844b1fdebc2298`.
+- PB bump: `263fa070af965e744502735e89d82841c4085821`.
+- Final GitHub Actions run **37262145034**: **SUCCESS** — syntax, row orientation, REDLEO 9.2 page6, V10.2 page6, V10.2 A2 and Ultra page6 regression all passed.
+- Hardware status: **NEEDS REAL ULTRA PRO1 TEST**. Recommended test: READ Idle -> change one low-risk known Idle value slightly -> SAVE -> READBACK -> verify only that semantic value changes; then optionally test VVT Open RPM separately.
+- Next Ultra target: reconstruct the **Ultra-specific A2 serializer**. Do not reuse the V10.2 268B A2 layout; AutoClutch is not required for this target.
