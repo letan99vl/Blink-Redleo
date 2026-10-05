@@ -1,29 +1,54 @@
 # BLINK REDLEO iOS / TestFlight
 
-Native iOS wrapper for the existing BLINK REDLEO web UI.
+Native iOS wrapper for BLINK REDLEO.
 
-It uses WKWebView for the interface and CoreBluetooth for BLE. The iOS bridge uses the same BLE UUIDs as the Android app and ESP32, so the firmware does not need a separate iOS protocol.
+## Current release
+- UI / PB: 3.79.64
+- App version: 1.0
+- Build: 2
+- Bundle ID: `vn.blinkredleo.app`
+- Minimum iOS: 15.0
+- Device family: iPhone + iPad
 
-The app loads:
-`https://letan99vl.github.io/Blink-Redleo/?ios=1&v=1`
+## Runtime architecture
+- `WKWebView` loads the bundled local `ios/BlinkRedleo/Web/index.html`.
+- Native `CoreBluetooth` is implemented by `BLEBridge.swift`.
+- `native_bridge_ios.js` exposes the native BLE bridge to the web UI.
+- ECU protocol is remote-first from:
+  `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`
+- If the remote protocol cannot be fetched or validated, the app falls back to the bundled protocol copy inside the IPA.
+- The app does not depend on GitHub Pages for its UI.
 
-## Local build
-1. Install Xcode and XcodeGen.
-2. Run `python3 tools/make_icons.py`.
-3. Run `xcodegen generate`.
-4. Open `BlinkRedleo.xcodeproj`.
-5. Select your Apple Developer Team and bundle ID.
-6. Test on a real iPhone.
+## Build
+On macOS with Xcode:
 
-## TestFlight secrets
-The manual TestFlight workflow needs:
-- APPLE_TEAM_ID
-- IOS_BUNDLE_ID
-- IOS_DISTRIBUTION_CERT_BASE64
-- IOS_DISTRIBUTION_CERT_PASSWORD
-- IOS_PROVISION_PROFILE_BASE64
-- APPSTORE_KEY_ID
-- APPSTORE_ISSUER_ID
-- APPSTORE_API_KEY_P8_BASE64
+```bash
+cd ios
+brew install xcodegen
+chmod +x prepare_xcode_project.sh
+./prepare_xcode_project.sh
+open BlinkRedleo.xcodeproj
+```
 
-Build check runs automatically on the ios-testflight branch.
+Then:
+1. Select target `BlinkRedleo`.
+2. Select the owner's Apple Developer Team.
+3. Keep bundle ID `vn.blinkredleo.app`.
+4. Use Version `1.0`, Build `2` or a higher unused build number.
+5. Archive with Release configuration.
+6. Distribute to App Store Connect / TestFlight.
+
+## Signing / App Store Connect
+Signing credentials are intentionally not stored in this repository.
+
+For CI or a build service, provide signing/access credentials privately:
+- Apple Team ID
+- App Store Connect access or API key
+- Apple Distribution certificate / provisioning profile when manual signing is used
+
+The repository already includes:
+- Bluetooth usage descriptions
+- `ITSAppUsesNonExemptEncryption = false`
+- Privacy manifest
+- Launch screen
+- App icon assets
