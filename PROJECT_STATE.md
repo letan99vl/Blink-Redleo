@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.55`
+`BLINK_PB_VERSION = 3.79.56`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.55.
+- Android/web production: `main`, currently PB 3.79.56.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -522,3 +522,17 @@ The assistant should then:
 - Core commit: `175ff604e2164b8b64bc47db303b83cf87449f62`.
 - Regression commit: `b62c89cd79ca371da34648b43d0b7ff9d678bbf4`.
 - Final CI run **37308785976 = SUCCESS**.
+
+
+## 29. All-map editing controls checkpoint - PB 3.79.56
+
+- Small/simple ECU tables no longer use QUÉT or two-corner selection.
+- Range selection is now reserved for dense 2D REDLEO tables: rows > 1, cols > 1, total cells >= 100.
+- Dwell 1×30 and other short/simple tables use direct single-cell tap.
+- Every REDLEO value-table editor now receives the numeric keypad and floating SAVE/+/- controls.
+- Scan state is reset when opening a new feature so a large-map scan mode cannot leak into a simple map.
+- Legacy Idle/Limit ECT Motor table, which lives in a separate screen, also received single-cell keypad + floating SAVE/+/- controls.
+- Backup: `backup-pb-3.79.55-pre-editor-controls-all-maps`.
+- Main UI commit: `b9f64248f26814dfe64ba06b8f58c15aa8728c6c`.
+- Idle ECT controls commit: `d350ed7d6143187c829dcf404c00d03a4df7b509`.
+- Regression commits: `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3`, `56dac9997835f89233424b5cfd830482af6fe1e5`.
