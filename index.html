@@ -2066,7 +2066,7 @@
       <div class="redTableWrap" style="min-height:210px;max-height:340px">
         <table id="idleEctTable" class="redTable"></table>
       </div>
-      <div class="hint">ECT: 0°C · 14°C · 28°C · 42°C · 56°C · 70°C · 84°C · 98°C · 112°C · 126°C · 140°C · SUM</div>
+      <div class="hint">ECT: 0°C · 14°C · 28°C · 42°C · 56°C · 70°C · 84°C · 98°C · 112°C · 126°C · 140°C · 9.1X: byte SUM gốc được giữ nguyên tự động</div>
     </div>
   </section>
 
@@ -5360,8 +5360,10 @@ function featureForProfile(id){
   }else if(id==='map_idle_motor'||id==='v_map'){
     f.x=ECU_AUX_AXES.map.slice();
   }else if(id==='ect_idle_motor'){
-    // Original REDLEO ECT Motor grid has 11 ECT points. The old synthetic
-    // SUM column was not transmitted by ECU software and must not be editable.
+    // Blink exposes the 11 physical ECT points. REDLEO 9.1X original software
+    // additionally transmits a 12th column labelled SUM; the protocol layer
+    // preserves that byte raw and deliberately does not expose it for editing.
+    // 9.2+/V10/V11 use the verified family-specific ECT Motor layouts.
     f.x=ECU_AUX_AXES.ect.slice();
     f.cols=f.x.length;
   }else if(id==='v_ect'||id==='ect_start'){
