@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.44`
+`BLINK_PB_VERSION = 3.79.45`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.44.
+- Android/web production: `main`, currently PB 3.79.45.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -339,3 +339,15 @@ The assistant should then:
 - Writer patches only A2 bytes 205..237 inside the exact 268B RMW payload and preserves every sibling block/tail.
 - Ultra remains explicitly separated from this V10.2 path.
 - Local/source validation passed; real V10.2 hardware SAVE + READBACK is still required before release certification.
+
+
+## 18. V10.2 Option checkpoint - PB 3.79.45
+
+- Original ECU Pro 10.2 IL + embedded LNG_EN resource verified the V10.2 `Dgv_Option` serializer as **18B**.
+- Blink exposes only the **15 labeled/semantic Option cells**; the final **3 unlabeled bytes are preserved raw** on every write.
+- Direct V10.2 Option now uses the canonical 268B A2 read-modify-write baseline at offset 165..182 with ACK + readback/tail verification.
+- Ultra remains excluded: Option is enabled only by the live `isV10Direct()` gate and is not present in the shared MODERN_V10 base feature set.
+- V10.2 uses a dedicated 1×15 UI; ATE V11 keeps its existing 1×20 ATE Options UI.
+- Final CI run **37260282172** passed syntax, row orientation, 9.2 page6, V10.2 page6 and V10.2 A2/Option regression checks.
+- Hardware status remains **NEEDS REAL V10.2 TEST**.
+- Next V10.2 targets: AutoClutch Start RPM and TPS/RPM axis write path; keep both locked until exact original writer semantics are verified.
