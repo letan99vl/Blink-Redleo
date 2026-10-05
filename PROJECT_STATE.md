@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.62`
+`BLINK_PB_VERSION = 3.79.63`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.62.
+- Android/web production: `main`, currently PB 3.79.63.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -625,3 +625,14 @@ The assistant should then:
 - Auto-read, virtual keypad, preview/local apply, and separate GHI ECU safety remain intact.
 - Backup: backup-pb-3.79.61-pre-correct-cam-phase-model.
 - Final CI run **37338924774 = SUCCESS**.
+
+## 37. Cam calculator reference-curve checkpoint - PB 3.79.63
+
+- 3/31 expected table supplied by the user is now the reference calibration.
+- Strategic map range is 0–295°, independent of the ECU's wider raw encoding domain.
+- Key frozen anchors: 100%/500=24, 100%/3500=138, 100%/5000=195, 100%/7500=291, 100%/15000=295, IDLE/15000=208.
+- Cam calculation no longer uses current fuel/PW data.
+- Other IVO/IVC combinations are conservative adjustments around the 3/31 reference curve.
+- APPLY remains local-only; explicit GHI ECU is required.
+- Backup: backup-pb-3.79.62-pre-cam-reference-curve.
+- Final CI run **37340103880 = SUCCESS**.
