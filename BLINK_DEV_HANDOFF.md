@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.59**.
+- Current displayed PB: **3.79.60**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1114,3 +1114,19 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main implementation commit: 99af73c6ace25a764d38991e1f72290ae64b5211.
 - Regression update: 2276a858d49af1031538f898055619583649cc17.
 - Final CI run **37334627131 = SUCCESS**.
+
+## Cam calculator action-button runtime fix - PB 3.79.60 - 2026-10-05
+
+- Fixed user-reported issue where **TÍNH THỬ** / **ÁP DỤNG VÀO MAP** appeared silent.
+- Root UX problem: APPLY was physically disabled until preview succeeded, so taps could produce no feedback; dialog errors could also be less visible than expected.
+- New behavior:
+  - APPLY is always clickable; before a valid preview it shows an in-dialog message explaining that TÍNH THỬ is required;
+  - TÍNH THỬ immediately writes `Đang tính MAP góc phun...` into the dialog;
+  - calculation failures are shown directly inside the cam dialog, including missing fuel map / unknown fuel state / missing baseline;
+  - preview/apply handlers were renamed and explicitly wired to avoid ambiguous global/id naming;
+  - action buttons use type=button and touch-action=manipulation for mobile reliability.
+- No change to the IVO/IVC model, angle-family quantization, or ECU writer.
+- Backup: backup-pb-3.79.59-pre-cam-dialog-button-fix.
+- Main fix commit: 7de4cdb9499b086c7f74cef3ebd9d842d75c0192.
+- Regression update: 883cee7f150ab71d4d738c26490cf834e3880aef.
+- Final CI run **37335952882 = SUCCESS**. All 17 protocol/UI checks passed.
