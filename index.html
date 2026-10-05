@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.60';
+  window.BLINK_PB_VERSION = '3.79.61';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -5876,7 +5876,7 @@ function redKeypadBackspace(){
 }
 function redKeypadClear(){redKeypadBuffer='';redKeypadDirty=true;applyRedKeypadLive();syncRedKeypadSelection(false)}
 
-let injCamPreviewState=null,injCamActiveField='ivo';
+let injCamPreviewState=null,injCamActiveField='ivo',injCamPreviewBusy=false;
 function injCamAngleSpec(){
   const v11=state.ecuProfile==='MODERN_V11';
   return {
@@ -5980,24 +5980,74 @@ function injCamRenderPreview(p){
     'Đề xuất: '+p.changed+'/420 ô thay đổi · '+p.skipped+' ô PW=0/không hợp lệ giữ nguyên · '+p.clamped+' ô chạm giới hạn đời ECU\n'+
     'Góc đề xuất min '+p.min.toFixed(0)+'° · max '+p.max.toFixed(0)+'° · trung bình '+p.avg.toFixed(1)+'°\n'+
     'Hàng 100% TPS: '+p.samples+'\n'+
+    ((p.autoReadFuel||p.autoReadAngle)?'Tự đọc ECU: '+(p.autoReadFuel?'Thời gian phun ':'')+(p.autoReadAngle?'Góc phun':'')+'\n':'')+
     'Bấm ÁP DỤNG chỉ thay bảng cục bộ. Muốn gửi ECU vẫn phải bấm GHI ECU.';
 }
 function setInjCamDialogMessage(text){
   const el=document.getElementById('injCamPreviewText');
   if(el)el.textContent=String(text||'');
 }
-function runInjCamPreview(){
-  setInjCamDialogMessage('Đang tính MAP góc phun...');
+async function ensureInjCamRequiredMaps(){
+  const bank=state.activeMap;
+  const api=window.BlinkRealProtocol;
+  let fuelCheck=inspectFuelMap(state.inject);
+  let angle=featureData(currentFeature,state.activeMap);
+  let angleReady=injCamMatrixReady(angle);
+
+  if(fuelCheck.ok&&angleReady&&!fuelMapSyncUnknown(bank))return {fuelAutoRead:false,angleAutoRead:false};
+
+  if(!state.ecuConnected)throw new Error(
+    'Chưa có đủ dữ liệu ECU cho MAP No.'+bank+'. Hãy kết nối ECU; Blink sẽ tự đọc Thời gian phun và Góc phun khi bấm TÍNH THỬ.'
+  );
+  if(!api||typeof api.readFeaturePageReal!=='function')throw new Error('Protocol ECU chưa sẵn sàng để tự đọc dữ liệu cần cho bộ tính.');
+
+  let fuelAutoRead=false,angleAutoRead=false;
+  if(!fuelCheck.ok||fuelMapSyncUnknown(bank)){
+    setInjCamDialogMessage('Đang tự đọc Thời gian phun · MAP No.'+bank+'...');
+    await api.readFeaturePageReal('inj_ve',bank,false);
+    fuelCheck=inspectFuelMap(state.inject);
+    if(!fuelCheck.ok||fuelMapSyncUnknown(bank))throw new Error('Tự đọc Thời gian phun chưa đủ dữ liệu hợp lệ. '+fuelCheck.reason);
+    fuelAutoRead=true;
+  }
+
+  angle=featureData(currentFeature,state.activeMap);
+  angleReady=injCamMatrixReady(angle);
+  if(!angleReady){
+    setInjCamDialogMessage('Đang tự đọc Góc phun · MAP No.'+bank+'...');
+    await api.readFeaturePageReal('inj_degree',bank,false);
+    angle=featureData(currentFeature,state.activeMap);
+    angleReady=injCamMatrixReady(angle);
+    if(!angleReady)throw new Error('Tự đọc Góc phun chưa đủ baseline 14 × 30 hợp lệ.');
+    angleAutoRead=true;
+  }
+
+  return {fuelAutoRead,angleAutoRead};
+}
+async function runInjCamPreview(){
+  if(injCamPreviewBusy)return;
+  injCamPreviewBusy=true;
+  const previewBtn=document.getElementById('injCamPreviewBtn');
+  const applyBtn=document.getElementById('injCamApplyBtn');
+  if(previewBtn)previewBtn.dataset.busy='1';
+  if(applyBtn)applyBtn.dataset.ready='0';
+  setInjCamDialogMessage('Đang kiểm tra dữ liệu MAP hiện tại...');
   try{
+    const auto=await ensureInjCamRequiredMaps();
+    setInjCamDialogMessage('Đang tính MAP góc phun...');
     const p=injCamBuildPreview();
+    p.autoReadFuel=!!auto.fuelAutoRead;
+    p.autoReadAngle=!!auto.angleAutoRead;
     injCamPreviewState=p;
     injCamRenderPreview(p);
-    const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='1';
+    if(applyBtn)applyBtn.dataset.ready='1';
   }catch(e){
     injCamPreviewState=null;
-    const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
+    if(applyBtn)applyBtn.dataset.ready='0';
     const msg=String(e&&e.message||e);
-    setInjCamDialogMessage('KHÔNG THỂ TÍNH\n'+msg+'\n\nHãy xử lý yêu cầu trên rồi bấm TÍNH THỬ lại.');
+    setInjCamDialogMessage('KHÔNG THỂ TÍNH\n'+msg+'\n\nNếu ECU đang kết nối, thử bấm TÍNH THỬ lại sau khi Live ổn định.');
+  }finally{
+    injCamPreviewBusy=false;
+    if(previewBtn)previewBtn.dataset.busy='0';
   }
 }
 function applyInjCamPreview(){
@@ -6031,7 +6081,7 @@ function openInjCamDialog(){
   injCamSelectField('ivo');
   const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
   const spec=injCamAngleSpec();
-  setInjCamDialogMessage('MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo bên dưới. Sau đó bấm TÍNH THỬ.');
+  setInjCamDialogMessage('MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo bên dưới. Bấm TÍNH THỬ; nếu thiếu Thời gian phun/Góc phun, Blink sẽ tự đọc đúng MAP này từ ECU.');
   document.getElementById('injCamDialog')?.showModal();
 }
 
