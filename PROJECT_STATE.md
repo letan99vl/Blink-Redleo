@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.49`
+`BLINK_PB_VERSION = 3.79.50`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.49.
+- Android/web production: `main`, currently PB 3.79.50.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -413,3 +413,36 @@ The assistant should then:
 - Regression checker `tools/check-ultra-pro2.js` protects product detection, V11-286 routing, page6 43B, 9958B full-image gate, AutoClutch scope and Pro2 UI labels.
 - Final CI run **37264169593** passed all protocol checks across 9.2, V10.2, Ultra Pro1 and Ultra Pro2.
 - Hardware status: **NEEDS REAL ULTRA PRO2 TEST**. First real test should verify Ultra Pro2 badge + A2 286B, then one low-risk A2 SAVE/READBACK and one page6 Idle SAVE/READBACK.
+
+
+## 23. Cross-family ECU I/O audit checkpoint - PB 3.79.50
+
+- Audit baseline/golden reference: real-hardware REDLEO 9.2 and ATE V11.1 plus their original PC software.
+- Audit method for every remaining ECU family: original command/page -> exact READ layout -> exact writable/TX region -> units/order/scale -> hidden/reserved preservation -> ACK -> post-write readback -> UI feature/read/write routing.
+- **REDLEO V8** original software main-tune audit passed. Current exposed V8 surfaces remain only Fuel Time, Injection Angle, Ignition Angle and Ignition Time/Dwell; their original page routing and conversion scales are protected by `tools/check-v8-main.js`. Auxiliary V8 features remain hidden/restricted.
+- **REDLEO 9.1X** original software audit found the previously incomplete area and fixed it:
+  - page6 exact writable = **30B = Idle 18B + ECT Motor 12B**;
+  - ECT Motor exposes 11 physical points; original 12th `SUM` byte is preserved raw;
+  - A2 exact writable baseline = **133B**;
+  - verified direct RMW writers now cover compensation pages 0x72/0x82/0x92, Idle, ECT Motor, IAT INJ, MAP Idle Motor, External Adjustment and vECT/vIAT/vMAP;
+  - AutoClutch remains hidden/out of scope;
+  - whole Option 12B write remains locked and CONFIG/AutoClutch/password/Option bytes stay raw-preserved;
+  - full-write remains gated by exact decoded **9767B ReadAll**.
+- **V10.2** exact 18B page6 / 268B A2 / Option / Start / TPS-RPM-axis protections were rechecked; no new serializer or cross-family regression was found.
+- **Ultra Pro1** audit found a UI/write mismatch: original software proves compensation pages 0x72/0x82/0x92, cards were visible, but direct WRITE was not enabled. PB 3.79.50 now routes those pages through cached-baseline RMW + ACK + READBACK. Existing 42B page6 and 277/285B A2 protections remain unchanged.
+- **Ultra Pro2** remains REDLEO V11-generation with page6 **43B** and strict **A2-286B**. Shared ECU controls were made variant-aware so Pro2 labels no longer say ATE. AutoClutch stays hidden by user scope decision; 9958B full-image gate remains unchanged.
+- New CI regression layers:
+  - `tools/check-v8-main.js`
+  - `tools/check-v91.js`
+  - `tools/check-ecu-feature-surfaces.js`
+- `check-ecu-feature-surfaces.js` freezes the actual user-visible ECU editor matrix: a visible feature must have the correct family read/write route, exact page baseline gate and real protocol button capture; unverified surfaces must remain hidden/locked.
+- Final CI run **37266795473** on PB 3.79.50 completed **SUCCESS**: syntax, compensation orientation, ECU feature-surface matrix, V8, 9.1X, 9.2, V10.2, Ultra Pro1 page6/A2 and Ultra Pro2 all passed.
+- Hardware certification state:
+  - REDLEO 9.2: tested hardware/golden reference for the certified path.
+  - ATE V11.1: user-tested/golden reference.
+  - V8 exposed main tune: static original-software verified; needs real V8 test for hardware certification.
+  - 9.1X: static original-software verified; needs real 9.1X test.
+  - V10.2: static serializer verified; needs real V10.2 test.
+  - Ultra Pro1: static serializer verified; needs real Ultra Pro1 test.
+  - Ultra Pro2: static V11-286 serializer verified; needs real Ultra Pro2 test.
+- Do not call the untested families 99% hardware-stable until controlled one-cell READ -> edit -> SAVE -> READBACK tests pass on real ECUs.
