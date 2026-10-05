@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.47`
+`BLINK_PB_VERSION = 3.79.48`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.47.
+- Android/web production: `main`, currently PB 3.79.48.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -377,3 +377,22 @@ The assistant should then:
 - Ultra A2 remains separate/locked; V10.2 268B serializer must not be reused.
 - Final CI run **37262145034** passed all protocol checks including the new Ultra page6 regression.
 - Hardware status: **NEEDS REAL ULTRA PRO1 TEST**.
+
+
+## 21. Ultra Pro1 exact A2 checkpoint - PB 3.79.48
+
+- Original Ultra Pro1 A2 serializer is now reconstructed separately from V10.2.
+- Exact writable lengths:
+  - **277B** for Ultra firmware ≤10.2
+  - **285B** for Ultra firmware >10.2 because the original writer appends CHG 8B.
+- Ultra A2 CONFIG at bytes 154..164 is **feature flags + 6 Spare Built-in + 4 password**, not V10.2 AutoClutch.
+- Verified Ultra A2 editable surfaces: TPS axis, RPM axis, IAT INJ, MAP Idle Motor, ECT Motor 2×11, ECT Start 3×11, External Adjustment 2×15, vECT, vIAT, vMAP.
+- Ultra Option 18B, One-Spare 9B, CONFIG 11B, optional CHG 8B and vAFR remain raw-preserved on these writes.
+- AutoClutch Ultra remains out of scope by user decision.
+- Exact firmware minor is mandatory before A2 write; Blink locks rather than guessing 277B vs 285B.
+- All Ultra A2 writes are full canonical baseline RMW with ECU ACK + post-write readback + reply-tail preservation.
+- UI corrected MODERN_V10 ECT Motor to **2×11** and labels TPS/RPM axis as V10 / Ultra.
+- Important cache bug fixed: after A2 readback, V10 now reparses with exact 268B parser and Ultra with exact 277/285B parser; the old 140B prefix parser is no longer used for direct V10/Ultra sessions.
+- Final CI run **37262942801** passed syntax, 9.2 page6, V10.2 page6/A2, Ultra page6 and Ultra A2 regression checks.
+- Hardware status: **NEEDS REAL ULTRA PRO1 TEST** before release certification.
+- Next static family audit: REDLEO 9.1X page6/full-write behavior, unless Ultra real-hardware testing finds a semantic issue first.
