@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.56`
+`BLINK_PB_VERSION = 3.79.57`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.56.
+- Android/web production: `main`, currently PB 3.79.57.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -549,3 +549,21 @@ The assistant should then:
 - Do not infer full-image, restore, page6, A2, login, or auxiliary-page equivalence from these results.
 - Keep 9.2, Ultra Pro1 and Ultra Pro2 full-image/auxiliary serializers strictly separated.
 - Vendor software is a valid reference only for the specifically hardware-verified current-page operations above; it is not a 9.2 READ ALL / WRITE ALL source of truth.
+
+## 31. AFR separation + original ECU Air fuel ratio checkpoint - PB 3.79.57
+
+- Two AFR domains are now explicitly separated:
+  - **Blink Auto Tune**: AFR measured + AFR target owned by Blink.
+  - **ECU original Air fuel ratio**: original ECU auto-tuner table under Bản đồ.
+- Original ECU Air fuel ratio is exposed on V8, V9.x, V10/Ultra Pro1 and V11/Ultra Pro2.
+- Shared proven route/codec:
+  - page family 0x5x;
+  - 14×30 / 420B;
+  - ON = raw 90..180 => AFR raw/10;
+  - OFF = bit 0x80 toggled, decode (raw ^ 0x80)/10.
+- Direct writes require baseline + ACK + readback.
+- Read All publishes AFR + ON/OFF for canonical older-family images as well as V11.
+- UI uses **Air fuel ratio** for ECU original table and **AFR mục tiêu (Blink)** for Blink Auto Tune.
+- OFF cells display dark - but retain hidden target value for later ON.
+- Backup: backup-pb-3.79.56-pre-all-ecu-air-fuel-ratio.
+- Final CI run **37324845570 = SUCCESS**.
