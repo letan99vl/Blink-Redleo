@@ -538,10 +538,12 @@ The assistant should then:
 - Regression commits: `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3`, `56dac9997835f89233424b5cfd830482af6fe1e5`.
 
 
-## 30. Original Ultra Pro2 software can operate REDLEO 9.2
+## 30. Original Ultra Pro2 software has only partial REDLEO 9.2 compatibility
 
-- User hardware test confirmed the original **Ultra Pro2 PC software can read and write a REDLEO 9.2 ECU**.
-- Architectural interpretation: Ultra Pro2 software is backward-compatible and likely switches protocol/layout internally after identification.
-- This does not mean Blink should reuse the Ultra Pro2 serializer for 9.2; the audited 9.2 and Ultra Pro2 page layouts are still different.
-- Keep 9.2 and Ultra Pro2 serializers separated until the vendor compatibility branch is traced directly.
-- Use Ultra Pro2 original software as an additional source of truth in future 9.2 protocol audits.
+- Corrected user hardware finding: Ultra Pro2 PC software is **not** a full 9.2-compatible application.
+- On the tested REDLEO 9.2 ECU, **Đọc hiện tại / Lưu hiện tại** works only on the tested main maps: **map phun xăng, map đánh lửa, góc đánh lửa**.
+- **Đọc tất cả / Ghi-Lưu tất cả are incorrect** on that 9.2 ECU.
+- Treat this only as evidence of partial command/page reuse for those current-map paths.
+- Do not infer full-image, restore, page6, A2, login, or serializer equivalence from this result.
+- Keep 9.2 and Ultra Pro2 full-image/serializer logic strictly separated.
+- Ultra Pro2 original software is a valid reference only for the specifically verified current-map operations above; it is **not** a source of truth for 9.2 READ ALL / WRITE ALL.
