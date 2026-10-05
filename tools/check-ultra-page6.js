@@ -26,8 +26,19 @@ must(/function isUltraDirect\(\)[\s\S]{0,220}MODERN_V10[\s\S]{0,180}\/ULTRA\//,
   'Ultra detector must require MODERN_V10 + ULTRA identity');
 must(/if\(ultra&&id==='idle_limit'\)return page\(6,bank\)/,
   'Ultra idle_limit must route to page6');
-must(/if\(isUltraDirect\(\)&&id==='idle_limit'\)return true/,
-  'Only verified Ultra Idle must be direct-write enabled');
+must(/if\(isUltraDirect\(\)&&\['idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)\)return true/,
+  'Ultra direct-write set must keep page6 Idle plus only separately verified A2 surfaces');
+{
+  const router=between('function mainFeaturePage','function isDirectVerifiedFeature');
+  if(!/if\(ultra&&id==='idle_limit'\)return page\(6,bank\);/.test(router)){
+    console.error('FAIL: Ultra Idle must remain the only Ultra feature routed to page6');
+    process.exitCode=1;
+  }
+  if(/ultra&&\[[^\]]*(?:ect_idle_motor|external_adjust|ect_start|tps_axis|rpm_axis|v_ect|v_iat|v_map|iat_inj|map_idle_motor)[^\]]*\]\.includes\(id\)\)return page\(6,bank\)/.test(router)){
+    console.error('FAIL: verified Ultra A2 surfaces must never be routed into page6');
+    process.exitCode=1;
+  }
+}
 
 const readBlock=between("if(isUltraDirect()){","if(isV92Direct()){");
 if(!/readDirectPageReal\(pg,42,'REDLEO ULTRA/.test(readBlock)){
@@ -99,13 +110,15 @@ must(/if\(isUltraDirect\(\)\)return writeUltraIdleLimit/,
   'Dedicated Idle writer must dispatch Ultra to 42B writer');
 
 // AutoClutch was explicitly dropped from unfinished-family scope.
-// Ultra must not inherit V10.2 AutoClutch or other V10-direct A2 writers.
+// Ultra must not inherit V10.2 AutoClutch. Verified Ultra A2 surfaces use their
+// own 277/285B serializer and must never alter the 42B page6 contract.
 mustNot(/isUltraDirect\(\)[^\n]*auto_clutch/,
   'Ultra AutoClutch must remain out of scope/locked');
 mustNot(/MODERN_V10:new Set\(\[[^\]]*'auto_clutch'/,
   'Shared MODERN_V10 base set must not expose AutoClutch to Ultra');
 
-// UI: Ultra-only VVT field; hide ECT Motor panel because Ultra motor belongs to A2.
+// UI: Ultra-only VVT field; hide the legacy co-located ECT Motor panel because
+// Ultra motor belongs to the dedicated A2 editor, not page6.
 if(!/id="ultraVvtOpenField"[^>]*style="display:none"[\s\S]{0,300}data-idleopt="vvtOpenRpm"/.test(ui)){
   console.error('FAIL: Ultra-only VVT Open RPM field missing');
   process.exitCode=1;
@@ -117,7 +130,7 @@ if(!/id="idleEctPanel"/.test(ui)){
 must(/ultraVvtField\.style\.display=ultraIdle\?'':'none'/,
   'Ultra VVT field visibility must follow isUltraDirect');
 must(/ultraMotorPanel\.style\.display=ultraIdle\?'none':''/,
-  'Unverified Ultra ECT Motor panel must be hidden');
+  'Ultra ECT Motor must stay out of the page6 Idle panel and use its A2 editor');
 
 if(process.exitCode)process.exit(process.exitCode);
 console.log('OK: REDLEO Ultra Pro1 page6 remains exact 42B Idle-only edit surface with sibling preservation.');
