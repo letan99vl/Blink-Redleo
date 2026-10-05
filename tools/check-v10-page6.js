@@ -10,6 +10,11 @@ function must(re,msg){
 function mustNot(re,msg){
   if(re.test(src))throw new Error(msg);
 }
+function between(a,b){
+  const i=src.indexOf(a),j=src.indexOf(b,i+a.length);
+  if(i<0||j<0)throw new Error('cannot isolate '+a);
+  return src.slice(i,j);
+}
 
 // REDLEO ECU Pro 10.2 original IL:
 // page family 6 serializes ONLY Dgv_Idle_Limit[bank] via proUartDgvNumOption.
@@ -26,8 +31,13 @@ must(/if\(isV10Direct\(\)\)return writeV10IdleLimit/,
   'Dedicated Idle button must dispatch to V10 18B writer.');
 must(/if\(isV10Direct\(\)&&id==='idle_limit'\)return writeV10IdleLimit/,
   'Feature writer must dispatch V10 idle_limit to 18B writer.');
-must(/if\(v10&&id==='idle_limit'\)return page\(6,bank\);[\s\S]{0,180}ect_idle_motor[\s\S]{0,100}return 0xA2/,
-  'V10 ECT Motor must remain separated from page6 and route to A2.');
+{
+  const pageRouter=between('function mainFeaturePage','function isDirectVerifiedFeature');
+  if(!/if\(v10&&id==='idle_limit'\)return page\(6,bank\);/.test(pageRouter) ||
+     !/if\(v10&&\[[^\]]*'ect_idle_motor'[^\]]*\]\.includes\(id\)\)return 0xA2;/.test(pageRouter)){
+    throw new Error('V10 ECT Motor must remain separated from page6 and route to A2.');
+  }
+}
 must(/MODERN_V10:new Set\(\[[^\]]*'idle_limit'[^\]]*\]\)/,
   'V10 profile must expose Idle/Limit.');
 mustNot(/MODERN_V10:new Set\(\[[^\]]*'ect_idle_motor'[^\]]*\]\)/,
