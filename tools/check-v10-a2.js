@@ -3,6 +3,7 @@
 
 const fs=require('fs');
 const src=fs.readFileSync('redleo_real_protocol.js','utf8');
+const ui=fs.readFileSync('index.html','utf8');
 
 function must(re,msg){
   if(!re.test(src)){ console.error('FAIL:',msg); process.exitCode=1; }
@@ -61,7 +62,7 @@ must(/A2 TX 268B/,
   'V10 A2 status must expose exact TX length');
 
 // Only verified editable surfaces are patched in this pass.
-must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'\]\.includes\(id\)/,
+must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ect_start','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'V10 A2 verified feature dispatch changed');
 must(/payload\[V10_A2\.IAT_INJ\+i\]=encOil/,
   'IAT INJ patch must stay at exact block');
@@ -76,11 +77,10 @@ must(/payload\[V10_A2\.CONFIG\+2\+i\]=clamp\(Math\.round\(Math\.max\(0,Number\(v
 must(/autoStart=decAutoRpm\(configRaw\[1\]\)[\s\S]{0,120}auto=Array\.from\(configRaw\.slice\(2,7\),x=>Number\(x\)\*5\)[\s\S]{0,120}password=Array\.from\(configRaw\.slice\(7,11\)\)/,
   'V10 CONFIG layout must remain feature/startRPM/5 timers/password');
 
-// Partial writers preserve Option, ECT Start, TPS/RPM, vAFR and every sibling
-// block. AutoClutch is allowed to patch only CONFIG bytes +2..+6; config byte0,
-// Start RPM byte1 and password bytes +7..+10 remain untouched.
+// Partial writers preserve Option, TPS/RPM, vAFR and every sibling block.
+// AutoClutch may patch only CONFIG +2..+6. ECT Start may patch only its 33B block.
 const writer=between('async function writeV10A2KnownFeature(id){','async function writeV10EctMotor');
-for(const forbidden of ['V10_A2.OPTION','V10_A2.ECT_START','V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
+for(const forbidden of ['V10_A2.OPTION','V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
   if(writer.includes('payload['+forbidden)||writer.includes('payload.set('+forbidden)){
     console.error('FAIL: partial V10 A2 writer patches preserved block '+forbidden);
     process.exitCode=1;
@@ -98,6 +98,28 @@ for(const n of [7,8,9,10]){
     console.error('FAIL: AutoClutch must preserve password byte CONFIG+'+n);
     process.exitCode=1;
   }
+}
+
+
+// V10.2 ECT Start Add exact 3x11 semantics from original IL:
+// UI rows: Time(Second), INJ VE(ms), StrtAdd(ms); proUartDgvNum reverses rows on wire.
+must(/function decodeV10EctStart33\(raw\)[\s\S]*out\[2\]\[c\]=decOil\(raw\[c\]\)[\s\S]*out\[1\]\[c\]=decOil\(raw\[11\+c\]\)[\s\S]*out\[0\]\[c\]=r1\(\(raw\[22\+c\]&255\)\*0\.2\)/,
+  'V10 Start Add decoder row order/scale changed');
+must(/function encodeV10EctStart33\(matrix\)[\s\S]*out\[c\]=encOil\(a\)[\s\S]*out\[11\+c\]=encOil\(b\)[\s\S]*out\[22\+c\]=clamp\(Math\.max\(1,Math\.round\(Math\.max\(0,sec\)\*5\)\),1,255\)/,
+  'V10 Start Add encoder row order/scale changed');
+must(/payload\.set\(encodeV10EctStart33\(m\),V10_A2\.ECT_START\)/,
+  'V10 Start Add writer must patch only exact ECT_START block');
+must(/const ectStart=decodeV10EctStart33\(ectStartRaw\)/,
+  'V10 Start Add parser must decode the 33B block');
+must(/if\(v10Direct&&C\.ectStart\)emitFeature\(N\.ect_start,C\.ectStart\)/,
+  'V10 Start Add must be emitted to UI after A2 read');
+if(!/id==='ect_start'&&state\.ecuProfile==='MODERN_V10'[\s\S]{0,400}rows:3,cols:11[\s\S]{0,300}Time\(Second\)[\s\S]{0,120}INJ VE\(ms\)[\s\S]{0,120}StrtAdd\(ms\)/.test(ui)){
+  console.error('FAIL: index.html must render V10.2 Start Add as 3x11 with original row labels');
+  process.exitCode=1;
+}
+if(!/REDLEO ULTRA · Start Add dùng serializer A2 riêng/.test(src)){
+  console.error('FAIL: Ultra Start Add must remain explicitly separated from V10.2');
+  process.exitCode=1;
 }
 
 // Original V10.2 motor mode is InfoChk[3] || InfoChk[4], i.e. handshake bits 3/4.
