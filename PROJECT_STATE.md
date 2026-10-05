@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.53`
+`BLINK_PB_VERSION = 3.79.54`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.53.
+- Android/web production: `main`, currently PB 3.79.54.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -495,3 +495,16 @@ The assistant should then:
 - New regression: `tools/check-map-selection.js`.
 - Backup: `backup-pb-3.79.52-pre-top-left-selection`.
 - Core commit: `42c6460bf1dd4ac2745b3c057bdaf5f922c27829`.
+
+
+## 27. Tap rectangle to one cell checkpoint - PB 3.79.54
+
+- Existing highlighted rectangle no longer requires a cancel tap followed by a second tap.
+- One tap on a cell inside the current selection immediately collapses selection to that single cell.
+- In two-corner mode the touched cell becomes the new top-left origin/corner #1.
+- In QUÉT mode a simple tap leaves one cell selected; drag behavior is unchanged.
+- Top-left-first two-corner direction rule remains active.
+- Applied consistently to main maps and REDLEO multi-cell editors.
+- Backup: `backup-pb-3.79.53-pre-tap-collapse-to-cell`.
+- Core commit: `5602f07d7c9b54b21440d2c6590e5df1301cb7c3`.
+- Regression update commit: `7dc76e81ba0b4fe94bee6e0c43f9bf646ac1795d`.
