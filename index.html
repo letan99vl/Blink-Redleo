@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.61';
+  window.BLINK_PB_VERSION = '3.79.62';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2225,8 +2225,8 @@
   <h3>Tính góc phun theo thông số cam nạp</h3>
   <div class="injCamFormula">
     <b>Chỉ cần 2 thông số cam:</b> IN OPEN (IVO · °BTDC) và IN CLOSE (IVC · °ABDC). Blink tự tính duration cam nạp = 180 + IVO + IVC.<br>
-    <b>Mô hình đề xuất:</b> Blink tự tạo khoảng EOI an toàn từ 5% duration cam (giới hạn 8–20°), sau đó tính thời lượng phun = PW(ms) × RPM × 0.006 và suy ra SOI cho từng ô.<br>
-    <b>Quy ước hiện dùng:</b> 0° = TDC nén, INJ degree càng lớn = phun càng sớm. Đây là mô hình ước tính theo cam + PW; ÁP DỤNG chỉ đổi map cục bộ, không tự ghi ECU.
+    <b>Mô hình đề xuất:</b> Blink đặt điểm kết thúc phun (EOI) ở khoảng 5% đầu cửa sổ xupap nạp, giới hạn 8–20° sau thời điểm IVO. Sau đó tính thời lượng phun = PW(ms) × RPM × 0.006 và suy ra SOI cho từng ô.<br>
+    <b>Quy ước hiện dùng:</b> 0° = TDC nén, INJ degree càng lớn = phun càng sớm. Công thức dùng: SOI advance = duration phun + IVO − pha EOI sau IVO. Đây là mô hình ước tính theo cam + PW; ÁP DỤNG chỉ đổi map cục bộ, không tự ghi ECU.
   </div>
   <div class="injCamGrid">
     <label class="injCamField active" data-injcam-field="ivo"><span>IN OPEN · IVO (° BTDC)</span><input id="injCamIvo" type="text" inputmode="none" readonly value="3" tabindex="-1"></label>
@@ -5944,9 +5944,12 @@ function injCamBuildPreview(){
   const ivc=Number(document.getElementById('injCamIvc')?.value);
   if(!Number.isFinite(ivo)||ivo<0||ivo>90||!Number.isFinite(ivc)||ivc<0||ivc>120)throw new Error('IVO phải 0–90° BTDC và IVC phải 0–120° ABDC.');
   const camDuration=180+ivo+ivc;
-  const autoMargin=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
+  // Target EOI is placed near the beginning of the intake-open window rather
+  // than being derived from IVC as an absolute BTDC offset. This follows the
+  // shape of the original REDLEO 9.2 INJ degree map much more closely.
+  const eoiIntoWindow=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
+  const eoiAtdc=eoiIntoWindow-ivo;
   const spec=injCamAngleSpec();
-  const eoi=180-ivc+autoMargin;
   const matrix=angle.map(r=>r.slice());
   let changed=0,skipped=0,clamped=0,min=Infinity,max=-Infinity,sum=0,count=0;
   for(let r=0;r<14;r++){
@@ -5954,7 +5957,7 @@ function injCamBuildPreview(){
       const pw=Number(fuel[r][c]),rpm=Number(RPMS[c]);
       if(!Number.isFinite(pw)||pw<=0||!Number.isFinite(rpm)||rpm<=0){skipped++;continue}
       const durationDeg=pw*rpm*0.006;
-      const rawTarget=eoi+durationDeg;
+      const rawTarget=Math.max(0,durationDeg-eoiAtdc);
       if(rawTarget>spec.max)clamped++;
       const next=spec.quantize(rawTarget);
       if(Math.abs(Number(angle[r][c])-next)>0.0001)changed++;
@@ -5967,7 +5970,7 @@ function injCamBuildPreview(){
     const rpm=RPMS[c],pw=Number(fuel[0][c]),deg=matrix[0][c];
     return Math.round(rpm)+'rpm: PW '+pw.toFixed(2)+'ms → '+deg+'°';
   }).join(' · ');
-  const stateOut={bank:state.activeMap,ivo,ivc,camDuration,autoMargin,eoi,specLabel:spec.label,matrix,changed,skipped,clamped,min,max,avg:sum/count,samples};
+  const stateOut={bank:state.activeMap,ivo,ivc,camDuration,eoiIntoWindow,eoiAtdc,specLabel:spec.label,matrix,changed,skipped,clamped,min,max,avg:sum/count,samples};
   try{localStorage.setItem('blinkInjCamCalcV2',JSON.stringify({ivo,ivc}))}catch(_e){}
   return stateOut;
 }
@@ -5976,7 +5979,7 @@ function injCamRenderPreview(p){
   el.textContent=
     'MAP No.'+p.bank+' · hệ góc '+p.specLabel+'\n'+
     'IVO '+p.ivo+'° BTDC · IVC '+p.ivc+'° ABDC → duration cam nạp '+p.camDuration.toFixed(1)+'°\n'+
-    'Blink tự chọn khoảng EOI '+p.autoMargin+'° (5% duration, giới hạn 8–20°) → EOI mục tiêu '+p.eoi.toFixed(1)+'° BTDC\n'+
+    'EOI mục tiêu: '+p.eoiIntoWindow+'° sau IVO → '+(p.eoiAtdc>=0?p.eoiAtdc.toFixed(1)+'° ATDC':Math.abs(p.eoiAtdc).toFixed(1)+'° BTDC')+'\n'+
     'Đề xuất: '+p.changed+'/420 ô thay đổi · '+p.skipped+' ô PW=0/không hợp lệ giữ nguyên · '+p.clamped+' ô chạm giới hạn đời ECU\n'+
     'Góc đề xuất min '+p.min.toFixed(0)+'° · max '+p.max.toFixed(0)+'° · trung bình '+p.avg.toFixed(1)+'°\n'+
     'Hàng 100% TPS: '+p.samples+'\n'+
