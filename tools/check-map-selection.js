@@ -29,5 +29,35 @@ must(/function endScan\(e\)[\s\S]{0,700}if\(wasTap\)[\s\S]{0,220}setSelection\(s
 must(/function endRedScan\(e\)[\s\S]{0,800}if\(wasTap\)[\s\S]{0,300}redSel=\{r0:redScanStartR,c0:redScanStartC,r1:redScanStartR,c1:redScanStartC\}/,
   'REDLEO scan tap must leave one selected cell');
 
+
+// Editor capability split: every REDLEO value map gets keypad + floating
+// +/-/save controls, but only dense 2D maps get scan/two-corner selection.
+must(/function redValueEditorActive\(\)\{return !!\(currentFeature&&currentFeature\.editor!=='fuel'\)\}/,
+  'REDLEO value-editor capability missing');
+must(/function redFeatureNeedsRangeSelection\(f=currentFeature\)[\s\S]{0,420}f\.rows>1&&f\.cols>1&&\(f\.rows\*f\.cols\)>=100/,
+  'range-selection threshold must stay limited to dense 2D maps');
+must(/#redleoEditorScreen\.redValueEditor \.redKeypadToggle\{display:grid;place-items:center\}/,
+  'keypad toggle must be available on all REDLEO value maps');
+must(/#redleoEditorScreen\.redValueEditor\.redMapKeypadOpen \.redKeypad\{display:flex\}/,
+  'keypad must open on all REDLEO value maps');
+must(/#redleoEditorScreen:not\(\.redRangeEditor\) #redScanToggle\{display:none!important\}/,
+  'small REDLEO maps must hide scan control');
+must(/function handleRedCornerTap\(r,c\)[\s\S]{0,650}if\(!redRangeEditorActive\(\)\)[\s\S]{0,260}redSel=\{r0:r,c0:c,r1:r,c1:c\}[\s\S]{0,180}return 'single'/,
+  'small REDLEO maps must use direct single-cell selection');
+
+// Concrete UX examples: Dwell 1x30 is simple; ECT/IGN compensation 11x30 and
+// main 14x30 maps are dense enough to keep scan/two-corner selection.
+{
+  const needs=(rows,cols)=>rows>1&&cols>1&&(rows*cols)>=100;
+  if(needs(1,30)||needs(1,11)||needs(2,15)||needs(4,11)){
+    console.error('FAIL: simple/short tables must not enter range-selection mode');
+    process.exitCode=1;
+  }
+  if(!needs(11,30)||!needs(14,30)){
+    console.error('FAIL: dense compensation/main maps must retain range selection');
+    process.exitCode=1;
+  }
+}
+
 if(process.exitCode)process.exit(process.exitCode);
 console.log('OK: top-left-first rectangles, free single-cell anchor relocation, and tap-collapse behavior hold.');
