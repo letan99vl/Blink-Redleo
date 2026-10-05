@@ -1397,6 +1397,22 @@
   }
   body.appForceLandscape #redleoEditorScreen.redValueEditor{--fuel-keypad-h:132px}
 
+  /* Idle/Limit has one legacy ECT-motor row outside redleoEditorScreen.
+     Give it the same single-cell keypad and floating save/+/- controls. */
+  #idleEctPanel{position:relative;--fuel-keypad-h:304px}
+  #idleEctPanel .idleEctSelectionPad{
+    position:absolute!important;
+    z-index:250040!important;
+  }
+  #idleEctPanel .idleEctKeypadToggle{display:grid;place-items:center}
+  #idleEctPanel.idleEctKeypadOpen .idleEctKeypadToggle{display:none!important}
+  #idleEctPanel.idleEctKeypadOpen .idleEctKeypad{display:flex}
+  #idleEctPanel.idleEctKeypadOpen{padding-bottom:calc(var(--fuel-keypad-h) + 14px)}
+  @media(orientation:landscape){
+    #idleEctPanel{--fuel-keypad-h:132px}
+  }
+  body.appForceLandscape #idleEctPanel{--fuel-keypad-h:132px}
+
   /* ===== PB 3.79.26 · NO-SCROLL MAP TOOLBARS ===== */
   #mapEditorScreen .editorStepBar{
     display:grid!important;
@@ -2071,6 +2087,21 @@
       <div class="groupHead" style="margin-top:0"><h3>Motor garanti theo nhiệt độ động cơ</h3><span>Temperature-idle motor relationship</span></div>
       <div class="redTableWrap" style="min-height:210px;max-height:340px">
         <table id="idleEctTable" class="redTable"></table>
+      </div>
+      <div id="idleEctSelectionPad" class="mapSelectionPad idleEctSelectionPad" aria-hidden="true">
+        <button id="idleEctFloatSaveBtn" class="save" type="button" aria-label="Ghi ECU" title="Ghi ECU">↓</button>
+        <button id="idleEctFloatPlusBtn" class="plus" type="button" aria-label="Tăng ô chọn" title="Tăng ô chọn">＋</button>
+        <button id="idleEctFloatMinusBtn" class="minus" type="button" aria-label="Giảm ô chọn" title="Giảm ô chọn">−</button>
+      </div>
+      <button id="idleEctKeypadToggle" class="fuelKeypadToggle idleEctKeypadToggle" type="button" aria-label="Mở bàn phím nhập giá trị" title="Bàn phím số">⌨</button>
+      <div id="idleEctKeypad" class="fuelKeypad idleEctKeypad" aria-hidden="true">
+        <div class="fuelKeypadHead"><span id="idleEctKeypadCell">Chưa chọn ô</span><strong id="idleEctKeypadValue">--</strong></div>
+        <div class="fuelKeypadGrid">
+          <button type="button" data-idle-ect-key="1">1</button><button type="button" data-idle-ect-key="2">2</button><button type="button" data-idle-ect-key="3">3</button><button type="button" class="clear" data-idle-ect-key="clear">C</button>
+          <button type="button" data-idle-ect-key="4">4</button><button type="button" data-idle-ect-key="5">5</button><button type="button" data-idle-ect-key="6">6</button><button type="button" class="backspace" data-idle-ect-key="backspace">⌫</button>
+          <button type="button" data-idle-ect-key="7">7</button><button type="button" data-idle-ect-key="8">8</button><button type="button" data-idle-ect-key="9">9</button><button type="button" class="hide" data-idle-ect-key="hide">▾</button>
+          <button type="button" class="zeroWide" data-idle-ect-key="0">0</button><button type="button" data-idle-ect-key=".">.</button>
+        </div>
       </div>
       <div class="hint">ECT: 0°C · 14°C · 28°C · 42°C · 56°C · 70°C · 84°C · 98°C · 112°C · 126°C · 140°C · 9.1X: byte SUM gốc được giữ nguyên tự động</div>
     </div>
@@ -5575,21 +5606,96 @@ function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
   const sel=document.getElementById('idleLimitBankSelect');if(sel)sel.value=String(state.activeMap);
 }
+let idleEctSelected=-1,idleEctKeypadBuffer='',idleEctKeypadDirty=false;
+function idleEctMeta(){
+  const f=featureForProfile('ect_idle_motor')||F.ect_idle_motor;
+  if(idleEctSelected<0||idleEctSelected>=f.cols)return null;
+  const d=featureData(f,state.activeMap),v=Number(d?.[0]?.[idleEctSelected]);
+  return {f,d,i:idleEctSelected,v};
+}
+function updateIdleEctSelectionPad(){
+  const panel=document.getElementById('idleEctPanel'),pad=document.getElementById('idleEctSelectionPad');
+  if(!panel||!pad||idleEctSelected<0){if(pad){pad.classList.remove('show');pad.setAttribute('aria-hidden','true')}return}
+  const pw=pad.offsetWidth||48,ph=pad.offsetHeight||158,edge=8;
+  pad.classList.add('show');pad.setAttribute('aria-hidden','false');
+  pad.style.left=Math.max(edge,panel.clientWidth-pw-edge)+'px';
+  pad.style.top=Math.max(48,(panel.clientHeight-ph)/2)+'px';
+}
+function syncIdleEctKeypad(force=false){
+  const kp=document.getElementById('idleEctKeypad');if(!kp||kp.getAttribute('aria-hidden')==='true')return;
+  const m=idleEctMeta(),cell=document.getElementById('idleEctKeypadCell'),val=document.getElementById('idleEctKeypadValue');
+  if(!m){if(cell)cell.textContent='Chưa chọn ô';if(val)val.textContent='--';return}
+  if(force||!idleEctKeypadDirty)idleEctKeypadBuffer=Number.isFinite(m.v)?formatRedEntry(m.v):'';
+  const x=m.f.x?.[m.i]??('C'+(m.i+1));
+  if(cell)cell.textContent='ECT '+x+(typeof x==='number'?'°C':'')+' · ô '+(m.i+1);
+  if(val)val.textContent=(idleEctKeypadBuffer||'--')+(m.f.unit?' '+m.f.unit:'');
+}
+function selectIdleEctCell(i){
+  const f=featureForProfile('ect_idle_motor')||F.ect_idle_motor;
+  idleEctSelected=Math.max(0,Math.min(f.cols-1,Number(i)||0));
+  idleEctKeypadDirty=false;renderIdleEct();
+  requestAnimationFrame(updateIdleEctSelectionPad);
+  syncIdleEctKeypad(true);
+}
+function openIdleEctKeypad(){
+  if(idleEctSelected<0){showEcuNotice('info','CHƯA CHỌN Ô','Chạm một ô Motor garanti trước.',2200);return}
+  document.getElementById('idleEctPanel')?.classList.add('idleEctKeypadOpen');
+  document.getElementById('idleEctKeypad')?.setAttribute('aria-hidden','false');
+  idleEctKeypadDirty=false;syncIdleEctKeypad(true);
+  requestAnimationFrame(updateIdleEctSelectionPad);
+}
+function hideIdleEctKeypad(){
+  document.getElementById('idleEctPanel')?.classList.remove('idleEctKeypadOpen');
+  document.getElementById('idleEctKeypad')?.setAttribute('aria-hidden','true');
+  idleEctKeypadBuffer='';idleEctKeypadDirty=false;
+  requestAnimationFrame(updateIdleEctSelectionPad);
+}
+function applyIdleEctKeypad(){
+  const m=idleEctMeta();if(!m)return;
+  const n=idleEctKeypadBuffer===''?0:Number(idleEctKeypadBuffer);if(!Number.isFinite(n))return;
+  m.d[0][m.i]=Number(n.toFixed(4));saveFeatureStore();renderIdleEct();syncIdleEctKeypad(false);
+}
+function idleEctKey(ch){
+  const m=idleEctMeta();if(!m)return;
+  if(ch==='hide'){hideIdleEctKeypad();return}
+  if(!idleEctKeypadDirty){idleEctKeypadBuffer='';idleEctKeypadDirty=true}
+  if(ch==='clear')idleEctKeypadBuffer='';
+  else if(ch==='backspace')idleEctKeypadBuffer=idleEctKeypadBuffer.slice(0,-1);
+  else if(ch==='.'){if(!idleEctKeypadBuffer.includes('.'))idleEctKeypadBuffer=idleEctKeypadBuffer?idleEctKeypadBuffer+'.':'0.'}
+  else if(/^\d$/.test(ch)&&idleEctKeypadBuffer.length<10)idleEctKeypadBuffer+=ch;
+  applyIdleEctKeypad();syncIdleEctKeypad(false);
+}
+function bumpIdleEct(delta){
+  const m=idleEctMeta();if(!m){showEcuNotice('info','CHƯA CHỌN Ô','Chạm một ô Motor garanti trước.',2200);return}
+  m.d[0][m.i]=Number((Number(m.d[0][m.i]||0)+Number(delta)).toFixed(4));
+  saveFeatureStore();renderIdleEct();syncIdleEctKeypad(true);
+}
 function renderIdleEct(){
   const f=featureForProfile('ect_idle_motor')||F.ect_idle_motor,d=featureData(f,state.activeMap),t=document.getElementById('idleEctTable');if(!t)return;
+  if(idleEctSelected>=f.cols)idleEctSelected=-1;
   let s='<thead><tr><th class="rhead">ECT</th>'+f.x.map(x=>'<th>'+x+(typeof x==='number'?'°C':'')+'</th>').join('')+'</tr></thead><tbody><tr><td class="rhead">STEPPER</td>';
-  for(let i=0;i<f.cols;i++)s+='<td class="redCell" data-idlect="'+i+'">'+fmtV(d[0][i])+'</td>';
+  for(let i=0;i<f.cols;i++)s+='<td class="redCell '+(i===idleEctSelected?'sel':'')+'" data-idlect="'+i+'">'+fmtV(d[0][i])+'</td>';
   s+='</tr></tbody>';t.innerHTML=s;
-  t.querySelectorAll('[data-idlect]').forEach(td=>td.ondblclick=()=>{const i=+td.dataset.idlect,val=prompt('Nhập giá trị STEPPER',d[0][i]);if(val!==null&&Number.isFinite(Number(val))){d[0][i]=Number(val);saveFeatureStore();renderIdleEct()}});
+  t.querySelectorAll('[data-idlect]').forEach(td=>{
+    td.onclick=()=>selectIdleEctCell(+td.dataset.idlect);
+    td.ondblclick=()=>{const i=+td.dataset.idlect;selectIdleEctCell(i);const val=prompt('Nhập giá trị STEPPER',d[0][i]);if(val!==null&&Number.isFinite(Number(val))){d[0][i]=Number(val);saveFeatureStore();renderIdleEct();syncIdleEctKeypad(true)}};
+  });
+  requestAnimationFrame(updateIdleEctSelectionPad);
 }
 function openIdleLimit(){
+  idleEctSelected=-1;hideIdleEctKeypad();
   syncIdleLimitInputs();renderIdleEct();showScreen('idlelimit');setTimeout(()=>autoReadVisibleEcuPage('open-idle'),0);
 }
-document.getElementById('idleLimitBack')?.addEventListener('click',()=>showScreen('maps'));
-document.getElementById('idleLimitBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderIdleEct();setTimeout(()=>autoReadVisibleEcuPage('idle-bank'),0)});
+document.getElementById('idleLimitBack')?.addEventListener('click',()=>{hideIdleEctKeypad();showScreen('maps')});
+document.getElementById('idleLimitBankSelect')?.addEventListener('change',e=>{hideIdleEctKeypad();idleEctSelected=-1;selectMapBank(Number(e.target.value),false);syncBanks();renderIdleEct();setTimeout(()=>autoReadVisibleEcuPage('idle-bank'),0)});
 document.querySelectorAll('[data-idleopt]').forEach(e=>e.addEventListener('change',()=>{optionStore[e.dataset.idleopt]=e.value;localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions()}));
 document.getElementById('idleLimitReadBtn')?.addEventListener('click',async()=>{try{await cmd('OPTIONS_READ');const prev=currentFeature;currentFeature=F.ect_idle_motor;await readFeature();currentFeature=prev;showEcuNotice('info','ĐÃ YÊU CẦU ĐỌC','Đọc Idle/Limit + bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','ĐỌC IDLE/LIMIT',e.message,0)}});
 document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>{try{document.querySelectorAll('[data-idleopt]').forEach(e=>optionStore[e.dataset.idleopt]=e.value);localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));await cmd('OPTIONS_WRITE');const prev=currentFeature;currentFeature=F.ect_idle_motor;await writeFeature();currentFeature=prev;showEcuNotice('success','ĐÃ GỬI IDLE/LIMIT','Đã gửi nhóm tùy chọn và bảng motor garanti theo ECT.')}catch(e){showEcuNotice('error','GHI IDLE/LIMIT',e.message,0)}});
+document.getElementById('idleEctKeypadToggle')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openIdleEctKeypad()});
+document.getElementById('idleEctKeypad')?.querySelectorAll('[data-idle-ect-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();idleEctKey(btn.dataset.idleEctKey)}));
+document.getElementById('idleEctFloatPlusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bumpIdleEct(1)});
+document.getElementById('idleEctFloatMinusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bumpIdleEct(-1)});
+document.getElementById('idleEctFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('idleLimitWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc dữ liệu ECU và kiểm tra profile trước.',0)});
 
 function fmtV(v){if(v==null||v==='')return '--';const n=Number(v);if(!Number.isFinite(n))return '--';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
 function redBounds(){return {r0:Math.min(redSel.r0,redSel.r1),r1:Math.max(redSel.r0,redSel.r1),c0:Math.min(redSel.c0,redSel.c1),c1:Math.max(redSel.c0,redSel.c1)}}
