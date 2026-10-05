@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.58`
+`BLINK_PB_VERSION = 3.79.59`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.58.
+- Android/web production: `main`, currently PB 3.79.59.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -582,3 +582,15 @@ The assistant should then:
 - Requires valid fuel and INJ degree baselines; never auto-writes ECU.
 - Backup: backup-pb-3.79.57-pre-injection-cam-calculator.
 - Final CI run **37332812725 = SUCCESS**.
+
+## 33. IVO/IVC cam calculator + virtual keypad checkpoint - PB 3.79.59
+
+- Cam calculator now asks only IN OPEN (IVO °BTDC) and IN CLOSE (IVC °ABDC).
+- Intake duration is derived automatically as 180 + IVO + IVC.
+- EOI margin is automatic: 5% of intake duration, clamped to 8–20 degrees.
+- PW × RPM model and family-specific 720-degree / 360-degree quantization remain active.
+- Cam fields are readonly + inputmode=none; phone system keyboard is suppressed.
+- Built-in keypad handles all cam-number entry.
+- Preview/local-apply/explicit-GHI-ECU safety remains intact.
+- Backup: backup-pb-3.79.58-pre-ivo-ivc-cam-model.
+- Final CI run **37334627131 = SUCCESS**.
