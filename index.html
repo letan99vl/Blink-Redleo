@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.59';
+  window.BLINK_PB_VERSION = '3.79.60';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -132,7 +132,9 @@
   .injCamField input[readonly]{cursor:pointer;caret-color:transparent;user-select:none;-webkit-user-select:none}
   .injCamFormula,.injCamPreview{padding:10px 12px;border-radius:10px;border:1px solid #3a2529;background:#0d0d11;font-size:11px;line-height:1.55;color:#c8cbd1}
   .injCamKeypad{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px;padding:10px;border:1px solid #3a2529;border-radius:10px;background:#09090c}
-  .injCamKeypad button{height:44px;border-radius:9px;font-size:16px;font-weight:900}
+  .injCamKeypad button{height:44px;border-radius:9px;font-size:16px;font-weight:900;touch-action:manipulation}
+  #injCamDialog .dlgBtns button{touch-action:manipulation}
+  #injCamApplyBtn[data-ready="0"]{opacity:.62}
   .injCamKeypad .wide2{grid-column:span 2}
   .injCamKeypadState{grid-column:1/-1;font-size:10px;color:#aeb3ba;padding:2px 2px 5px}
   .injCamFormula b,.injCamPreview b{color:#fff}
@@ -2237,8 +2239,8 @@
     <button type="button" data-injcam-key="7">7</button><button type="button" data-injcam-key="8">8</button><button type="button" data-injcam-key="9">9</button><button type="button" data-injcam-key=".">.</button>
     <button type="button" class="wide2" data-injcam-key="0">0</button><button type="button" data-injcam-key="next">TIẾP</button><button type="button" data-injcam-key="done">XONG</button>
   </div>
-  <div id="injCamPreview" class="injCamPreview">Chưa tính. Hãy đọc Thời gian phun và Góc phun của MAP hiện tại trước.</div>
-  <div class="dlgBtns"><button id="injCamPreviewBtn" class="primary">TÍNH THỬ</button><button id="injCamApplyBtn" class="danger" disabled>ÁP DỤNG VÀO MAP</button><button id="injCamCloseBtn">ĐÓNG</button></div>
+  <div id="injCamPreviewText" class="injCamPreview">Chưa tính. Hãy đọc Thời gian phun và Góc phun của MAP hiện tại trước.</div>
+  <div class="dlgBtns"><button id="injCamPreviewBtn" type="button" class="primary">TÍNH THỬ</button><button id="injCamApplyBtn" type="button" class="danger" data-ready="0">ÁP DỤNG VÀO MAP</button><button id="injCamCloseBtn" type="button">ĐÓNG</button></div>
 </dialog>
 <dialog id="threeHistoryDialog"><h3>Lịch sử MODE CHẠY 3 LƯỢT</h3><div class="muted" style="font-size:12px;margin-bottom:8px">Mỗi phiên lưu PW, AFR và số mẫu của 3 lượt.</div><div id="threeHistoryList" class="historyList"></div><div class="dlgBtns"><button id="downloadThreeRunBtn" class="primary">TẢI JSON</button><button id="closeThreeHistoryBtn">ĐÓNG</button></div></dialog>
 
@@ -5905,7 +5907,7 @@ function injCamInputEl(){
 }
 function injCamKey(key){
   if(key==='next'){injCamSelectField(injCamActiveField==='ivo'?'ivc':'ivo');return}
-  if(key==='done'){injCamPreview();return}
+  if(key==='done'){runInjCamPreview();return}
   const el=injCamInputEl();if(!el)return;
   let v=String(el.value||'');
   if(key==='clear')v='';
@@ -5916,7 +5918,7 @@ function injCamKey(key){
   }
   el.value=v;
   injCamPreviewState=null;
-  const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=true;
+  const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
 }
 function injCamLoadSettings(){
   try{
@@ -5970,7 +5972,7 @@ function injCamBuildPreview(){
   return stateOut;
 }
 function injCamRenderPreview(p){
-  const el=document.getElementById('injCamPreview');if(!el)return;
+  const el=document.getElementById('injCamPreviewText');if(!el)return;
   el.textContent=
     'MAP No.'+p.bank+' · hệ góc '+p.specLabel+'\n'+
     'IVO '+p.ivo+'° BTDC · IVC '+p.ivc+'° ABDC → duration cam nạp '+p.camDuration.toFixed(1)+'°\n'+
@@ -5980,25 +5982,41 @@ function injCamRenderPreview(p){
     'Hàng 100% TPS: '+p.samples+'\n'+
     'Bấm ÁP DỤNG chỉ thay bảng cục bộ. Muốn gửi ECU vẫn phải bấm GHI ECU.';
 }
-function injCamPreview(){
+function setInjCamDialogMessage(text){
+  const el=document.getElementById('injCamPreviewText');
+  if(el)el.textContent=String(text||'');
+}
+function runInjCamPreview(){
+  setInjCamDialogMessage('Đang tính MAP góc phun...');
   try{
-    injCamPreviewState=injCamBuildPreview();
-    injCamRenderPreview(injCamPreviewState);
-    const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=false;
+    const p=injCamBuildPreview();
+    injCamPreviewState=p;
+    injCamRenderPreview(p);
+    const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='1';
   }catch(e){
     injCamPreviewState=null;
-    const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=true;
-    const el=document.getElementById('injCamPreview');if(el)el.textContent='Không thể tính: '+String(e&&e.message||e);
-    showEcuNotice('error','TÍNH GÓC PHUN',String(e&&e.message||e),0);
+    const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
+    const msg=String(e&&e.message||e);
+    setInjCamDialogMessage('KHÔNG THỂ TÍNH\n'+msg+'\n\nHãy xử lý yêu cầu trên rồi bấm TÍNH THỬ lại.');
   }
 }
-function injCamApply(){
+function applyInjCamPreview(){
   const p=injCamPreviewState;
   const ivo=Number(document.getElementById('injCamIvo')?.value),ivc=Number(document.getElementById('injCamIvc')?.value);
-  if(!p||p.bank!==state.activeMap||p.ivo!==ivo||p.ivc!==ivc){
-    showEcuNotice('info','CẦN TÍNH LẠI','MAP hoặc thông số cam đã thay đổi. Bấm TÍNH THỬ lại trước khi áp dụng.',3000);return;
+  if(!p){
+    setInjCamDialogMessage('CHƯA CÓ MAP ĐỀ XUẤT\nBấm TÍNH THỬ trước. Nếu thiếu Thời gian phun hoặc Góc phun, Blink sẽ báo ngay tại đây.');
+    return;
   }
-  if(currentFeature?.id!=='inj_degree')return;
+  if(p.bank!==state.activeMap||p.ivo!==ivo||p.ivc!==ivc){
+    injCamPreviewState=null;
+    const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
+    setInjCamDialogMessage('CẦN TÍNH LẠI\nMAP hoặc IVO/IVC đã thay đổi. Bấm TÍNH THỬ lại trước khi áp dụng.');
+    return;
+  }
+  if(currentFeature?.id!=='inj_degree'){
+    setInjCamDialogMessage('Không thể áp dụng vì hiện không còn ở map Góc phun.');
+    return;
+  }
   const dst=featureData(currentFeature,state.activeMap);
   for(let r=0;r<14;r++)for(let c=0;c<30;c++)dst[r][c]=p.matrix[r][c];
   saveFeatureStore();renderFeature();
@@ -6011,10 +6029,9 @@ function openInjCamDialog(){
   injCamPreviewState=null;
   injCamLoadSettings();
   injCamSelectField('ivo');
-  const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=true;
+  const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
   const spec=injCamAngleSpec();
-  const el=document.getElementById('injCamPreview');
-  if(el)el.textContent='MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo bên dưới. Blink sẽ dùng Thời gian phun hiện tại của cùng MAP.';
+  setInjCamDialogMessage('MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo bên dưới. Sau đó bấm TÍNH THỬ.');
   document.getElementById('injCamDialog')?.showModal();
 }
 
@@ -6209,8 +6226,8 @@ document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click
 document.getElementById('injCamCalcBtn')?.addEventListener('click',openInjCamDialog);
 document.querySelectorAll('[data-injcam-field]').forEach(el=>el.addEventListener('pointerdown',e=>{e.preventDefault();injCamSelectField(el.dataset.injcamField)}));
 document.querySelectorAll('[data-injcam-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();injCamKey(btn.dataset.injcamKey)}));
-document.getElementById('injCamPreviewBtn')?.addEventListener('click',injCamPreview);
-document.getElementById('injCamApplyBtn')?.addEventListener('click',injCamApply);
+document.getElementById('injCamPreviewBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();runInjCamPreview()});
+document.getElementById('injCamApplyBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyInjCamPreview()});
 document.getElementById('injCamCloseBtn')?.addEventListener('click',()=>document.getElementById('injCamDialog')?.close());
 document.getElementById('redFloatPlusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(redStep)});
 document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(-redStep)});
