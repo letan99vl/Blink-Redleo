@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.50**.
+- Current displayed PB: **3.79.51**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -861,3 +861,36 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   - Ultra Pro1: static serializer verified; **needs real ECU test**.
   - Ultra Pro2: static V11-286 serializer verified; **needs real ECU test**.
 - Do not describe the untested families as “99% hardware stable” until controlled real-hardware READ -> one-cell change -> SAVE -> READBACK tests pass.
+
+
+## V9 firmware-generation routing safety fix - PB 3.79.51 - 2026-10-05
+
+- Follow-up audit after PB 3.79.50 found a real family-routing hazard in the shared V9 detector.
+- REDLEO handshake exposes firmware in only **4 ASCII bytes** (`parseHandshake(): ascii(a,17,4)`). Real V9 strings can therefore appear as forms such as `9.12` / `9.20`.
+- Previous `firmwareNumbers()` parsed the entire decimal suffix as a numeric minor:
+  - `9.12` -> minor `12`;
+  - `usesNewThermalAxis()` checked `minor >= 2`;
+  - therefore a 9.1X firmware such as `9.12` could be misrouted into the **9.2+** page6/A2 serializer family.
+- PB 3.79.51 fix:
+  - added `v9GenerationDigit()`;
+  - for V9 family routing, only the **first digit after the decimal point** selects generation: `9.1x -> generation 1`, `9.2x -> generation 2`;
+  - `isV91Direct()` now requires explicit V9 generation digit `1`;
+  - `usesNewThermalAxis()` treats V9 as 9.2+ only when generation digit is `>=2`;
+  - V10/V11 version handling is unchanged.
+- Extra safety gate:
+  - a decoded **9767B** ReadAll is no longer sufficient by itself to authorize generic V9 full-write;
+  - `profileCap('fullWrite')` now also requires a positively recognized **9.1X or 9.2+** generation.
+  - malformed/unknown V9 firmware remains readable where safe but cannot fall through to a generic full-image writer.
+- Regression protection:
+  - new `tools/check-v9-version-routing.js`;
+  - representative cases include `9.10`, `9.12`, `9.19`, `9.20`, `9.21`, and `9.2`;
+  - `tools/check-v91.js` updated for the new generation detector;
+  - `.github/workflows/check-redleo-protocol.yml` now runs the V9 routing regression.
+- Backup before change: `backup-pb-3.79.50-pre-v9-version-classifier`.
+- Core fix commit: `c563f0693cc8a0fccd3800e7da9114c81e7cafa1`.
+- Regression commits: `60a3bbf4ab9842ca8086e801c3d86bc088b6b328`, `7a1a15fb1d571941e924f7881f38a55ffa83f0b0`, `dba9c30254cf87feba10a885a472c5af7db09b4d`, `71f7794765dc230133927956c20f93eae8953d22`.
+- PB bump commit: `cece84670b1af23bf2e7e1da23dfd7468656f848`.
+- Hardware meaning:
+  - this is primarily a **prevent-wrong-family-write** fix;
+  - it does not claim new hardware certification for 9.1X or 9.2;
+  - REDLEO 9.2 tested hardware remains the golden reference, while 9.1X still needs a controlled real-ECU READ -> one-cell edit -> SAVE -> READBACK test.
