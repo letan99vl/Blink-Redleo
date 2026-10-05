@@ -392,7 +392,7 @@ function applyProfileUi(){
   if(logoutBtn)logoutBtn.textContent=p.family==='v11'?'XÓA XÁC NHẬN PIN':'ĐĂNG XUẤT';
   if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
   if(optionsReadBtn){
-    if(p.family==='v11')optionsReadBtn.textContent='ĐỌC A2 / TÙY CHỌN ATE';
+    if(p.family==='v11')optionsReadBtn.textContent=isUltraPro2Direct()?'ĐỌC A2 / TÙY CHỌN ULTRA PRO2':'ĐỌC A2 / TÙY CHỌN ATE';
     else if(p.key==='MODERN_V10')optionsReadBtn.textContent='ĐỌC A2 / TRỤC + SENSOR';
     else optionsReadBtn.textContent='ĐỌC TÙY CHỌN';
   }
@@ -404,7 +404,7 @@ function applyProfileUi(){
   const mapSub=document.getElementById('mapsProfileSub');
   if(mapSub){
     const fw=String(handshakeInfo&&handshakeInfo.firmware||'').trim();
-    if(p.family==='v11')mapSub.textContent='ATE '+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
+    if(p.family==='v11')mapSub.textContent=(isUltraPro2Direct()?'ULTRA PRO2 ':'ATE ')+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
     else if(p.family==='modern')mapSub.textContent=p.label+(fw?' · FW '+fw:'')+' · giao diện REDLEO thích nghi';
     else if(p.family==='v8')mapSub.textContent=p.label+' · ECU_MODE '+(handshakeInfo?.ecuMode??'—')+' · chỉ hiện bảng đã xác minh';
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
@@ -425,7 +425,7 @@ function applyProfileUi(){
   // belongs to another ECU family.
   const studyTpsBtn=document.getElementById('studyTpsBtn');
   if(studyTpsBtn){
-    if(p.key==='MODERN_V11')studyTpsBtn.textContent='HỌC TPS ECU · ATE V11';
+    if(p.key==='MODERN_V11')studyTpsBtn.textContent=isUltraPro2Direct()?'HỌC TPS ECU · ULTRA PRO2':'HỌC TPS ECU · ATE V11';
     else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
     else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
     else studyTpsBtn.textContent='HỌC TPS ECU · CHƯA HỖ TRỢ';
