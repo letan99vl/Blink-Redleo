@@ -10,6 +10,7 @@ on:
       - 'tools/check-row-orientation.js'
       - 'tools/check-map-selection.js'
       - 'tools/check-air-fuel-ratio.js'
+      - 'tools/check-injection-cam-calculator.js'
       - 'tools/check-ecu-feature-surfaces.js'
       - 'tools/check-v8-main.js'
       - 'tools/check-v91.js'
@@ -38,6 +39,8 @@ jobs:
         run: node tools/check-map-selection.js
       - name: Air fuel ratio cross-family regression
         run: node tools/check-air-fuel-ratio.js
+      - name: Injection cam calculator regression
+        run: node tools/check-injection-cam-calculator.js
       - name: ECU feature surface matrix
         run: node tools/check-ecu-feature-surfaces.js
       - name: REDLEO V8 main tune regression
