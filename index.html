@@ -2057,10 +2057,11 @@
         <div class="optionField"><label>Giới hạn tua tối đa<br><span style="color:#65565a">Maximum Speed</span></label><input data-idleopt="maxSpeed" type="number" step="1" placeholder="RPM"></div>
 
         <div class="optionField"><label>Phần trăm thiết lập tăng tốc<br><span style="color:#65565a">Acceleration Setup Percentage</span></label><input data-idleopt="accelPct" type="number" step="0.1" placeholder="%"></div>
+        <div class="optionField" id="ultraVvtOpenField" style="display:none"><label>Tua mở VVT<br><span style="color:#65565a">VVT Open RPM · Ultra Pro1</span></label><input data-idleopt="vvtOpenRpm" type="number" step="1" placeholder="RPM"></div>
       </div>
     </div>
 
-    <div class="optPanel">
+    <div class="optPanel" id="idleEctPanel">
       <div class="groupHead" style="margin-top:0"><h3>Motor garanti theo nhiệt độ động cơ</h3><span>Temperature-idle motor relationship</span></div>
       <div class="redTableWrap" style="min-height:210px;max-height:340px">
         <table id="idleEctTable" class="redTable"></table>
