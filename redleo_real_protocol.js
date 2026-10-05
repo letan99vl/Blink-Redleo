@@ -97,8 +97,10 @@ const V11_A2=Object.freeze({
   IAT_INJ:118,MAP_MOTOR:129,CONFIG:140,OPTION:151,
   ECT_START:181,GLOBAL_AUX:225,EXTERNAL:234,CHG:264
 });
-// Some ATE V11 builds expose the older 286-byte direct A2 serializer:
+// V11 286-byte direct A2 serializer:
 // 14B TPS-voltage + 14B TPS-% + 60B RPM, then the same logical blocks.
+// REDLEO Ultra Pro2 original ECU Pro 11 (assembly 11.1.7.0) is statically verified
+// to use this exact 286B A2 layout; it must never fall back to V10/Ultra-Pro1 A2.
 const V11_A2_286=Object.freeze({
   NAME:'A2-286',LEN:286,
   TPS_VOLT:0,TPS:14,RPM:28,VAFR:88,VECT:99,VIAT:110,VMAP:121,
@@ -129,9 +131,30 @@ function v11AxesForLayout(data,L){
   const N=normalizeV11AxisOrder(tpsDecoded,rpmDecoded);
   return {tpsRaw,tpsPct:N.tpsPct,rpmRaw,rpmAxis:N.rpmAxis,axesValid:N.axesValid,rawTpsPct:tpsDecoded,rawRpmAxis:rpmDecoded};
 }
+function isUltraPro2Identity(info=handshakeInfo){
+  const fw=String(info&&info.firmware||'').trim().toUpperCase();
+  const ident=String(info&&info.ident||'').trim().toUpperCase();
+  const all=(fw+' '+ident).replace(/\s+/g,' ').trim();
+  const v=firmwareNumbers(info);
+  // Original REDLEO Ultra Pro2 PC software is tqmcu_ECU_V11 / assembly 11.1.7.0.
+  // Prefer an explicit PRO2 identity; also accept ULTRA + ECU firmware major 11.
+  return /ULTRA\s*PRO\s*2|ULTRA\s*PRO2/.test(all) || (/ULTRA/.test(all)&&v.major===11);
+}
+function isUltraPro2Direct(){
+  return !!(ecuProfile&&ecuProfile.key==='MODERN_V11'&&isUltraPro2Identity(handshakeInfo));
+}
+function sessionProfileLabel(p=ecuProfile,info=handshakeInfo){
+  if(isUltraPro2Identity(info))return 'REDLEO ULTRA PRO2 · V11 EXTENDED TUNE';
+  return p&&p.label||ECU_PROFILE_DEFS.UNKNOWN.label;
+}
+function sessionProfileShort(p=ecuProfile,info=handshakeInfo){
+  if(isUltraPro2Identity(info))return 'ULTRA PRO2';
+  return p&&p.short||ECU_PROFILE_DEFS.UNKNOWN.short;
+}
+
 function detectV11A2Layout(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data||[]);
-  const layouts=[V11_A2,V11_A2_286];
+  const layouts=isUltraPro2Direct()?[V11_A2_286]:[V11_A2,V11_A2_286];
 
   // A checksum-valid direct A2 frame with an exact verified wire length is
   // authoritative for layout selection. Axis bytes are useful metadata, but
@@ -158,7 +181,9 @@ function requireV11A2Layout(data){
   const d=detectV11A2Layout(data);
   if(d)return d;
   const n=data&&data.length||0;
-  throw new Error('ATE V11 A2 '+n+'B không khớp layout trực tiếp 272B/286B đã xác minh.');
+  const who=isUltraPro2Direct()?'REDLEO Ultra Pro2':'ATE / REDLEO V11';
+  const expected=isUltraPro2Direct()?'286B':'272B/286B';
+  throw new Error(who+' A2 '+n+'B không khớp layout trực tiếp '+expected+' đã xác minh.');
 }
 function v11A2LayoutOf(data){return requireV11A2Layout(data).L;}
 
@@ -219,7 +244,6 @@ function profileFromHandshake(info){
   const fw=String(info&&info.firmware||'').trim().toUpperCase();
   const ident=String(info&&info.ident||'').trim().toUpperCase();
   const all=(fw+' '+ident).trim();
-  if(/ULTRA/.test(all))return ECU_PROFILE_DEFS.MODERN_V10;
 
   // Firmware bytes are authoritative. Do not classify from arbitrary model
   // numbers in ECU ident strings such as 125/150/250.
@@ -230,6 +254,11 @@ function profileFromHandshake(info){
     const im=ident.match(/(?:^|\s)(?:V|VER(?:SION)?)\s*(8|9|10|11)(?:\.|\b)/);
     if(im)major=Number(im[1]);
   }
+
+  // Ultra Pro2 is a REDLEO-branded V11 generation ECU. Ultra Pro1 remains V10.
+  if(isUltraPro2Identity(info)||(/ULTRA/.test(all)&&major===11))return ECU_PROFILE_DEFS.MODERN_V11;
+  if(/ULTRA/.test(all))return ECU_PROFILE_DEFS.MODERN_V10;
+
   if(major===11)return ECU_PROFILE_DEFS.MODERN_V11;
   if(major===10)return ECU_PROFILE_DEFS.MODERN_V10;
   if(major===9)return ECU_PROFILE_DEFS.MODERN_V9;
@@ -273,6 +302,7 @@ function mainFeaturePage(id,bank){
   return null;
 }
 function isDirectVerifiedFeature(id){
+  if(isUltraPro2Direct()&&id==='auto_clutch')return false;
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
   // REDLEO 9.2+ uses dedicated compensation pages 0x72/0x82/0x92.
   // These layouts and row orientation are already handled explicitly below,
@@ -326,6 +356,9 @@ const PROFILE_FEATURES=Object.freeze({
   UNKNOWN:new Set()
 });
 function profileSupportsFeature(id,p=ecuProfile){
+  // User scope decision: AutoClutch is not a required target on newly added ECU families.
+  // Ultra Pro2 original software contains Dgv_Dzfm, but keep that UI surface hidden for Pro2.
+  if(p===ecuProfile&&isUltraPro2Direct()&&id==='auto_clutch')return false;
   // V10.2 and Ultra share MODERN_V10, but these two decoded A2 surfaces are
   // proven only for a current non-ULTRA V10 session. Never broaden them by
   // profile key alone.
@@ -898,8 +931,9 @@ function syncHandshakeInfo(info){
     if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
   }
   const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
-  const profileText=p.family==='v8'?(p.label+' · ECU_MODE '+(info.ecuMode??'—')):p.label;
-  const vals=[cls,info.ident||p.label,'ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'—',info.date||'—',profileText];
+  const displayLabel=sessionProfileLabel(p,info),displayShort=sessionProfileShort(p,info);
+  const profileText=p.family==='v8'?(displayLabel+' · ECU_MODE '+(info.ecuMode??'—')):displayLabel;
+  const vals=[cls,info.ident||displayLabel,'ID '+(info.ecuId||1),'Signal '+(info.sumSignal??'—'),String(info.zeroIgn??'—'),String(info.zeroInj??'—'),info.firmware||'—',info.date||'—',profileText];
   document.querySelectorAll('[data-ecuinfo]').forEach((e,i)=>e.textContent=vals[i]||'—');
 
   // V8 mode 1 and mode 4 are single-bank layouts in the original REDLEO app.
@@ -911,7 +945,7 @@ function syncHandshakeInfo(info){
     [...el.options||[]].forEach(o=>o.disabled=singleV8&&Number(o.value)>1);
   });
   applyProfileUi();
-  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+p.short+' · MAP No.'+((typeof state!=='undefined'&&state.activeMap)||info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
+  const b=document.getElementById('ecuBadge');if(b){b.textContent='ECU: '+displayShort+' · MAP No.'+((typeof state!=='undefined'&&state.activeMap)||info.activeMap||1)+' · ID '+(info.ecuId||1);b.className='badge ok';}
   try{syncMirrors();}catch(_e){}
 }
 function syncCapabilityFlags(info){
@@ -1099,7 +1133,7 @@ async function initializeRealSession(){
     if(profileCap('live')){
       if(typeof state!=='undefined')state.ecuPhase='live';
       startLiveLoop();
-      taskUi('success','ECU ONLINE · '+ecuProfile.short+' · LIVE 0x69 · OK');
+      taskUi('success','ECU ONLINE · '+sessionProfileShort(ecuProfile,info)+' · LIVE 0x69 · OK');
       // If the user connected while already viewing a supported ECU table,
       // lazily read only that visible table. INJ VE itself remains manual-read.
       setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
@@ -2392,8 +2426,9 @@ async function readA2SensorPageReal(showUi=true){
   const v10Direct=isV10Direct();
   const ultra=isUltraDirect();
   const ultraLayout=ultra?ultraA2LayoutForSession(false):null;
-  const minData=v11?V11_A2.LEN:(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
-  const label=v11?'ATE V11 · A2 / OPTIONS':(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
+  const ultra2=v11&&isUltraPro2Direct();
+  const minData=v11?(ultra2?V11_A2_286.LEN:V11_A2.LEN):(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
+  const label=v11?(ultra2?'REDLEO ULTRA PRO2 · A2 286B':'ATE / REDLEO V11 · A2 / OPTIONS'):(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
   const R=await readDirectPageReal(0xA2,minData,label,showUi);
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
   sensorCalCache=C;
@@ -2403,13 +2438,13 @@ async function readA2SensorPageReal(showUi=true){
 
   const a2AxesOk=Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis);
   if(a2AxesOk){
-    publishEcuAxes(C.tpsPct,C.rpmAxis,v11?'A2 ECU · V11':'A2 ECU · V10/ULTRA');
+    publishEcuAxes(C.tpsPct,C.rpmAxis,v11?(ultra2?'A2 ECU · ULTRA PRO2':'A2 ECU · V11'):'A2 ECU · V10/ULTRA');
   }else if(v11&&C.v11A2Layout){
     // A valid V11 direct A2 page may come from a build whose breakpoint bytes
     // are fixed/differently encoded. Keep all verified A2 sensor/options data
     // and use Blink's proven 14x30 standard axes instead of blocking the ECU.
-    publishProfileAxisFallback('ATE V11 · '+C.v11A2Layout+' · AXIS FALLBACK');
-    log('ATE V11 A2 axis fallback',C.v11A2Layout,'len',R.data.length);
+    publishProfileAxisFallback((ultra2?'ULTRA PRO2':'V11')+' · '+C.v11A2Layout+' · AXIS FALLBACK');
+    log((ultra2?'ULTRA PRO2':'V11')+' A2 axis fallback',C.v11A2Layout,'len',R.data.length);
   }else if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
     publishProfileAxisFallback('ECU V9 · AXIS CỐ ĐỊNH');
   }
@@ -2451,7 +2486,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + OPTION + MOTOR + START + EXTERNAL · OK'):(ultra?('ULTRA · A2 '+R.data.length+'B · AXIS + SENSOR + MOTOR + START + EXTERNAL · OPTION/SPARE/CHG giữ raw'):(v10Family?'V10 FAMILY · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK'))));
+    taskUi('success',v11?((ultra2?'ULTRA PRO2':'V11')+' · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + OPTION + MOTOR + START + EXTERNAL · OK'):(ultra?('ULTRA · A2 '+R.data.length+'B · AXIS + SENSOR + MOTOR + START + EXTERNAL · OPTION/SPARE/CHG giữ raw'):(v10Family?'V10 FAMILY · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK'))));
   }
   return {...R,cache:C};
 }
