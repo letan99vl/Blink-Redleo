@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.63';
+  window.BLINK_PB_VERSION = '3.79.64';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2239,7 +2239,7 @@
     <button type="button" data-injcam-key="7">7</button><button type="button" data-injcam-key="8">8</button><button type="button" data-injcam-key="9">9</button><button type="button" data-injcam-key=".">.</button>
     <button type="button" class="wide2" data-injcam-key="0">0</button><button type="button" data-injcam-key="next">TIẾP</button><button type="button" data-injcam-key="done">XONG</button>
   </div>
-  <div id="injCamPreviewText" class="injCamPreview">Chưa tính. Hãy đọc Thời gian phun và Góc phun của MAP hiện tại trước.</div>
+  <div id="injCamPreviewText" class="injCamPreview">Chưa tính. Bấm TÍNH THỬ; Blink sẽ dùng PW thực tế + RPM + IVO để tính SOI.</div>
   <div class="dlgBtns"><button id="injCamPreviewBtn" type="button" class="primary">TÍNH THỬ</button><button id="injCamApplyBtn" type="button" class="danger" data-ready="0">ÁP DỤNG VÀO MAP</button><button id="injCamCloseBtn" type="button">ĐÓNG</button></div>
 </dialog>
 <dialog id="threeHistoryDialog"><h3>Lịch sử MODE CHẠY 3 LƯỢT</h3><div class="muted" style="font-size:12px;margin-bottom:8px">Mỗi phiên lưu PW, AFR và số mẫu của 3 lượt.</div><div id="threeHistoryList" class="historyList"></div><div class="dlgBtns"><button id="downloadThreeRunBtn" class="primary">TẢI JSON</button><button id="closeThreeHistoryBtn">ĐÓNG</button></div></dialog>
@@ -5935,7 +5935,8 @@ function injCamLoadSettings(){
 const INJ_CAM_REF_500=[24,23,21,19,18,16,14,12,10,8,6,5,3,3];
 const INJ_CAM_REF_5000=[195,187,177,168,158,147,136,124,111,99,89,82,75,73];
 const INJ_CAM_REF_HIGH_STEP=[19.2,18,17.333,16.143,15.25,14.2,13.083,11.929,10.588,9.45,8.35,7.75,7.05,6.75];
-const INJ_CAM_STRATEGY_MAX=295;
+const INJ_CAM_REFERENCE_IVO=3;
+const INJ_CAM_REFERENCE_IVC=31;
 function injCamReferenceAngle(row,rpm){
   row=Math.max(0,Math.min(13,Math.round(row)));
   rpm=Math.max(500,Math.min(15000,Number(rpm)||500));
@@ -5946,57 +5947,138 @@ function injCamReferenceAngle(row,rpm){
   }else{
     v=INJ_CAM_REF_5000[row]+INJ_CAM_REF_HIGH_STEP[row]*((rpm-5000)/500);
   }
-  return Math.max(0,Math.min(INJ_CAM_STRATEGY_MAX,Math.round(v)));
+  return Math.max(0,Math.min(295,Math.round(v)));
+}
+function injCamPulseDegrees(pwMs,rpm){
+  pwMs=Number(pwMs);rpm=Number(rpm);
+  if(!Number.isFinite(pwMs)||pwMs<=0||!Number.isFinite(rpm)||rpm<=0)return NaN;
+  return pwMs*rpm*0.006;
 }
 function injCamBuildPreview(){
   if(currentFeature?.id!=='inj_degree')throw new Error('Bộ tính chỉ dùng trong map Góc phun (INJ degree).');
+  if(fuelMapSyncUnknown(state.activeMap))throw new Error('MAP thời gian phun đang ở trạng thái chưa xác định. Hãy ĐỌC HIỆN TẠI lại từ ECU.');
+
+  const fuel=state.inject;
+  const fuelCheck=inspectFuelMap(fuel);
+  if(!fuelCheck.ok)throw new Error('Cần ĐỌC Thời gian phun MAP No.'+state.activeMap+' trước. '+fuelCheck.reason);
+
   const angle=featureData(currentFeature,state.activeMap);
+  if(!injCamMatrixReady(angle))throw new Error('Cần ĐỌC Góc phun MAP No.'+state.activeMap+' trước khi tính để có baseline an toàn.');
+
   const ivo=Number(document.getElementById('injCamIvo')?.value);
   const ivc=Number(document.getElementById('injCamIvc')?.value);
   if(!Number.isFinite(ivo)||ivo<0||ivo>90||!Number.isFinite(ivc)||ivc<0||ivc>120)throw new Error('IVO phải 0–90° BTDC và IVC phải 0–120° ABDC.');
 
-  // Reference calibration supplied/verified by the user: IVO 3 / IVC 31.
-  // Keep the TPS/RPM shape stable; other cams only move it conservatively.
+  const spec=injCamAngleSpec();
   const camDuration=180+ivo+ivc;
-  const refDuration=214;
   const intakeCenter=90+(ivc-ivo)/2;
-  const refCenter=104;
-  const durationScale=Math.max(0.85,Math.min(1.15,Math.sqrt(refDuration/camDuration)));
-  const phaseAdjust=Math.max(-20,Math.min(20,refCenter-intakeCenter));
 
-  const matrix=Array.from({length:14},()=>Array(30).fill(0));
-  let changed=0,clamped=0,min=Infinity,max=-Infinity,sum=0,count=0;
+  // Physical timing model:
+  // 1) INJ degree is provisionally treated as SOI advance.
+  // 2) Target EOI is anchored at IVO.
+  // 3) Crank rotation during the commanded pulse is PW(ms) * RPM * 0.006.
+  // Do NOT add injector dead-time separately here: ECU PW may already include voltage compensation.
+  // Until REDLEO is scoped against CKP + injector, keep this assumption visible in the UI.
+  const eoiTarget=ivo;
+
+  const matrix=angle.map(r=>r.slice());
+  let changed=0,skipped=0,clamped=0,min=Infinity,max=-Infinity,sum=0,count=0;
+  let refAbsSum=0,refMaxDiff=0,refCount=0;
+  const isReferenceCam=Math.abs(ivo-INJ_CAM_REFERENCE_IVO)<0.0001&&Math.abs(ivc-INJ_CAM_REFERENCE_IVC)<0.0001;
+
   for(let r=0;r<14;r++){
     for(let c=0;c<30;c++){
-      const rpm=Number(RPMS[c]);
-      const base=injCamReferenceAngle(r,rpm);
-      const unclamped=base*durationScale+phaseAdjust;
-      if(unclamped>INJ_CAM_STRATEGY_MAX||unclamped<0)clamped++;
-      const next=Math.max(0,Math.min(INJ_CAM_STRATEGY_MAX,Math.round(unclamped)));
-      if(!injCamMatrixReady(angle)||Math.abs(Number(angle[r][c])-next)>0.0001)changed++;
-      matrix[r][c]=next;min=Math.min(min,next);max=Math.max(max,next);sum+=next;count++;
+      const pw=Number(fuel[r][c]),rpm=Number(RPMS[c]);
+      const durationDeg=injCamPulseDegrees(pw,rpm);
+      if(!Number.isFinite(durationDeg)){skipped++;continue}
+
+      const rawTarget=eoiTarget+durationDeg;
+      if(rawTarget>spec.max||rawTarget<0)clamped++;
+      const next=spec.quantize(rawTarget);
+      if(Math.abs(Number(angle[r][c])-next)>0.0001)changed++;
+
+      matrix[r][c]=next;
+      min=Math.min(min,next);max=Math.max(max,next);sum+=next;count++;
+
+      if(isReferenceCam){
+        const d=Math.abs(next-injCamReferenceAngle(r,rpm));
+        refAbsSum+=d;refMaxDiff=Math.max(refMaxDiff,d);refCount++;
+      }
     }
   }
-  const sampleCols=[0,6,14,29];
-  const samples=sampleCols.map(c=>Math.round(RPMS[c])+'rpm → '+matrix[0][c]+'°').join(' · ');
-  const stateOut={bank:state.activeMap,ivo,ivc,camDuration,intakeCenter,durationScale,phaseAdjust,specLabel:injCamAngleSpec().label,matrix,changed,clamped,min,max,avg:sum/count,samples};
+  if(!count)throw new Error('Không có ô PW hợp lệ để tính.');
+
+  const sampleCols=[0,6,14,29].filter(c=>c<30);
+  const samples=sampleCols.map(c=>{
+    const rpm=Number(RPMS[c]),pw=Number(fuel[0][c]),pulse=injCamPulseDegrees(pw,rpm),deg=matrix[0][c];
+    return Math.round(rpm)+'rpm: PW '+pw.toFixed(2)+'ms = '+pulse.toFixed(1)+'° dên → SOI '+deg+'°';
+  }).join(' · ');
+
+  const stateOut={
+    bank:state.activeMap,ivo,ivc,camDuration,intakeCenter,eoiTarget,
+    specLabel:spec.label,specMax:spec.max,matrix,changed,skipped,clamped,
+    min,max,avg:sum/count,samples,isReferenceCam,
+    refMeanDiff:refCount?refAbsSum/refCount:NaN,refMaxDiff:refCount?refMaxDiff:NaN
+  };
   try{localStorage.setItem('blinkInjCamCalcV2',JSON.stringify({ivo,ivc}))}catch(_e){}
   return stateOut;
 }
 function injCamRenderPreview(p){
   const el=document.getElementById('injCamPreviewText');if(!el)return;
+  const refLine=p.isReferenceCam
+    ?'Đối chiếu bảng 3/31 cũ: lệch TB '+p.refMeanDiff.toFixed(1)+'° · lệch lớn nhất '+p.refMaxDiff.toFixed(0)+'° (chỉ tham chiếu, không ép trần 295°)\n'
+    :'';
   el.textContent=
-    'MAP No.'+p.bank+' · map chiến lược 0–'+INJ_CAM_STRATEGY_MAX+'° · ECU '+p.specLabel+'\n'+
+    'MAP No.'+p.bank+' · ECU '+p.specLabel+'\n'+
     'IVO '+p.ivo+'° BTDC · IVC '+p.ivc+'° ABDC → duration cam nạp '+p.camDuration.toFixed(1)+'° · center '+p.intakeCenter.toFixed(1)+'° ATDC\n'+
-    'Hiệu chỉnh từ chuẩn 3/31: scale '+p.durationScale.toFixed(3)+' · phase '+(p.phaseAdjust>=0?'+':'')+p.phaseAdjust.toFixed(1)+'°\n'+
-    'Đề xuất: '+p.changed+'/420 ô khác map hiện tại · '+p.clamped+' ô chạm trần chiến lược 295°\n'+
+    'Công thức: SOI = IVO + PW(ms) × RPM × 0,006 · EOI mục tiêu đang neo tại IVO\n'+
+    'Giả định cần xác minh khi có xe: INJ degree của REDLEO là SOI advance; không cộng dead-time riêng.\n'+
+    'Đề xuất: '+p.changed+'/420 ô khác map hiện tại · '+p.skipped+' ô PW không hợp lệ giữ nguyên · '+p.clamped+' ô chạm giới hạn mã hóa ECU '+p.specMax+'°\n'+
     'Góc đề xuất min '+p.min.toFixed(0)+'° · max '+p.max.toFixed(0)+'° · trung bình '+p.avg.toFixed(1)+'°\n'+
     'Hàng 100% TPS: '+p.samples+'\n'+
+    refLine+
+    ((p.autoReadFuel||p.autoReadAngle)?'Tự đọc ECU: '+(p.autoReadFuel?'Thời gian phun ':'')+(p.autoReadAngle?'Góc phun':'')+'\n':'')+
     'Bấm ÁP DỤNG chỉ thay bảng cục bộ. Muốn gửi ECU vẫn phải bấm GHI ECU.';
 }
 function setInjCamDialogMessage(text){
   const el=document.getElementById('injCamPreviewText');
   if(el)el.textContent=String(text||'');
+}
+async function ensureInjCamRequiredMaps(){
+  const bank=state.activeMap;
+  const api=window.BlinkRealProtocol;
+  let fuelCheck=inspectFuelMap(state.inject);
+  let angle=featureData(currentFeature,state.activeMap);
+  let angleReady=injCamMatrixReady(angle);
+
+  if(fuelCheck.ok&&angleReady&&!fuelMapSyncUnknown(bank))return {fuelAutoRead:false,angleAutoRead:false};
+
+  if(!state.ecuConnected)throw new Error(
+    'Chưa có đủ dữ liệu ECU cho MAP No.'+bank+'. Hãy kết nối ECU; Blink sẽ tự đọc Thời gian phun và Góc phun khi bấm TÍNH THỬ.'
+  );
+  if(!api||typeof api.readFeaturePageReal!=='function')throw new Error('Protocol ECU chưa sẵn sàng để tự đọc dữ liệu cần cho bộ tính.');
+
+  let fuelAutoRead=false,angleAutoRead=false;
+  if(!fuelCheck.ok||fuelMapSyncUnknown(bank)){
+    setInjCamDialogMessage('Đang tự đọc Thời gian phun · MAP No.'+bank+'...');
+    await api.readFeaturePageReal('inj_ve',bank,false);
+    fuelCheck=inspectFuelMap(state.inject);
+    if(!fuelCheck.ok||fuelMapSyncUnknown(bank))throw new Error('Tự đọc Thời gian phun chưa đủ dữ liệu hợp lệ. '+fuelCheck.reason);
+    fuelAutoRead=true;
+  }
+
+  angle=featureData(currentFeature,state.activeMap);
+  angleReady=injCamMatrixReady(angle);
+  if(!angleReady){
+    setInjCamDialogMessage('Đang tự đọc Góc phun · MAP No.'+bank+'...');
+    await api.readFeaturePageReal('inj_degree',bank,false);
+    angle=featureData(currentFeature,state.activeMap);
+    angleReady=injCamMatrixReady(angle);
+    if(!angleReady)throw new Error('Tự đọc Góc phun chưa đủ baseline 14 × 30 hợp lệ.');
+    angleAutoRead=true;
+  }
+
+  return {fuelAutoRead,angleAutoRead};
 }
 async function runInjCamPreview(){
   if(injCamPreviewBusy)return;
@@ -6005,16 +6087,21 @@ async function runInjCamPreview(){
   const applyBtn=document.getElementById('injCamApplyBtn');
   if(previewBtn)previewBtn.dataset.busy='1';
   if(applyBtn)applyBtn.dataset.ready='0';
-  setInjCamDialogMessage('Đang tính MAP góc phun theo IVO / IVC...');
+  setInjCamDialogMessage('Đang kiểm tra dữ liệu Thời gian phun + Góc phun của MAP hiện tại...');
   try{
+    const auto=await ensureInjCamRequiredMaps();
+    setInjCamDialogMessage('Đang tính SOI từ PW × RPM và IVO...');
     const p=injCamBuildPreview();
+    p.autoReadFuel=!!auto.fuelAutoRead;
+    p.autoReadAngle=!!auto.angleAutoRead;
     injCamPreviewState=p;
     injCamRenderPreview(p);
     if(applyBtn)applyBtn.dataset.ready='1';
   }catch(e){
     injCamPreviewState=null;
     if(applyBtn)applyBtn.dataset.ready='0';
-    setInjCamDialogMessage('KHÔNG THỂ TÍNH\n'+String(e&&e.message||e));
+    const msg=String(e&&e.message||e);
+    setInjCamDialogMessage('KHÔNG THỂ TÍNH\n'+msg+'\n\nNếu ECU đang kết nối, thử bấm TÍNH THỬ lại sau khi Live ổn định.');
   }finally{
     injCamPreviewBusy=false;
     if(previewBtn)previewBtn.dataset.busy='0';
@@ -6024,7 +6111,7 @@ function applyInjCamPreview(){
   const p=injCamPreviewState;
   const ivo=Number(document.getElementById('injCamIvo')?.value),ivc=Number(document.getElementById('injCamIvc')?.value);
   if(!p){
-    setInjCamDialogMessage('CHƯA CÓ MAP ĐỀ XUẤT\nBấm TÍNH THỬ trước. Nếu thiếu Thời gian phun hoặc Góc phun, Blink sẽ báo ngay tại đây.');
+    setInjCamDialogMessage('CHƯA CÓ MAP ĐỀ XUẤT\nBấm TÍNH THỬ trước. Blink cần Thời gian phun + Góc phun của đúng MAP hiện tại.');
     return;
   }
   if(p.bank!==state.activeMap||p.ivo!==ivo||p.ivc!==ivc){
@@ -6040,8 +6127,8 @@ function applyInjCamPreview(){
   const dst=featureData(currentFeature,state.activeMap);
   for(let r=0;r<14;r++)for(let c=0;c<30;c++)dst[r][c]=p.matrix[r][c];
   saveFeatureStore();renderFeature();
-  document.getElementById('redIoStatus').textContent='Góc phun theo cam đã áp dụng cục bộ · MAP '+state.activeMap+' · chưa ghi ECU';
-  showEcuNotice('success','ĐÃ ÁP DỤNG MAP GÓC PHUN','Đã thay '+p.changed+' ô theo IVO '+p.ivo+'° / IVC '+p.ivc+'°. Kiểm tra bảng rồi bấm GHI ECU nếu muốn gửi.',5000);
+  document.getElementById('redIoStatus').textContent='Góc phun vật lý theo PW/RPM/cam đã áp dụng cục bộ · MAP '+state.activeMap+' · chưa ghi ECU';
+  showEcuNotice('success','ĐÃ ÁP DỤNG MAP GÓC PHUN','Đã thay '+p.changed+' ô theo SOI = IVO + PW×RPM×0,006. Kiểm tra bảng rồi bấm GHI ECU nếu muốn gửi.',5000);
   document.getElementById('injCamDialog')?.close();
 }
 function openInjCamDialog(){
@@ -6051,7 +6138,11 @@ function openInjCamDialog(){
   injCamSelectField('ivo');
   const b=document.getElementById('injCamApplyBtn');if(b)b.dataset.ready='0';
   const spec=injCamAngleSpec();
-  setInjCamDialogMessage('MAP No.'+state.activeMap+' · ECU '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo. Bảng 3/31 là chuẩn tham chiếu; bộ tính không cần map Thời gian phun và không cho góc vượt 295°.');
+  setInjCamDialogMessage(
+    'MAP No.'+state.activeMap+' · ECU '+spec.label+'\n'+
+    'Bộ tính dùng PW thực tế của MAP: SOI = IVO + PW × RPM × 0,006. IVC dùng để mô tả/kiểm tra cam; hiện chưa dùng để ép một offset EOI chưa được xác minh.\n'+
+    'Nếu thiếu Thời gian phun hoặc Góc phun, Blink sẽ tự đọc đúng MAP này từ ECU.'
+  );
   document.getElementById('injCamDialog')?.showModal();
 }
 
