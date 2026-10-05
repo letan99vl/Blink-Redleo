@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.61`
+`BLINK_PB_VERSION = 3.79.62`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.61.
+- Android/web production: `main`, currently PB 3.79.62.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -615,3 +615,13 @@ The assistant should then:
 - IVO/IVC math and ECU-family angle conversion are unchanged.
 - Backup: backup-pb-3.79.60-pre-cam-auto-read-required-maps.
 - Final CI run **37338194002 = SUCCESS**.
+
+## 36. Corrected cam-phase heuristic checkpoint - PB 3.79.62
+
+- IVO=3 / IVC=31 testing exposed an invalid ~160° base offset in the prior model.
+- New heuristic places EOI near the beginning of the intake-open window, not from IVC as an absolute BTDC anchor.
+- Formula: duration=180+IVO+IVC; EOI phase=clamp(5% duration,8,20) after IVO; SOI advance=max(0,PW×RPM×0.006-(EOIphase-IVO)).
+- For 3/31 this produces EOI≈8° ATDC instead of ~160° BTDC.
+- Auto-read, virtual keypad, preview/local apply, and separate GHI ECU safety remain intact.
+- Backup: backup-pb-3.79.61-pre-correct-cam-phase-model.
+- Final CI run **37338924774 = SUCCESS**.
