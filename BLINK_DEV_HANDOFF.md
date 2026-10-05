@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.53**.
+- Current displayed PB: **3.79.54**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -939,3 +939,19 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Backup: `backup-pb-3.79.52-pre-top-left-selection`.
 - Core implementation commit: `42c6460bf1dd4ac2745b3c057bdaf5f922c27829`.
 - Regression: `tools/check-map-selection.js` added and wired into protocol CI.
+
+
+## Tap selected rectangle -> single cell - PB 3.79.54 - 2026-10-05
+
+- User refined the selection UX again: after a rectangle has already been selected (by drag/QUÉT or two-corner mode), tapping any cell must immediately leave **only that cell selected**.
+- Previous PB 3.79.52/53 behavior that cleared the selection when tapping inside the highlighted rectangle is superseded.
+- New behavior:
+  - tap any cell inside an existing highlighted rectangle -> selection collapses to exactly that cell in one tap;
+  - in two-corner mode, that cell also becomes the new corner #1 so the next valid lower-right tap can form a new rectangle;
+  - in QUÉT mode, a simple tap leaves exactly one selected cell;
+  - dragging in QUÉT mode still creates a rectangle normally.
+- Top-left-first rule from PB 3.79.53 remains unchanged for two-corner mode.
+- Applied to main fuel/target maps and REDLEO multi-cell editors.
+- Backup: `backup-pb-3.79.53-pre-tap-collapse-to-cell`.
+- Core implementation commit: `5602f07d7c9b54b21440d2c6590e5df1301cb7c3`.
+- `tools/check-map-selection.js` updated so regression now requires one-tap collapse-to-cell instead of tap-to-cancel.
