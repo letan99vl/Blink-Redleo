@@ -3,6 +3,7 @@
 
 const fs=require('fs');
 const src=fs.readFileSync('redleo_real_protocol.js','utf8');
+const ui=fs.readFileSync('index.html','utf8');
 
 function must(re,msg){
   if(!re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
@@ -98,6 +99,22 @@ must(/function v11FullImageReady\(\)[\s\S]*sourceLength===9958/,
   'V11/Ultra Pro2 full-image write must still require exact 9958B decoded ReadAll');
 mustNot(/isUltraPro2Direct\(\)[\s\S]{0,500}sourceLength===\s*(?!9958)\d+/,
   'Ultra Pro2 must not introduce a looser full-image length gate');
+
+// UI state/display must distinguish Ultra Pro2 from generic V11/ATE text.
+must(/state\.ecuVariant=isUltraPro2Identity\(info\)\?'ULTRA_PRO2'/,
+  'Ultra Pro2 variant must be exposed to UI state');
+if(!/const ultra2=state\.ecuProfile==='MODERN_V11'&&state\.ecuVariant==='ULTRA_PRO2'/.test(ui)){
+  console.error('FAIL: Ultra Pro2 V11 editor UI must detect the ULTRA_PRO2 variant');
+  process.exitCode=1;
+}
+if(!/const v11Name=ultra2\?'REDLEO Ultra Pro2':'ATE V11'/.test(ui)){
+  console.error('FAIL: Ultra Pro2 V11 editor UI must use REDLEO product naming');
+  process.exitCode=1;
+}
+if(!/if\(id==='ate_options'\)\{f\.title='Tuỳ chọn REDLEO Ultra Pro2';f\.source='Dgv_Option';\}/.test(ui)){
+  console.error('FAIL: Ultra Pro2 options editor must not present itself as ATE Options');
+  process.exitCode=1;
+}
 
 // Product display and connection label must not say ATE for direct Pro2.
 must(/sessionProfileLabel\(p,info\)/,
