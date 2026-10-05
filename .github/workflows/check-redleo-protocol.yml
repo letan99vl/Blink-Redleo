@@ -12,6 +12,7 @@ on:
       - 'tools/check-v10-page6.js'
       - 'tools/check-v10-a2.js'
       - 'tools/check-ultra-page6.js'
+      - 'tools/check-ultra-a2.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -34,3 +35,5 @@ jobs:
         run: node tools/check-v10-a2.js
       - name: REDLEO Ultra Pro1 page6 regression
         run: node tools/check-ultra-page6.js
+      - name: REDLEO Ultra Pro1 A2 regression
+        run: node tools/check-ultra-a2.js
