@@ -66,8 +66,14 @@ mustNot(/writeV92(?:IdleLimit|EctMotor)[\s\S]{0,700}slice\(0,30\)/,
 // Other families must never reuse the REDLEO 9.2 62B serializer.
 // V10.2 has its own 18B Idle-only page6 writer. Its ECT Motor lives in A2,
 // so page6 regression only verifies the family boundary, not an A2 lock.
-must(/if\(v10&&id==='idle_limit'\)return page\(6,bank\);[\s\S]{0,180}ect_idle_motor[\s\S]{0,100}return 0xA2/,
-  'V10 ECT Motor must route to A2, not page6');
+{
+  const pageRouter=between('function mainFeaturePage','function isDirectVerifiedFeature');
+  if(!/if\(v10&&id==='idle_limit'\)return page\(6,bank\);/.test(pageRouter) ||
+     !/if\(v10&&\[[^\]]*'ect_idle_motor'[^\]]*\]\.includes\(id\)\)return 0xA2;/.test(pageRouter)){
+    console.error('FAIL: V10 ECT Motor must route to A2, not page6');
+    process.exitCode=1;
+  }
+}
 must(/writeV10EctMotor[\s\S]{0,180}writeV10A2KnownFeature\('ect_idle_motor'\)/,
   'V10 ECT Motor writer must delegate to A2 serializer');
 mustNot(/writeV10IdleLimit[\s\S]{0,700}slice\(0,62\)/,
