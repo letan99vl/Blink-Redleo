@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.52';
+  window.BLINK_PB_VERSION = '3.79.53';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2615,7 +2615,12 @@ function handleMapCornerTap(r,c){
     highlightSelection();
     return 'anchor';
   }
-  // Corner #2 completes the rectangle. Order does not matter.
+  // Corner #2 must be at/right and at/below corner #1. Reverse selection is
+  // intentionally rejected so two-tap selection always starts from top-left.
+  if(r<state.selection.anchorR||c<state.selection.anchorC){
+    $('selectionInfo').textContent='Góc 2 phải nằm bên phải / phía dưới góc 1';
+    return 'invalid-direction';
+  }
   state.selection.focusR=r;state.selection.focusC=c;
   state.selection.cornerPending=false;
   highlightSelection();
@@ -5563,6 +5568,11 @@ function handleRedCornerTap(r,c){
   if(!redSelectionActive||!redCornerPending){
     redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=true;
     updateRedSelectionVisual();return 'anchor';
+  }
+  if(r<redSel.r0||c<redSel.c0){
+    const info=document.getElementById('redSelectionInfo');
+    if(info)info.textContent='Góc 2 phải nằm bên phải / phía dưới góc 1';
+    return 'invalid-direction';
   }
   redSel.r1=r;redSel.c1=c;redCornerPending=false;updateRedSelectionVisual();return 'range';
 }
