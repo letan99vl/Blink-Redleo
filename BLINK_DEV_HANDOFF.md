@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.51**.
+- Current displayed PB: **3.79.52**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -896,3 +896,28 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   - REDLEO 9.2 tested hardware remains the golden reference, while 9.1X still needs a controlled real-ECU READ -> one-cell edit -> SAVE -> READBACK test.
 
 - Final CI for PB 3.79.51: GitHub Actions run **37268197492 = SUCCESS**. Syntax + row orientation + ECU feature matrix + V8 + V9 routing + 9.1X + 9.2 + V10.2 + Ultra Pro1 + Ultra Pro2 regressions all passed.
+
+
+## Two-corner rectangular map selection - PB 3.79.52 - 2026-10-05
+
+- User requested keeping the existing drag/scan selection while adding a mobile-friendly two-corner rectangular selection mode.
+- Main fuel/target map behavior when QUÉT is OFF:
+  - first tap selects corner #1 and shows a prompt to tap the opposite corner;
+  - second tap outside the current highlighted cell/range completes the rectangle;
+  - corner order does not matter (top-left/bottom-right or reverse both work);
+  - tapping any cell already inside the highlighted selection cancels the whole selection;
+  - tapping outside a completed selection starts a new corner #1.
+- Existing QUÉT CHỌN remains available:
+  - drag behavior is preserved;
+  - a simple tap on an already-highlighted region while scan mode is ON cancels selection;
+  - dragging from that region still starts a new scan and does not accidentally cancel after movement.
+- Applied the same selection UX to REDLEO multi-cell feature editors:
+  - two-corner rectangle when QUÉT is OFF;
+  - tap selected cell to cancel;
+  - scan drag remains available;
+  - keypad / +/- / AFR ON-OFF operations now require an active red-map selection instead of silently operating on the default 0,0 cell.
+- Removed the older duplicate touch pointerdown selector so one physical tap cannot be processed twice.
+- Selection state now explicitly tracks pending first-corner vs completed rectangle.
+- Backup before change: `backup-pb-3.79.51-pre-two-corner-selection`.
+- Core implementation commit: `38469824d2c1026d9f505ece3e2d486ce1fe48fc`.
+- Protocol CI run **37306927432**: **SUCCESS**. Syntax plus all existing ECU family regressions passed; this UI change did not broaden any ECU protocol writer.
