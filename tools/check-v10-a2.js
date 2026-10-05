@@ -41,11 +41,11 @@ must(/ectStartRaw=data\.slice\(L\.ECT_START,L\.ECT_START\+33\)/,
 must(/externalRaw=data\.slice\(L\.EXTERNAL,L\.EXTERNAL\+30\)/,
   'V10.2 External Adjustment block must be 30B');
 
-// Direct V10 must use exact 268B parser. Ultra remains on conservative,
-// separate read-only prefix path and may not use the V10 serializer.
-must(/const minData=v11\?V11_A2\.LEN:\(v10Direct\?V10_A2\.LEN:\(v10Family\?140:133\)\)/,
-  'V10 direct A2 read must require 268B while Ultra stays separate');
-must(/v10Direct\?parseV10A2Data\(R\.data\):\(v10Family\?parseModernA2Prefix\(R\.data\):parseA2Data\(R\.data\)\)/,
+// Direct V10 must use exact 268B parser. Ultra now has its own exact 277/285B
+// parser/writer and must remain separate from V10_A2.
+must(/const minData=v11\?V11_A2\.LEN:\(v10Direct\?V10_A2\.LEN:\(ultra\?\(ultraLayout\?ultraLayout\.len:ULTRA_A2\.BASE_LEN\)/,
+  'V10 direct A2 read must require 268B while Ultra uses its own 277/285B path');
+must(/v10Direct\?parseV10A2Data\(R\.data\):\(ultra\?parseUltraA2Data\(R\.data\)/,
   'V10 direct/Ultra A2 parser separation missing');
 must(/writeV10A2KnownFeature[\s\S]{0,250}if\(!isV10Direct\(\)\)throw/,
   'V10 A2 writer must reject Ultra');
@@ -104,8 +104,8 @@ must(/payload\.set\(enc\.raw,V10_A2\.TPS_VOLT\)/,
   'V10 TPS axis writer must patch exact A2 bytes 0..27');
 must(/payload\.set\(enc\.raw,V10_A2\.RPM\)/,
   'V10 RPM axis writer must patch exact A2 bytes 28..87');
-must(/if\(v10Direct&&C\.tpsPct\)emitFeature\(N\.tps_axis,\[C\.tpsPct\]\)[\s\S]*if\(v10Direct&&C\.rpmAxis\)emitFeature\(N\.rpm_axis,\[C\.rpmAxis\]\)/,
-  'V10 axis surfaces must be emitted after A2 read');
+must(/if\(\(v10Direct\|\|ultra\)&&C\.tpsPct\)emitFeature\(N\.tps_axis,\[C\.tpsPct\]\)[\s\S]*if\(\(v10Direct\|\|ultra\)&&C\.rpmAxis\)emitFeature\(N\.rpm_axis,\[C\.rpmAxis\]\)/,
+  'V10/Ultra axis surfaces must be emitted after their exact A2 read');
 must(/if\(id==='tps_axis'\|\|id==='rpm_axis'\)[\s\S]*parseV10A2Data\(got\)[\s\S]*publishEcuAxes\(C\.tpsPct,C\.rpmAxis,'A2 READBACK · V10\.2'\)/,
   'V10 axis write must refresh live map axes from verified A2 readback');
 must(/currentV10Direct&&\[[^\]]*'tps_axis'[^\]]*'rpm_axis'[^\]]*\]\.includes\(id\)/,
@@ -120,8 +120,8 @@ if(!/"id":"tps_axis"[\s\S]{0,500}"rows":1,"cols":14[\s\S]{0,900}"id":"rpm_axis"[
   console.error('FAIL: V10 TPS/RPM axis editor dimensions changed');
   process.exitCode=1;
 }
-if(!/REDLEO ULTRA · trục TPS\/RPM A2 phải xác minh serializer riêng/.test(src)){
-  console.error('FAIL: Ultra axis writer guard missing');
+if(!/async function writeUltraA2KnownFeature[\s\S]*ULTRA_A2\.TPS_VOLT[\s\S]*ULTRA_A2\.RPM/.test(src)){
+  console.error('FAIL: Ultra axis writer must remain separate from V10_A2 axis writer');
   process.exitCode=1;
 }
 // Only the dedicated branches may patch the axis offsets.
@@ -194,14 +194,14 @@ must(/payload\.set\(encodeV10EctStart33\(m\),V10_A2\.ECT_START\)/,
   'V10 Start Add writer must patch only exact ECT_START block');
 must(/const ectStart=decodeV10EctStart33\(ectStartRaw\)/,
   'V10 Start Add parser must decode the 33B block');
-must(/if\(v10Direct&&C\.ectStart\)emitFeature\(N\.ect_start,C\.ectStart\)/,
-  'V10 Start Add must be emitted to UI after A2 read');
+must(/if\(\(v10Direct\|\|ultra\)&&C\.ectStart\)emitFeature\(N\.ect_start,C\.ectStart\)/,
+  'V10/Ultra Start Add must be emitted after their exact A2 read');
 if(!/id==='ect_start'&&state\.ecuProfile==='MODERN_V10'[\s\S]{0,400}rows:3,cols:11[\s\S]{0,300}Time\(Second\)[\s\S]{0,120}INJ VE\(ms\)[\s\S]{0,120}StrtAdd\(ms\)/.test(ui)){
   console.error('FAIL: index.html must render V10.2 Start Add as 3x11 with original row labels');
   process.exitCode=1;
 }
-if(!/REDLEO ULTRA · Start Add dùng serializer A2 riêng/.test(src)){
-  console.error('FAIL: Ultra Start Add must remain explicitly separated from V10.2');
+if(!/async function writeUltraA2KnownFeature[\s\S]*encodeV10EctStart33\(m\),ULTRA_A2\.ECT_START/.test(src)){
+  console.error('FAIL: Ultra Start Add must remain on Ultra_A2 offsets, not V10_A2 offsets');
   process.exitCode=1;
 }
 
@@ -211,8 +211,8 @@ must(/const info3=!!\(n&\(1<<3\)\),info4=!!\(n&\(1<<4\)\)/,
 must(/solenoid:info3\|\|info4/,
   'V10 motor-mode rule must remain InfoChk[3] || InfoChk[4]');
 
-// The historical 140B parser may remain for Ultra read-only compatibility,
-// but direct V10 must never be documented/routed as a 140B writer again.
+// The historical 140B parser may remain only as an old tooling fallback.
+// Neither direct V10 nor Ultra may route writes through it.
 mustNot(/writeV10A2KnownFeature[\s\S]{0,900}(140B|slice\(0,140\))/,
   'old 140B V10 direct-write assumption reintroduced');
 
