@@ -54,20 +54,34 @@ must(/ultra2\?'REDLEO ULTRA PRO2 · A2 286B'/,
 
 // V11 page6 contract used by Ultra Pro2.
 const idle=between('async function writeV11IdleLimit','async function writeV11EctStart');
-must(/cached\.length<43/.test(idle) && /payload=baseline\.slice\(0,43\)/.test(idle),
-  'V11/Ultra Pro2 page6 must use exact 43B baseline/payload');
-must(/payload\.set\(idle,0\)/.test(idle),
-  'Ultra Pro2 Idle must occupy page6 offset 0');
-must(/payload\.set\(shift,12\)/.test(idle),
-  'Ultra Pro2 AutoShift must occupy page6 offset 12');
-must(/payload\.set\(motor,21\)/.test(idle),
-  'Ultra Pro2 ECT Motor must occupy page6 offset 21');
-must(/GHI IDLE\/LIMIT[\s\S]*12B Idle/.test(idle),
-  'Ultra Pro2/V11 Idle 12B invariant missing');
-must(/GHI AUTOSHIFT[\s\S]*9B AutoShift/.test(idle),
-  'Ultra Pro2/V11 AutoShift 9B invariant missing');
-must(/GHI ECT MOTOR[\s\S]*22B ECT Motor/.test(idle),
-  'Ultra Pro2/V11 ECT Motor 22B invariant missing');
+if(!/cached\.length<43/.test(idle) || !/payload=baseline\.slice\(0,43\)/.test(idle)){
+  console.error('FAIL: V11/Ultra Pro2 page6 must use exact 43B baseline/payload');
+  process.exitCode=1;
+}
+if(!/payload\.set\(idle,0\)/.test(idle)){
+  console.error('FAIL: Ultra Pro2 Idle must occupy page6 offset 0');
+  process.exitCode=1;
+}
+if(!/payload\.set\(shift,12\)/.test(idle)){
+  console.error('FAIL: Ultra Pro2 AutoShift must occupy page6 offset 12');
+  process.exitCode=1;
+}
+if(!/payload\.set\(motor,21\)/.test(idle)){
+  console.error('FAIL: Ultra Pro2 ECT Motor must occupy page6 offset 21');
+  process.exitCode=1;
+}
+if(!/GHI IDLE\/LIMIT[\s\S]*12B Idle/.test(idle)){
+  console.error('FAIL: Ultra Pro2/V11 Idle 12B invariant missing');
+  process.exitCode=1;
+}
+if(!/GHI AUTOSHIFT[\s\S]*9B AutoShift/.test(idle)){
+  console.error('FAIL: Ultra Pro2/V11 AutoShift 9B invariant missing');
+  process.exitCode=1;
+}
+if(!/GHI ECT MOTOR[\s\S]*22B ECT Motor/.test(idle)){
+  console.error('FAIL: Ultra Pro2/V11 ECT Motor 22B invariant missing');
+  process.exitCode=1;
+}
 
 // AutoClutch intentionally out of scope on newly added Ultra Pro2.
 must(/if\(p===ecuProfile&&isUltraPro2Direct\(\)&&id==='auto_clutch'\)return false/,
