@@ -59,5 +59,23 @@ must(/function handleRedCornerTap\(r,c\)[\s\S]{0,650}if\(!redRangeEditorActive\(
   }
 }
 
+
+// Legacy Idle/Limit ECT-motor table lives outside redleoEditorScreen but must
+// still receive the same single-cell editing controls.
+must(/id="idleEctSelectionPad" class="mapSelectionPad idleEctSelectionPad"/,
+  'legacy Idle ECT floating save/+/- pad missing');
+must(/id="idleEctKeypadToggle" class="fuelKeypadToggle idleEctKeypadToggle"/,
+  'legacy Idle ECT keypad toggle missing');
+must(/id="idleEctKeypad" class="fuelKeypad idleEctKeypad"/,
+  'legacy Idle ECT keypad missing');
+must(/function selectIdleEctCell\(i\)[\s\S]{0,500}idleEctSelected=/,
+  'legacy Idle ECT must support direct single-cell selection');
+must(/idleEctFloatPlusBtn[\s\S]{0,260}bumpIdleEct\(1\)/,
+  'legacy Idle ECT floating plus missing');
+must(/idleEctFloatMinusBtn[\s\S]{0,260}bumpIdleEct\(-1\)/,
+  'legacy Idle ECT floating minus missing');
+must(/idleEctFloatSaveBtn[\s\S]{0,380}idleLimitWriteBtn/,
+  'legacy Idle ECT floating save must route to the verified Idle/Limit writer');
+
 if(process.exitCode)process.exit(process.exitCode);
 console.log('OK: top-left-first rectangles, free single-cell anchor relocation, and tap-collapse behavior hold.');
