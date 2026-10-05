@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.61**.
+- Current displayed PB: **3.79.62**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1148,3 +1148,21 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main implementation commit: 4ab234da28da1152a63b7c691dbc822e2d89937f.
 - Regression updates: 70e2a509d14fdb282a0a554cb76aecb60e561c4f and dfa98763433fe758db17fd959cd6ee803caf2580.
 - Final CI run **37338194002 = SUCCESS**. All 17 checks passed.
+
+## Corrected cam-phase model after 3/31 test - PB 3.79.62 - 2026-10-05
+
+- User tested IVO=3 BTDC / IVC=31 ABDC and observed clearly over-advanced output (e.g. ~177° at 500 rpm).
+- Root cause: PB 3.79.61 treated IVC as an absolute BTDC EOI anchor, creating an artificial ~160° base offset across the map.
+- This was inconsistent with the original REDLEO 9.2 INJ degree map supplied by the user, where low-rpm values are near zero.
+- Corrected heuristic:
+  - intake duration = 180 + IVO + IVC;
+  - target EOI phase = 5% into the intake-open window, clamped to 8–20° after IVO;
+  - EOI relative to TDC = target phase after IVO - IVO;
+  - injection duration deg = PW(ms) × RPM × 0.006;
+  - recommended SOI advance = max(0, injection duration deg - EOI_ATDC).
+- For IVO=3 / IVC=31: duration=214°, target EOI phase=11° after IVO, so EOI≈8° ATDC. There is no longer a +160° base offset.
+- Existing auto-read preflight, virtual keypad, family-specific quantization, local-only APPLY, and explicit GHI ECU safety remain unchanged.
+- Backup: backup-pb-3.79.61-pre-correct-cam-phase-model.
+- Main implementation commit: 8c87a08d6bcfc9263e7508d00ade20d8e94439d9.
+- Regression update: 5853aa04794661ef056a774e7e0d53ba65558731.
+- Final CI run **37338924774 = SUCCESS**. All 17 checks passed.
