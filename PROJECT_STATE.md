@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.54`
+`BLINK_PB_VERSION = 3.79.55`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.54.
+- Android/web production: `main`, currently PB 3.79.55.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -508,3 +508,17 @@ The assistant should then:
 - Backup: `backup-pb-3.79.53-pre-tap-collapse-to-cell`.
 - Core commit: `5602f07d7c9b54b21440d2c6590e5df1301cb7c3`.
 - Regression update commit: `7dc76e81ba0b4fe94bee6e0c43f9bf646ac1795d`.
+
+
+## 28. Free single-cell navigation checkpoint - PB 3.79.55
+
+- Top-left-first remains a rectangle-creation rule only.
+- A single selected cell can now move freely in any direction by tapping another cell.
+- If the next tap is above/left of the current origin, Blink relocates the origin to that cell instead of rejecting it.
+- Reverse rectangles are still not created.
+- Tap-inside rectangle -> collapse to one cell remains active.
+- Applied to main maps and REDLEO multi-cell editors.
+- Backup: `backup-pb-3.79.54-pre-anchor-relocate`.
+- Core commit: `175ff604e2164b8b64bc47db303b83cf87449f62`.
+- Regression commit: `b62c89cd79ca371da34648b43d0b7ff9d678bbf4`.
+- Final CI run **37308785976 = SUCCESS**.
