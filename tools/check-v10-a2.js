@@ -22,12 +22,12 @@ function between(a,b){
 // vAFR/vECT/vIAT/vMAP/IAT_INJ/MAP_MOTOR 6x11 (66B) +
 // CONFIG/AutoClutch/password 11B + Option 18B +
 // ECT Motor 22B + ECT Start Add 33B + EX_ADJ 30B = 268B.
-must(/const V10_A2=Object\.freeze\(\{[\s\S]*LEN:268,[\s\S]*TPS_HIDDEN:0,TPS:14,RPM:28,VAFR:88,VECT:99,VIAT:110,VMAP:121,[\s\S]*IAT_INJ:132,MAP_MOTOR:143,CONFIG:154,OPTION:165,ECT_MOTOR:183,[\s\S]*ECT_START:205,EXTERNAL:238/,
+must(/const V10_A2=Object\.freeze\(\{[\s\S]*LEN:268,[\s\S]*TPS_VOLT:0,TPS_HIDDEN:0,TPS:14,RPM:28,VAFR:88,VECT:99,VIAT:110,VMAP:121,[\s\S]*IAT_INJ:132,MAP_MOTOR:143,CONFIG:154,OPTION:165,ECT_MOTOR:183,[\s\S]*ECT_START:205,EXTERNAL:238/,
   'V10.2 A2 canonical 268B offsets changed');
 must(/if\(data\.length<V10_A2\.LEN\).*cần.*V10_A2\.LEN/,
   'V10.2 exact parser must reject reads shorter than 268B');
-must(/tpsHiddenRaw=data\.slice\(L\.TPS_HIDDEN,L\.TPS_HIDDEN\+14\)[\s\S]*tpsRaw=data\.slice\(L\.TPS,L\.TPS\+14\)/,
-  'V10.2 must preserve hidden TPS row and decode visible TPS row separately');
+must(/tpsVoltRaw=data\.slice\(L\.TPS_VOLT,L\.TPS_VOLT\+14\)[\s\S]*tpsHiddenRaw=tpsVoltRaw\.slice\(\)[\s\S]*tpsRaw=data\.slice\(L\.TPS,L\.TPS\+14\)/,
+  'V10.2 must decode TPS voltage row and visible TPS-percent row separately');
 must(/rpmRaw=data\.slice\(L\.RPM,L\.RPM\+60\)/,
   'V10.2 RPM axis must consume 60B');
 must(/configRaw=data\.slice\(L\.CONFIG,L\.CONFIG\+11\)/,
@@ -62,7 +62,7 @@ must(/A2 TX 268B/,
   'V10 A2 status must expose exact TX length');
 
 // Only verified editable surfaces are patched in this pass.
-must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','v_ect','v_iat','v_map'\]\.includes\(id\)/,
+must(/\['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'\]\.includes\(id\)/,
   'V10 A2 verified feature dispatch changed');
 must(/payload\[V10_A2\.IAT_INJ\+i\]=encOil/,
   'IAT INJ patch must stay at exact block');
@@ -77,11 +77,10 @@ must(/payload\[V10_A2\.CONFIG\+2\+i\]=clamp\(Math\.round\(Math\.max\(0,Number\(v
 must(/autoStart=decAutoRpm\(configRaw\[1\]\)[\s\S]{0,120}auto=Array\.from\(configRaw\.slice\(2,7\),x=>Number\(x\)\*5\)[\s\S]{0,120}password=Array\.from\(configRaw\.slice\(7,11\)\)/,
   'V10 CONFIG layout must remain feature/startRPM/5 timers/password');
 
-// Partial writers preserve TPS/RPM, vAFR and every sibling block. Option is now
-// a verified 18B block, but only its first 15 semantic bytes may be changed.
-// AutoClutch may patch only CONFIG +2..+6. ECT Start may patch only its 33B block.
+// Partial writers preserve vAFR and every sibling block. TPS/RPM are now verified
+// dedicated axis writers and are checked separately below.
 const writer=between('async function writeV10A2KnownFeature(id){','async function writeV10EctMotor');
-for(const forbidden of ['V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VAFR']){
+for(const forbidden of ['V10_A2.VAFR']){
   if(writer.includes('payload['+forbidden)||writer.includes('payload.set('+forbidden)){
     console.error('FAIL: partial V10 A2 writer patches preserved block '+forbidden);
     process.exitCode=1;
@@ -89,6 +88,53 @@ for(const forbidden of ['V10_A2.TPS_HIDDEN','V10_A2.TPS','V10_A2.RPM','V10_A2.VA
 }
 
 
+
+
+// V10.2 TPS/RPM axis semantics reconstructed from original proCheckTpsOption,
+// proCheckRpmOption, proUartDgvNumVoltage, proDgvUnit and __UartToDgvTps.
+must(/function normalizeV10TpsAxis\(values\)[\s\S]*out\[0\]=0[\s\S]*v>=10\?Math\.round\(v\):\(Math\.round\(v\*2\)\/2\)[\s\S]*v<0\|\|v>100[\s\S]*out\[i\]>out\[i-1\]/,
+  'V10 TPS axis normalization/range/order changed');
+must(/function encodeV10TpsAxis28\(values,tpsMinV,tpsMaxV\)[\s\S]*const v=r2\(lo\+\(span\/100\)\*pct\[i\]\)[\s\S]*out\[i\]=encVolt\(v\)[\s\S]*out\[14\+i\]=clamp\(Math\.round\(pct\[i\]\*2\),0,200\)/,
+  'V10 TPS 28B voltage+percent encoding changed');
+must(/function normalizeV10RpmAxis\(values\)[\s\S]*Math\.round\(out\[i\]\/20\)\*20[\s\S]*out\[i\]<500\|\|out\[i\]>15000[\s\S]*out\[i\]>out\[i-1\]/,
+  'V10 RPM axis normalization/range/order changed');
+must(/function encodeV10RpmAxis60\(values\)[\s\S]*Math\.floor\(rpm\[i\]\/20\)[\s\S]*out\[i\*2\]=\(raw>>8\)&255[\s\S]*out\[i\*2\+1\]=raw&255/,
+  'V10 RPM 30xu16-BE encoding changed');
+must(/payload\.set\(enc\.raw,V10_A2\.TPS_VOLT\)/,
+  'V10 TPS axis writer must patch exact A2 bytes 0..27');
+must(/payload\.set\(enc\.raw,V10_A2\.RPM\)/,
+  'V10 RPM axis writer must patch exact A2 bytes 28..87');
+must(/if\(v10Direct&&C\.tpsPct\)emitFeature\(N\.tps_axis,\[C\.tpsPct\]\)[\s\S]*if\(v10Direct&&C\.rpmAxis\)emitFeature\(N\.rpm_axis,\[C\.rpmAxis\]\)/,
+  'V10 axis surfaces must be emitted after A2 read');
+must(/if\(id==='tps_axis'\|\|id==='rpm_axis'\)[\s\S]*parseV10A2Data\(got\)[\s\S]*publishEcuAxes\(C\.tpsPct,C\.rpmAxis,'A2 READBACK · V10\.2'\)/,
+  'V10 axis write must refresh live map axes from verified A2 readback');
+must(/currentV10Direct&&\[[^\]]*'tps_axis'[^\]]*'rpm_axis'[^\]]*\]\.includes\(id\)/,
+  'V10 axes must be direct-V10 dynamic features only');
+mustNot(/MODERN_V10:new Set\(\[[^\]]*'(tps_axis|rpm_axis)'/,
+  'Base MODERN_V10 profile must not expose V10 axes to Ultra');
+if(!/data-feature="tps_axis"[\s\S]{0,500}data-feature="rpm_axis"/.test(ui)){
+  console.error('FAIL: V10 TPS/RPM axis menu cards missing');
+  process.exitCode=1;
+}
+if(!/"id":"tps_axis"[\s\S]{0,500}"rows":1,"cols":14[\s\S]{0,900}"id":"rpm_axis"[\s\S]{0,500}"rows":1,"cols":30/.test(ui)){
+  console.error('FAIL: V10 TPS/RPM axis editor dimensions changed');
+  process.exitCode=1;
+}
+if(!/REDLEO ULTRA · trục TPS\/RPM A2 phải xác minh serializer riêng/.test(src)){
+  console.error('FAIL: Ultra axis writer guard missing');
+  process.exitCode=1;
+}
+// Only the dedicated branches may patch the axis offsets.
+const tpsBranch=between("}else if(id==='tps_axis'){","}else if(id==='rpm_axis'){");
+const rpmBranch=between("}else if(id==='rpm_axis'){","}else{");
+if(!tpsBranch.includes('payload.set(enc.raw,V10_A2.TPS_VOLT)')){
+  console.error('FAIL: TPS axis branch missing exact TPS block patch');
+  process.exitCode=1;
+}
+if(!rpmBranch.includes('payload.set(enc.raw,V10_A2.RPM)')){
+  console.error('FAIL: RPM axis branch missing exact RPM block patch');
+  process.exitCode=1;
+}
 
 // V10.2 Dgv_Option exact 18B semantics.
 // Original UI exposes 15 labeled/unit cells; bytes 15..17 are unlabeled and
