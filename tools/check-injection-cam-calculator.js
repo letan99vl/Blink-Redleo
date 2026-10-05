@@ -48,7 +48,7 @@ must(/id="injCamPreviewText" class="injCamPreview"/,'in-dialog preview/status el
 must(/id="injCamPreviewBtn" type="button" class="primary">TÍNH THỬ<\/button>/,'preview action button missing');
 must(/id="injCamApplyBtn" type="button" class="danger" data-ready="0">ÁP DỤNG VÀO MAP<\/button>/,'apply button must stay clickable even before preview');
 mustNot(/id="injCamApplyBtn"[^>]*disabled/,'apply button must not be disabled/silent');
-must(/function runInjCamPreview\(\)[\s\S]{0,300}setInjCamDialogMessage\('Đang tính MAP góc phun\.\.\.'\)/,'preview click must show immediate in-dialog feedback');
+must(/async function runInjCamPreview\(\)[\s\S]{0,1200}setInjCamDialogMessage\('Đang kiểm tra dữ liệu MAP hiện tại\.\.\.'\)[\s\S]{0,1200}setInjCamDialogMessage\('Đang tính MAP góc phun\.\.\.'\)/,'preview must show preflight and calculation progress in dialog');
 must(/function runInjCamPreview\(\)[\s\S]{0,900}KHÔNG THỂ TÍNH/,'preview errors must be visible inside dialog');
 must(/function applyInjCamPreview\(\)[\s\S]{0,500}CHƯA CÓ MAP ĐỀ XUẤT/,'apply-before-preview must show in-dialog feedback');
 must(/injCamPreviewBtn'[\s\S]{0,180}runInjCamPreview\(\)/,'preview button event not wired');
