@@ -1,0 +1,53 @@
+name: Export iOS TestFlight Service Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [testflight-handoff]
+    paths:
+      - 'ios/**'
+      - 'TESTFLIGHT_HANDOFF.md'
+      - '.github/workflows/export-ios-testflight-service.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "BLINK_PB_VERSION = '3.79.64'" ios/BlinkRedleo/Web/index.html
+          grep -q 'MARKETING_VERSION: "1.0"' ios/project.yml
+          grep -q 'CURRENT_PROJECT_VERSION: "2"' ios/project.yml
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
+
+      - name: Create service package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > PACKAGE_INFO.txt <<EOF
+          BLINK REDLEO iOS / TestFlight service package
+          PB: 3.79.64
+          Version: 1.0
+          Build: 2
+          Bundle ID: vn.blinkredleo.app
+          Source branch: testflight-handoff
+          Source commit: $GITHUB_SHA
+
+          Start with TESTFLIGHT_HANDOFF.md.
+          Signing credentials are intentionally NOT included.
+          EOF
+          zip -qry BLINK-REDLEO-TestFlight-Service-PB3.79.64-Build2.zip             ios TESTFLIGHT_HANDOFF.md PACKAGE_INFO.txt
+
+      - name: Upload service package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLINK-REDLEO-TestFlight-Service-PB3.79.64-Build2
+          path: BLINK-REDLEO-TestFlight-Service-PB3.79.64-Build2.zip
+          if-no-files-found: error
