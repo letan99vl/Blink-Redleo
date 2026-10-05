@@ -21,8 +21,8 @@ function between(a,b){
 // page6 = Idle 9xu16-BE (18B) + ECT Motor 12B = exact 30B.
 // ECT Motor physical ECT values are bytes 0..10, original col #12 is labelled SUM.
 // A2 = exact 133B: TPS14 + six 11B blocks + CONFIG11 + Option12 + External30.
-must(/function isV91Direct\(info=handshakeInfo\)[\s\S]{0,260}v\.major===9&&Number\.isFinite\(v\.minor\)&&v\.minor>=1&&v\.minor<2/,
-  '9.1X direct detector must require explicit firmware 9.1x');
+must(/function isV91Direct\(info=handshakeInfo\)[\s\S]{0,260}v\.major===9&&g===1/,
+  '9.1X direct detector must require explicit firmware 9.1x generation digit');
 must(/if\(v91&&\['idle_limit','ect_idle_motor'\]\.includes\(id\)\)return page\(6,bank\)/,
   '9.1X Idle/ECT Motor must route to page6');
 must(/if\(v91&&\['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'\]\.includes\(id\)\)return 0xA2/,
