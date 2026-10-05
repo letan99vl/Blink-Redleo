@@ -17,10 +17,10 @@
 Production Android/web line.
 
 Current verified head when this checkpoint was written:
-`60017e5c76432afa98108afeecc6c8886b6d4799`
+`cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.50`
+`BLINK_PB_VERSION = 3.79.51`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.50.
+- Android/web production: `main`, currently PB 3.79.51.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -446,3 +446,23 @@ The assistant should then:
   - Ultra Pro1: static serializer verified; needs real Ultra Pro1 test.
   - Ultra Pro2: static V11-286 serializer verified; needs real Ultra Pro2 test.
 - Do not call the untested families 99% hardware-stable until controlled one-cell READ -> edit -> SAVE -> READBACK tests pass on real ECUs.
+
+
+## 24. V9 firmware-generation routing checkpoint - PB 3.79.51
+
+- Post-audit safety review found that the V9 family detector could misinterpret four-character firmware strings such as `9.12`.
+- Root cause: `firmwareNumbers()` treated the complete decimal suffix as numeric minor, so `9.12` became minor `12`; the old `minor >= 2` test could therefore select the 9.2+ serializer family.
+- PB 3.79.51 adds `v9GenerationDigit()` and uses the first decimal digit strictly for V9 generation routing:
+  - `9.1x` -> REDLEO 9.1X serializer family;
+  - `9.2x` and later V9 decimal generations -> 9.2+ thermal/page family.
+- `isV91Direct()` now requires generation digit 1.
+- `usesNewThermalAxis()` requires V9 generation digit >=2; V10/V11 behavior is unchanged.
+- V9 full-image write gate was tightened: exact decoded 9767B is necessary but no longer sufficient; the firmware must also be positively classified as 9.1X or 9.2+.
+- Unknown/malformed V9 strings can no longer obtain generic full-write permission merely because a 9767B image was decoded.
+- Regression protection:
+  - `tools/check-v9-version-routing.js`;
+  - `tools/check-v91.js` updated to the new detector;
+  - `check-redleo-protocol.yml` runs the new classifier test.
+- Backup branch: `backup-pb-3.79.50-pre-v9-version-classifier`.
+- Relevant commits: `c563f0693cc8a0fccd3800e7da9114c81e7cafa1`, `60a3bbf4ab9842ca8086e801c3d86bc088b6b328`, `7a1a15fb1d571941e924f7881f38a55ffa83f0b0`, `dba9c30254cf87feba10a885a472c5af7db09b4d`, `71f7794765dc230133927956c20f93eae8953d22`, `cece84670b1af23bf2e7e1da23dfd7468656f848`.
+- This fix does **not** expand hardware certification. 9.1X still requires a real ECU one-cell SAVE/READBACK validation; tested REDLEO 9.2 and ATE V11.1 remain the hardware references.
