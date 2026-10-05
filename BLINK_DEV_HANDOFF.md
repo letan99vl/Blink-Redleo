@@ -1005,13 +1005,18 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Final CI for PB 3.79.56: GitHub Actions run **37309555962 = SUCCESS**. Map-selection/editor-control regression plus all ECU family regressions passed.
 
 
-## New hardware finding: REDLEO 9.2 works with original Ultra Pro2 PC software - 2026-10-05
+## Corrected hardware finding: Ultra Pro2 software has only partial REDLEO 9.2 compatibility - 2026-10-05
 
-- User real-hardware observation: a REDLEO **9.2 ECU can currently be read and written successfully by the original Ultra Pro2 PC software**.
-- Treat this as strong evidence that the Ultra Pro2 PC application contains a backward-compatible **9.2 branch / runtime protocol switch**, not as evidence that 9.2 and Ultra Pro2 share one serializer.
+- User clarified the real-hardware result: original **Ultra Pro2 PC software is NOT fully compatible with REDLEO 9.2**.
+- What works on the tested 9.2 ECU:
+  - **Đọc hiện tại / Lưu hiện tại** on the specific main maps the user tested: **map phun xăng, map đánh lửa, góc đánh lửa**.
+- What does NOT work correctly:
+  - **Đọc tất cả** is wrong;
+  - **Ghi/Lưu tất cả** is wrong.
+- Therefore this is only evidence that Ultra Pro2 shares or reuses some **current-page commands/serializers** with 9.2 for those tested maps. It is NOT evidence of a complete 9.2 runtime branch, full-image compatibility, or safe cross-family restore/full-write behavior.
 - Important existing wire differences remain:
   - REDLEO 9.2 page6 uses the verified **62B writable layout**;
   - Ultra Pro2 / V11-generation uses its own **43B page6 / A2-286** path.
-- Therefore Blink must keep profile-specific serializers and may use the original Ultra Pro2 application as an additional reference implementation for auditing 9.2 detection/login/page routing.
-- Do **not** collapse 9.2 into the Ultra Pro2 writer solely because the vendor Ultra Pro2 software can operate both.
-- This finding should be used in the next original-software audit to locate the exact compatibility branch and see whether any 9.2 feature coverage can be safely expanded.
+- Blink must keep 9.2 and Ultra Pro2 serializers and full-image paths strictly separated.
+- The Ultra Pro2 original app may be used only as a **limited reference for the tested current-map read/write paths** on 9.2. Do not use its READ ALL / WRITE ALL behavior as a 9.2 reference.
+- Future reverse engineering should locate exactly which current-page commands are shared and where the Ultra Pro2 software diverges into its incorrect full-image path on a 9.2 ECU.
