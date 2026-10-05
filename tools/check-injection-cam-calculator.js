@@ -11,7 +11,7 @@ function mustNot(re,msg){
   if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
 }
 
-must(/BLINK_PB_VERSION = '3\.79\.59'/,'PB version not bumped to 3.79.59');
+must(/BLINK_PB_VERSION = '3\.79\.60'/,'PB version not bumped to 3.79.60');
 must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
 
 // Cam input must use only IVO + IVC and suppress native mobile keyboards.
@@ -36,6 +36,15 @@ must(/data-injcam-key="next"/,'next key missing');
 must(/data-injcam-key="done"/,'done key missing');
 must(/pointerdown'[\s\S]{0,220}preventDefault\(\)[\s\S]{0,220}injCamSelectField/,'cam field tap must prevent native input focus/keyboard');
 must(/function injCamKey\(key\)/,'virtual keypad handler missing');
+must(/id="injCamPreviewText" class="injCamPreview"/,'in-dialog preview/status element missing');
+must(/id="injCamPreviewBtn" type="button" class="primary">TÍNH THỬ<\/button>/,'preview action button missing');
+must(/id="injCamApplyBtn" type="button" class="danger" data-ready="0">ÁP DỤNG VÀO MAP<\/button>/,'apply button must stay clickable even before preview');
+mustNot(/id="injCamApplyBtn"[^>]*disabled/,'apply button must not be disabled/silent');
+must(/function runInjCamPreview\(\)[\s\S]{0,300}setInjCamDialogMessage\('Đang tính MAP góc phun\.\.\.'\)/,'preview click must show immediate in-dialog feedback');
+must(/function runInjCamPreview\(\)[\s\S]{0,900}KHÔNG THỂ TÍNH/,'preview errors must be visible inside dialog');
+must(/function applyInjCamPreview\(\)[\s\S]{0,500}CHƯA CÓ MAP ĐỀ XUẤT/,'apply-before-preview must show in-dialog feedback');
+must(/injCamPreviewBtn'[\s\S]{0,180}runInjCamPreview\(\)/,'preview button event not wired');
+must(/injCamApplyBtn'[\s\S]{0,180}applyInjCamPreview\(\)/,'apply button event not wired');
 
 // Two-parameter cam model.
 must(/duration cam nạp = 180 \+ IVO \+ IVC/,'intake-duration formula explanation missing');
@@ -86,4 +95,4 @@ if(legacyQuant(999)!==717||v11Quant(999)!==360){
 }
 
 if(process.exitCode)process.exit(process.exitCode);
-console.log('OK: IVO/IVC cam calculator uses built-in keypad, suppresses native keyboard, preserves family quantization and local-only apply safety.');
+console.log('OK: IVO/IVC cam calculator uses built-in keypad, responsive preview/apply actions, family quantization and local-only apply safety.');
