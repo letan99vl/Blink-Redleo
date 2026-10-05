@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.55';
+  window.BLINK_PB_VERSION = '3.79.56';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1366,30 +1366,36 @@
     max-height:none!important;
   }
 
-  /* ===== PB 3.79.25 · 420-CELL REDLEO TOUCH EDITOR ===== */
-  #redleoEditorScreen.red420Editor{--fuel-keypad-h:304px}
+  /* ===== REDLEO TOUCH VALUE EDITOR · ALL MAP SIZES ===== */
+  #redleoEditorScreen.redValueEditor{--fuel-keypad-h:304px}
   #redleoEditorScreen .redSelectionPad{
     position:absolute!important;
     z-index:250040!important;
   }
   #redleoEditorScreen .redKeypadToggle{display:none}
-  #redleoEditorScreen.red420Editor .redKeypadToggle{display:grid;place-items:center}
+  #redleoEditorScreen.redValueEditor .redKeypadToggle{display:grid;place-items:center}
   #redleoEditorScreen.redMapKeypadOpen .redKeypadToggle{display:none!important}
-  #redleoEditorScreen.red420Editor.redMapKeypadOpen .redKeypad{display:flex}
-  #redleoEditorScreen.red420Editor.redMapKeypadOpen .redTableWrap{
+  #redleoEditorScreen.redValueEditor.redMapKeypadOpen .redKeypad{display:flex}
+  #redleoEditorScreen.redValueEditor.redMapKeypadOpen .redTableWrap{
     margin-bottom:var(--fuel-keypad-h)!important;
   }
-  #redleoEditorScreen:not(.red420Editor) .redSelectionPad,
-  #redleoEditorScreen:not(.red420Editor) .redKeypadToggle,
-  #redleoEditorScreen:not(.red420Editor) .redKeypad{display:none!important}
+  #redleoEditorScreen:not(.redValueEditor) .redSelectionPad,
+  #redleoEditorScreen:not(.redValueEditor) .redKeypadToggle,
+  #redleoEditorScreen:not(.redValueEditor) .redKeypad{display:none!important}
+  /* Small/simple tables use single-cell editing only. Range tools are reserved
+     for genuinely large 2D maps (11x30 / 14x30 class). */
+  #redleoEditorScreen:not(.redRangeEditor) #redScanToggle{display:none!important}
+  #redleoEditorScreen:not(.redRangeEditor) .redStep{
+    grid-template-columns:minmax(0,1.7fr) minmax(110px,1fr)!important;
+  }
   @media(max-width:600px){
     #redleoEditorScreen .redStep{padding-right:8px}
     #redleoEditorScreen #redScanToggle{min-width:72px}
   }
   @media(orientation:landscape){
-    #redleoEditorScreen.red420Editor{--fuel-keypad-h:132px}
+    #redleoEditorScreen.redValueEditor{--fuel-keypad-h:132px}
   }
-  body.appForceLandscape #redleoEditorScreen.red420Editor{--fuel-keypad-h:132px}
+  body.appForceLandscape #redleoEditorScreen.redValueEditor{--fuel-keypad-h:132px}
 
   /* ===== PB 3.79.26 · NO-SCROLL MAP TOOLBARS ===== */
   #mapEditorScreen .editorStepBar{
@@ -5534,7 +5540,36 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
     if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
   },0);
 }
-function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',(f.rows===14&&f.cols===30)||f.id==='ect_inj');if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';redSel={r0:0,c0:0,r1:0,c1:0};redSelectionActive=false;redCornerPending=false;renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
+function openFeature(id){
+  const f=featureForProfile(id);if(!f)return;
+  if(f.editor==='fuel')return openOurEditor('inject',false);
+  window.hideRedKeypad?.();
+  if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();
+  currentFeature=f;
+  const screen=document.getElementById('redleoEditorScreen');
+  const range=redFeatureNeedsRangeSelection(f);
+  screen?.classList.add('redValueEditor');
+  screen?.classList.toggle('redRangeEditor',range);
+  // Legacy class retained only as a harmless compatibility marker for the
+  // original large-map layout. New control visibility uses redValueEditor.
+  screen?.classList.toggle('red420Editor',range);
+  redScanMode=false;redPointer=null;redScanMoved=false;redScanStartedInside=false;
+  const scanBtn=document.getElementById('redScanToggle');
+  if(scanBtn){scanBtn.classList.remove('primary');scanBtn.textContent='▦ QUÉT'}
+  screen?.querySelector('.redTableWrap')?.classList.remove('scanMode');
+  document.getElementById('redEditorTitle').textContent=f.title;
+  document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;
+  document.getElementById('redSourceName').textContent=f.source;
+  document.getElementById('redSize').textContent=f.cols+' × '+f.rows;
+  document.getElementById('redUnit').textContent=f.unit||'—';
+  document.getElementById('redBankSelect').style.display=f.banked?'':'none';
+  const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;
+  const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';
+  const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');
+  if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';
+  redSel={r0:0,c0:0,r1:0,c1:0};redSelectionActive=false;redCornerPending=false;
+  renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0);
+}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -5572,6 +5607,12 @@ function handleRedCornerTap(r,c){
   if(!currentFeature)return;
   r=Math.max(0,Math.min(currentFeature.rows-1,Number(r)));
   c=Math.max(0,Math.min(currentFeature.cols-1,Number(c)));
+  // Small/simple maps never enter two-corner mode. Every tap directly selects
+  // exactly one cell, while keypad and floating +/-/save remain available.
+  if(!redRangeEditorActive()){
+    redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=false;
+    updateRedSelectionVisual();return 'single';
+  }
   if(redContainsCell(r,c)){
     redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=true;
     updateRedSelectionVisual();return 'anchor';
@@ -5589,15 +5630,23 @@ function handleRedCornerTap(r,c){
   }
   redSel.r1=r;redSel.c1=c;redCornerPending=false;updateRedSelectionVisual();return 'range';
 }
-function red420EditorActive(){return !!(currentFeature&&currentFeature.rows===14&&currentFeature.cols===30&&currentFeature.editor!=='fuel')}
-function redKeypadEditorActive(){return !!(red420EditorActive()||currentFeature?.id==='ect_inj')}
+function redValueEditorActive(){return !!(currentFeature&&currentFeature.editor!=='fuel')}
+function redFeatureNeedsRangeSelection(f=currentFeature){
+  if(!f||f.editor==='fuel')return false;
+  // Two-corner / scan selection is useful only on dense 2D maps. Simple rows,
+  // short matrices and option/sensor tables stay single-cell to avoid UX traps.
+  return f.rows>1&&f.cols>1&&(f.rows*f.cols)>=100;
+}
+function redRangeEditorActive(){return redValueEditorActive()&&redFeatureNeedsRangeSelection(currentFeature)}
+function red420EditorActive(){return redRangeEditorActive()}
+function redKeypadEditorActive(){return redValueEditorActive()}
 function hideRedSelectionPad(){
   const pad=document.getElementById('redSelectionPad');if(!pad)return;
   pad.classList.remove('show');pad.setAttribute('aria-hidden','true');
 }
 function updateRedSelectionPad(){
   const pad=document.getElementById('redSelectionPad'),wrap=document.querySelector('#redleoEditorScreen .redTableWrap'),screen=document.getElementById('redleoEditorScreen');
-  if(!pad||!wrap||!screen||!screen.classList.contains('active')||!red420EditorActive()||!redSelectionActive||redPointer!==null){hideRedSelectionPad();return}
+  if(!pad||!wrap||!screen||!screen.classList.contains('active')||!redValueEditorActive()||!redSelectionActive||redPointer!==null){hideRedSelectionPad();return}
   const padW=pad.offsetWidth||48,padH=pad.offsetHeight||158,edge=8;
   const mapTop=Number(wrap.offsetTop||0),mapH=Number(wrap.clientHeight||0),screenW=Number(screen.clientWidth||0);
   if(screenW<40||mapH<30){hideRedSelectionPad();return}
@@ -5857,7 +5906,15 @@ document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
-document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;redCornerPending=false;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';if(redScanMode)window.hideRedKeypad?.();document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);
+document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{
+  if(!redRangeEditorActive()){redScanMode=false;return}
+  redScanMode=!redScanMode;redCornerPending=false;
+  e.currentTarget.classList.toggle('primary',redScanMode);
+  e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';
+  if(redScanMode)window.hideRedKeypad?.();
+  document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);
+  renderFeature();
+});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);
 document.getElementById('redFloatPlusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(redStep)});
 document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(-redStep)});
 document.getElementById('redFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('redWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc bảng ECU thành công và kiểm tra profile trước khi ghi.',0)});
