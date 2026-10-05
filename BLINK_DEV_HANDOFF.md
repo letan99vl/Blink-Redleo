@@ -955,3 +955,5 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Backup: `backup-pb-3.79.53-pre-tap-collapse-to-cell`.
 - Core implementation commit: `5602f07d7c9b54b21440d2c6590e5df1301cb7c3`.
 - `tools/check-map-selection.js` updated so regression now requires one-tap collapse-to-cell instead of tap-to-cancel.
+
+- Final CI for PB 3.79.54: GitHub Actions run **37307497978 = SUCCESS**. Selection regression plus all ECU family regressions passed.
