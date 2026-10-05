@@ -11,14 +11,14 @@ function mustNot(re,msg){
   if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
 }
 
-// Original REDLEO ECU Pro V8 audit: only MAIN TUNE is exposed in Blink.
+// Original REDLEO ECU Pro V8 audit: MAIN TUNE plus original Air fuel ratio is exposed in Blink.
 // Original default conversion constants: B_True=false, Ver78_Time=2, Ver78_Angle=4.
 // Fuel Oil Time uses raw=ms*20; Injection Angle uses OilAngle transform;
 // Ignition Angle uses raw=deg*4+64; Ignition Time uses Oil raw with true-time scale.
 must(/LEGACY_V8:Object\.freeze\(\{key:'LEGACY_V8'[\s\S]*caps:\{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false\}/,
   'V8 capability safety profile changed');
-must(/LEGACY_V8:new Set\(\['inj_ve','inj_degree','ign_degree','ign_time'\]\)/,
-  'V8 UI feature set must remain MAIN TUNE only');
+must(/LEGACY_V8:new Set\(\['inj_ve','inj_degree','ign_degree','ign_time','afr_map'\]\)/,
+  'V8 UI feature set must keep MAIN TUNE + original Air fuel ratio');
 mustNot(/LEGACY_V8:new Set\(\[[^\]]*(?:idle_limit|ect_idle_motor|iat_inj|external_adjust|auto_clutch|ate_options)/,
   'V8 must not expose unverified auxiliary writers');
 
@@ -63,13 +63,17 @@ must(/case 'ign_time':m=matrixFromRedTable\(1,30\);pg=page\(4,bank\);known=encod
 must(/writeWritablePrefixPage\(pg,payload,baseline,id\.toUpperCase\(\),'mainWrite',1\)/,
   'V8 main angle/dwell writes must use ACK + readback verification');
 
-// Read layer hard-blocks every non-main V8 feature.
-must(/if\(ecuProfile&&ecuProfile\.family==='v8'&&!\['inj_degree','ign_degree','ign_time'\]\.includes\(id\)\)[\s\S]*hiện chỉ mở phần chính/,
+// Read layer hard-blocks every non-main/non-AFR V8 feature.
+must(/if\(ecuProfile&&ecuProfile\.family==='v8'&&!\['inj_degree','ign_degree','ign_time','afr_map'\]\.includes\(id\)\)[\s\S]*hiện chỉ mở phần chính/,
   'V8 read guard for auxiliary features missing');
+must(/id==='afr_map'[\s\S]{0,180}page\(5,bank\)/,
+  'V8 original Air fuel ratio page-5 route missing');
+must(/async function writeEcuAfrMap\(bank\)[\s\S]{0,1300}writeWritablePrefixPage/,
+  'V8 Air fuel ratio must use the verified generic direct writer');
 
 // Single-map ECU modes must stay normalized to bank 1.
 must(/if\(ecuProfile&&ecuProfile\.family==='v8'\)[\s\S]*if\(mode===1\|\|mode===4\)return 1/,
   'V8 single-map bank normalization changed');
 
 if(process.exitCode)process.exit(process.exitCode);
-console.log('OK: REDLEO V8 MAIN TUNE page routing and original fuel/angle/dwell scales remain locked down.');
+console.log('OK: REDLEO V8 MAIN TUNE + original Air fuel ratio page routing and scales remain locked down.');
