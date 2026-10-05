@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.53';
+  window.BLINK_PB_VERSION = '3.79.54';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2603,10 +2603,14 @@ function clearMapSelection(message='Chưa chọn ô'){
 function handleMapCornerTap(r,c){
   r=clamp(r,0,R-1);c=clamp(c,0,C-1);
   resetQuickType();
-  // User rule: tapping any already-highlighted cell cancels the whole selection.
+  // After any existing selection (including a scanned rectangle), tapping a
+  // highlighted cell collapses immediately to that one cell. That cell also
+  // becomes corner #1 for a possible next two-corner selection.
   if(selectionContainsCell(r,c)){
-    clearMapSelection('Đã hủy vùng chọn');
-    return 'cleared';
+    setSelection(r,c,false);
+    state.selection.cornerPending=true;
+    highlightSelection();
+    return 'anchor';
   }
   // No pending corner (or a finished rectangle): this tap becomes corner #1.
   if(!state.selection.active||!state.selection.cornerPending){
@@ -5564,7 +5568,10 @@ function handleRedCornerTap(r,c){
   if(!currentFeature)return;
   r=Math.max(0,Math.min(currentFeature.rows-1,Number(r)));
   c=Math.max(0,Math.min(currentFeature.cols-1,Number(c)));
-  if(redContainsCell(r,c)){clearRedSelection('Đã hủy vùng chọn');return 'cleared'}
+  if(redContainsCell(r,c)){
+    redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=true;
+    updateRedSelectionVisual();return 'anchor';
+  }
   if(!redSelectionActive||!redCornerPending){
     redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=true;
     updateRedSelectionVisual();return 'anchor';
@@ -5885,8 +5892,12 @@ function endRedScan(e){
   const wasTap=!redScanMoved;
   redPointer=null;
   try{redTableWrap.releasePointerCapture(e.pointerId)}catch(_e){}
-  if(wasTap&&redScanStartedInside)clearRedSelection('Đã hủy vùng chọn');
-  else{redCornerPending=false;updateRedSelectionVisual()}
+  // A tap in scan mode always leaves exactly that touched cell selected.
+  // Dragging still creates the scanned rectangle.
+  if(wasTap){
+    redSel={r0:redScanStartR,c0:redScanStartC,r1:redScanStartR,c1:redScanStartC};
+    redSelectionActive=true;redCornerPending=false;updateRedSelectionVisual();
+  }else{redCornerPending=false;updateRedSelectionVisual()}
   redScanMoved=false;redScanStartedInside=false;
   if(!redScanMode)redTableWrap?.classList.remove('scanMode');
 }
@@ -6124,8 +6135,13 @@ function endScan(e){
   const wasTap=!scanMoved;
   scanPointer=null;
   try{wrap.releasePointerCapture(e.pointerId)}catch(_e){}
-  if(wasTap&&scanStartedInside)clearMapSelection('Đã hủy vùng chọn');
-  else{state.selection.cornerPending=false;highlightSelection()}
+  // A tap in scan mode always leaves exactly that touched cell selected.
+  // Dragging still creates the scanned rectangle.
+  if(wasTap){
+    setSelection(scanStartR,scanStartC,false);
+    state.selection.cornerPending=false;
+    highlightSelection();
+  }else{state.selection.cornerPending=false;highlightSelection()}
   scanMoved=false;scanStartedInside=false;
   requestAnimationFrame(updateMapSelectionPad);
 }
