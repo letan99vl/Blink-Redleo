@@ -261,7 +261,7 @@ function mainFeaturePage(id,bank){
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&id==='idle_limit')return page(6,bank);
-  if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ect_start','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   return null;
@@ -274,7 +274,7 @@ function isDirectVerifiedFeature(id){
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
   // Original V10.2 IL confirms page family 6 writes only the 18B Idle/Limit block.
   // ECT Motor is NOT on page6 for V10; it remains locked with the unverified A2 tail.
-  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
+  if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ect_start','v_ect','v_iat','v_map'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -323,7 +323,7 @@ function profileSupportsFeature(id,p=ecuProfile){
   // proven only for a current non-ULTRA V10 session. Never broaden them by
   // profile key alone.
   const currentV10Direct=p===ecuProfile&&isV10Direct();
-  if(currentV10Direct&&['ect_idle_motor','external_adjust','auto_clutch'].includes(id))return true;
+  if(currentV10Direct&&['ect_idle_motor','external_adjust','auto_clutch','ect_start'].includes(id))return true;
   const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
   return set.has(id);
 }
@@ -1996,6 +1996,33 @@ function encodeV10EctMotor22(matrix,mode=v10IdleMotorMode(true)){
   }
   return out;
 }
+function decodeV10EctStart33(raw){
+  raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
+  if(raw.length<33)throw new Error('REDLEO V10.2 Start Add cần 33 byte.');
+  const out=[Array(11).fill(0),Array(11).fill(0),Array(11).fill(0)];
+  // Original proUartDgvNum sends rows in reverse UI order.
+  for(let c=0;c<11;c++)out[2][c]=decOil(raw[c]);          // StrtAdd(ms)
+  for(let c=0;c<11;c++)out[1][c]=decOil(raw[11+c]);     // INJ VE(ms)
+  for(let c=0;c<11;c++)out[0][c]=r1((raw[22+c]&255)*0.2); // Time(Second)
+  return out;
+}
+function encodeV10EctStart33(matrix){
+  if(!Array.isArray(matrix)||matrix.length!==3||matrix.some(r=>!Array.isArray(r)||r.length!==11)){
+    throw new Error('REDLEO V10.2 Start Add cần bảng 3 × 11.');
+  }
+  const out=new Uint8Array(33);
+  for(let c=0;c<11;c++){
+    const a=Number(matrix[2][c]),b=Number(matrix[1][c]),sec=Number(matrix[0][c]);
+    if(!Number.isFinite(a)||!Number.isFinite(b)||!Number.isFinite(sec)){
+      throw new Error('REDLEO V10.2 Start Add có giá trị không hợp lệ tại cột '+(c+1)+'.');
+    }
+    out[c]=encOil(a);
+    out[11+c]=encOil(b);
+    // Original proDgvUnit: Second_Or_200ms(value,0)=round(value*5), minimum raw 1.
+    out[22+c]=clamp(Math.max(1,Math.round(Math.max(0,sec)*5)),1,255);
+  }
+  return out;
+}
 function parseV10A2Data(data){
   if(!(data instanceof Uint8Array))data=new Uint8Array(data);
   if(data.length<V10_A2.LEN)throw new Error('REDLEO V10.2 A2 thiếu dữ liệu · '+data.length+'B / cần '+V10_A2.LEN+'B');
@@ -2023,6 +2050,7 @@ function parseV10A2Data(data){
   const motorMode=v10IdleMotorMode(false);
   const ectMotor=decodeV10EctMotor22(ectMotorRaw,motorMode);
   const ectStartRaw=data.slice(L.ECT_START,L.ECT_START+33);
+  const ectStart=decodeV10EctStart33(ectStartRaw);
   const externalRaw=data.slice(L.EXTERNAL,L.EXTERNAL+30);
   const external=[Array(15).fill(0),Array(15).fill(0)];
   for(let c=0;c<15;c++)external[1][c]=decExtIgn(externalRaw[c]);
@@ -2030,7 +2058,7 @@ function parseV10A2Data(data){
   return {
     tpsHiddenRaw,tpsRaw,tpsPct,rpmRaw,rpmAxis,vAfrRaw,vEct,vIat,vMap,
     iatInjRaw,iatInj,mapMotorRaw,mapMotor,configRaw,bitfield,autoStart,auto,password,
-    optionRaw,ectMotorRaw,ectMotor,motorMode,ectStartRaw,externalRaw,external,
+    optionRaw,ectMotorRaw,ectMotor,motorMode,ectStartRaw,ectStart,externalRaw,external,
     v10A2KnownLength:L.LEN,raw:data.slice()
   };
 }
@@ -2207,6 +2235,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.map_idle_motor,[C.mapMotor]);
       if(C.external)emitFeature(N.external_adjust,C.external);
       if(v10Direct&&C.ectMotor)emitFeature(N.ect_idle_motor,C.ectMotor);
+      if(v10Direct&&C.ectStart)emitFeature(N.ect_start,C.ectStart);
       if(v11&&C.autoClutch)emitFeature(N.auto_clutch,C.autoClutch);
       if(v11&&C.chg)emitFeature(N.chg_params,C.chg);
       if(v11&&C.ateOptions)emitFeature(N.ate_options,C.ateOptions);
@@ -2217,7 +2246,7 @@ async function readA2SensorPageReal(showUi=true){
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
-    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + MOTOR + EXTERNAL · OK'):(v10Family?'ULTRA · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK')));
+    taskUi('success',v11?('ATE V11 · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + MOTOR + START + EXTERNAL · OK'):(v10Family?'ULTRA · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK')));
   }
   return {...R,cache:C};
 }
@@ -2472,6 +2501,7 @@ async function readFeaturePageReal(id,bank=((typeof state!=='undefined'&&state.a
     throw new Error(ecuProfile.label+': bảng '+id+' vẫn khóa chờ layout V11 được xác nhận.');
   }
   if(id==='idle_limit')return readIdlePageReal(bank,showUi);
+  if(ecuProfile&&ecuProfile.key==='MODERN_V10'&&!isV10Direct()&&id==='ect_start')throw new Error('REDLEO ULTRA · Start Add dùng serializer A2 riêng; chưa mở writer/read semantic V10.2 cho Ultra.');
   if(isV10Direct()&&id==='ect_idle_motor')return readA2SensorPageReal(showUi);
   if(id==='afr_map'){
     const pg=page(5,bank);
@@ -2927,6 +2957,10 @@ async function writeV10A2KnownFeature(id){
     const v=v10A2UiMatrix(1,5,'AutoClutch')[0];
     for(let i=0;i<5;i++)payload[V10_A2.CONFIG+2+i]=clamp(Math.round(Math.max(0,Number(v[i]))/5),0,255);
     label='AutoClutch Timer';
+  }else if(id==='ect_start'){
+    const m=v10A2UiMatrix(3,11,'Start Add');
+    payload.set(encodeV10EctStart33(m),V10_A2.ECT_START);
+    label='ECT Start Add';
   }else{
     throw new Error('REDLEO V10.2 A2 chưa mở writer cho '+id+'.');
   }
@@ -3189,7 +3223,7 @@ async function writeFeatureReal(id){
     if(isV92Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV92A2KnownFeature(id);
     if(isV92Direct()&&id==='ect_idle_motor')return writeV92EctMotor(bank);
     if(isV10Direct()&&id==='idle_limit')return writeV10IdleLimit(bank);
-    if(isV10Direct()&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV10A2KnownFeature(id);
+    if(isV10Direct()&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ect_start','v_ect','v_iat','v_map'].includes(id))return writeV10A2KnownFeature(id);
 
     requireProfile('mainWrite','Ghi bảng '+id);
     const expectedPage=mainFeaturePage(id,bank);
