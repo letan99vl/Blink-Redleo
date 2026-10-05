@@ -11,7 +11,7 @@ function mustNot(re,msg){
   if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
 }
 
-must(/BLINK_PB_VERSION = '3\.79\.61'/,'PB version not bumped to 3.79.61');
+must(/BLINK_PB_VERSION = '3\.79\.62'/,'PB version not bumped to 3.79.62');
 must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
 
 // Cam input must use only IVO + IVC and suppress native mobile keyboards.
@@ -57,10 +57,10 @@ must(/injCamApplyBtn'[\s\S]{0,180}applyInjCamPreview\(\)/,'apply button event no
 // Two-parameter cam model.
 must(/duration cam nạp = 180 \+ IVO \+ IVC/,'intake-duration formula explanation missing');
 must(/const camDuration=180\+ivo\+ivc/,'intake-duration calculation changed');
-must(/const autoMargin=Math\.max\(8,Math\.min\(20,Math\.round\(camDuration\*0\.05\)\)\)/,'automatic EOI margin model changed');
-must(/const eoi=180-ivc\+autoMargin/,'EOI target calculation changed');
+must(/const eoiIntoWindow=Math\.max\(8,Math\.min\(20,Math\.round\(camDuration\*0\.05\)\)\)/,'automatic EOI phase model changed');
+must(/const eoiAtdc=eoiIntoWindow-ivo/,'EOI phase relative to TDC changed');
 must(/const durationDeg=pw\*rpm\*0\.006/,'injection duration degree calculation changed');
-must(/const rawTarget=eoi\+durationDeg/,'SOI calculation changed');
+must(/const rawTarget=Math\.max\(0,durationDeg-eoiAtdc\)/,'SOI calculation changed');
 must(/0° = TDC nén, INJ degree càng lớn = phun càng sớm/,'explicit injection-angle convention missing');
 
 must(/function injCamAngleSpec\(\)[\s\S]{0,300}state\.ecuProfile==='MODERN_V11'/,'calculator must adapt angle domain to ECU family');
@@ -90,11 +90,11 @@ function v11Quant(v){
 }
 const ivo=3,ivc=31,pw=5,rpm=4000;
 const camDuration=180+ivo+ivc;
-const autoMargin=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
-const eoi=180-ivc+autoMargin;
-const soi=eoi+pw*rpm*0.006;
-if(camDuration!==214||autoMargin!==11||eoi!==160||soi!==280||legacyQuant(soi)!==281||v11Quant(soi)!==280){
-  console.error('FAIL: IVO/IVC cam-model arithmetic changed',{camDuration,autoMargin,eoi,soi,legacy:legacyQuant(soi),v11:v11Quant(soi)});
+const eoiIntoWindow=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
+const eoiAtdc=eoiIntoWindow-ivo;
+const soi=Math.max(0,pw*rpm*0.006-eoiAtdc);
+if(camDuration!==214||eoiIntoWindow!==11||eoiAtdc!==8||soi!==112||legacyQuant(soi)!==113||v11Quant(soi)!==112){
+  console.error('FAIL: IVO/IVC cam-model arithmetic changed',{camDuration,eoiIntoWindow,eoiAtdc,soi,legacy:legacyQuant(soi),v11:v11Quant(soi)});
   process.exitCode=1;
 }
 if(legacyQuant(999)!==717||v11Quant(999)!==360){
@@ -103,4 +103,4 @@ if(legacyQuant(999)!==717||v11Quant(999)!==360){
 }
 
 if(process.exitCode)process.exit(process.exitCode);
-console.log('OK: IVO/IVC cam calculator auto-reads required ECU maps, keeps responsive actions, family quantization and local-only apply safety.');
+console.log('OK: IVO/IVC cam calculator phases EOI near intake opening, auto-reads required ECU maps, keeps family quantization and local-only apply safety.');
