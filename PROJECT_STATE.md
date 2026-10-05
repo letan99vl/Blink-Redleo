@@ -538,12 +538,14 @@ The assistant should then:
 - Regression commits: `b4c064dc83e1e1f8a3c90535c2653aabc7f55de3`, `56dac9997835f89233424b5cfd830482af6fe1e5`.
 
 
-## 30. Original Ultra Pro2 software has only partial REDLEO 9.2 compatibility
+## 30. Original Ultra Pro1 / Ultra Pro2 software has only partial REDLEO 9.2 current-page compatibility
 
-- Corrected user hardware finding: Ultra Pro2 PC software is **not** a full 9.2-compatible application.
-- On the tested REDLEO 9.2 ECU, **Đọc hiện tại / Lưu hiện tại** works only on the tested main maps: **map phun xăng, map đánh lửa, góc đánh lửa**.
-- **Đọc tất cả / Ghi-Lưu tất cả are incorrect** on that 9.2 ECU.
-- Treat this only as evidence of partial command/page reuse for those current-map paths.
-- Do not infer full-image, restore, page6, A2, login, or serializer equivalence from this result.
-- Keep 9.2 and Ultra Pro2 full-image/serializer logic strictly separated.
-- Ultra Pro2 original software is a valid reference only for the specifically verified current-map operations above; it is **not** a source of truth for 9.2 READ ALL / WRITE ALL.
+- Tested REDLEO 9.2 hardware:
+  - Ultra Pro2 PC software: **Đọc hiện tại / Lưu hiện tại** works on the tested main maps **map phun xăng, map đánh lửa, góc đánh lửa**.
+  - Ultra Pro1 PC software: **Đọc hiện tại** also works similarly on the 9.2 ECU.
+- Ultra Pro1 scope is currently READ CURRENT only; no assumption is allowed yet for Ultra Pro1 current-write or full-image operations without separate hardware evidence.
+- Ultra Pro2 **Đọc tất cả / Ghi-Lưu tất cả are incorrect** on the 9.2 ECU.
+- Treat this as evidence of partial command/page reuse across 9.2 / Ultra Pro1 / Ultra Pro2 for some current-page paths, not serializer equivalence.
+- Do not infer full-image, restore, page6, A2, login, or auxiliary-page equivalence from these results.
+- Keep 9.2, Ultra Pro1 and Ultra Pro2 full-image/auxiliary serializers strictly separated.
+- Vendor software is a valid reference only for the specifically hardware-verified current-page operations above; it is not a 9.2 READ ALL / WRITE ALL source of truth.
