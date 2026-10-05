@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.52`
+`BLINK_PB_VERSION = 3.79.53`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.52.
+- Android/web production: `main`, currently PB 3.79.53.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -483,3 +483,15 @@ The assistant should then:
 - Backup: `backup-pb-3.79.51-pre-two-corner-selection`.
 - Implementation commit: `38469824d2c1026d9f505ece3e2d486ce1fe48fc`.
 - Final protocol CI run **37306927432 = SUCCESS**.
+
+
+## 26. Top-left-first two-corner selection checkpoint - PB 3.79.53
+
+- Two-corner tap selection now requires top-left first.
+- Second corner must be at/right and at/below the first corner; reverse order is rejected without changing the anchor.
+- Tap-inside-to-cancel remains unchanged.
+- QUÉT drag selection remains bidirectional and unchanged.
+- Applied to main fuel/target maps and REDLEO multi-cell editors.
+- New regression: `tools/check-map-selection.js`.
+- Backup: `backup-pb-3.79.52-pre-top-left-selection`.
+- Core commit: `42c6460bf1dd4ac2745b3c057bdaf5f922c27829`.
