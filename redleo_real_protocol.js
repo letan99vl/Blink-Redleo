@@ -193,11 +193,23 @@ function firmwareNumbers(info=handshakeInfo){
   if(!m)return {major:NaN,minor:NaN};
   return {major:Number(m[1]),minor:m[2]==null?NaN:Number(m[2])};
 }
+// REDLEO handshake exposes firmware as only 4 ASCII bytes. V9 builds can
+// therefore appear as 9.10/9.12/9.20: for family routing the FIRST decimal
+// digit is the generation (9.1x vs 9.2x), while the remaining digit is a patch.
+// Do not treat 9.12 as numeric minor 12, otherwise it is misrouted to 9.2+.
+function v9GenerationDigit(info=handshakeInfo){
+  const fw=String(info&&info.firmware||'').trim().toUpperCase();
+  const ident=String(info&&info.ident||'').trim().toUpperCase();
+  let m=fw.match(/(?:V|VER)?\s*9\.([0-9])/);
+  if(!m)m=ident.match(/(?:^|\s)(?:V|VER(?:SION)?)?\s*9\.([0-9])/);
+  return m?Number(m[1]):NaN;
+}
 function usesNewThermalAxis(info=handshakeInfo){
   if(ecuProfile&&(ecuProfile.key==='MODERN_V10'||ecuProfile.key==='MODERN_V11'))return true;
   const v=firmwareNumbers(info);
   if(v.major>=10)return true;
-  if(v.major===9&&Number.isFinite(v.minor)&&v.minor>=2)return true;
+  const g=v9GenerationDigit(info);
+  if(v.major===9&&Number.isFinite(g)&&g>=2)return true;
   return false;
 }
 function currentAuxAxes(){
@@ -270,7 +282,11 @@ function v11FullImageReady(){
 }
 function profileCap(name){
   if(name==='fullWrite'){
-    return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
+    // A 9767B image alone is not enough to authorize a generic/unknown V9 build.
+    // Require an explicitly recognized 9.1x or 9.2x generation before legacy
+    // full-image writers may run.
+    const knownV9=!!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&(isV91Direct()||isV92Direct()));
+    return !!(knownV9&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
   const cap=!!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
   if(cap&&ecuProfile&&ecuProfile.family==='v11'&&(name==='tpsStudy'||name==='testInjector')){
@@ -3111,8 +3127,8 @@ function matrixFromMaybe2(id,fallback){if(currentFeatureId()===id){const cells=[
 
 function isV91Direct(info=handshakeInfo){
   if(!(ecuProfile&&ecuProfile.key==='MODERN_V9'))return false;
-  const v=firmwareNumbers(info);
-  return v.major===9&&Number.isFinite(v.minor)&&v.minor>=1&&v.minor<2;
+  const v=firmwareNumbers(info),g=v9GenerationDigit(info);
+  return v.major===9&&g===1;
 }
 function isV92Direct(){
   return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
