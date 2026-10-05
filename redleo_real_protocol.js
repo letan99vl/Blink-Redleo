@@ -58,6 +58,7 @@ const FEAT={
   'Temperature-idle motor relationship':'ect_idle_motor',
   'External adjustment':'external_adjust',
   'Air fuel ratio map':'afr_map',
+  'Air fuel ratio':'afr_map',
   'Automatic shift':'auto_shift',
   'Automatic clutch':'auto_clutch',
   'Charger Parameters':'chg_params',
