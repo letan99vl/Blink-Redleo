@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.49**.
+- Current displayed PB: **3.79.50**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -150,11 +150,39 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
 
 ## 5. 9.1X status
 
-- Modern V9 family.
-- Full-write safety gate is exact decoded READ ALL 9767B.
-- A helper was added so a gated write can auto-run READ ALL first instead of silently requiring the user to do it manually.
-- If READ ALL is not decoded 9767B, full-write remains locked.
-- Do not loosen 9767B gate without new original-software/hardware evidence.
+- Original `ECU Pro 9.1X.exe` was re-audited against the stable 9.2/V11 safety model in PB 3.79.50.
+- Exact selected-bank page6 writer from original software:
+  - Idle/Limit = **9 × uint16-BE = 18B**
+  - ECT Motor = **12B**
+  - exact writable page6 = **30B**.
+- ECT Motor original column #12 is labeled **SUM**. Blink exposes only the 11 physical ECT points and preserves SUM raw byte-for-byte.
+- Exact A2 layout = **133B**:
+  - TPS 14B
+  - vAFR 11B
+  - vECT 11B
+  - vIAT 11B
+  - vMAP 11B
+  - IAT INJ 11B
+  - MAP Motor 11B
+  - CONFIG/AutoClutch/password 11B
+  - Option 12B
+  - External Adjustment 30B.
+- Direct 9.1X RMW + ACK/readback is enabled only for verified blocks:
+  - main tune angle/dwell
+  - ECT INJ page 0x72
+  - ECT IGN page 0x82
+  - MAP INJ page 0x92
+  - Idle/Limit
+  - ECT Motor 11 visible ECT points
+  - IAT INJ
+  - MAP Idle Motor
+  - External Adjustment
+  - vECT / vIAT / vMAP.
+- AutoClutch 9.1X is hidden/out of scope per user decision.
+- Whole Option 12B write remains locked; Option/CONFIG/AutoClutch/password bytes are preserved raw by partial A2 writers.
+- Full-write safety gate remains exact decoded READ ALL **9767B**. If READ ALL is not decoded 9767B, full-write stays locked.
+- Do not reuse the 9.2 62B page6 serializer on 9.1X.
+- Status: **STATIC-ANALYSIS IMPLEMENTED / NEED REAL 9.1X HARDWARE TEST** before release certification.
 
 ## 6. V10.2 status
 
@@ -186,6 +214,7 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
   - **285B** for firmware >10.2 because CHG 8B is appended.
   - CONFIG 11B is feature flags + 6 Spare Built-in + 4 password, **not V10 AutoClutch**.
 - Verified Ultra A2 edit surfaces are TPS axis, RPM axis, IAT INJ, MAP Idle Motor, ECT Motor 2×11, ECT Start 3×11, External Adjustment 2×15, vECT, vIAT and vMAP.
+- Original Ultra Pro1 also verifies dedicated compensation pages **0x72 ECT INJ / 0x82 ECT IGN / 0x92 MAP INJ**. PB 3.79.50 enables their direct RMW writers with baseline + ACK + readback, matching the already-visible ECU editor cards.
 - Option 18B, One-Spare 9B, CONFIG 11B, vAFR and optional CHG remain raw-preserved; Ultra AutoClutch stays out of scope.
 - If exact Ultra firmware minor cannot be determined, A2 write remains locked rather than guessing 277B vs 285B.
 - Ultra page6/A2 are **STATIC-ANALYSIS IMPLEMENTED / NEED REAL ULTRA HARDWARE TEST**. Do not release-certify until controlled SAVE + READBACK passes on a real Ultra ECU.
@@ -193,10 +222,21 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
 
 ## 8. V8 status
 
-- Dedicated V8 fuel/page logic exists.
-- Main tune only is the conservative supported target.
-- Options/TPS Study/Password/Restore/full-write remain restricted.
-- Do not expand V8 until original V8 writer path is separately reconstructed.
+- Original `ECU Pro Ver 8.exe` main-tune writer/read paths were re-audited in PB 3.79.50.
+- Blink V8 MAIN TUNE matches the original conversion/page rules:
+  - Fuel/Oil Time: UI ms ↔ raw byte with **raw = ms × 20**, max 12.75 ms.
+  - Injection Angle: original OilAngle transform.
+  - Ignition Angle: **raw = degree × 4 + 64**.
+  - Ignition Time/Dwell: original Oil true-time path using the 50/64 conversion.
+  - ECU_MODE page-low routing remains mode-specific (mode1→2, mode4→1, multi-map modes→bank).
+- Supported V8 editor surface intentionally remains **MAIN TUNE only**:
+  - Injection VE / Fuel Time
+  - Injection Angle
+  - Ignition Angle
+  - Ignition Time.
+- All auxiliary writers (Options/Idle/ECT compensation/TPS Study/Password/Restore/full-write) remain hidden or restricted because their V8-specific layouts are not release targets.
+- Regression `tools/check-v8-main.js` prevents a future V9/V10/V11 scale or feature surface from leaking into V8.
+- Status: main tune is **STATIC ORIGINAL-SOFTWARE VERIFIED**; real V8 hardware testing is still required for release certification.
 
 ## 9. ATE V11.1 status
 
@@ -255,6 +295,7 @@ Recent PB progression:
 - 3.79.47 Ultra Pro1 page6 exact 42B Idle writer: Idle 24B + AutoShift 9B + Four-Spare 9B; only 8 labeled Idle values editable; hidden/sibling blocks preserved
 - 3.79.48 Ultra Pro1 exact A2 277/285B serializer: family-specific parser/RMW writers, correct CONFIG semantics, exact readback cache parser; Option/One-Spare/CHG/config remain raw-preserved
 - 3.79.49 REDLEO Ultra Pro2 support: V11-generation detection, exact page6 43B + strict A2-286 routing, product-specific UI labels; AutoClutch hidden by scope decision
+- 3.79.50 cross-family ECU I/O audit: 9.1X exact 30B page6 + 133B A2 RMW, V8 original main-tune regression, Ultra Pro1 compensation writers, cross-family feature-surface CI matrix
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -791,3 +832,32 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
   4. test one page6 Idle value -> SAVE -> READBACK;
   5. then test ECT Motor / ECT Start / Option / CHG one block at a time;
   6. test READ ALL; full-send must remain locked unless exact 9958B decoding succeeds.
+
+
+## Cross-family ECU editor I/O audit - PB 3.79.50 - 2026-10-05
+
+- Audit reference/golden behavior: user-tested REDLEO 9.2 and ATE V11.1 plus their original PC software.
+- Audit rule used for every remaining family: original page/command -> READ region -> exact writable/TX region -> cell order/scale -> hidden/reserved preservation -> ACK -> post-write readback -> UI feature routing.
+- Backup before this audit: `backup-pb-3.79.49-pre-v91-v8-audit`.
+- Findings/fixes:
+  - **REDLEO 9.1X**: old safety state was incomplete. Original software proves page6 **30B = Idle 18B + ECT Motor 12B** and A2 **133B**. Blink now uses direct baseline RMW + ACK/readback for the verified 9.1X blocks. ECT Motor SUM byte stays raw-preserved. Whole Options write and AutoClutch stay locked/hidden.
+  - **REDLEO V8**: no scale/page bug found in the four exposed MAIN TUNE surfaces. Fuel, angle, ignition and dwell conversions match the original V8 software. Auxiliary V8 surfaces remain hidden rather than borrowing newer serializers.
+  - **V10.2**: existing exact page6 18B + A2 268B + Option/Start/axes gates remain intact; no cross-family regression found.
+  - **Ultra Pro1**: original software confirms compensation pages 0x72/0x82/0x92. The cards were already visible but their writer was not direct-enabled; PB 3.79.50 fixes this by routing them through the same verified baseline + ACK/readback page writer. Ultra Pro1 Option/CONFIG/One-Spare/CHG remain raw-preserved/locked as previously documented.
+  - **Ultra Pro2**: V11-286/page6-43 detection and serializers remain intact. Shared ECU control labels were made variant-aware so Pro2 no longer shows ATE wording for A2 read, map subtitle or TPS Study.
+- New regression layers:
+  - `tools/check-v91.js`: exact 9.1X page6/A2/compensation/lock invariants.
+  - `tools/check-v8-main.js`: original V8 MAIN TUNE page/scale/feature-surface invariants.
+  - `tools/check-ecu-feature-surfaces.js`: cross-family matrix that verifies visible ECU cards, direct page routing, writer readiness, real READ/WRITE button capture, and anti-fallback boundaries.
+  - Existing 9.2/V10/Ultra/Pro2 regressions continue to run in the same CI job.
+- Important design result: a feature is no longer considered safe merely because its card exists. WRITE readiness requires **verified family feature + exact page route + successful page baseline in cache**. Unsupported features are hidden/locked.
+- Final CI after PB bump: GitHub Actions run **37266795473 = SUCCESS**. It passed syntax, row orientation, ECU feature-surface matrix, V8, 9.1X, 9.2, V10.2, Ultra Pro1 page6/A2 and Ultra Pro2 checks.
+- Hardware certification status after this audit:
+  - REDLEO 9.2: hardware-certified on tested ECU for the previously controlled page6 tests; use as golden reference.
+  - ATE V11.1: user-tested/golden reference.
+  - 9.1X: static original-software verified; **needs real ECU test**.
+  - V8: exposed MAIN TUNE static original-software verified; **needs real ECU test**.
+  - V10.2: static serializer verified; **needs real ECU test**.
+  - Ultra Pro1: static serializer verified; **needs real ECU test**.
+  - Ultra Pro2: static V11-286 serializer verified; **needs real ECU test**.
+- Do not describe the untested families as “99% hardware stable” until controlled real-hardware READ -> one-cell change -> SAVE -> READBACK tests pass.
