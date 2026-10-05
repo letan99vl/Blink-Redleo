@@ -928,6 +928,7 @@ function syncHandshakeInfo(info){
   publishProfileAxisFallback(p.key==='MODERN_V10'||p.key==='MODERN_V11'?'PROFILE · CHỜ A2 TPS/RPM':'PROFILE · AXIS CỐ ĐỊNH');
   if(typeof state!=='undefined'){
     state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
+    state.ecuVariant=isUltraPro2Identity(info)?'ULTRA_PRO2':(isUltraDirect()?'ULTRA_PRO1':'');
     if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
   }
   const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
