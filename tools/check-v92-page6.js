@@ -85,8 +85,12 @@ mustNot(/writeV10IdleLimit[\s\S]{0,700}slice\(0,62\)/,
     process.exitCode=1;
   }
 }
-must(/REDLEO 9\.1X · Idle\/ECT Motor tạm khóa/,
-  'V9.1 page6 safety lock missing');
+must(/async function writeV91IdleLimit[\s\S]{0,450}requireCachedPageAtLeast\(pg,30,'REDLEO 9\.1X Idle\/Limit'\)[\s\S]{0,180}baseline\.slice\(0,30\)/,
+  'V9.1 must use its own exact 30B page6 serializer');
+mustNot(/writeV91IdleLimit[\s\S]{0,900}slice\(0,62\)/,
+  'V9.1 must never reuse the REDLEO 9.2 62B page6 payload');
+mustNot(/writeV91EctMotor[\s\S]{0,900}slice\(0,62\)/,
+  'V9.1 ECT Motor must never reuse the REDLEO 9.2 62B page6 payload');
 
 if(process.exitCode)process.exit(process.exitCode);
 console.log('REDLEO 9.2 page6 regression checks: OK');
