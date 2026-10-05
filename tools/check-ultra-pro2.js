@@ -53,32 +53,36 @@ must(/ultra2\?'REDLEO ULTRA PRO2 · A2 286B'/,
   'Ultra Pro2 A2 status label must state 286B');
 
 // V11 page6 contract used by Ultra Pro2.
-const idle=between('async function writeV11IdleLimit','async function writeV11EctStart');
-if(!/cached\.length<43/.test(idle) || !/payload=baseline\.slice\(0,43\)/.test(idle)){
-  console.error('FAIL: V11/Ultra Pro2 page6 must use exact 43B baseline/payload');
-  process.exitCode=1;
+const shiftWriter=between('async function writeV11AutoShift','async function writeV11AfrMap');
+const motorWriter=between('async function writeV11EctMotor','async function writeV11IdleLimit');
+const idleWriter=between('async function writeV11IdleLimit','async function writeV11EctStart');
+for(const [name,block] of [['Idle',idleWriter],['AutoShift',shiftWriter],['ECT Motor',motorWriter]]){
+  if(!/cached\.length<43/.test(block) || !/payload=baseline\.slice\(0,43\)/.test(block)){
+    console.error('FAIL: V11/Ultra Pro2 '+name+' page6 writer must use exact 43B baseline/payload');
+    process.exitCode=1;
+  }
 }
-if(!/payload\.set\(idle,0\)/.test(idle)){
+if(!/payload\.set\(idle,0\)/.test(idleWriter)){
   console.error('FAIL: Ultra Pro2 Idle must occupy page6 offset 0');
   process.exitCode=1;
 }
-if(!/payload\.set\(shift,12\)/.test(idle)){
+if(!/payload\.set\(shift,12\)/.test(shiftWriter)){
   console.error('FAIL: Ultra Pro2 AutoShift must occupy page6 offset 12');
   process.exitCode=1;
 }
-if(!/payload\.set\(motor,21\)/.test(idle)){
+if(!/payload\.set\(motor,21\)/.test(motorWriter)){
   console.error('FAIL: Ultra Pro2 ECT Motor must occupy page6 offset 21');
   process.exitCode=1;
 }
-if(!/GHI IDLE\/LIMIT[\s\S]*12B Idle/.test(idle)){
+if(!/12B Idle/.test(idleWriter)){
   console.error('FAIL: Ultra Pro2/V11 Idle 12B invariant missing');
   process.exitCode=1;
 }
-if(!/GHI AUTOSHIFT[\s\S]*9B AutoShift/.test(idle)){
+if(!/9B AutoShift/.test(shiftWriter)){
   console.error('FAIL: Ultra Pro2/V11 AutoShift 9B invariant missing');
   process.exitCode=1;
 }
-if(!/GHI ECT MOTOR[\s\S]*22B ECT Motor/.test(idle)){
+if(!/22B ECT Motor/.test(motorWriter)){
   console.error('FAIL: Ultra Pro2/V11 ECT Motor 22B invariant missing');
   process.exitCode=1;
 }
