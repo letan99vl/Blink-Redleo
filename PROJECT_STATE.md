@@ -17,12 +17,22 @@
 Production Android/web line.
 
 Current verified head when this checkpoint was written:
-`cece84670b1af23bf2e7e1da23dfd7468656f848`
+`7d103053e36294896353d13e9115b31128e099ce`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.63`
+`BLINK_PB_VERSION = 3.79.64`
 
 Important current state:
+- PB 3.79.64 injection-angle calculator:
+  - Replaced the PB 3.79.63 reference-curve-driven formula with a physical PW/RPM model.
+  - Active formula is `pulseDeg = PW(ms) * RPM * 0.006`, then provisional `SOI = IVO + pulseDeg`.
+  - IVO is currently the EOI target anchor; IVC remains a cam duration/center diagnostic until an IVC-based EOI offset is proven.
+  - Removed the fixed 295-degree strategy ceiling from the active calculation; the 3/31 table is diagnostic reference only.
+  - Output still obeys each ECU family's verified angle encoder/quantization limit.
+  - Restored automatic fuel-map + angle-baseline preflight because real PW is required.
+  - Injector dead-time is not added separately to avoid possible double compensation.
+  - APPLY remains local-only; GHI ECU is still a separate operator action.
+  - REDLEO SOI-vs-EOI meaning and exact angular zero/direction remain hardware assumptions pending CKP + injector scope confirmation.
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
 - PB 3.79.19 release hardening:
   - Production AFR A3 uses the same user calibration path as serial/test AFR; no median/EMA/fixed BLE-only AFR formula remains.
