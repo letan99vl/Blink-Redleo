@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.62**.
+- Current displayed PB: **3.79.63**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1166,3 +1166,23 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main implementation commit: 8c87a08d6bcfc9263e7508d00ade20d8e94439d9.
 - Regression update: 5853aa04794661ef056a774e7e0d53ba65558731.
 - Final CI run **37338924774 = SUCCESS**. All 17 checks passed.
+
+## Cam calculator calibrated to 3/31 REDLEO reference curve - PB 3.79.63 - 2026-10-05
+
+- User provided the expected INJ degree table for cam **IVO 3 / IVC 31** and reported the prior model producing impossible values such as ~523° at 100% / 15000 rpm.
+- Root cause: previous cam models incorrectly tied strategy output to PW and/or the ECU's raw 720° encoding domain. The encoding range is not the desired tuning range.
+- New strategy model:
+  - the user-provided 3/31 TPS×RPM table is the reference calibration;
+  - strategic INJ degree is hard-limited to **0–295°**;
+  - 3/31 reproduces key reference anchors such as 100%/500=24°, 100%/3500=138°, 100%/5000=195°, 100%/7500=291°, 100%/15000=295°, IDLE/15000=208°;
+  - the curve is piecewise interpolated by TPS row and RPM;
+  - IVO/IVC values other than 3/31 make conservative adjustments using intake duration and intake center, bounded to avoid extreme outputs.
+- Important architecture change:
+  - cam strategy no longer depends on the current INJ VE / fuel-time map;
+  - no automatic fuel-map read is required for cam calculation;
+  - ECU 720°/360° domains are treated only as writer/encoding details, not as the strategy maximum.
+- APPLY still edits only the local INJ degree table; the operator must explicitly press GHI ECU.
+- Backup: backup-pb-3.79.62-pre-cam-reference-curve.
+- Main implementation commit: 524415d2572af73ba191cd5920411498e09962d9.
+- Regression commit: af4bfc06a2c97eb07945581997f751ebc619739a.
+- Final CI run **37340103880 = SUCCESS**. All 17 checks passed.
