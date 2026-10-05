@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.57**.
+- Current displayed PB: **3.79.58**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -1058,3 +1058,34 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Source-label routing commit: d8170d7ec6c1bed3b9969f910ae69f433b7ef99c.
 - Regression updates: bb5f04a7e07db45316a55b7a19aa682aca11a4c6, 68dba9e4a87d6a763a439f90e7330ac3418a7d9c, 3d9189f3e3a7656263ebfa445a542dbf9586c7af, f395c1f3a4796c2e5c08342b1de3cbe763ac07de.
 - Final CI run **37324845570 = SUCCESS**. All protocol regressions passed.
+
+## Adaptive injection-angle calculator from cam closing angle - PB 3.79.58 - 2026-10-05
+
+- Added directly inside the **INJ degree / Góc phun** editor.
+- Working convention explicitly chosen by the user for this calculator:
+  - 0° = compression TDC;
+  - larger INJ degree = injection starts earlier before TDC.
+- Inputs:
+  - intake valve closing angle **IVC in degrees ABDC**;
+  - desired injection end margin in degrees **before IVC**.
+- Formula per TPS × RPM cell:
+  - EOI target BTDC = 180 - IVC_ABDC + margin;
+  - injection duration deg = PW_ms × RPM × 0.006;
+  - SOI recommendation = EOI target + injection duration deg.
+- The calculator uses the current **INJ VE / fuel-time map from the same MAP bank** for PW.
+- Family-adaptive quantization:
+  - V8 / V9.x / V10 / Ultra Pro1: legacy ~720° domain, round-tripped through the original OilAngle conversion, max displayed ~717°;
+  - V11 / Ultra Pro2: ~360° domain, round-tripped through the V11 main injection-angle conversion, max 360°.
+- Safety behavior:
+  - requires a valid current fuel map;
+  - rejects fuel maps latched as unknown after a failed write;
+  - requires a valid existing INJ degree baseline before calculation;
+  - PW <= 0 cells are preserved unchanged;
+  - preview shows changed/skipped/clamped counts and sample 100% TPS values;
+  - **APPLY only changes the local INJ degree map**; ECU is not written until the operator separately presses GHI ECU.
+- UI button: **TÍNH GÓC PHUN THEO GÓC CAM**.
+- Backup: backup-pb-3.79.57-pre-injection-cam-calculator.
+- Main implementation commit: 1f7c56f98c64432434a5982e098074a843535db5.
+- Regression commit: 228ee45b7dca6f10c62c2110c8b33ccef814f531.
+- CI wiring commit: 44dc4a5fd6734fb992323a5d58510750540673f0.
+- Final CI run **37332812725 = SUCCESS**. All 17 checks passed.
