@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.48`
+`BLINK_PB_VERSION = 3.79.49`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.48.
+- Android/web production: `main`, currently PB 3.79.49.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -396,3 +396,20 @@ The assistant should then:
 - Final CI run **37262942801** passed syntax, 9.2 page6, V10.2 page6/A2, Ultra page6 and Ultra A2 regression checks.
 - Hardware status: **NEEDS REAL ULTRA PRO1 TEST** before release certification.
 - Next static family audit: REDLEO 9.1X page6/full-write behavior, unless Ultra real-hardware testing finds a semantic issue first.
+
+
+## 22. REDLEO Ultra Pro2 checkpoint - PB 3.79.49
+
+- User supplied original `Redleo ECU Ultra Pro2.rar`; extracted/analyzed `ECU Pro 11.exe` (SHA256 `c41b8d987afa60ec9025e42d68c2b92a094c6a5f2afa2f52971411db568a49b4`).
+- Original executable is `tqmcu_ECU_V11`, assembly **11.1.7.0**, product selector REDLEO=true / ATE=false.
+- Architectural result: **Ultra Pro2 is REDLEO V11-generation**, not Ultra Pro1/V10.
+- Detection fixed so explicit Ultra Pro2 or Ultra + firmware major 11 routes to MODERN_V11 before the generic Ultra->MODERN_V10 fallback.
+- Pro2 page6 uses exact V11 **43B = Idle 12B + AutoShift 9B + ECT Motor 22B**.
+- Pro2 A2 uses exact **A2-286B** only. Pro2 direct sessions do not accept the alternate V11 A2-272 layout.
+- Pro2 shares the verified V11 byte serializers where the original Pro2 EXE proves identity; it never uses V10.2 268B or Ultra Pro1 277/285B A2 paths.
+- AutoClutch is intentionally hidden/blocked for Pro2 per user scope decision.
+- Full ReadAll/full-image still requires exact decoded **9958B**; this gate was not loosened for Pro2 because static analysis did not independently prove a different full-image size.
+- UI/badge uses **ULTRA PRO2 / REDLEO Ultra Pro2** naming instead of generic ATE text.
+- Regression checker `tools/check-ultra-pro2.js` protects product detection, V11-286 routing, page6 43B, 9958B full-image gate, AutoClutch scope and Pro2 UI labels.
+- Final CI run **37264169593** passed all protocol checks across 9.2, V10.2, Ultra Pro1 and Ultra Pro2.
+- Hardware status: **NEEDS REAL ULTRA PRO2 TEST**. First real test should verify Ultra Pro2 badge + A2 286B, then one low-risk A2 SAVE/READBACK and one page6 Idle SAVE/READBACK.
