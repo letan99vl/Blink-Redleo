@@ -13,7 +13,7 @@
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
 - Current displayed PB: **3.79.48**.
-- IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
+- REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
 
@@ -179,14 +179,17 @@ Historical PB <=3.79.39 failures remain evidence, but PB 3.79.40 is a materially
 
 ## 7. Ultra Pro1 status
 
-- Ultra executable is highly similar to V10 but its original writer differs materially.
-- Static IL from original Ultra Pro1 confirms:
-  - page family 6 serializes **Idle Limit + AutoShift + Four-Spare** for the selected bank.
-  - ECT Motor and ECT Start Add are NOT on page6; they are serialized in A2.
-  - Ultra A2 serializes TPS/RPM/voltages/IAT INJ/MAP Motor prefix, then Options + ECT Motor + ECT Start Add + One-Spare + External Adjustment; newer firmware may also append CHG.
-- Therefore Ultra must have its own page6/A2 writer and must NOT reuse V10.2 or 9.2 TX assumptions.
-- Ultra remains LOCKED for these extended writers until exact block dimensions/TX length are reconstructed.
-- Main fuel/angle/dwell support remains separate from this extended-writer work.
+- Ultra executable is highly similar to V10 but its original writers differ materially; serializer gates remain separate.
+- PB 3.79.47 reconstructed the selected-bank page6 writer as **42B = Idle 24B + AutoShift 9B + Four-Spare 9B**. Blink edits only the 8 labeled Idle values and preserves the remaining Idle words, AutoShift and Four-Spare raw.
+- PB 3.79.48 reconstructed Ultra A2 independently:
+  - **277B** for firmware ≤10.2.
+  - **285B** for firmware >10.2 because CHG 8B is appended.
+  - CONFIG 11B is feature flags + 6 Spare Built-in + 4 password, **not V10 AutoClutch**.
+- Verified Ultra A2 edit surfaces are TPS axis, RPM axis, IAT INJ, MAP Idle Motor, ECT Motor 2×11, ECT Start 3×11, External Adjustment 2×15, vECT, vIAT and vMAP.
+- Option 18B, One-Spare 9B, CONFIG 11B, vAFR and optional CHG remain raw-preserved; Ultra AutoClutch stays out of scope.
+- If exact Ultra firmware minor cannot be determined, A2 write remains locked rather than guessing 277B vs 285B.
+- Ultra page6/A2 are **STATIC-ANALYSIS IMPLEMENTED / NEED REAL ULTRA HARDWARE TEST**. Do not release-certify until controlled SAVE + READBACK passes on a real Ultra ECU.
+- Never reuse V10.2 268B A2 or REDLEO 9.2 62B page6 assumptions for Ultra.
 
 ## 8. V8 status
 
