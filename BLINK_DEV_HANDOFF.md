@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.44**.
+- Current displayed PB: **3.79.45**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -247,6 +247,7 @@ Recent PB progression:
 - 3.79.42 V10.2 exact 268B A2 serializer; verified partial RMW writers for IAT/MAP motor/ECT motor/external/voltage; Ultra remains separate
 - 3.79.43 V10.2 AutoClutch timer writer: edits only CONFIG bytes +2..+6 (raw=ms/5), preserves feature byte + Start RPM + password
 - 3.79.44 V10.2 ECT Start Add 3x11 writer: exact original row labels/order/scale, A2 268B RMW, Ultra excluded
+- 3.79.45 V10.2 Dgv_Option 18B writer: 15 verified semantic cells editable, reserved bytes 15..17 preserved raw, Ultra excluded
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -470,3 +471,57 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - GitHub Actions final run **37259543263** completed **SUCCESS** after PB 3.79.44; syntax + row orientation + 9.2 page6 + V10.2 page6 + V10.2 A2/Start Add regression all passed. CI success is not a substitute for real V10.2 hardware certification.
 - Hardware status: **NEEDS REAL V10.2 TEST**. Recommended test: change one Start Add cell slightly -> SAVE -> READBACK -> confirm only that displayed cell changes.
 - Next V10.2 target after hardware test or further static proof: Option 18B semantics and/or controlled Start RPM handling; TPS/RPM axis writes remain locked.
+
+
+## V10.2 Dgv_Option update - 2026-10-05
+
+- PB: **3.79.45**.
+- Backup before change: `backup-pb-3.79.44-pre-v10-option18`.
+- Original V10.2 evidence was taken from the extracted **ECU Pro 10.2.exe** plus embedded **LNG_EN.txt**.
+- Original `Dgv_Option` grid is 8 columns × 6 rows, but `proUartDgvNumOption` serializes only the 3 value columns, yielding **18 writable bytes**.
+- Flattened wire/UI semantic indexes 0..14 verified from `LanguageSetup::OutLanguage`, `proOptionToProgram`, `proWrDgvOption`, `proUartDgvNumOption`, and `proEcuToDgvOption`:
+  1. TPS Voltage (Min.)
+  2. TPS Voltage (Max.)
+  3. Idle minimum inj (cold)
+  4. Idle minimum inj (Hot)
+  5. Idle Auto Regulation IGN(±°)
+  6. Idle Auto Regulation INJ(±ms)
+  7. Total steps of idle motor
+  8. Open fan temperature
+  9. O2S working (cylinder temperature voltage)
+  10. O2S delay work
+  11. O2S working speed
+  12. O2S adjusts fuel injection
+  13. Start the injection RPM
+  14. Idle Motor Maximum
+  15. Idle Motor Minimum
+- Bytes **15..17** of the 18B block have no label/unit assignment in the original English resource and are treated as reserved/unknown.
+- Safety rule: Blink **never regenerates or zeroes bytes 15..17**. They are copied byte-for-byte from the direct A2 read baseline on every Option write.
+- Verified V10.2 conversion rules implemented:
+  - indexes 0,1,8: voltage quarter-scale, matching Blink `encVolt/decVolt`.
+  - indexes 2,3,5: original Oil time conversion, matching `encOil/decOil`.
+  - index 4: original centered IGN option path `Ign_PcToEcu(value,1)-64` / inverse `raw+64`.
+  - indexes 6,13,14: raw = UI/2; decode = raw×2.
+  - index 7: ECT temperature ↔ voltage curve using the live V10.2 vECT table.
+  - index 9: 200ms units, raw = seconds×5; decode raw×0.2s.
+  - indexes 10,12: RPM/50.
+  - index 11: O2 fuel adjustment uses original **0..25%** scale, encode `round(128×value/25)` with 128 clamped to 127; decode `round(25×raw/128)`.
+- Blink UI now exposes a direct-V10-only **1×15** `Dgv_Option` table. The generic menu card is named **Tuỳ chọn ECU** so V11 still uses its existing 1×20 ATE Options surface.
+- V10.2 writer behavior:
+  - requires a successful direct A2 read baseline of at least 268B,
+  - edits only the Option block at A2 bytes **165..182**,
+  - only semantic bytes 0..14 inside that block may change,
+  - reserved bytes 15..17 remain raw-identical,
+  - all sibling A2 blocks and any reply-only tail remain unchanged,
+  - ECU ACK + post-write readback verification remains mandatory.
+- Ultra protection:
+  - `ate_options` is NOT added to the shared `MODERN_V10` base feature set,
+  - it is enabled only through the current-session `isV10Direct()` dynamic gate,
+  - Ultra has an explicit guard and cannot use the V10.2 Option codec/writer.
+- Core protocol commit: `8d8786d3ceb3a4b594280a56b2d8f2200b23c251`.
+- Dedicated V10.2 Option UI commit: `d19bdb08b3127e5ed10e7b066999690eaec62ce3`.
+- Regression protection commit: `10f2901f9c7cb1146689144da5ff0e60a2272d0d`.
+- PB bump: `b5fe9ca8dca331268057f66cf8fb7ad87f320d62`.
+- Final GitHub Actions run **37260282172**: **SUCCESS** — syntax, row orientation, 9.2 page6, V10.2 page6 and V10.2 A2/Option checks all passed.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Recommended controlled test: change one low-risk Option cell slightly (for example fan temperature or Idle Motor Maximum), SAVE, READBACK, and confirm only that semantic cell changes while the reserved tail remains untouched.
+- Next V10.2 static-analysis targets: controlled AutoClutch Start RPM handling and TPS/RPM axis write path. Do not open either without verifying the exact original write semantics and preservation requirements.
