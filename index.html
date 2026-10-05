@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.58';
+  window.BLINK_PB_VERSION = '3.79.59';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -128,7 +128,13 @@
   .injCamField{display:grid;gap:5px;padding:10px;border:1px solid #3a2529;border-radius:10px;background:#111115}
   .injCamField span{font-size:11px;color:#aeb3ba;font-weight:700}
   .injCamField input{width:100%;height:42px;border-radius:9px;border:1px solid #613038;background:#09090c;color:#fff;padding:0 10px;font-size:16px;font-weight:800}
+  .injCamField.active{border-color:#ff3b30;box-shadow:0 0 0 1px #ff3b30 inset}
+  .injCamField input[readonly]{cursor:pointer;caret-color:transparent;user-select:none;-webkit-user-select:none}
   .injCamFormula,.injCamPreview{padding:10px 12px;border-radius:10px;border:1px solid #3a2529;background:#0d0d11;font-size:11px;line-height:1.55;color:#c8cbd1}
+  .injCamKeypad{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px;padding:10px;border:1px solid #3a2529;border-radius:10px;background:#09090c}
+  .injCamKeypad button{height:44px;border-radius:9px;font-size:16px;font-weight:900}
+  .injCamKeypad .wide2{grid-column:span 2}
+  .injCamKeypadState{grid-column:1/-1;font-size:10px;color:#aeb3ba;padding:2px 2px 5px}
   .injCamFormula b,.injCamPreview b{color:#fff}
   .injCamPreview{margin-top:10px;white-space:pre-line}
   @media(max-width:600px){.injCamGrid{grid-template-columns:1fr}}
@@ -2214,15 +2220,22 @@
   </div>
 </div>
 <dialog id="injCamDialog">
-  <h3>Tính góc phun theo góc đóng cam</h3>
+  <h3>Tính góc phun theo thông số cam nạp</h3>
   <div class="injCamFormula">
-    <b>Giả định đang dùng:</b> 0° = TDC nén, số INJ degree càng lớn = bắt đầu phun càng sớm trước TDC.<br>
-    <b>Công thức:</b> EOI mục tiêu = 180° − IVC(ABDC) + khoảng an toàn; thời lượng phun = PW(ms) × RPM × 0.006; SOI = EOI + thời lượng phun.<br>
-    Blink tự đổi SOI về đúng độ phân giải/thang góc của đời ECU hiện tại. Đây là bộ tính đề xuất; chỉ thay map cục bộ khi bấm ÁP DỤNG, không tự ghi ECU.
+    <b>Chỉ cần 2 thông số cam:</b> IN OPEN (IVO · °BTDC) và IN CLOSE (IVC · °ABDC). Blink tự tính duration cam nạp = 180 + IVO + IVC.<br>
+    <b>Mô hình đề xuất:</b> Blink tự tạo khoảng EOI an toàn từ 5% duration cam (giới hạn 8–20°), sau đó tính thời lượng phun = PW(ms) × RPM × 0.006 và suy ra SOI cho từng ô.<br>
+    <b>Quy ước hiện dùng:</b> 0° = TDC nén, INJ degree càng lớn = phun càng sớm. Đây là mô hình ước tính theo cam + PW; ÁP DỤNG chỉ đổi map cục bộ, không tự ghi ECU.
   </div>
   <div class="injCamGrid">
-    <label class="injCamField"><span>Góc đóng cam nạp IVC (° ABDC)</span><input id="injCamIvc" type="number" min="0" max="180" step="1" value="50"></label>
-    <label class="injCamField"><span>Kết thúc phun trước khi cam đóng (°)</span><input id="injCamMargin" type="number" min="0" max="90" step="1" value="10"></label>
+    <label class="injCamField active" data-injcam-field="ivo"><span>IN OPEN · IVO (° BTDC)</span><input id="injCamIvo" type="text" inputmode="none" readonly value="3" tabindex="-1"></label>
+    <label class="injCamField" data-injcam-field="ivc"><span>IN CLOSE · IVC (° ABDC)</span><input id="injCamIvc" type="text" inputmode="none" readonly value="31" tabindex="-1"></label>
+  </div>
+  <div class="injCamKeypad" id="injCamKeypad">
+    <div class="injCamKeypadState" id="injCamKeypadState">Đang nhập: IN OPEN (IVO)</div>
+    <button type="button" data-injcam-key="1">1</button><button type="button" data-injcam-key="2">2</button><button type="button" data-injcam-key="3">3</button><button type="button" data-injcam-key="clear">C</button>
+    <button type="button" data-injcam-key="4">4</button><button type="button" data-injcam-key="5">5</button><button type="button" data-injcam-key="6">6</button><button type="button" data-injcam-key="backspace">⌫</button>
+    <button type="button" data-injcam-key="7">7</button><button type="button" data-injcam-key="8">8</button><button type="button" data-injcam-key="9">9</button><button type="button" data-injcam-key=".">.</button>
+    <button type="button" class="wide2" data-injcam-key="0">0</button><button type="button" data-injcam-key="next">TIẾP</button><button type="button" data-injcam-key="done">XONG</button>
   </div>
   <div id="injCamPreview" class="injCamPreview">Chưa tính. Hãy đọc Thời gian phun và Góc phun của MAP hiện tại trước.</div>
   <div class="dlgBtns"><button id="injCamPreviewBtn" class="primary">TÍNH THỬ</button><button id="injCamApplyBtn" class="danger" disabled>ÁP DỤNG VÀO MAP</button><button id="injCamCloseBtn">ĐÓNG</button></div>
@@ -5861,7 +5874,7 @@ function redKeypadBackspace(){
 }
 function redKeypadClear(){redKeypadBuffer='';redKeypadDirty=true;applyRedKeypadLive();syncRedKeypadSelection(false)}
 
-let injCamPreviewState=null;
+let injCamPreviewState=null,injCamActiveField='ivo';
 function injCamAngleSpec(){
   const v11=state.ecuProfile==='MODERN_V11';
   return {
@@ -5881,13 +5894,40 @@ function injCamAngleSpec(){
 function injCamMatrixReady(m){
   return Array.isArray(m)&&m.length===14&&m.every(row=>Array.isArray(row)&&row.length===30&&row.every(v=>v!=null&&v!==''&&Number.isFinite(Number(v))));
 }
+function injCamSelectField(which){
+  injCamActiveField=which==='ivc'?'ivc':'ivo';
+  document.querySelectorAll('[data-injcam-field]').forEach(x=>x.classList.toggle('active',x.dataset.injcamField===injCamActiveField));
+  const st=document.getElementById('injCamKeypadState');
+  if(st)st.textContent='Đang nhập: '+(injCamActiveField==='ivo'?'IN OPEN (IVO · °BTDC)':'IN CLOSE (IVC · °ABDC)');
+}
+function injCamInputEl(){
+  return document.getElementById(injCamActiveField==='ivc'?'injCamIvc':'injCamIvo');
+}
+function injCamKey(key){
+  if(key==='next'){injCamSelectField(injCamActiveField==='ivo'?'ivc':'ivo');return}
+  if(key==='done'){injCamPreview();return}
+  const el=injCamInputEl();if(!el)return;
+  let v=String(el.value||'');
+  if(key==='clear')v='';
+  else if(key==='backspace')v=v.slice(0,-1);
+  else if(key==='.'){if(!v.includes('.'))v=v?v+'.':'0.'}
+  else if(/^\d$/.test(key)&&v.length<6){
+    if(v==='0'&&!v.includes('.'))v=key;else v+=key;
+  }
+  el.value=v;
+  injCamPreviewState=null;
+  const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=true;
+}
 function injCamLoadSettings(){
   try{
-    const j=JSON.parse(localStorage.getItem('blinkInjCamCalcV1')||'null');
+    const j=JSON.parse(localStorage.getItem('blinkInjCamCalcV2')||'null');
     if(j){
+      if(Number.isFinite(Number(j.ivo)))document.getElementById('injCamIvo').value=String(j.ivo);
       if(Number.isFinite(Number(j.ivc)))document.getElementById('injCamIvc').value=String(j.ivc);
-      if(Number.isFinite(Number(j.margin)))document.getElementById('injCamMargin').value=String(j.margin);
+      return;
     }
+    const old=JSON.parse(localStorage.getItem('blinkInjCamCalcV1')||'null');
+    if(old&&Number.isFinite(Number(old.ivc)))document.getElementById('injCamIvc').value=String(old.ivc);
   }catch(_e){}
 }
 function injCamBuildPreview(){
@@ -5898,11 +5938,13 @@ function injCamBuildPreview(){
   if(!fuelCheck.ok)throw new Error('Cần ĐỌC Thời gian phun MAP No.'+state.activeMap+' trước. '+fuelCheck.reason);
   const angle=featureData(currentFeature,state.activeMap);
   if(!injCamMatrixReady(angle))throw new Error('Cần ĐỌC Góc phun MAP No.'+state.activeMap+' trước khi tính để có baseline an toàn.');
-  const ivc=Math.max(0,Math.min(180,Number(document.getElementById('injCamIvc')?.value)));
-  const margin=Math.max(0,Math.min(90,Number(document.getElementById('injCamMargin')?.value)));
-  if(!Number.isFinite(ivc)||!Number.isFinite(margin))throw new Error('IVC / khoảng an toàn không hợp lệ.');
+  const ivo=Number(document.getElementById('injCamIvo')?.value);
+  const ivc=Number(document.getElementById('injCamIvc')?.value);
+  if(!Number.isFinite(ivo)||ivo<0||ivo>90||!Number.isFinite(ivc)||ivc<0||ivc>120)throw new Error('IVO phải 0–90° BTDC và IVC phải 0–120° ABDC.');
+  const camDuration=180+ivo+ivc;
+  const autoMargin=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
   const spec=injCamAngleSpec();
-  const eoi=180-ivc+margin;
+  const eoi=180-ivc+autoMargin;
   const matrix=angle.map(r=>r.slice());
   let changed=0,skipped=0,clamped=0,min=Infinity,max=-Infinity,sum=0,count=0;
   for(let r=0;r<14;r++){
@@ -5923,15 +5965,16 @@ function injCamBuildPreview(){
     const rpm=RPMS[c],pw=Number(fuel[0][c]),deg=matrix[0][c];
     return Math.round(rpm)+'rpm: PW '+pw.toFixed(2)+'ms → '+deg+'°';
   }).join(' · ');
-  const stateOut={bank:state.activeMap,ivc,margin,eoi,specLabel:spec.label,matrix,changed,skipped,clamped,min,max,avg:sum/count,samples};
-  try{localStorage.setItem('blinkInjCamCalcV1',JSON.stringify({ivc,margin}))}catch(_e){}
+  const stateOut={bank:state.activeMap,ivo,ivc,camDuration,autoMargin,eoi,specLabel:spec.label,matrix,changed,skipped,clamped,min,max,avg:sum/count,samples};
+  try{localStorage.setItem('blinkInjCamCalcV2',JSON.stringify({ivo,ivc}))}catch(_e){}
   return stateOut;
 }
 function injCamRenderPreview(p){
   const el=document.getElementById('injCamPreview');if(!el)return;
   el.textContent=
     'MAP No.'+p.bank+' · hệ góc '+p.specLabel+'\n'+
-    'IVC '+p.ivc+'° ABDC · kết thúc phun sớm hơn IVC '+p.margin+'° → EOI mục tiêu '+p.eoi.toFixed(1)+'° BTDC\n'+
+    'IVO '+p.ivo+'° BTDC · IVC '+p.ivc+'° ABDC → duration cam nạp '+p.camDuration.toFixed(1)+'°\n'+
+    'Blink tự chọn khoảng EOI '+p.autoMargin+'° (5% duration, giới hạn 8–20°) → EOI mục tiêu '+p.eoi.toFixed(1)+'° BTDC\n'+
     'Đề xuất: '+p.changed+'/420 ô thay đổi · '+p.skipped+' ô PW=0/không hợp lệ giữ nguyên · '+p.clamped+' ô chạm giới hạn đời ECU\n'+
     'Góc đề xuất min '+p.min.toFixed(0)+'° · max '+p.max.toFixed(0)+'° · trung bình '+p.avg.toFixed(1)+'°\n'+
     'Hàng 100% TPS: '+p.samples+'\n'+
@@ -5951,8 +5994,8 @@ function injCamPreview(){
 }
 function injCamApply(){
   const p=injCamPreviewState;
-  const ivc=Number(document.getElementById('injCamIvc')?.value),margin=Number(document.getElementById('injCamMargin')?.value);
-  if(!p||p.bank!==state.activeMap||p.ivc!==ivc||p.margin!==margin){
+  const ivo=Number(document.getElementById('injCamIvo')?.value),ivc=Number(document.getElementById('injCamIvc')?.value);
+  if(!p||p.bank!==state.activeMap||p.ivo!==ivo||p.ivc!==ivc){
     showEcuNotice('info','CẦN TÍNH LẠI','MAP hoặc thông số cam đã thay đổi. Bấm TÍNH THỬ lại trước khi áp dụng.',3000);return;
   }
   if(currentFeature?.id!=='inj_degree')return;
@@ -5960,17 +6003,18 @@ function injCamApply(){
   for(let r=0;r<14;r++)for(let c=0;c<30;c++)dst[r][c]=p.matrix[r][c];
   saveFeatureStore();renderFeature();
   document.getElementById('redIoStatus').textContent='Góc phun theo cam đã áp dụng cục bộ · MAP '+state.activeMap+' · chưa ghi ECU';
-  showEcuNotice('success','ĐÃ ÁP DỤNG MAP GÓC PHUN','Đã thay '+p.changed+' ô theo IVC '+p.ivc+'° ABDC. Kiểm tra bảng rồi bấm GHI ECU nếu muốn gửi.',5000);
+  showEcuNotice('success','ĐÃ ÁP DỤNG MAP GÓC PHUN','Đã thay '+p.changed+' ô theo IVO '+p.ivo+'° / IVC '+p.ivc+'°. Kiểm tra bảng rồi bấm GHI ECU nếu muốn gửi.',5000);
   document.getElementById('injCamDialog')?.close();
 }
 function openInjCamDialog(){
   if(currentFeature?.id!=='inj_degree')return;
   injCamPreviewState=null;
   injCamLoadSettings();
+  injCamSelectField('ivo');
   const b=document.getElementById('injCamApplyBtn');if(b)b.disabled=true;
   const spec=injCamAngleSpec();
   const el=document.getElementById('injCamPreview');
-  if(el)el.textContent='MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChưa tính. Blink sẽ dùng Thời gian phun hiện tại của cùng MAP No.'+state.activeMap+'.';
+  if(el)el.textContent='MAP No.'+state.activeMap+' · hệ góc '+spec.label+'\nChạm IVO hoặc IVC rồi nhập bằng bàn phím ảo bên dưới. Blink sẽ dùng Thời gian phun hiện tại của cùng MAP.';
   document.getElementById('injCamDialog')?.showModal();
 }
 
@@ -6163,6 +6207,8 @@ document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click
   renderFeature();
 });document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);
 document.getElementById('injCamCalcBtn')?.addEventListener('click',openInjCamDialog);
+document.querySelectorAll('[data-injcam-field]').forEach(el=>el.addEventListener('pointerdown',e=>{e.preventDefault();injCamSelectField(el.dataset.injcamField)}));
+document.querySelectorAll('[data-injcam-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();injCamKey(btn.dataset.injcamKey)}));
 document.getElementById('injCamPreviewBtn')?.addEventListener('click',injCamPreview);
 document.getElementById('injCamApplyBtn')?.addEventListener('click',injCamApply);
 document.getElementById('injCamCloseBtn')?.addEventListener('click',()=>document.getElementById('injCamDialog')?.close());
