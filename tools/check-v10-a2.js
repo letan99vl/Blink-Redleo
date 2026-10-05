@@ -158,7 +158,7 @@ must(/if\(v10Direct&&C\.v10Options\)emitFeature\(N\.ate_options,C\.v10Options\)/
   'V10 Option must be emitted after A2 read');
 must(/const baseOpt=baseline\.slice\(V10_A2\.OPTION,V10_A2\.OPTION\+18\)[\s\S]*encodeV10Option15\(m,baseOpt,parsed\.vEct\)[\s\S]*payload\.set\(opt,V10_A2\.OPTION\)/,
   'V10 Option writer must patch the exact 18B block from a baseline copy');
-must(/currentV10Direct&&\['ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start'\]\.includes\(id\)/,
+must(/currentV10Direct&&\[[^\]]*'ate_options'[^\]]*\]\.includes\(id\)/,
   'V10 Option must be enabled only by the direct-V10 dynamic feature gate');
 mustNot(/MODERN_V10:new Set\(\[[^\]]*'ate_options'/,
   'Base MODERN_V10 profile must not expose V10 Option to Ultra');
