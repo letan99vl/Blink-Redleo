@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'redleo_real_protocol.js'
+      - 'index.html'
       - 'tools/check-row-orientation.js'
       - 'tools/check-v92-page6.js'
       - 'tools/check-v10-page6.js'
