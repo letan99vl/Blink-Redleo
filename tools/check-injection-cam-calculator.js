@@ -11,7 +11,7 @@ function mustNot(re,msg){
   if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
 }
 
-must(/BLINK_PB_VERSION = '3\.79\.60'/,'PB version not bumped to 3.79.60');
+must(/BLINK_PB_VERSION = '3\.79\.61'/,'PB version not bumped to 3.79.61');
 must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
 
 // Cam input must use only IVO + IVC and suppress native mobile keyboards.
@@ -36,6 +36,14 @@ must(/data-injcam-key="next"/,'next key missing');
 must(/data-injcam-key="done"/,'done key missing');
 must(/pointerdown'[\s\S]{0,220}preventDefault\(\)[\s\S]{0,220}injCamSelectField/,'cam field tap must prevent native input focus/keyboard');
 must(/function injCamKey\(key\)/,'virtual keypad handler missing');
+must(/async function ensureInjCamRequiredMaps\(\)/,'cam calculator auto-read preflight missing');
+must(/readFeaturePageReal\('inj_ve',bank,false\)/,'cam calculator must auto-read current fuel map when missing');
+must(/readFeaturePageReal\('inj_degree',bank,false\)/,'cam calculator must auto-read injection-angle baseline when missing');
+must(/async function runInjCamPreview\(\)/,'cam preview must be async for ECU auto-read');
+must(/if\(injCamPreviewBusy\)return/,'cam preview must block duplicate concurrent taps');
+must(/Đang tự đọc Thời gian phun · MAP No\./,'fuel auto-read progress message missing');
+must(/Đang tự đọc Góc phun · MAP No\./,'angle auto-read progress message missing');
+must(/nếu thiếu Thời gian phun\/Góc phun, Blink sẽ tự đọc đúng MAP này từ ECU/,'dialog auto-read guidance missing');
 must(/id="injCamPreviewText" class="injCamPreview"/,'in-dialog preview/status element missing');
 must(/id="injCamPreviewBtn" type="button" class="primary">TÍNH THỬ<\/button>/,'preview action button missing');
 must(/id="injCamApplyBtn" type="button" class="danger" data-ready="0">ÁP DỤNG VÀO MAP<\/button>/,'apply button must stay clickable even before preview');
@@ -95,4 +103,4 @@ if(legacyQuant(999)!==717||v11Quant(999)!==360){
 }
 
 if(process.exitCode)process.exit(process.exitCode);
-console.log('OK: IVO/IVC cam calculator uses built-in keypad, responsive preview/apply actions, family quantization and local-only apply safety.');
+console.log('OK: IVO/IVC cam calculator auto-reads required ECU maps, keeps responsive actions, family quantization and local-only apply safety.');
