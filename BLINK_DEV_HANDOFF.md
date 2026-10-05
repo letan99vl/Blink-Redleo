@@ -12,8 +12,40 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.63**.
+- Current displayed PB: **3.79.64**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
+
+## 1A. PB 3.79.64 injection-angle calculator - physical PW/RPM model
+
+- PB 3.79.64 supersedes the PB 3.79.63 reference-curve-only strategy.
+- Backup before this change: `backup-pb-3.79.63-pre-physical-cam-soi`.
+- Main physical conversion is restored:
+  - `pulseDeg = PW(ms) * RPM * 0.006`.
+  - provisional REDLEO interpretation: `INJ degree` is SOI advance.
+  - current EOI target is anchored at IVO, therefore `SOI = IVO + pulseDeg` in the displayed advance convention.
+- Example regression anchors:
+  - 8.0 ms @ 10,000 rpm = 480 crank degrees.
+  - IVO 3 + 6.4 ms @ 5,000 rpm = 195 degrees.
+  - IVO 3 + 7.0 ms @ 500 rpm = 24 degrees.
+  - IVO 30 + 8.0 ms @ 10,000 rpm = 510 degrees before ECU-family encoding limits.
+- The old fixed `INJ_CAM_STRATEGY_MAX=295` is removed from the physical calculation.
+  - The user-supplied 3/31 curve remains only as a diagnostic comparison.
+  - 295 degrees is NOT a universal physical ceiling.
+  - Final output is limited/quantized only by the verified encoder domain for the connected ECU family (V11/Ultra Pro2 vs V8/V9/V10/Ultra Pro1).
+- The old `durationScale`, `phaseAdjust`, and `base*durationScale+phaseAdjust` heuristic are removed from the active formula.
+- IVC is still collected and used to report intake duration/center, but it does not currently inject an unverified EOI offset. Do not invent an IVC-based correction until there is stronger calibration or hardware evidence.
+- Injector dead-time is NOT added separately because the ECU PW may already include voltage/dead-time compensation; adding it blindly risks double counting.
+- Because the formula now needs actual PW, `ensureInjCamRequiredMaps()` is restored:
+  - validates the active-bank fuel map,
+  - auto-reads `inj_ve` when needed,
+  - auto-reads `inj_degree` baseline when needed,
+  - refuses calculation when fuel synchronization is unknown.
+- APPLY remains local-only. The operator must still press GHI ECU separately.
+- Critical unresolved hardware assumption:
+  - we still have not scoped REDLEO CKP + injector to prove whether INJ degree is SOI or EOI and to prove the exact angular zero/direction.
+  - keep this uncertainty visible in UI/docs.
+  - when hardware becomes available, vary PW at fixed RPM and INJ degree: fixed leading edge => SOI; fixed trailing edge => EOI.
+- Regression: `tools/check-injection-cam-calculator.js` now locks the physical formula, fuel preflight, no-295-cap behavior, and local-only apply safety.
 
 ## 2. Mandatory safety rules
 
