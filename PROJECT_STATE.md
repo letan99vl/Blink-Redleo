@@ -372,9 +372,9 @@ The assistant should then:
 - Blink opens only the 8 Idle values with verified original labels, including VVT Open RPM; 4 unlabeled Idle uint16 values remain raw-preserved.
 - AutoShift and Four-Spare are preserved byte-for-byte and are not editable in this pass.
 - Ultra page6 uses a direct 42B baseline with ECU ACK + post-write readback + reply-tail verification.
-- Ultra ECT Motor is hidden from the co-located Idle screen because it belongs to the still-unverified Ultra A2 serializer.
+- Ultra ECT Motor is hidden from the co-located Idle/page6 screen because it belongs to the separate A2 editor. Ultra A2 was reconstructed in PB 3.79.48.
 - AutoClutch Ultra remains out of scope per user decision.
-- Ultra A2 remains separate/locked; V10.2 268B serializer must not be reused.
+- Ultra A2 is separate from V10.2 and uses exact 277/285B layouts; V10.2 268B serializer must not be reused.
 - Final CI run **37262145034** passed all protocol checks including the new Ultra page6 regression.
 - Hardware status: **NEEDS REAL ULTRA PRO1 TEST**.
 
