@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.43**.
+- Current displayed PB: **3.79.44**.
 - IMPORTANT: main currently contains protocol investigation commits newer than the PB bump. Do not claim page-0x62 write is fixed until real 9.2 hardware confirms ACK + readback.
 
 ## 2. Mandatory safety rules
@@ -246,6 +246,7 @@ Recent PB progression:
 - 3.79.41 V10.2 page6 exact 18B Idle/Limit serializer from original IL; ECT Motor removed from V10 page6 surface and routed to A2 work
 - 3.79.42 V10.2 exact 268B A2 serializer; verified partial RMW writers for IAT/MAP motor/ECT motor/external/voltage; Ultra remains separate
 - 3.79.43 V10.2 AutoClutch timer writer: edits only CONFIG bytes +2..+6 (raw=ms/5), preserves feature byte + Start RPM + password
+- 3.79.44 V10.2 ECT Start Add 3x11 writer: exact original row labels/order/scale, A2 268B RMW, Ultra excluded
 
 Useful backup branches include:
 - backup-pb-3.79.31-pre-v92-comp-write
@@ -428,3 +429,44 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - PB bump: `0e82911ebfcfb4e9ac56fcdfc770e10d0a6cc574`.
 - Hardware status: **NEEDS REAL V10.2 TEST**. Do not release-certify until a real V10.2 timer cell change survives SAVE + READBACK.
 - Next exact V10 task: reconstruct and expose V10.2 **ECT Start Add 3×11 / 33B** with its row-specific units; keep Option/TPS-axis writes locked until separately proven.
+
+
+## V10.2 ECT Start Add update - 2026-10-05
+
+- PB: **3.79.44**.
+- Original V10.2 EXE was re-extracted from `Redleo ECU Pro Ver10.rar` and decompiled directly.
+- Relevant original methods verified:
+  - `Initialise_Res1::proResetDgvEctStrtAdd`
+  - `OutProgramFile::proDgvUnit`
+  - `Initialise_Dgv::Second_Or_200ms`
+  - `UartDatRx::UartToDgv`
+  - `UartDatRx::__StrtAdd_EcuPc`
+  - `UartDatRx::proUartDgvNum`
+- Original UI row labels for V10.2 `Dgv_EctStrt_Add` are exactly:
+  1. `Time(Second)`
+  2. `INJ VE(ms)`
+  3. `StrtAdd(ms)`
+- Original serializer uses **3 rows × 11 columns = 33 writable bytes**.
+- `proUartDgvNum` writes rows in reverse UI order on wire:
+  - wire 0..10 = UI row 2 `StrtAdd(ms)`
+  - wire 11..21 = UI row 1 `INJ VE(ms)`
+  - wire 22..32 = UI row 0 `Time(Second)`
+- Original row scales:
+  - `Time(Second)`: `Second_Or_200ms(value,0)` = raw `round(value × 5)`; writer enforces minimum raw 1; decoder = raw × 0.2 second.
+  - `INJ VE(ms)` and `StrtAdd(ms)`: original Oil scale, same `Oil_PcToEcu(...,1)` / `Oil_EcuToPc(...,1)` path used elsewhere in V10.
+- Blink implementation:
+  - V10.2 A2 parser decodes ECT Start Add at bytes **205..237** using the exact 3×11 codec.
+  - V10.2 UI now renders Start Add as **3×11** instead of reusing the V11 4×11 surface.
+  - Writer patches only the ECT_START 33B block inside the canonical A2 **268B** read-modify-write payload.
+  - ACK + post-write readback + reply-tail preservation remain mandatory.
+  - Ultra has an explicit Start Add guard and does NOT use the V10.2 semantic/serializer path.
+- Backup: `backup-pb-3.79.43-pre-v10-ectstart`.
+- Core codec/writer commit: `67a72b2688dade7144435dc7825b52746040dca9`.
+- UI 3x11 profile commit: `6b87c3e7dab430eeb76a672e0103489fee233c69`.
+- Regression update: `307b71b4c6ea1b2d5a600fcd880e2cca2df150bc`.
+- Workflow now also triggers on `index.html` profile-layout changes: `13271be44aa2a812a53869c0be788928de09b4c7`.
+- PB bump: `2f12e6570f8dae669acda24182e0cf6e57ad4aaa`.
+- Local/source validation after final patch: JS syntax parse PASS; A2 routing PASS; 33B decoder PASS; 33B encoder PASS; exact block patch PASS; UI 3×11 PASS; Ultra guard PASS.
+- GitHub Actions run for the updated checker was queued at the time of this note; do not treat hardware status as certified from CI alone.
+- Hardware status: **NEEDS REAL V10.2 TEST**. Recommended test: change one Start Add cell slightly -> SAVE -> READBACK -> confirm only that displayed cell changes.
+- Next V10.2 target after hardware test or further static proof: Option 18B semantics and/or controlled Start RPM handling; TPS/RPM axis writes remain locked.
