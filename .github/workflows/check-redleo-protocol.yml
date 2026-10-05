@@ -8,6 +8,8 @@ on:
       - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-row-orientation.js'
+      - 'tools/check-v8-main.js'
+      - 'tools/check-v91.js'
       - 'tools/check-v92-page6.js'
       - 'tools/check-v10-page6.js'
       - 'tools/check-v10-a2.js'
@@ -28,6 +30,10 @@ jobs:
         run: node --check redleo_real_protocol.js
       - name: Compensation row orientation regression
         run: node tools/check-row-orientation.js
+      - name: REDLEO V8 main tune regression
+        run: node tools/check-v8-main.js
+      - name: REDLEO 9.1X regression
+        run: node tools/check-v91.js
       - name: REDLEO 9.2 page6 regression
         run: node tools/check-v92-page6.js
       - name: REDLEO V10.2 page6 regression
