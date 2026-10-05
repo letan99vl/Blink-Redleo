@@ -7,38 +7,60 @@ const src=fs.readFileSync('index.html','utf8');
 function must(re,msg){
   if(!re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
 }
+function mustNot(re,msg){
+  if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;}
+}
 
-must(/BLINK_PB_VERSION = '3\.79\.58'/,'PB version not bumped to 3.79.58');
+must(/BLINK_PB_VERSION = '3\.79\.59'/,'PB version not bumped to 3.79.59');
 must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
-must(/id="injCamIvc"[^>]*min="0" max="180"/,'IVC ABDC input missing');
-must(/id="injCamMargin"[^>]*min="0" max="90"/,'pre-IVC margin input missing');
-must(/0° = TDC nén, số INJ degree càng lớn = bắt đầu phun càng sớm trước TDC/,'explicit injection-angle convention missing');
-must(/EOI mục tiêu = 180° − IVC\(ABDC\) \+ khoảng an toàn/,'EOI formula explanation missing');
-must(/thời lượng phun = PW\(ms\) × RPM × 0\.006/,'pulse-width-to-crank-degree formula missing');
 
-must(/function injCamAngleSpec\(\)[\s\S]{0,300}state\.ecuProfile==='MODERN_V11'/,
-  'calculator must adapt angle domain to ECU family');
-must(/label:v11\?'360° · V11 \/ Ultra Pro2':'720° · V8 \/ 9\.x \/ V10 \/ Ultra Pro1'/,
-  'angle-domain family labels changed');
-must(/max:v11\?360:717/,'family-specific angle clamp changed');
-must(/const raw=Math\.max\(0,Math\.min\(255,Math\.round\(v\*360\/512\)\)\)/,
-  'V11/Ultra Pro2 injection-angle quantizer changed');
-must(/const raw=Math\.max\(0,Math\.min\(255,Math\.round\(\(v\/2\)\*256\/360\)\)\)/,
-  'V8/V9/V10/Ultra1 injection-angle quantizer changed');
+// Cam input must use only IVO + IVC and suppress native mobile keyboards.
+must(/id="injCamIvo" type="text" inputmode="none" readonly[^>]*value="3"/,'IVO virtual-keypad input missing');
+must(/id="injCamIvc" type="text" inputmode="none" readonly[^>]*value="31"/,'IVC virtual-keypad input missing');
+mustNot(/id="injCamMargin"/,'manual EOI margin input must not return');
+must(/id="injCamKeypad"/,'built-in cam keypad missing');
+must(/data-injcam-key="1"/,'key 1 missing');
+must(/data-injcam-key="2"/,'key 2 missing');
+must(/data-injcam-key="3"/,'key 3 missing');
+must(/data-injcam-key="4"/,'key 4 missing');
+must(/data-injcam-key="5"/,'key 5 missing');
+must(/data-injcam-key="6"/,'key 6 missing');
+must(/data-injcam-key="7"/,'key 7 missing');
+must(/data-injcam-key="8"/,'key 8 missing');
+must(/data-injcam-key="9"/,'key 9 missing');
+must(/data-injcam-key="0"/,'key 0 missing');
+must(/data-injcam-key="\."/,'decimal key missing');
+must(/data-injcam-key="clear"/,'clear key missing');
+must(/data-injcam-key="backspace"/,'backspace key missing');
+must(/data-injcam-key="next"/,'next key missing');
+must(/data-injcam-key="done"/,'done key missing');
+must(/pointerdown'[\s\S]{0,220}preventDefault\(\)[\s\S]{0,220}injCamSelectField/,'cam field tap must prevent native input focus/keyboard');
+must(/function injCamKey\(key\)/,'virtual keypad handler missing');
 
-must(/const eoi=180-ivc\+margin/,'EOI target calculation changed');
+// Two-parameter cam model.
+must(/duration cam nạp = 180 \+ IVO \+ IVC/,'intake-duration formula explanation missing');
+must(/const camDuration=180\+ivo\+ivc/,'intake-duration calculation changed');
+must(/const autoMargin=Math\.max\(8,Math\.min\(20,Math\.round\(camDuration\*0\.05\)\)\)/,'automatic EOI margin model changed');
+must(/const eoi=180-ivc\+autoMargin/,'EOI target calculation changed');
 must(/const durationDeg=pw\*rpm\*0\.006/,'injection duration degree calculation changed');
 must(/const rawTarget=eoi\+durationDeg/,'SOI calculation changed');
-must(/if\(!Number\.isFinite\(pw\)\|\|pw<=0[\s\S]{0,120}skipped\+\+;continue/,
-  'PW=0 cells must remain untouched');
+must(/0° = TDC nén, INJ degree càng lớn = phun càng sớm/,'explicit injection-angle convention missing');
+
+must(/function injCamAngleSpec\(\)[\s\S]{0,300}state\.ecuProfile==='MODERN_V11'/,'calculator must adapt angle domain to ECU family');
+must(/label:v11\?'360° · V11 \/ Ultra Pro2':'720° · V8 \/ 9\.x \/ V10 \/ Ultra Pro1'/,'angle-domain family labels changed');
+must(/max:v11\?360:717/,'family-specific angle clamp changed');
+must(/const raw=Math\.max\(0,Math\.min\(255,Math\.round\(v\*360\/512\)\)\)/,'V11/Ultra Pro2 injection-angle quantizer changed');
+must(/const raw=Math\.max\(0,Math\.min\(255,Math\.round\(\(v\/2\)\*256\/360\)\)\)/,'V8/V9/V10/Ultra1 injection-angle quantizer changed');
+
+must(/if\(!Number\.isFinite\(pw\)\|\|pw<=0[\s\S]{0,120}skipped\+\+;continue/,'PW=0 cells must remain untouched');
 must(/fuelMapSyncUnknown\(state\.activeMap\)/,'calculator must reject unknown fuel-map state');
 must(/inspectFuelMap\(fuel\)/,'calculator must validate current INJ VE map');
 must(/injCamMatrixReady\(angle\)/,'calculator must require current injection-angle baseline');
-must(/Bấm ÁP DỤNG chỉ thay bảng cục bộ\. Muốn gửi ECU vẫn phải bấm GHI ECU/,'local-only preview safety message missing');
-must(/saveFeatureStore\(\);renderFeature\(\)/,'calculator apply must update only local feature store before ECU write');
+must(/Bấm ÁP DỤNG chỉ thay bảng cục bộ\. Muốn gửi ECU vẫn phải bấm GHI ECU/,'local-only apply safety message missing');
+must(/saveFeatureStore\(\);renderFeature\(\)/,'calculator apply must remain local until GHI ECU');
 must(/camBtn\.style\.display=f\.id==='inj_degree'\?'':'none'/,'calculator must only appear in INJ degree editor');
 
-// Independent arithmetic checks for the model.
+// Independent arithmetic check using IVO 3 / IVC 31.
 function legacyQuant(v){
   v=Math.max(0,Math.min(717,Number(v)||0));
   const raw=Math.max(0,Math.min(255,Math.round((v/2)*256/360)));
@@ -49,11 +71,13 @@ function v11Quant(v){
   const raw=Math.max(0,Math.min(255,Math.round(v*360/512)));
   return Math.max(0,Math.min(360,Math.round((raw*512/360)/2)*2));
 }
-const ivc=50,margin=10,pw=5,rpm=4000;
-const eoi=180-ivc+margin;
+const ivo=3,ivc=31,pw=5,rpm=4000;
+const camDuration=180+ivo+ivc;
+const autoMargin=Math.max(8,Math.min(20,Math.round(camDuration*0.05)));
+const eoi=180-ivc+autoMargin;
 const soi=eoi+pw*rpm*0.006;
-if(eoi!==140||soi!==260||legacyQuant(soi)!==259||v11Quant(soi)!==260){
-  console.error('FAIL: calculator arithmetic/quantization example changed',{eoi,soi,legacy:legacyQuant(soi),v11:v11Quant(soi)});
+if(camDuration!==214||autoMargin!==11||eoi!==160||soi!==280||legacyQuant(soi)!==281||v11Quant(soi)!==280){
+  console.error('FAIL: IVO/IVC cam-model arithmetic changed',{camDuration,autoMargin,eoi,soi,legacy:legacyQuant(soi),v11:v11Quant(soi)});
   process.exitCode=1;
 }
 if(legacyQuant(999)!==717||v11Quant(999)!==360){
@@ -62,4 +86,4 @@ if(legacyQuant(999)!==717||v11Quant(999)!==360){
 }
 
 if(process.exitCode)process.exit(process.exitCode);
-console.log('OK: adaptive injection-angle calculator keeps cam/PW/RPM formula, family quantization, baseline checks and local-only apply semantics.');
+console.log('OK: IVO/IVC cam calculator uses built-in keypad, suppresses native keyboard, preserves family quantization and local-only apply safety.');
