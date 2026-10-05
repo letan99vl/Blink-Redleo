@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.51';
+  window.BLINK_PB_VERSION = '3.79.52';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2290,7 +2290,7 @@ const state={
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
-  selection:{active:false,anchorR:0,anchorC:0,focusR:0,focusC:0,dragging:false},
+  selection:{active:false,anchorR:0,anchorC:0,focusR:0,focusC:0,dragging:false,cornerPending:false,mouseStartR:0,mouseStartC:0,dragMoved:false},
   editingCell:null
 };
 
@@ -2553,13 +2553,26 @@ function startCellSelection(e,td){
   const nativeSel=window.getSelection();if(nativeSel)nativeSel.removeAllRanges();
   if(document.activeElement&&document.activeElement!==document.body&&document.activeElement.blur)document.activeElement.blur();
   const r=+td.dataset.r,c=+td.dataset.c;
-  resetQuickType();
-  setSelection(r,c,e.shiftKey&&state.selection.active);
   state.selection.dragging=true;
+  state.selection.mouseStartR=r;state.selection.mouseStartC=c;state.selection.dragMoved=false;
+  if(e.shiftKey&&state.selection.active){
+    resetQuickType();
+    state.selection.focusR=r;state.selection.focusC=c;
+    state.selection.cornerPending=false;state.selection.dragMoved=true;
+    highlightSelection();
+  }
 }
 function dragCellSelection(td){
   if(!state.selection.dragging||td.isContentEditable)return;
-  state.selection.focusR=+td.dataset.r;state.selection.focusC=+td.dataset.c;
+  const r=+td.dataset.r,c=+td.dataset.c;
+  if(!state.selection.dragMoved){
+    if(r===state.selection.mouseStartR&&c===state.selection.mouseStartC)return;
+    resetQuickType();
+    setSelection(state.selection.mouseStartR,state.selection.mouseStartC,false);
+    state.selection.cornerPending=false;
+    state.selection.dragMoved=true;
+  }
+  state.selection.focusR=r;state.selection.focusC=c;state.selection.cornerPending=false;
   highlightSelection();
 }
 function setSelection(r,c,extend=false){
@@ -2572,17 +2585,61 @@ function selectionBounds(){
   const s=state.selection;
   return {r0:Math.min(s.anchorR,s.focusR),r1:Math.max(s.anchorR,s.focusR),c0:Math.min(s.anchorC,s.focusC),c1:Math.max(s.anchorC,s.focusC)};
 }
+function selectionContainsCell(r,c){
+  if(!state.selection.active)return false;
+  const b=selectionBounds();
+  return r>=b.r0&&r<=b.r1&&c>=b.c0&&c<=b.c1;
+}
+function clearMapSelection(message='Chưa chọn ô'){
+  resetQuickType();
+  state.selection.active=false;
+  state.selection.cornerPending=false;
+  state.selection.dragging=false;
+  state.selection.dragMoved=false;
+  highlightSelection();
+  if(message&&$('selectionInfo'))$('selectionInfo').textContent=message;
+  try{window.hideFuelKeypad?.()}catch(_e){}
+}
+function handleMapCornerTap(r,c){
+  r=clamp(r,0,R-1);c=clamp(c,0,C-1);
+  resetQuickType();
+  // User rule: tapping any already-highlighted cell cancels the whole selection.
+  if(selectionContainsCell(r,c)){
+    clearMapSelection('Đã hủy vùng chọn');
+    return 'cleared';
+  }
+  // No pending corner (or a finished rectangle): this tap becomes corner #1.
+  if(!state.selection.active||!state.selection.cornerPending){
+    setSelection(r,c,false);
+    state.selection.cornerPending=true;
+    highlightSelection();
+    return 'anchor';
+  }
+  // Corner #2 completes the rectangle. Order does not matter.
+  state.selection.focusR=r;state.selection.focusC=c;
+  state.selection.cornerPending=false;
+  highlightSelection();
+  return 'range';
+}
 function highlightSelection(){
   document.querySelectorAll('td.mapcell.selected').forEach(x=>x.classList.remove('selected'));
   if(!state.selection.active){$('selectionInfo').textContent='Chưa chọn ô';return;}
   const b=selectionBounds();
   for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++){const td=document.querySelector(`td.mapcell[data-r="${r}"][data-c="${c}"]`);if(td)td.classList.add('selected');}
   const rows=b.r1-b.r0+1,cols=b.c1-b.c0+1;
-  $('selectionInfo').textContent=`Đã chọn ${rows} × ${cols} = ${rows*cols} ô`;
+  if(state.selection.cornerPending){
+    const tps=TPS_ROWS[state.selection.anchorR]==='IDLE'?'IDLE':TPS_ROWS[state.selection.anchorR]+'%';
+    $('selectionInfo').textContent=`Góc 1: ${tps} · ${RPMS[state.selection.anchorC]} RPM · chạm góc đối diện`;
+  }else{
+    $('selectionInfo').textContent=`Đã chọn ${rows} × ${cols} = ${rows*cols} ô`;
+  }
 }
 function moveSelection(dr,dc,extend=false){
-  if(!state.selection.active){setSelection(0,0,false);return;}
+  if(!state.selection.active){
+    setSelection(0,0,false);state.selection.cornerPending=false;highlightSelection();return;
+  }
   setSelection(state.selection.focusR+dr,state.selection.focusC+dc,extend);
+  state.selection.cornerPending=false;highlightSelection();
   const td=document.querySelector(`td.mapcell[data-r="${state.selection.focusR}"][data-c="${state.selection.focusC}"]`);
   if(td)td.scrollIntoView({block:'nearest',inline:'nearest'});
 }
@@ -4503,15 +4560,9 @@ window.addEventListener('beforeunload',save);
   const enc=new TextEncoder(),dec=new TextDecoder();
   const originalRender=render;
 
-  render=function(){
-    originalRender();
-    document.querySelectorAll('td.mapcell').forEach(td=>{
-      td.addEventListener('pointerdown',e=>{
-        if(e.pointerType!=='touch'||td.isContentEditable)return;
-        setSelection(+td.dataset.r,+td.dataset.c,false);
-      },{passive:true});
-    });
-  };
+  // Touch selection is handled centrally by MAP touch controls below so
+  // one tap can mean corner #1/#2 and cannot race a second pointerdown handler.
+  render=function(){originalRender();};
   render();
 
   function setBleUi(on,label){
@@ -5329,7 +5380,7 @@ window.addEventListener('beforeunload',save);
 const REDLEO_FEATURES=[{"n":1,"id":"inj_ve","title":"Thời gian phun (INJ VE)","source":"INJ VE","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"ms","editor":"fuel","desc":"Thời gian mở kim phun theo TPS × RPM."},{"n":2,"id":"inj_degree","title":"Góc phun","source":"INJ degree","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"°","desc":"Góc thời điểm phun theo TPS × RPM."},{"n":3,"id":"ign_degree","title":"Góc đánh lửa","source":"IGN degree","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"°","desc":"Góc đánh lửa theo TPS × RPM."},{"n":4,"id":"ign_time","title":"Thời gian tích điện bobin (Dwell)","source":"IGN Time","group":"main","banked":true,"rows":1,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":["Dwell"],"unit":"ms","desc":"Thời gian nạp/tích điện cuộn đánh lửa theo RPM."},{"n":23,"id":"afr_map","title":"AFR / O2 mục tiêu","source":"Air fuel ratio map","group":"main","banked":true,"rows":14,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[100,90,80,70,60,50,40,30,20,14,8,5,2,"IDLE"],"unit":"AFR","desc":"ATE V11 · Air fuel ratio map. AFR 9.0–18.0; trạng thái ON/OFF từng ô dùng mã hóa offset 12.8 như phần mềm ATE gốc."},{"n":7,"id":"ect_inj","title":"Bù phun theo nhiệt độ động cơ (ECT)","source":"ECT Comp INJ","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,14,28,42,56,70,84,98,112,126,140],"unit":"%","desc":"Bù lượng phun theo nhiệt độ động cơ và RPM."},{"n":8,"id":"ect_ign","title":"Bù góc đánh lửa theo nhiệt độ động cơ (ECT)","source":"ECT Comp IGN","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,14,28,42,56,70,84,98,112,126,140],"unit":"°","desc":"Bù góc đánh lửa theo nhiệt độ động cơ và RPM."},{"n":9,"id":"map_inj","title":"Bù phun theo áp suất ống nạp (MAP)","source":"MAP Comp INJ","group":"comp","banked":false,"rows":11,"cols":30,"x":[500,1000,1500,2000,2500,3000,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000,10500,11000,11500,12000,12500,13000,13500,14000,14500,15000],"y":[0,12,24,36,48,60,72,84,96,108,120],"unit":"%","desc":"Bù lượng phun theo áp suất ống nạp và RPM."},{"n":10,"id":"iat_inj","title":"Bù phun theo nhiệt độ khí nạp (IAT)","source":"IAT Compensating Injection","group":"comp","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["INJ VE"],"unit":"±ms","desc":"Bù thời gian phun theo nhiệt độ khí nạp."},{"n":21,"id":"ect_start","title":"Bù khởi động theo nhiệt độ ECT","source":"Start Add Injection","group":"comp","banked":false,"rows":4,"cols":11,"x":[0,14,28,42,56,70,84,98,112,126,140],"y":["Delayed (Second)","INJ VE Add (ms)","Not Delayed (Number)","Not Started Add (ms)"],"unit":"mixed","desc":"ATE V11 · Dgv_EctStrt_Add 44 byte. Bốn hàng được truyền đảo thứ tự như phần mềm ATE gốc; ghi có read-back verify toàn A2 272B."},{"n":5,"id":"idle_limit","title":"Không tải & giới hạn tua","source":"Idle and limit","group":"idle","banked":true,"rows":3,"cols":8,"x":["C1","C2","C3","C4","C5","C6","C7","C8"],"y":["Hàng REDLEO 1","Hàng REDLEO 2","Hàng REDLEO 3"],"unit":"","desc":"Bảng REDLEO 8×3. EXE không chứa đủ nhãn tiếng Anh riêng cho ba hàng nên giữ nhãn trung tính, không tự suy diễn."},{"n":6,"id":"ect_idle_motor","title":"Motor garanti theo nhiệt độ động cơ","source":"Temperature-idle motor relationship","group":"idle","banked":true,"rows":1,"cols":12,"x":[0,14,28,42,56,70,84,98,112,126,140,"SUM"],"y":["STEPPER"],"unit":"step","desc":"Quan hệ nhiệt độ động cơ với bước/duty motor garanti."},{"n":11,"id":"map_idle_motor","title":"Bù motor garanti theo áp suất nạp","source":"Intake pressure compensation idle motor","group":"idle","banked":false,"rows":1,"cols":11,"x":[0,12,24,36,48,60,72,84,96,108,120],"y":["Motor"],"unit":"±STEP","desc":"Bù motor garanti theo áp suất ống nạp."},{"n":12,"id":"external_adjust","title":"Hiệu chỉnh ngoài","source":"External adjustment","group":"aux","banked":false,"rows":2,"cols":15,"x":[0,2,5,8,14,20,30,40,50,60,70,80,90,100,"ALL"],"y":["Phun ±%","Đánh lửa ±°"],"unit":"","desc":"Hiệu chỉnh ngoài theo TPS; REDLEO cũng hỗ trợ trục RPM 1000–15000."},{"n":18,"id":"auto_shift","title":"Sang số tự động","source":"Automatic shift","group":"aux","banked":true,"rows":1,"cols":9,"x":["Config","Start RPM","INJ VE Adj","IGN Angle Adj",4000,6000,8000,10000,12000],"y":["AUTO SHIFT"],"unit":"mixed","desc":"ATE V11 AutoShift. Config: bit0 INJ, bit1 IGN, bit2 chọn Limit IGN (0=INJ), bit3–7 spare. Các cột sau lần lượt là Start RPM, bù INJ %, bù góc lửa và 5 giá trị tại 4000–12000 RPM."},{"n":13,"id":"auto_clutch","title":"Ly hợp tự động","source":"Automatic clutch","group":"aux","banked":false,"rows":1,"cols":5,"x":[2000,4000,6000,8000,10000],"y":["Timer"],"unit":"ms","desc":"Thời gian điều khiển ly hợp tự động theo RPM; có ngưỡng Start RPM riêng."},{"n":19,"id":"chg_params","title":"Thông số bộ sạc","source":"Charger Parameters","group":"aux","banked":false,"rows":1,"cols":8,"x":["Min Current RPM","Mid Current RPM","Max Current RPM","Min Current","Mid Current","Max Current","Full Voltage","Fault Voltage"],"y":["CHARGER"],"unit":"mixed","desc":"ATE V11 - Dgv_Chg 8 byte. Min/Mid/Max RPM và Min/Mid/Max Current phải tăng dần."},{"n":20,"id":"ate_options","title":"Tuỳ chọn ATE","source":"ATE options","group":"aux","banked":false,"rows":1,"cols":20,"x":["TPS V Min","TPS V Max","Idle Min INJ Cold","Idle Min INJ Hot","Idle Auto Reg IGN","Idle Auto Reg INJ","Idle Start Dev RPM","Idle Step IGN","Idle Step INJ","Fan Temp","ECT Comp INJ Idle","ECT Comp IGN Idle","Voltage Cold","Voltage Hot","Idle Motor Total Step","Idle Motor Max","Idle Motor Min","Idle Hole Max Adj","Idle Hole INJ Comp","Start Add RPM"],"y":["OPTIONS"],"unit":"mixed","desc":"ATE V11 · 20 mục TPS/Idle/ECT/Start đã xác minh. 7 byte AFR/O2 và 3 byte reserved không hiển thị và luôn được giữ nguyên."},{"n":22,"id":"alternate_table","title":"Alternate Table","source":"Alternate Table","group":"aux","banked":false,"rows":1,"cols":9,"x":[1000,1500,2000,2500,3000,3500,4000,4500,5000],"y":["Dat"],"unit":"raw","desc":"ATE V11 · Dgv_One_Spare / Alternate Table · 9 byte raw 0–255 theo RPM 1000–5000."},{"n":14,"id":"spare","title":"Bảng dự phòng (Spare)","source":"Spare","group":"aux","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["Spare"],"unit":"","desc":"Bảng dự phòng trong REDLEO. Giữ nguyên tên gốc vì EXE không mô tả ý nghĩa cụ thể."},{"n":15,"id":"v_ect","title":"Hiệu chuẩn điện áp cảm biến ECT","source":"ECT - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,14,28,42,56,70,84,98,112,126,140],"y":["Voltage"],"unit":"V","desc":"Quan hệ nhiệt độ động cơ ↔ điện áp cảm biến."},{"n":16,"id":"v_iat","title":"Hiệu chuẩn điện áp cảm biến IAT","source":"IAT - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,6,12,18,24,30,36,42,48,54,60],"y":["Voltage"],"unit":"V","desc":"Quan hệ nhiệt độ khí nạp ↔ điện áp cảm biến."},{"n":17,"id":"v_map","title":"Hiệu chuẩn điện áp cảm biến MAP","source":"MAP - Voltage Relation","group":"sensor","banked":false,"rows":1,"cols":11,"x":[0,12,24,36,48,60,72,84,96,108,120],"y":["Voltage"],"unit":"V","desc":"Quan hệ áp suất ống nạp ↔ điện áp cảm biến."},{"n":24,"id":"tps_axis","title":"Trục TPS V10 / Ultra","source":"TPS Axis","group":"sensor","banked":false,"rows":1,"cols":14,"x":["P1","P2","P3","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14"],"y":["TPS (%)"],"unit":"%","desc":"REDLEO V10.2 / Ultra Pro1 · 14 breakpoint TPS. Điểm đầu luôn 0%; dưới 10% bước 0.5%, từ 10% trở lên bước 1%; bắt buộc tăng dần. Blink tự tái tạo hàng điện áp TPS từ TPS Min/Max trong Option gốc."},{"n":25,"id":"rpm_axis","title":"Trục RPM V10 / Ultra","source":"RPM Axis","group":"sensor","banked":false,"rows":1,"cols":30,"x":["P1","P2","P3","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14","P15","P16","P17","P18","P19","P20","P21","P22","P23","P24","P25","P26","P27","P28","P29","P30"],"y":["RPM"],"unit":"rpm","desc":"REDLEO V10.2 / Ultra Pro1 · 30 breakpoint RPM. Phạm vi 500–15000 RPM, bước 20 RPM, bắt buộc tăng dần."}];
 const F=Object.fromEntries(REDLEO_FEATURES.map(x=>[x.id,x]));
 const screens={dashboard:'dashboardScreen',maps:'mapsScreen',editor:'mapEditorScreen',idlelimit:'idleLimitScreen',rededitor:'redleoEditorScreen',tune:'tuneScreen',ecu:'ecuScreen',settings:'settingsScreen'};
-let currentFeature=null,redStep=.1,redSel={r0:0,c0:0,r1:0,c1:0},redScanMode=false,externalAxisMode='tps',redPointer=null;
+let currentFeature=null,redStep=.1,redSel={r0:0,c0:0,r1:0,c1:0},redSelectionActive=false,redCornerPending=false,redScanMode=false,externalAxisMode='tps',redPointer=null,redScanMoved=false,redScanStartedInside=false,redScanStartR=0,redScanStartC=0;
 const featureStore=JSON.parse(localStorage.getItem('blinkRedleoFeatureStoreV6')||'{}');
 const optionStore=JSON.parse(localStorage.getItem('blinkRedleoOptionsV6')||'{}');
 function keyFor(f,bank){return f.id+':'+(f.banked?bank:0)}
@@ -5470,7 +5521,7 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
     if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
   },0);
 }
-function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',(f.rows===14&&f.cols===30)||f.id==='ect_inj');if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';redSel={r0:0,c0:0,r1:0,c1:0};renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
+function openFeature(id){const f=featureForProfile(id);if(!f)return;if(f.editor==='fuel')return openOurEditor('inject',false);window.hideRedKeypad?.();document.getElementById('redleoEditorScreen')?.classList.toggle('red420Editor',(f.rows===14&&f.cols===30)||f.id==='ect_inj');if(id==='idle_limit'&&state.ecuProfile!=='MODERN_V11')return openIdleLimit();currentFeature=f;document.getElementById('redEditorTitle').textContent=f.title;document.getElementById('redEditorSub').textContent=(f.banked?'MAP NO.'+state.activeMap+' · ':'')+f.desc;document.getElementById('redSourceName').textContent=f.source;document.getElementById('redSize').textContent=f.cols+' × '+f.rows;document.getElementById('redUnit').textContent=f.unit||'—';document.getElementById('redBankSelect').style.display=f.banked?'':'none';const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;const afr=f.id==='afr_map'&&state.ecuProfile==='MODERN_V11';const aon=document.getElementById('redAfrOn'),aoff=document.getElementById('redAfrOff');if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';redSel={r0:0,c0:0,r1:0,c1:0};redSelectionActive=false;redCornerPending=false;renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0)}
 
 function syncIdleLimitInputs(){
   document.querySelectorAll('[data-idleopt]').forEach(e=>e.value=optionStore[e.dataset.idleopt]??'');
@@ -5494,6 +5545,27 @@ document.getElementById('idleLimitWriteBtn')?.addEventListener('click',async()=>
 
 function fmtV(v){if(v==null||v==='')return '--';const n=Number(v);if(!Number.isFinite(n))return '--';return Math.abs(n-Math.round(n))<1e-9?String(Math.round(n)):n.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}
 function redBounds(){return {r0:Math.min(redSel.r0,redSel.r1),r1:Math.max(redSel.r0,redSel.r1),c0:Math.min(redSel.c0,redSel.c1),c1:Math.max(redSel.c0,redSel.c1)}}
+function redContainsCell(r,c){
+  if(!redSelectionActive)return false;
+  const b=redBounds();return r>=b.r0&&r<=b.r1&&c>=b.c0&&c<=b.c1;
+}
+function clearRedSelection(message='Chưa chọn ô'){
+  redSelectionActive=false;redCornerPending=false;redScanMoved=false;
+  try{window.hideRedKeypad?.()}catch(_e){}
+  updateRedSelectionVisual();
+  const info=document.getElementById('redSelectionInfo');if(info&&message)info.textContent=message;
+}
+function handleRedCornerTap(r,c){
+  if(!currentFeature)return;
+  r=Math.max(0,Math.min(currentFeature.rows-1,Number(r)));
+  c=Math.max(0,Math.min(currentFeature.cols-1,Number(c)));
+  if(redContainsCell(r,c)){clearRedSelection('Đã hủy vùng chọn');return 'cleared'}
+  if(!redSelectionActive||!redCornerPending){
+    redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=true;
+    updateRedSelectionVisual();return 'anchor';
+  }
+  redSel.r1=r;redSel.c1=c;redCornerPending=false;updateRedSelectionVisual();return 'range';
+}
 function red420EditorActive(){return !!(currentFeature&&currentFeature.rows===14&&currentFeature.cols===30&&currentFeature.editor!=='fuel')}
 function redKeypadEditorActive(){return !!(red420EditorActive()||currentFeature?.id==='ect_inj')}
 function hideRedSelectionPad(){
@@ -5502,7 +5574,7 @@ function hideRedSelectionPad(){
 }
 function updateRedSelectionPad(){
   const pad=document.getElementById('redSelectionPad'),wrap=document.querySelector('#redleoEditorScreen .redTableWrap'),screen=document.getElementById('redleoEditorScreen');
-  if(!pad||!wrap||!screen||!screen.classList.contains('active')||!red420EditorActive()||redPointer!==null){hideRedSelectionPad();return}
+  if(!pad||!wrap||!screen||!screen.classList.contains('active')||!red420EditorActive()||!redSelectionActive||redPointer!==null){hideRedSelectionPad();return}
   const padW=pad.offsetWidth||48,padH=pad.offsetHeight||158,edge=8;
   const mapTop=Number(wrap.offsetTop||0),mapH=Number(wrap.clientHeight||0),screenW=Number(screen.clientWidth||0);
   if(screenW<40||mapH<30){hideRedSelectionPad();return}
@@ -5512,7 +5584,7 @@ function updateRedSelectionPad(){
 }
 let redKeypadBuffer='',redKeypadDirty=false,redKeypadSelectionKey='';
 function selectedRedMeta(){
-  if(!redKeypadEditorActive())return null;
+  if(!redKeypadEditorActive()||!redSelectionActive)return null;
   const b=redBounds(),r=Math.max(0,Math.min(currentFeature.rows-1,redSel.r1)),cc=Math.max(0,Math.min(currentFeature.cols-1,redSel.c1));
   const d=featureData(currentFeature,state.activeMap),v=Number(d?.[r]?.[cc]);
   return {b,r,c:cc,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),key:currentFeature.id+':'+state.activeMap+':'+b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+cc};
@@ -5546,6 +5618,7 @@ function keepRedSelectionVisible(){
 }
 function openRedKeypad(){
   if(!redKeypadEditorActive())return;
+  if(!redSelectionActive){showEcuNotice('info','CHƯA CHỌN Ô','Chạm góc thứ nhất rồi góc đối diện để chọn vùng trước.',2500);return;}
   const screen=document.getElementById('redleoEditorScreen'),kp=document.getElementById('redKeypad');
   screen?.classList.add('redMapKeypadOpen');kp?.setAttribute('aria-hidden','false');
   redKeypadDirty=false;redKeypadSelectionKey='';syncRedKeypadSelection(true);
@@ -5560,7 +5633,7 @@ function hideRedKeypad(){
 }
 window.hideRedKeypad=hideRedKeypad;
 function applyRedKeypadLive(){
-  if(!redKeypadEditorActive())return;
+  if(!redKeypadEditorActive()||!redSelectionActive)return;
   const typed=redKeypadBuffer,parsed=typed===''?0:Number(typed);if(!Number.isFinite(parsed))return;
   const d=featureData(currentFeature,state.activeMap),b=redBounds();
   for(let r=b.r0;r<=b.r1;r++)for(let cc=b.c0;cc<=b.c1;cc++)d[r][cc]=Number(parsed.toFixed(4));
@@ -5587,6 +5660,7 @@ function redKeypadClear(){redKeypadBuffer='';redKeypadDirty=true;applyRedKeypadL
 
 function setSelectedAfrEnabled(on){
   if(currentFeature?.id!=='afr_map'||state.ecuProfile!=='MODERN_V11')return;
+  if(!redSelectionActive){showEcuNotice('info','CHƯA CHỌN VÙNG','Chạm 2 góc hoặc dùng QUÉT để chọn vùng AFR trước.',2500);return;}
   const meta=window.blinkV11AfrMeta&&window.blinkV11AfrMeta[state.activeMap];
   if(!meta||!Array.isArray(meta.enabled)){showEcuNotice('error','AFR ON/OFF','Hãy ĐỌC bảng AFR từ ECU trước.',0);return;}
   const b=redBounds();
@@ -5596,13 +5670,22 @@ function setSelectedAfrEnabled(on){
 }
 function updateRedSelectionVisual(){
   const t=document.getElementById('redFeatureTable');if(!t||!currentFeature)return;
+  if(!redSelectionActive){
+    t.querySelectorAll('.redCell.sel').forEach(td=>td.classList.remove('sel'));
+    document.getElementById('redSelectionInfo').textContent='Chưa chọn ô · chạm 2 góc để chọn vùng';
+    hideRedSelectionPad();
+    try{syncRedKeypadSelection(false)}catch(_e){}
+    return;
+  }
   const b=redBounds();
   t.querySelectorAll('.redCell').forEach(td=>{
     const r=+td.dataset.rr,c=+td.dataset.rc;
     td.classList.toggle('sel',r>=b.r0&&r<=b.r1&&c>=b.c0&&c<=b.c1);
   });
   const d=featureData(currentFeature,state.activeMap),count=(b.r1-b.r0+1)*(b.c1-b.c0+1);
-  document.getElementById('redSelectionInfo').textContent=count===1?'Ô '+(b.r0+1)+','+(b.c0+1)+' · '+fmtV(d[b.r0][b.c0])+' '+(currentFeature.unit||''):'Đã chọn '+(b.r1-b.r0+1)+' × '+(b.c1-b.c0+1)+' = '+count+' ô';
+  document.getElementById('redSelectionInfo').textContent=redCornerPending
+    ?'Góc 1: ô '+(redSel.r0+1)+','+(redSel.c0+1)+' · chạm góc đối diện'
+    :(count===1?'Ô '+(b.r0+1)+','+(b.c0+1)+' · '+fmtV(d[b.r0][b.c0])+' '+(currentFeature.unit||''):'Đã chọn '+(b.r1-b.r0+1)+' × '+(b.c1-b.c0+1)+' = '+count+' ô');
   requestAnimationFrame(updateRedSelectionPad);
   try{syncRedKeypadSelection(false)}catch(_e){}
 }
@@ -5715,7 +5798,7 @@ function renderFeature(){
   for(let r=0;r<f.rows;r++){
     s+='<tr><td class="rhead">'+(f.y[r]??('R'+(r+1)))+'</td>';
     for(let c=0;c<f.cols;c++){
-      const selected=r>=b.r0&&r<=b.r1&&c>=b.c0&&c<=b.c1;
+      const selected=redSelectionActive&&r>=b.r0&&r<=b.r1&&c>=b.c0&&c<=b.c1;
       const afrOff=f.id==='afr_map'&&window.blinkV11AfrMeta?.[state.activeMap]?.enabled?.[r]?.[c]===false;
       s+='<td class="redCell '+(selected?'sel ':'')+(afrOff?'afrOff':'')+'" data-rr="'+r+'" data-rc="'+c+'">'+fmtV(d[r][c])+'</td>';
     }
@@ -5724,13 +5807,13 @@ function renderFeature(){
   s+='</tbody>';
   const t=document.getElementById('redFeatureTable');t.innerHTML=s;t.classList.toggle('scanMode',redScanMode);
   t.querySelectorAll('.redCell').forEach(td=>{
-    td.onclick=()=>{if(redScanMode)return;const r=+td.dataset.rr,c=+td.dataset.rc;redSel={r0:r,c0:c,r1:r,c1:c};renderFeature()};
-    td.ondblclick=()=>{if(redScanMode)return;const r=+td.dataset.rr,c=+td.dataset.rc,val=prompt('Nhập giá trị ('+(currentFeature.unit||'unit')+')',d[r][c]);if(val!==null&&Number.isFinite(Number(val))){d[r][c]=Number(val);saveFeatureStore();renderFeature()}};
+    td.onclick=()=>{if(redScanMode)return;handleRedCornerTap(+td.dataset.rr,+td.dataset.rc)};
+    td.ondblclick=()=>{if(redScanMode)return;const r=+td.dataset.rr,c=+td.dataset.rc;redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=false;const val=prompt('Nhập giá trị ('+(currentFeature.unit||'unit')+')',d[r][c]);if(val!==null&&Number.isFinite(Number(val))){d[r][c]=Number(val);saveFeatureStore();renderFeature()}else updateRedSelectionVisual()};
   });
   updateRedSelectionVisual();
   highlightRedLiveCell();
 }
-function bump(delta){if(!currentFeature)return;const d=featureData(currentFeature,state.activeMap),b=redBounds();for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)d[r][c]=Number((Number(d[r][c]||0)+delta).toFixed(4));saveFeatureStore();renderFeature()}
+function bump(delta){if(!currentFeature)return;if(!redSelectionActive){showEcuNotice('info','CHƯA CHỌN VÙNG','Chạm 2 góc hoặc dùng QUÉT trước khi tăng/giảm.',2500);return}const d=featureData(currentFeature,state.activeMap),b=redBounds();for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)d[r][c]=Number((Number(d[r][c]||0)+delta).toFixed(4));saveFeatureStore();renderFeature()}
 function smoothCurrent(){if(!currentFeature)return;const d=featureData(currentFeature,state.activeMap),copy=d.map(r=>r.slice());for(let r=0;r<currentFeature.rows;r++)for(let c=0;c<currentFeature.cols;c++){let s=0,n=0;for(let rr=Math.max(0,r-1);rr<=Math.min(currentFeature.rows-1,r+1);rr++)for(let cc=Math.max(0,c-1);cc<=Math.min(currentFeature.cols-1,c+1);cc++){s+=Number(copy[rr][cc]||0);n++}d[r][c]=Number((s/n).toFixed(3))}saveFeatureStore();renderFeature();showEcuNotice('info','ĐÃ LÀM MƯỢT','Đã làm mượt bảng cục bộ. Chỉ ghi ECU khi bạn bấm GHI ECU.') }
 async function cmd(s){if(typeof window.blinkWriteCommand!=='function')throw new Error('Chưa kết nối ECU Blink');return window.blinkWriteCommand(s)}
 async function readFeature(){if(!currentFeature)return;document.getElementById('redIoStatus').textContent='Đang yêu cầu ECU Blink...';try{await cmd('RDF:'+currentFeature.n+':'+(currentFeature.banked?state.activeMap:0))}catch(e){showEcuNotice('error','ĐỌC MAP',e.message,0)}}
@@ -5751,7 +5834,7 @@ document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
-document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';if(redScanMode)window.hideRedKeypad?.();document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);
+document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{redScanMode=!redScanMode;redCornerPending=false;e.currentTarget.classList.toggle('primary',redScanMode);e.currentTarget.textContent=redScanMode?'▦ QUÉT: ON':'▦ QUÉT';if(redScanMode)window.hideRedKeypad?.();document.querySelector('#redleoEditorScreen .redTableWrap')?.classList.toggle('scanMode',redScanMode);renderFeature()});document.getElementById('redReadBtn')?.addEventListener('click',readFeature);document.getElementById('redWriteBtn')?.addEventListener('click',writeFeature);document.getElementById('redSmoothBtn')?.addEventListener('click',smoothCurrent);
 document.getElementById('redFloatPlusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(redStep)});
 document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();bump(-redStep)});
 document.getElementById('redFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('redWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc bảng ECU thành công và kiểm tra profile trước khi ghi.',0)});
@@ -5767,9 +5850,36 @@ if(redTableWrap){
   redTableWrap.addEventListener('wheel',()=>pauseRedAutoFollow(3000),{passive:true});
 }
 function redCellFromPoint(x,y){const el=document.elementFromPoint(x,y);return el?.closest?.('.redCell')||null}
-redTableWrap?.addEventListener('pointerdown',e=>{if(!redScanMode)return;const td=e.target.closest('.redCell');if(!td)return;e.preventDefault();redPointer=e.pointerId;redSel={r0:+td.dataset.rr,c0:+td.dataset.rc,r1:+td.dataset.rr,c1:+td.dataset.rc};redTableWrap.classList.add('scanMode');try{redTableWrap.setPointerCapture(e.pointerId)}catch(_e){}updateRedSelectionVisual()},{passive:false});
-redTableWrap?.addEventListener('pointermove',e=>{if(!redScanMode||redPointer!==e.pointerId)return;e.preventDefault();const td=redCellFromPoint(e.clientX,e.clientY);if(!td||!td.closest('#redleoEditorScreen'))return;redSel.r1=+td.dataset.rr;redSel.c1=+td.dataset.rc;updateRedSelectionVisual()},{passive:false});
-function endRedScan(e){if(redPointer!==e.pointerId)return;redPointer=null;try{redTableWrap.releasePointerCapture(e.pointerId)}catch(_e){};if(!redScanMode)redTableWrap?.classList.remove('scanMode');updateRedSelectionVisual()}
+redTableWrap?.addEventListener('pointerdown',e=>{
+  if(!redScanMode)return;
+  const td=e.target.closest('.redCell');if(!td)return;
+  e.preventDefault();
+  const r=+td.dataset.rr,c=+td.dataset.rc;
+  redScanStartedInside=redContainsCell(r,c);
+  redScanStartR=r;redScanStartC=c;redScanMoved=false;redPointer=e.pointerId;
+  redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=false;
+  redTableWrap.classList.add('scanMode');
+  try{redTableWrap.setPointerCapture(e.pointerId)}catch(_e){}
+  updateRedSelectionVisual();
+},{passive:false});
+redTableWrap?.addEventListener('pointermove',e=>{
+  if(!redScanMode||redPointer!==e.pointerId)return;
+  e.preventDefault();
+  const td=redCellFromPoint(e.clientX,e.clientY);if(!td||!td.closest('#redleoEditorScreen'))return;
+  const r=+td.dataset.rr,c=+td.dataset.rc;
+  if(r!==redScanStartR||c!==redScanStartC)redScanMoved=true;
+  redSel.r1=r;redSel.c1=c;redCornerPending=false;updateRedSelectionVisual();
+},{passive:false});
+function endRedScan(e){
+  if(redPointer!==e.pointerId)return;
+  const wasTap=!redScanMoved;
+  redPointer=null;
+  try{redTableWrap.releasePointerCapture(e.pointerId)}catch(_e){}
+  if(wasTap&&redScanStartedInside)clearRedSelection('Đã hủy vùng chọn');
+  else{redCornerPending=false;updateRedSelectionVisual()}
+  redScanMoved=false;redScanStartedInside=false;
+  if(!redScanMode)redTableWrap?.classList.remove('scanMode');
+}
 redTableWrap?.addEventListener('pointerup',endRedScan);redTableWrap?.addEventListener('pointercancel',endRedScan);
 window.addEventListener('resize',()=>requestAnimationFrame(updateRedSelectionPad));
 window.addEventListener('orientationchange',()=>setTimeout(()=>requestAnimationFrame(updateRedSelectionPad),140));
@@ -5786,7 +5896,7 @@ loadOptions();syncBanks();setInterval(syncMirrors,120);syncMirrors();showScreen(
 /* ===== MAP touch controls v7 ===== */
 (function(){
 'use strict';
-let mapStep=0.1,mapMode='unit',scanMode=false,scanPointer=null;
+let mapStep=0.1,mapMode='unit',scanMode=false,scanPointer=null,scanMoved=false,scanStartedInside=false,scanStartR=0,scanStartC=0,tapPointer=null,tapStartX=0,tapStartY=0,tapStartR=0,tapStartC=0,tapMoved=false,lastPointerTapAt=0;
 const table=document.getElementById('mapTable'),wrap=document.getElementById('mapWrap'),scanBtn=document.getElementById('mapScanToggle'),
       selectionPad=document.getElementById('mapSelectionPad'),
       floatSaveBtn=document.getElementById('mapFloatSaveBtn'),
@@ -5980,15 +6090,73 @@ fuelKeypad?.querySelectorAll('[data-fuel-key]').forEach(btn=>btn.addEventListene
 }));
 window.BlinkFuelKeypad={preferCustom:preferCustomFuelKeypad,open:openFuelKeypad,hide:hideFuelKeypad,sync:syncFuelKeypadSelection};
 window.hideFuelKeypad=hideFuelKeypad;
-function startScan(e){if(!scanMode)return;const td=e.target.closest('td.mapcell');if(!td)return;e.preventDefault();scanPointer=e.pointerId;setSelection(+td.dataset.r,+td.dataset.c,false);try{wrap.setPointerCapture(e.pointerId)}catch(_e){}}
-function moveScan(e){if(!scanMode||scanPointer!==e.pointerId)return;e.preventDefault();const td=cellAt(e.clientX,e.clientY);if(!td)return;state.selection.focusR=+td.dataset.r;state.selection.focusC=+td.dataset.c;highlightSelection()}
-function endScan(e){if(scanPointer!==e.pointerId)return;scanPointer=null;try{wrap.releasePointerCapture(e.pointerId)}catch(_e){};requestAnimationFrame(updateMapSelectionPad)}
-wrap?.addEventListener('pointerdown',startScan,{passive:false});wrap?.addEventListener('pointermove',moveScan,{passive:false});wrap?.addEventListener('pointerup',endScan);wrap?.addEventListener('pointercancel',endScan);
-// Single tap still selects one cell while scan mode is OFF (important for iOS where mousedown may not fire consistently).
-table?.addEventListener('click',e=>{if(scanMode)return;const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;setSelection(+td.dataset.r,+td.dataset.c,false)});
+function startScan(e){
+  if(!scanMode)return;
+  const td=e.target.closest('td.mapcell');if(!td)return;
+  e.preventDefault();
+  const r=+td.dataset.r,c=+td.dataset.c;
+  scanStartedInside=selectionContainsCell(r,c);
+  scanStartR=r;scanStartC=c;scanMoved=false;scanPointer=e.pointerId;
+  setSelection(r,c,false);state.selection.cornerPending=false;state.selection.dragMoved=false;
+  try{wrap.setPointerCapture(e.pointerId)}catch(_e){}
+}
+function moveScan(e){
+  if(!scanMode||scanPointer!==e.pointerId)return;
+  e.preventDefault();
+  const td=cellAt(e.clientX,e.clientY);if(!td)return;
+  const r=+td.dataset.r,c=+td.dataset.c;
+  if(r!==scanStartR||c!==scanStartC)scanMoved=true;
+  state.selection.focusR=r;state.selection.focusC=c;state.selection.cornerPending=false;
+  highlightSelection();
+}
+function endScan(e){
+  if(scanPointer!==e.pointerId)return;
+  const wasTap=!scanMoved;
+  scanPointer=null;
+  try{wrap.releasePointerCapture(e.pointerId)}catch(_e){}
+  if(wasTap&&scanStartedInside)clearMapSelection('Đã hủy vùng chọn');
+  else{state.selection.cornerPending=false;highlightSelection()}
+  scanMoved=false;scanStartedInside=false;
+  requestAnimationFrame(updateMapSelectionPad);
+}
+function startCornerTap(e){
+  if(scanMode)return;
+  const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;
+  tapPointer=e.pointerId;tapStartX=e.clientX;tapStartY=e.clientY;
+  tapStartR=+td.dataset.r;tapStartC=+td.dataset.c;tapMoved=false;
+}
+function moveCornerTap(e){
+  if(tapPointer!==e.pointerId)return;
+  if(Math.hypot(e.clientX-tapStartX,e.clientY-tapStartY)>10)tapMoved=true;
+}
+function endCornerTap(e){
+  if(tapPointer!==e.pointerId)return;
+  const moved=tapMoved||state.selection.dragMoved;
+  tapPointer=null;tapMoved=false;
+  if(moved){state.selection.dragMoved=false;return}
+  const td=cellAt(e.clientX,e.clientY);
+  if(!td||+td.dataset.r!==tapStartR||+td.dataset.c!==tapStartC)return;
+  handleMapCornerTap(tapStartR,tapStartC);
+  lastPointerTapAt=performance.now();
+}
+wrap?.addEventListener('pointerdown',startScan,{passive:false});
+wrap?.addEventListener('pointermove',moveScan,{passive:false});
+wrap?.addEventListener('pointerup',endScan);
+wrap?.addEventListener('pointercancel',endScan);
+wrap?.addEventListener('pointerdown',startCornerTap,{passive:true});
+wrap?.addEventListener('pointermove',moveCornerTap,{passive:true});
+wrap?.addEventListener('pointerup',endCornerTap);
+wrap?.addEventListener('pointercancel',e=>{if(tapPointer===e.pointerId){tapPointer=null;tapMoved=false}});
+// Click fallback covers keyboard/older browsers. Pointer-generated clicks are
+// suppressed because pointerup already handled the two-corner gesture.
+table?.addEventListener('click',e=>{
+  if(scanMode||performance.now()-lastPointerTapAt<450)return;
+  const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;
+  handleMapCornerTap(+td.dataset.r,+td.dataset.c);
+});
 document.querySelectorAll('[data-mapstep]').forEach(b=>b.addEventListener('click',()=>{mapStep=Number(b.dataset.mapstep);updateMapControls()}));
 document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click',()=>{mapMode=b.dataset.mapmode;updateMapControls()}));
-scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;updateMapControls();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF'});
+scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;state.selection.cornerPending=false;updateMapControls();highlightSelection();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF · chạm 2 góc để chọn vùng'});
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
 
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
