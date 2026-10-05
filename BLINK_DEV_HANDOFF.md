@@ -12,7 +12,7 @@
 - Physical ECUs currently available for real testing: REDLEO 9.2 and ATE V11.1.
 - Other REDLEO versions are being opened carefully from original PC software analysis.
 - Generic ECU Pro 2017 / LEGACY remains SAFE MODE and is intentionally excluded.
-- Current displayed PB: **3.79.52**.
+- Current displayed PB: **3.79.53**.
 - REDLEO 9.2 page-0x62 has passed real-hardware ACK + readback and the user's controlled semantic test on PB 3.79.40. Treat the tested 9.2 page6 Idle/ECT Motor path as release-certified for that hardware; do not generalize it to other families.
 
 ## 2. Mandatory safety rules
@@ -921,3 +921,21 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Backup before change: `backup-pb-3.79.51-pre-two-corner-selection`.
 - Core implementation commit: `38469824d2c1026d9f505ece3e2d486ce1fe48fc`.
 - Protocol CI run **37306927432**: **SUCCESS**. Syntax plus all existing ECU family regressions passed; this UI change did not broaden any ECU protocol writer.
+
+
+## Top-left-first two-corner selection - PB 3.79.53 - 2026-10-05
+
+- User changed the two-corner selection rule: reverse-order corner selection is no longer allowed.
+- QUÉT drag mode remains unchanged.
+- When QUÉT is OFF:
+  - first tap is always treated as the **top-left origin**;
+  - second tap must satisfy row >= origin row AND column >= origin column;
+  - if the second tap is above or left of the origin, Blink keeps the first corner and shows: `Góc 2 phải nằm bên phải / phía dưới góc 1`;
+  - same-row and same-column ranges remain valid as long as the second point is not above/left;
+  - tapping inside the currently highlighted selection still cancels the selection.
+- Applied to both:
+  - main fuel/target map;
+  - REDLEO multi-cell feature editors.
+- Backup: `backup-pb-3.79.52-pre-top-left-selection`.
+- Core implementation commit: `42c6460bf1dd4ac2745b3c057bdaf5f922c27829`.
+- Regression: `tools/check-map-selection.js` added and wired into protocol CI.
