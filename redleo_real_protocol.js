@@ -2975,7 +2975,9 @@ function cacheAckedPage(pg,payload){
   if(pg===0xA2){
     try{
       const C=isV11Profile()?parseV11A2Data(u):
-        (ecuProfile&&ecuProfile.key==='MODERN_V10'?parseModernA2Prefix(u):parseA2Data(u));
+        (isV10Direct()?parseV10A2Data(u):
+          (isUltraDirect()?parseUltraA2Data(u):
+            (ecuProfile&&ecuProfile.key==='MODERN_V10'?parseModernA2Prefix(u):parseA2Data(u))));
       sensorCalCache=C;
       sensorCalIdentity=handshakeInfo?[
         ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
