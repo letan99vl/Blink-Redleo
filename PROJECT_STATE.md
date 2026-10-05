@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.46`
+`BLINK_PB_VERSION = 3.79.47`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.46.
+- Android/web production: `main`, currently PB 3.79.47.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -364,3 +364,16 @@ The assistant should then:
 - Final CI run **37261463129** passed all protocol checks.
 - Real V10.2 hardware validation is still required before release certification.
 - User scope decision: AutoClutch on ECU families not already implemented is no longer a required work item; keep it hidden/locked instead of spending further reverse-engineering time.
+
+
+## 20. Ultra Pro1 page6 checkpoint - PB 3.79.47
+
+- Original Ultra Pro1 EXE confirms selected-bank page6 = **Idle Limit 24B + AutoShift 9B + Four-Spare 9B = 42B writable**.
+- Blink opens only the 8 Idle values with verified original labels, including VVT Open RPM; 4 unlabeled Idle uint16 values remain raw-preserved.
+- AutoShift and Four-Spare are preserved byte-for-byte and are not editable in this pass.
+- Ultra page6 uses a direct 42B baseline with ECU ACK + post-write readback + reply-tail verification.
+- Ultra ECT Motor is hidden from the co-located Idle screen because it belongs to the still-unverified Ultra A2 serializer.
+- AutoClutch Ultra remains out of scope per user decision.
+- Ultra A2 remains separate/locked; V10.2 268B serializer must not be reused.
+- Final CI run **37262145034** passed all protocol checks including the new Ultra page6 regression.
+- Hardware status: **NEEDS REAL ULTRA PRO1 TEST**.
