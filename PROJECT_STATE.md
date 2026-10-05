@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.43`
+`BLINK_PB_VERSION = 3.79.44`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.43.
+- Android/web production: `main`, currently PB 3.79.44.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -327,3 +327,15 @@ The assistant should then:
 - CI run 37243092053 passed all protocol checks.
 - Still needs real V10.2 hardware SAVE + READBACK validation.
 - Next V10.2 target: ECT Start Add 3×11 / 33B.
+
+
+## 17. V10.2 ECT Start Add checkpoint - PB 3.79.44
+
+- V10.2 original EXE was re-extracted and decompiled to verify `Dgv_EctStrt_Add` directly.
+- Exact V10.2 Start Add surface is **3×11 = 33B** with UI rows: Time(Second), INJ VE(ms), StrtAdd(ms).
+- Wire row order is reversed: StrtAdd, INJ VE, Time.
+- Time uses 0.2-second raw steps (`raw = round(sec×5)`, minimum raw 1); both INJ rows use the original V10 Oil time scale.
+- Blink V10.2 UI now uses a dedicated 3×11 profile and no longer reuses the V11 4×11 Start Add table.
+- Writer patches only A2 bytes 205..237 inside the exact 268B RMW payload and preserves every sibling block/tail.
+- Ultra remains explicitly separated from this V10.2 path.
+- Local/source validation passed; real V10.2 hardware SAVE + READBACK is still required before release certification.
