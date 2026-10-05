@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `cece84670b1af23bf2e7e1da23dfd7468656f848`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.59`
+`BLINK_PB_VERSION = 3.79.60`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.59.
+- Android/web production: `main`, currently PB 3.79.60.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -594,3 +594,13 @@ The assistant should then:
 - Preview/local-apply/explicit-GHI-ECU safety remains intact.
 - Backup: backup-pb-3.79.58-pre-ivo-ivc-cam-model.
 - Final CI run **37334627131 = SUCCESS**.
+
+## 34. Cam calculator button feedback checkpoint - PB 3.79.60
+
+- TÍNH THỬ and ÁP DỤNG now always provide visible in-dialog feedback.
+- APPLY is no longer a silent disabled control; it explains when preview is missing or stale.
+- Preview errors are rendered inside the dialog.
+- Mobile action buttons use explicit type=button + touch-action=manipulation.
+- IVO/IVC arithmetic and ECU-family angle conversion are unchanged.
+- Backup: backup-pb-3.79.59-pre-cam-dialog-button-fix.
+- Final CI run **37335952882 = SUCCESS**.
