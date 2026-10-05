@@ -20,7 +20,7 @@ Current verified head when this checkpoint was written:
 `60017e5c76432afa98108afeecc6c8886b6d4799`
 
 Current UI version marker:
-`BLINK_PB_VERSION = 3.79.45`
+`BLINK_PB_VERSION = 3.79.46`
 
 Important current state:
 - Main ECU protocol was rolled back to the PB 3.79 state and has since been safety-hardened through PB 3.79.19.
@@ -287,7 +287,7 @@ The assistant should then:
 
 ## 13. Current checkpoint summary
 
-- Android/web production: `main`, currently PB 3.79.45.
+- Android/web production: `main`, currently PB 3.79.46.
 - iOS installed/TestFlight UI lineage: currently PB 3.75.
 - iOS remote protocol live source: `ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js`.
 - iOS protocol has IPA fallback.
@@ -351,3 +351,16 @@ The assistant should then:
 - Final CI run **37260282172** passed syntax, row orientation, 9.2 page6, V10.2 page6 and V10.2 A2/Option regression checks.
 - Hardware status remains **NEEDS REAL V10.2 TEST**.
 - Next V10.2 targets: AutoClutch Start RPM and TPS/RPM axis write path; keep both locked until exact original writer semantics are verified.
+
+
+## 19. V10.2 TPS/RPM axis checkpoint - PB 3.79.46
+
+- Original ECU Pro 10.2 writer paths verified the direct V10.2 A2 axis layout: TPS voltage row 14B + TPS percent row 14B + RPM 30×uint16-BE/60B.
+- Blink now exposes direct-V10-only TPS Axis 1×14 and RPM Axis 1×30 editors.
+- TPS follows original normalization: first point 0%, <10% uses 0.5% steps, >=10% uses 1% steps, 0..100%, strict increasing. Its companion voltage row is regenerated from Dgv_Option TPS Min/Max.
+- RPM follows original normalization: 500..15000 RPM, 20 RPM steps, strict increasing, wire raw = RPM/20 big-endian.
+- Both use the canonical 268B A2 RMW path with ACK + readback + sibling/tail preservation, then republish axes from verified readback.
+- Ultra remains excluded from these V10.2 axis writers.
+- Final CI run **37261463129** passed all protocol checks.
+- Real V10.2 hardware validation is still required before release certification.
+- User scope decision: AutoClutch on ECU families not already implemented is no longer a required work item; keep it hidden/locked instead of spending further reverse-engineering time.
