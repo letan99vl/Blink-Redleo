@@ -261,9 +261,11 @@ function mainFeaturePage(id,bank){
   if(id==='map_inj')return 0x92;
   const v92=!!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&usesNewThermalAxis());
   const v10=isV10Direct();
+  const ultra=isUltraDirect();
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&id==='idle_limit')return page(6,bank);
+  if(ultra&&id==='idle_limit')return page(6,bank);
   if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
   if(ecuProfile&&ecuProfile.family==='v11'&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','chg_params','ate_options','ect_start','alternate_table','v_ect','v_iat','v_map'].includes(id))return 0xA2;
@@ -278,6 +280,7 @@ function isDirectVerifiedFeature(id){
   // Original V10.2 IL confirms page family 6 writes only the 18B Idle/Limit block.
   // ECT Motor is NOT on page6 for V10; it remains locked with the unverified A2 tail.
   if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return true;
+  if(isUltraDirect()&&id==='idle_limit')return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
 function mainFeatureReady(id,bank){
@@ -363,6 +366,14 @@ function applyProfileUi(){
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
   }
   document.body.dataset.ecuProfile=p.key||'UNKNOWN';
+  const ultraIdle=isUltraDirect();
+  const ultraVvtField=document.getElementById('ultraVvtOpenField');
+  if(ultraVvtField)ultraVvtField.style.display=ultraIdle?'':'none';
+  const ultraMotorPanel=document.getElementById('idleEctPanel');
+  // Ultra ECT Motor belongs to A2 and is not part of the verified 42B page6
+  // writer. Hide this legacy co-located panel until Ultra A2 is reconstructed.
+  if(ultraMotorPanel)ultraMotorPanel.style.display=ultraIdle?'none':'';
+
   const reason='ECU Profile: '+p.label+' · chức năng này đang bị khóa để tránh dùng sai protocol.';
 
   // TPS Study has one UI entry point in Settings. Keep that single button
@@ -2573,6 +2584,50 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
     return {...R,idle,writablePayload:wire,replyOnlyTail:R.data.slice(18),readOnly:false};
   }
 
+  if(isUltraDirect()){
+    // Original REDLEO Ultra Pro1 page-family 6 serializer for selected MAP:
+    //   Dgv_Idle_Limit = 4 rows x 3 transmitted values x uint16-BE = 24B
+    //   Dgv_AutoShift  = 1 row x 9 bytes                         = 9B
+    //   Dgv_Four_Spare = 1 row x 9 bytes                         = 9B
+    // Total writable payload = 42B.
+    // Only Idle indexes 0..7 have verified language labels/semantics.
+    // Idle u16 indexes 8..11 + AutoShift + Four-Spare are preserved raw.
+    const R=await readDirectPageReal(pg,42,'REDLEO ULTRA · IDLE / PAGE6 · MAP NO.'+bank,showUi);
+    const wire=R.data.slice(0,42);
+    const idleRaw=wire.slice(0,24);
+    const idle=[];
+    for(let i=0;i<12;i++)idle.push(u16be(idleRaw,i*2));
+    const autoShiftRaw=wire.slice(24,33);
+    const fourSpareRaw=wire.slice(33,42);
+    const o={
+      idleCold:idle[0],
+      idleHot:idle[1],
+      idleSensitivity:idle[2],
+      maxSpeed:idle[3],
+      returnCold:idle[4],
+      returnHot:idle[5],
+      accelPct:Math.round(idle[6]*50/64),
+      vvtOpenRpm:idle[7]
+    };
+    for(const[k,v]of Object.entries(o))setValue('[data-idleopt="'+k+'"]',v);
+    if(!window.blinkUltraPage6Raw)window.blinkUltraPage6Raw={};
+    window.blinkUltraPage6Raw[bank]={
+      page:pg,
+      readLength:R.data.length,
+      writableLength:42,
+      idleRaw:Array.from(idleRaw),
+      knownIdleWords:idle.slice(0,8),
+      hiddenIdleWords:idle.slice(8,12),
+      autoShiftRaw:Array.from(autoShiftRaw),
+      fourSpareRaw:Array.from(fourSpareRaw),
+      replyOnlyTail:Array.from(R.data.slice(42))
+    };
+    const st=document.getElementById('redIoStatus');
+    if(st)st.textContent='REDLEO ULTRA · PAGE 0x'+pg.toString(16).toUpperCase()+' · READ '+R.data.length+'B / TX 42B · Idle 24B + AutoShift 9B + Four-Spare 9B';
+    if(showUi)notice('success','REDLEO ULTRA · PAGE 6x READ OK','MAP No.'+bank+' · Idle 24B decoded · AutoShift/Four-Spare preserved · TX 42B.');
+    return {...R,idle,idleRaw,autoShiftRaw,fourSpareRaw,writablePayload:wire,replyOnlyTail:R.data.slice(42),readOnly:false};
+  }
+
   if(isV92Direct()){
     // REDLEO 9.2 original serializer for page 6x:
     //   Idle/Limit      = 9 x uint16-BE = 18B
@@ -3034,10 +3089,15 @@ async function writeV92IdleLimit(bank){
   return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 
+function v10FamilyIdentityText(){
+  return (String(handshakeInfo&&handshakeInfo.ident||'')+' '+String(handshakeInfo&&handshakeInfo.firmware||'')+' '+String(handshakeInfo&&handshakeInfo.classify||'')).toUpperCase();
+}
+function isUltraDirect(){
+  return !!(ecuProfile&&ecuProfile.key==='MODERN_V10'&&/ULTRA/.test(v10FamilyIdentityText()));
+}
 function isV10Direct(){
   if(!ecuProfile||ecuProfile.key!=='MODERN_V10')return false;
-  const txt=(String(handshakeInfo&&handshakeInfo.ident||'')+' '+String(handshakeInfo&&handshakeInfo.firmware||'')+' '+String(handshakeInfo&&handshakeInfo.classify||'')).toUpperCase();
-  return !/ULTRA/.test(txt);
+  return !/ULTRA/.test(v10FamilyIdentityText());
 }
 function v10A2UiMatrix(rows,cols,label){
   const cells=[...document.querySelectorAll('#redFeatureTable [data-rr][data-rc], #redTable [data-rr][data-rc]')];
@@ -3130,6 +3190,37 @@ async function writeV10A2KnownFeature(id){
 }
 async function writeV10EctMotor(bank){
   return writeV10A2KnownFeature('ect_idle_motor');
+}
+async function writeUltraIdleLimit(bank){
+  if(!isUltraDirect())throw new Error('Idle/Limit Ultra writer chỉ dùng REDLEO Ultra Pro1.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank);
+  const baseline=requireCachedPageAtLeast(pg,42,'REDLEO Ultra Idle/Limit');
+  const payload=baseline.slice(0,42);
+  const specs=[
+    ['idleCold',0,v=>Math.round(v)],
+    ['idleHot',1,v=>Math.round(v)],
+    ['idleSensitivity',2,v=>Math.round(v)],
+    ['maxSpeed',3,v=>Math.round(v)],
+    ['returnCold',4,v=>Math.round(v)],
+    ['returnHot',5,v=>Math.round(v)],
+    ['accelPct',6,v=>Math.round(v*64/50)],
+    ['vvtOpenRpm',7,v=>Math.round(v)]
+  ];
+  for(const [key,idx,enc] of specs){
+    const el=document.querySelector('[data-idleopt="'+key+'"]');
+    const v=Number(el&&el.value);
+    if(!Number.isFinite(v))continue;
+    const raw=clamp(enc(v),0,65535);
+    payload[idx*2]=(raw>>8)&255;
+    payload[idx*2+1]=raw&255;
+  }
+  // Preserve Idle u16 #8..#11 (bytes 16..23), AutoShift bytes 24..32,
+  // Four-Spare bytes 33..41, and any longer read/reply tail.
+  taskUi('loading','REDLEO ULTRA · GHI IDLE/LIMIT · MAP NO.'+bank+' · TX 42B · giữ 4 word ẩn + AutoShift + Four-Spare');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO Ultra Idle/Limit MAP '+bank,'mainWrite',1);
+  notice('success','GHI IDLE/LIMIT ULTRA OK','MAP No.'+bank+' · TX 42B · ACK + READBACK OK · hidden Idle/AutoShift/Four-Spare giữ nguyên.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
 }
 async function writeV10IdleLimit(bank){
   if(!isV10Direct())throw new Error('Idle/Limit direct writer chỉ dùng REDLEO V10.');
@@ -3381,6 +3472,7 @@ async function writeFeatureReal(id){
     if(isV92Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV92A2KnownFeature(id);
     if(isV92Direct()&&id==='ect_idle_motor')return writeV92EctMotor(bank);
     if(isV10Direct()&&id==='idle_limit')return writeV10IdleLimit(bank);
+    if(isUltraDirect()&&id==='idle_limit')return writeUltraIdleLimit(bank);
     if(isV10Direct()&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return writeV10A2KnownFeature(id);
 
     requireProfile('mainWrite','Ghi bảng '+id);
@@ -3437,6 +3529,7 @@ async function writeFeatureReal(id){
 async function writeIdleReal(){
   if(isV92Direct())return writeV92IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
   if(isV10Direct())return writeV10IdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
+  if(isUltraDirect())return writeUltraIdleLimit((typeof state!=='undefined'&&state.activeMap)||1);
   if(ecuProfile&&ecuProfile.key==='MODERN_V9'&&!usesNewThermalAxis())throw new Error('REDLEO 9.1X · Idle/ECT Motor tạm khóa: page6 gốc khác 9.2 và đang được xác minh riêng. Không dùng serializer 30B cũ.');
   await ensureV9FullWriteReady('Ghi Idle/Limit');
   assertSafeWriteLayout();
