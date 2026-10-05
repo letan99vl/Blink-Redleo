@@ -43,8 +43,8 @@ must(/externalRaw=data\.slice\(L\.EXTERNAL,L\.EXTERNAL\+30\)/,
 
 // Direct V10 must use exact 268B parser. Ultra now has its own exact 277/285B
 // parser/writer and must remain separate from V10_A2.
-must(/const minData=v11\?V11_A2\.LEN:\(v10Direct\?V10_A2\.LEN:\(ultra\?\(ultraLayout\?ultraLayout\.len:ULTRA_A2\.BASE_LEN\)/,
-  'V10 direct A2 read must require 268B while Ultra uses its own 277/285B path');
+must(/const minData=v11\?\(ultra2\?V11_A2_286\.LEN:V11_A2\.LEN\):\(v10Direct\?V10_A2\.LEN:\(ultra\?\(ultraLayout\?ultraLayout\.len:ULTRA_A2\.BASE_LEN\)/,
+  'V10 direct A2 read must require 268B while Ultra Pro1 uses 277/285B and Ultra Pro2 uses V11-286');
 must(/v10Direct\?parseV10A2Data\(R\.data\):\(ultra\?parseUltraA2Data\(R\.data\)/,
   'V10 direct/Ultra A2 parser separation missing');
 must(/writeV10A2KnownFeature[\s\S]{0,250}if\(!isV10Direct\(\)\)throw/,
