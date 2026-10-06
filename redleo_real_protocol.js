@@ -38,6 +38,21 @@ let otaPaused=false;
 // the conservative all-with-response path.
 let rawWritePacingMode='safe'; // 'turbo' | 'safe'
 let rawJumboSessionCap=null;   // null=unknown, true=works, false=use 13B fallback
+
+function desktopChromiumAdaptiveTx(){
+  const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+  const windows=/Windows/i.test(ua)||/Win32|Win64/i.test(platform);
+  const chromium=/Chrome|Chromium|Edg\//i.test(ua);
+  const mobile=/Android|iPhone|iPad|iPod|EdgiOS|CriOS/i.test(ua);
+  if(!windows||!chromium||mobile||window.blinkBridgeTxAdaptive!==true)return null;
+  const n=Math.round(Number(window.blinkBridgeTxPayload)||0);
+  return [160,120,80,40,13].includes(n)?n:13;
+}
+function nextDesktopTxChunk(current){
+  const ladder=[160,120,80,40,13];
+  const i=ladder.indexOf(Math.round(Number(current)||0));
+  return i>=0&&i<ladder.length-1?ladder[i+1]:13;
+}
 function isAppleMobileBleClient(){
   const ua=String(navigator.userAgent||'');
   const platform=String(navigator.platform||'');
@@ -1452,26 +1467,58 @@ async function rawExchange(bytes,timeout=12000){
       let usedJumbo=false;
       const nativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(String(navigator.userAgent||''));
       const nativeMtu=Number(window.__androidBleMtu||0);
-      const jumboAllowed=!nativeAndroid||nativeMtu>=170;
-      if(turboWrite&&rawJumboSessionCap!==false&&jumboAllowed){
-        try{
-          await sendPass(RAW_JUMBO_CHUNK,true);
-          usedJumbo=true;
-          rawJumboSessionCap=true;
-        }catch(e){
-          const msg=String(e&&e.message||e);
-          if(!cmdChar()||!mapChar()||/disconnect|ngắt|mất kết nối/i.test(msg))throw e;
-          // Browser/client did not accept the negotiated MTU size. Re-send the
-          // whole offset-addressed frame with 13B burst chunks; already received
-          // bytes are harmless duplicates and fill accounting remains exact.
-          rawJumboSessionCap=false;
-          log('JUMBO RAW fallback to 13B burst',msg);
-          if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
-          await sendPass(RAW_CHUNK,true);
+      const desktopChunk=desktopChromiumAdaptiveTx();
+      const desktopAdaptive=desktopChunk!=null;
+      let turboChunk=desktopAdaptive?desktopChunk:RAW_JUMBO_CHUNK;
+      const jumboAllowed=desktopAdaptive
+        ?turboChunk>RAW_CHUNK
+        :(!nativeAndroid||nativeMtu>=170);
+
+      // Only Windows Chrome/Edge uses this adaptive ladder. Android and iOS
+      // preserve the existing transport exactly as before.
+      if(turboWrite&&(desktopAdaptive||rawJumboSessionCap!==false)&&jumboAllowed){
+        while(true){
+          try{
+            if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&desktopAdaptive){
+              updateActiveMapIoText('⚡ TURBO '+turboChunk+'B · ĐANG GHI...');
+            }
+            await sendPass(turboChunk,true);
+            usedJumbo=turboChunk>RAW_CHUNK;
+            if(!desktopAdaptive)rawJumboSessionCap=true;
+            break;
+          }catch(e){
+            const msg=String(e&&e.message||e);
+            if(!cmdChar()||!mapChar()||/disconnect|ngắt|mất kết nối/i.test(msg))throw e;
+
+            if(desktopAdaptive){
+              const next=nextDesktopTxChunk(turboChunk);
+              window.blinkBridgeTxPayload=next;
+              log('Windows Chromium TX degrade',turboChunk+'B → '+next+'B',msg);
+              if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+                updateActiveMapIoText('↘ TURBO '+next+'B · THỬ LẠI...');
+              }
+              if(next>RAW_CHUNK){
+                turboChunk=next;
+                continue;
+              }
+              usedJumbo=false;
+              await sendPass(RAW_CHUNK,true);
+              break;
+            }
+
+            rawJumboSessionCap=false;
+            log('JUMBO RAW fallback to 13B burst',msg);
+            if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
+            await sendPass(RAW_CHUNK,true);
+            break;
+          }
         }
       }else if(turboWrite){
         if(nativeAndroid&&!jumboAllowed){
           log('ANDROID MTU chưa đủ jumbo',nativeMtu||23,'→ 13B reliable path');
+        }
+        if(desktopAdaptive&&turboChunk<=RAW_CHUNK&&ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+          updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
         }
         await sendPass(RAW_CHUNK,true);
       }else{
@@ -1487,7 +1534,16 @@ async function rawExchange(bytes,timeout=12000){
         await new Promise(r=>setTimeout(r,8));
         const ready=await confirmBridgeRawReady(id,pendingState);
         if(ready===false){
-          if(usedJumbo)rawJumboSessionCap=false;
+          if(usedJumbo){
+            const desktopNow=desktopChromiumAdaptiveTx();
+            if(desktopNow!=null){
+              const next=nextDesktopTxChunk(desktopNow);
+              window.blinkBridgeTxPayload=next;
+              log('Windows Chromium RAWREADY degrade',desktopNow+'B → '+next+'B');
+            }else{
+              rawJumboSessionCap=false;
+            }
+          }
           throw new Error('BLE bridge chưa ráp đủ frame RAW · chuyển sang retry an toàn');
         }
       }
