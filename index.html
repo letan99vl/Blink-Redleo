@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.64';
+  window.BLINK_PB_VERSION = '3.79.65';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -4737,6 +4737,61 @@ window.addEventListener('beforeunload',save);
     throw new Error('BLE COMMAND không hỗ trợ control write.');
   }
   let rxProbeResolve=null;
+  let txProbeResolve=null;
+
+  function desktopChromiumBleClient(){
+    const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+    const windows=/Windows/i.test(ua)||/Win32|Win64/i.test(platform);
+    const chromium=/Chrome|Chromium|Edg\//i.test(ua);
+    const mobile=/Android|iPhone|iPad|iPod|EdgiOS|CriOS/i.test(ua);
+    return windows&&chromium&&!mobile;
+  }
+
+  async function probeBrowserTx(payload=160,timeoutMs=900){
+    if(!commandChar||!desktopChromiumBleClient())return false;
+    payload=Math.max(12,Math.min(160,Math.round(Number(payload)||12)));
+    const result=new Promise(resolve=>{
+      const to=setTimeout(()=>{if(txProbeResolve===done)txProbeResolve=null;resolve(false);},timeoutMs);
+      function done(ok){clearTimeout(to);if(txProbeResolve===done)txProbeResolve=null;resolve(!!ok);}
+      txProbeResolve=done;
+    });
+    const pkt=new Uint8Array(2+payload);
+    pkt[0]=0xE7;
+    pkt[1]=payload&255;
+    for(let i=0;i<payload;i++)pkt[2+i]=(i*31+11)&255;
+    try{
+      if(typeof commandChar.writeValueWithResponse==='function')await commandChar.writeValueWithResponse(pkt);
+      else if(typeof commandChar.writeValue==='function')await commandChar.writeValue(pkt);
+      else throw new Error('BLE COMMAND không hỗ trợ TX probe');
+    }catch(_e){
+      if(txProbeResolve){const r=txProbeResolve;txProbeResolve=null;r(false);}
+    }
+    return await result;
+  }
+
+  async function configureFastBridgeTx(bridgeStatus){
+    // Keep Android/iOS/Bluefy on their already-proven paths. Only desktop
+    // Windows Chromium gets the adaptive write-size probe.
+    window.blinkBridgeTxPayload=160;
+    window.blinkBridgeTxAdaptive=false;
+    if(!desktopChromiumBleClient())return false;
+    if(!bridgeStatusAtLeast(bridgeStatus,1,9))return false;
+
+    window.blinkBridgeTxAdaptive=true;
+    for(const n of [160,120,80,40]){
+      if(await probeBrowserTx(n,900)){
+        window.blinkBridgeTxPayload=n;
+        console.log('[BLINK] Windows Chromium adaptive TX='+n+'B');
+        return true;
+      }
+      await new Promise(r=>setTimeout(r,35));
+    }
+    window.blinkBridgeTxPayload=13;
+    console.log('[BLINK] Windows Chromium adaptive TX fallback=13B');
+    return false;
+  }
+  window.configureBlinkFastBridgeTx=configureFastBridgeTx;
+
   function bleClientKind(){
     const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
     if(/BLINK-REDLEO-ANDROID\//i.test(ua))return 'LAUNCHER_ANDROID';
@@ -5300,6 +5355,16 @@ window.addEventListener('beforeunload',save);
     // The REAL protocol layer consumes this internally for timing/diagnostics.
     // Do not overwrite the user-facing footer with RAWREADY xx.
     if(text.startsWith('RAWREADY '))return;
+    if(text.startsWith('TXPROBE ')){
+      const n=Number(text.slice(8))||0;
+      if(txProbeResolve){const r=txProbeResolve;txProbeResolve=null;r(n>=12);}
+      if(n>0)$('ecuDiag').textContent='BLE STATUS: TXPROBE '+n+'B OK';
+      return;
+    }
+    if(text==='TXPROBE ERR'){
+      if(txProbeResolve){const r=txProbeResolve;txProbeResolve=null;r(false);}
+      return;
+    }
     if(text.startsWith('RXJUMBO ')){
       const n=Number(text.slice(8))||12;
       window.blinkBridgeRxPayload=n;
@@ -5373,6 +5438,7 @@ window.addEventListener('beforeunload',save);
       if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
       else{
         try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
+        try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
       }
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
