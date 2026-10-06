@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.8"
+#define FW_VERSION "1.9"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -63,6 +63,7 @@ static const char *STATUS_UUID  = "afaf0005-7c35-4a6d-9f0e-2ea3117f1000";
 static const uint8_t RAW_TX_MARKER = 0xE1;
 static const uint8_t RAW_RX_MARKER = 0xE2;
 static const uint8_t RX_PROBE_MARKER = 0xE6;
+static const uint8_t TX_PROBE_MARKER = 0xE7;
 static const size_t RAW_SAFE_PAYLOAD = 12;
 static const size_t RAW_JUMBO_PAYLOAD = 160;
 static const uint16_t RAW_NOTIFY_DELAY_MS = 6;
@@ -133,6 +134,18 @@ static void sendRxProbe(uint16_t payload) {
   mapChar->notify();
   Serial.printf("BLE RX probe sent payload=%u total=%u\n", (unsigned)payload, (unsigned)(payload + 2));
 }
+
+static bool validateTxProbe(const uint8_t *p, size_t n) {
+  if (!p || n < 3 || p[0] != TX_PROBE_MARKER) return false;
+  const uint16_t payload = p[1];
+  if (payload < RAW_SAFE_PAYLOAD || payload > RAW_JUMBO_PAYLOAD) return false;
+  if (n != (size_t)payload + 2U) return false;
+  for (uint16_t i = 0; i < payload; ++i) {
+    if (p[2 + i] != (uint8_t)((i * 31U + 11U) & 0xFFU)) return false;
+  }
+  return true;
+}
+
 
 uint8_t txBuf[TX_MAX];
 uint8_t txSeen[TX_MAX];
@@ -318,6 +331,23 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
         otaCommandCode = otaCmd;
         otaCommandLen = otaExpected;
         otaCommandReady = true;
+      }
+      return;
+    }
+
+    // Desktop TX capability probe. This packet is consumed entirely by the
+    // bridge and is NEVER forwarded to the ECU. It lets Windows Chrome/Edge
+    // discover the largest stable GATT write payload without touching iOS or
+    // Android transport behavior.
+    if (p[0] == TX_PROBE_MARKER) {
+      if (validateTxProbe(p, n)) {
+        const uint16_t payload = (uint16_t)(n - 2U);
+        notifyStatus(String("TXPROBE ") + payload);
+        Serial.printf("BLE TX probe accepted payload=%u total=%u\n",
+                      (unsigned)payload, (unsigned)n);
+      } else {
+        notifyStatus("TXPROBE ERR");
+        Serial.printf("BLE TX probe rejected total=%u\n", (unsigned)n);
       }
       return;
     }
