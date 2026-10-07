@@ -1393,6 +1393,13 @@ function installRawListener(){
     // Count each offset only once; reconnect/retransmit must not make got exceed total.
     if(!p.seen)p.seen=new Set();
     if(!p.seen.has(off)){p.seen.add(off);p.got+=bytes.length;}
+    if(p.cmd===0xAB&&p.total>0){
+      const pct=Math.min(100,Math.floor((p.got*100)/p.total));
+      if(pct===100||p.lastProgressPct<0||pct>=p.lastProgressPct+5){
+        p.lastProgressPct=pct;
+        taskUi('loading','ĐANG ĐỌC TẤT CẢ ECU · '+pct+'% · '+p.got+'/'+p.total+'B');
+      }
+    }
     // Do not trust the END flag alone. Large INJ VE streams can lose one BLE
     // notification on iOS; only resolve after every unique payload offset arrived.
     if(p.got>=p.total){
@@ -1567,7 +1574,7 @@ async function rawExchange(bytes,timeout=12000){
     let pendingState=null;
     const exchangeStarted=performance.now();
     const response=new Promise((resolve,reject)=>{
-      pendingState={resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0};
+      pendingState={resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0,cmd:data[0],lastProgressPct:-1};
       pending.set(id,pendingState);
     });
     try{
@@ -3135,31 +3142,65 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
 async function readAll(cmd=0xAB,timeoutMs=35000){
   if(cmd===0x8B)requireProfile('restore','Khôi phục ECU');
   else requireProfile('readAll','Đọc toàn bộ ECU');
-  taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
-  const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
-  let C=parseReadAll(rx,cmd);
-  // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
-  // even if its byte length happens to collide with a known modern length.
-  if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
-    C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
+
+  // READ ALL is a large 8-10 KB transaction. Give it priority over live 0x69
+  // and the background A2 warmup so a user tap cannot be starved by polling.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
+  const warmupWasPending=!!sensorWarmupTimer;
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
+  stopLiveLoop();
+
+  let appleSafeRx=false;
+  try{
+    if(busy)taskUi('loading','ĐỌC TẤT CẢ · CHỜ LIVE/A2 NHẢ ECU...');
+    await waitForEcuIdle(9000);
+
+    // Bluefy/iOS can drop one notification from a jumbo 160B RAW_RX stream.
+    // A single missing chunk keeps the 9-10 KB assembler incomplete until timeout.
+    // Force the proven 12B-safe RX mode only for this large read, then restore.
+    appleSafeRx=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
+    if(appleSafeRx){
+      taskUi('loading','ĐỌC TẤT CẢ · iOS RX AN TOÀN 12B...');
+      await setAppleSensorSafeRx(true);
+    }
+
+    taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0%');
+    const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
+    let C=parseReadAll(rx,cmd);
+    // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
+    // even if its byte length happens to collide with a known modern length.
+    if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
+      C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
+    }
+    window.blinkReadAllRaw=C.raw.slice();
+    window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
+    if(C.rawOnly){
+      // Never keep a decoded cache from an earlier Read All when the newest
+      // response could only be preserved as RAW.
+      readCache=null;
+      const s=document.getElementById('redIoStatus');
+      if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
+      log('ReadAll raw frame accepted:',C.sourceLength+'B');
+    }else if(C.v11Decoded){
+      syncV11ReadAll(C);
+    }else{
+      syncAll(C);
+    }
+    try{applyProfileUi();}catch(_e){}
+    taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
+    return C;
+  }finally{
+    if(appleSafeRx){
+      try{await setAppleSensorSafeRx(false);}catch(e){log('READ ALL · restore Apple RX jumbo failed',String(e&&e.message||e));}
+    }
+    if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
+      scheduleLiveResume(420);
+    }
+    if((warmupWasPending||!sensorCalCache)&&handshakeInfo&&profileCap('optionsRead')&&!(ecuProfile&&ecuProfile.family==='v8')){
+      const id=sensorIdentity();
+      if(id)scheduleSensorCalWarmup(transportEpoch,id,0);
+    }
   }
-  window.blinkReadAllRaw=C.raw.slice();
-  window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
-  if(C.rawOnly){
-    // Never keep a decoded cache from an earlier Read All when the newest
-    // response could only be preserved as RAW.
-    readCache=null;
-    const s=document.getElementById('redIoStatus');
-    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
-    log('ReadAll raw frame accepted:',C.sourceLength+'B');
-  }else if(C.v11Decoded){
-    syncV11ReadAll(C);
-  }else{
-    syncAll(C);
-  }
-  try{applyProfileUi();}catch(_e){}
-  taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
-  return C;
 }
 
 // ----- write builders -----
