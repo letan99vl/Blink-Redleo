@@ -33,6 +33,16 @@ let otaPaused=false;
 let sensorWarmupTimer=null;
 const SENSOR_CAL_STORE_KEY='BLINK_SENSOR_CAL_V1';
 
+function sensorIdentity(info=handshakeInfo,profile=ecuProfile){
+  if(!info)return null;
+  return [
+    profile?.key||info.profile?.key||'UNKNOWN',
+    info.ident||'',
+    info.firmware||'',
+    info.ecuId||1
+  ].join('|');
+}
+
 function validSensorCurve(a){
   return Array.isArray(a)&&a.length===11&&a.every(v=>Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=20);
 }
