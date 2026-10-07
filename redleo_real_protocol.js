@@ -3150,21 +3150,16 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
   if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
   stopLiveLoop();
 
-  let appleSafeRx=false;
   try{
     if(busy)taskUi('loading','ĐỌC TẤT CẢ · CHỜ LIVE/A2 NHẢ ECU...');
     await waitForEcuIdle(9000);
 
-    // Bluefy/iOS can drop one notification from a jumbo 160B RAW_RX stream.
-    // A single missing chunk keeps the 9-10 KB assembler incomplete until timeout.
-    // Force the proven 12B-safe RX mode only for this large read, then restore.
-    appleSafeRx=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
-    if(appleSafeRx){
-      taskUi('loading','ĐỌC TẤT CẢ · iOS RX AN TOÀN 12B...');
-      await setAppleSensorSafeRx(true);
-    }
-
-    taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0%');
+    // Keep the RX payload that was negotiated and probe-validated at BLE connect.
+    // For FW1.8+ browser clients, 160B is enabled only after RXPROBE succeeds.
+    // Forcing a proven jumbo link back to 12B turns a ~10 KB Read All into 800+
+    // notifications and can choke the browser BLE queue around mid-transfer.
+    const readAllRxPayload=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+    taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0% · RX '+readAllRxPayload+'B');
     const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
     let C=parseReadAll(rx,cmd);
     // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
@@ -3190,9 +3185,6 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
     taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
     return C;
   }finally{
-    if(appleSafeRx){
-      try{await setAppleSensorSafeRx(false);}catch(e){log('READ ALL · restore Apple RX jumbo failed',String(e&&e.message||e));}
-    }
     if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
       scheduleLiveResume(420);
     }
