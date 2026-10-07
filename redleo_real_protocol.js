@@ -122,6 +122,26 @@ function nextDesktopTxChunk(current){
   const i=ladder.indexOf(Math.round(Number(current)||0));
   return i>=0&&i<ladder.length-1?ladder[i+1]:13;
 }
+async function setAppleSensorSafeRx(enable){
+  if(!isAppleMobileBleClient())return false;
+  const ch=cmdChar();
+  if(!ch)return false;
+  const text=enable?'RXJUMBO:0':'RXJUMBO:160';
+  const bytes=new TextEncoder().encode(text);
+  try{
+    if(typeof ch.writeValueWithResponse==='function')await ch.writeValueWithResponse(bytes);
+    else if(typeof ch.writeValue==='function')await ch.writeValue(bytes);
+    else if(typeof ch.writeValueWithoutResponse==='function'){await ch.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,35));}
+    else return false;
+    window.blinkBridgeRxPayload=enable?12:160;
+    await new Promise(r=>setTimeout(r,90));
+    log('APPLE SENSOR RX',enable?'SAFE 12B':'RESTORE 160B');
+    return true;
+  }catch(e){
+    log('APPLE SENSOR RX control failed',String(e&&e.message||e));
+    return false;
+  }
+}
 function isAppleMobileBleClient(){
   const ua=String(navigator.userAgent||'');
   const platform=String(navigator.platform||'');
@@ -2609,7 +2629,22 @@ async function readA2SensorPageReal(showUi=true){
   const ultra2=v11&&isUltraPro2Direct();
   const minData=v11?(ultra2?V11_A2_286.LEN:V11_A2.LEN):(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
   const label=v11?(ultra2?'REDLEO ULTRA PRO2 · A2 286B':'ATE / REDLEO V11 · A2 / OPTIONS'):(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
-  const R=await readDirectPageReal(0xA2,minData,label,showUi);
+  const appleSafe=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
+  const resumeAppleLive=appleSafe&&liveRunning;
+  let R;
+  if(appleSafe){
+    stopLiveLoop();
+    await waitForEcuIdle(12000);
+    await setAppleSensorSafeRx(true);
+  }
+  try{
+    R=await readDirectPageReal(0xA2,minData,label,showUi);
+  }finally{
+    if(appleSafe){
+      await setAppleSensorSafeRx(false);
+      if(resumeAppleLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(420);
+    }
+  }
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
