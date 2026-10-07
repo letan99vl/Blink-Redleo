@@ -1218,3 +1218,16 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Main implementation commit: 524415d2572af73ba191cd5920411498e09962d9.
 - Regression commit: af4bfc06a2c97eb07945581997f751ebc619739a.
 - Final CI run **37340103880 = SUCCESS**. All 17 checks passed.
+
+
+## Live ECT/IAT A2 cache · P.b 3.79.66
+- ECT/IAT/MAP live from frame 0xA1 require sensor voltage-relation calibration (vEct/vIat/vMap).
+- After handshake, Blink now restores cached calibration for the exact ECU identity (profile + ident + firmware + ecuId).
+- If no cache exists and profile supports Options/Voltage, Blink schedules one background A2 read after live settles (~0.9s). readA2SensorPageReal() pauses 0x69 safely, validates A2, then resumes live.
+- Successful A2 calibration is persisted in localStorage under BLINK_SENSOR_CAL_V1, keeping up to 8 ECU identities.
+- V8 is intentionally excluded from automatic A2 warmup because its Options/Voltage layout is still not verified safe.
+- No automatic READ ALL was added. No ESP32 firmware change is required.
+- Protocol commit: 6a6967230ef75e749a76f025d91a56c978725894
+- PB bump: 6db5f64f55ca90616f0bb16f6c2ca166de190324
+- Regression test stale PB assertion fixed in a5c13214f2265a217e7a13d0d036450016ab1693.
+- Check REDLEO Protocol JS run 37652761144: SUCCESS.
