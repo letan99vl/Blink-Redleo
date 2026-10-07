@@ -1348,6 +1348,7 @@ function abortRawTransport(reason='BLE disconnected'){
   stopLiveLoop();
   for(const [id,p] of pending){
     try{clearTimeout(p.to);}catch(_e){}
+    try{clearTimeout(p.stallTo);}catch(_e){}
     try{p.reject(new Error(reason));}catch(_e){}
   }
   pending.clear();
@@ -1399,11 +1400,12 @@ function installRawListener(){
         p.lastProgressPct=pct;
         taskUi('loading','ĐANG ĐỌC TẤT CẢ ECU · '+pct+'% · '+p.got+'/'+p.total+'B');
       }
+      armReadAllStallTimer(id,p);
     }
     // Do not trust the END flag alone. Large INJ VE streams can lose one BLE
     // notification on iOS; only resolve after every unique payload offset arrived.
     if(p.got>=p.total){
-      clearTimeout(p.to);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
+      clearTimeout(p.to);clearTimeout(p.stallTo);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
     }
   });
   log('raw listener installed on current BLE characteristic');
@@ -1529,6 +1531,22 @@ function rejectPending(p,err){
   try{p&&p.reject&&p.reject(err);}catch(_e){}
 }
 
+function armReadAllStallTimer(id,p){
+  if(!p||p.cmd!==0xAB)return;
+  try{if(p.stallTo)clearTimeout(p.stallTo);}catch(_e){}
+  p.stallTo=setTimeout(()=>{
+    const q=pending.get(id);
+    if(q!==p)return;
+    pending.delete(id);
+    try{if(p.to)clearTimeout(p.to);}catch(_e){}
+    const got=Math.max(0,Number(p.got)||0),total=Math.max(0,Number(p.total)||0);
+    const pct=total?Math.floor((got*100)/total):0;
+    const e=new Error('READ ALL BLE dừng ở '+pct+'% · '+got+'/'+total+'B');
+    e.code='READ_ALL_STALL';e.partialGot=got;e.partialTotal=total;
+    rejectPending(p,e);
+  },8000);
+}
+
 let lastExchangeMeta=null;
 const previousBlinkStatusHandler=typeof window.onBlinkStatus==='function'?window.onBlinkStatus:null;
 window.onBlinkStatus=function(text){
@@ -1574,7 +1592,7 @@ async function rawExchange(bytes,timeout=12000){
     let pendingState=null;
     const exchangeStarted=performance.now();
     const response=new Promise((resolve,reject)=>{
-      pendingState={resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0,cmd:data[0],lastProgressPct:-1};
+      pendingState={resolve,reject,to:null,stallTo:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0,cmd:data[0],lastProgressPct:-1};
       pending.set(id,pendingState);
     });
     try{
@@ -1694,6 +1712,7 @@ async function rawExchange(bytes,timeout=12000){
           const q=pending.get(id);
           if(q!==p)return;
           pending.delete(id);
+          try{if(p.stallTo)clearTimeout(p.stallTo);}catch(_e){}
           const cmdHex=data[0].toString(16).toUpperCase();
           const hint=(data[0]===0xCD&&data.length>RAW_CHUNK)?' · bridge không trả RAW_RX sau frame '+data.length+'B':'';
           rejectPending(p,new Error('ECU timeout cmd 0x'+cmdHex+' sau khi TX xong'+hint));
@@ -1702,7 +1721,7 @@ async function rawExchange(bytes,timeout=12000){
       log('TX BLE complete',total+'B',txMs+'ms','cmd 0x'+data[0].toString(16).toUpperCase());
     }catch(e){
       const p=pending.get(id);
-      if(p){if(p.to)clearTimeout(p.to);pending.delete(id);}
+      if(p){if(p.to)clearTimeout(p.to);if(p.stallTo)clearTimeout(p.stallTo);pending.delete(id);}
       throw e;
     }
     const rx=await response;
@@ -3160,7 +3179,20 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
     // notifications and can choke the browser BLE queue around mid-transfer.
     const readAllRxPayload=Math.max(12,Number(window.blinkBridgeRxPayload||12));
     taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0% · RX '+readAllRxPayload+'B');
-    const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
+    let rx=null;
+    const readTimeout=Math.max(5000,Number(timeoutMs)||35000);
+    for(let attempt=1;attempt<=2;attempt++){
+      try{
+        rx=await rawExchange(req5(cmd,cmd),readTimeout);
+        break;
+      }catch(e){
+        const retryable=cmd===0xAB&&(e&&e.code==='READ_ALL_STALL'||/ECU timeout cmd 0xAB/i.test(String(e&&e.message||e)));
+        if(!retryable||attempt>=2)throw e;
+        const detail=(e&&e.partialTotal)?(' · '+e.partialGot+'/'+e.partialTotal+'B'):'';
+        taskUi('loading','READ ALL BỊ NGẮT'+detail+' · TỰ THỬ LẠI 1 LẦN...');
+        await new Promise(r=>setTimeout(r,650));
+      }
+    }
     let C=parseReadAll(rx,cmd);
     // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
     // even if its byte length happens to collide with a known modern length.
