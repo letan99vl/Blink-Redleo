@@ -30,6 +30,106 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
+let sensorWarmupTimer=null;
+const SENSOR_CAL_STORE_KEY='BLINK_SENSOR_CAL_V1';
+
+function sensorIdentity(info=handshakeInfo,profile=ecuProfile){
+  if(!info)return null;
+  return [
+    profile?.key||info.profile?.key||'UNKNOWN',
+    info.ident||'',
+    info.firmware||'',
+    info.ecuId||1
+  ].join('|');
+}
+
+function validSensorCurve(a){
+  return Array.isArray(a)&&a.length===11&&a.every(v=>Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=20);
+}
+function compactSensorCal(C){
+  if(!C||!validSensorCurve(C.vEct)||!validSensorCurve(C.vIat)||!validSensorCurve(C.vMap))return null;
+  const out={
+    vEct:C.vEct.map(Number),
+    vIat:C.vIat.map(Number),
+    vMap:C.vMap.map(Number)
+  };
+  if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
+    out.tpsPct=C.tpsPct.map(Number);
+    out.rpmAxis=C.rpmAxis.map(Number);
+  }
+  if(C.v11A2Layout)out.v11A2Layout=String(C.v11A2Layout);
+  return out;
+}
+function loadStoredSensorCal(identity){
+  if(!identity)return null;
+  try{
+    const root=JSON.parse(localStorage.getItem(SENSOR_CAL_STORE_KEY)||'{}');
+    const e=root&&root.entries&&root.entries[identity];
+    if(!e||!e.cal)return null;
+    const C=e.cal;
+    if(!validSensorCurve(C.vEct)||!validSensorCurve(C.vIat)||!validSensorCurve(C.vMap))return null;
+    return C;
+  }catch(_e){return null}
+}
+function saveStoredSensorCal(identity,C){
+  if(!identity)return false;
+  const cal=compactSensorCal(C);
+  if(!cal)return false;
+  try{
+    const root=JSON.parse(localStorage.getItem(SENSOR_CAL_STORE_KEY)||'{}');
+    const entries=(root&&root.entries&&typeof root.entries==='object')?root.entries:{};
+    entries[identity]={ts:Date.now(),cal};
+    const keep=Object.entries(entries).sort((a,b)=>(b[1]?.ts||0)-(a[1]?.ts||0)).slice(0,8);
+    localStorage.setItem(SENSOR_CAL_STORE_KEY,JSON.stringify({version:1,entries:Object.fromEntries(keep)}));
+    return true;
+  }catch(_e){return false}
+}
+function clearStoredSensorCal(identity){
+  if(!identity)return false;
+  try{
+    const root=JSON.parse(localStorage.getItem(SENSOR_CAL_STORE_KEY)||'{}');
+    const entries=(root&&root.entries&&typeof root.entries==='object')?root.entries:{};
+    if(Object.prototype.hasOwnProperty.call(entries,identity)){
+      delete entries[identity];
+      localStorage.setItem(SENSOR_CAL_STORE_KEY,JSON.stringify({version:1,entries}));
+    }
+    return true;
+  }catch(_e){return false}
+}
+function invalidateCachesAfterRestore(identity=sensorIdentity()){
+  if(identity)clearStoredSensorCal(identity);
+  readCache=null;
+  sensorCalCache=null;
+  sensorCalIdentity=null;
+  pageCache.clear();
+  fuelPagePrimed.clear();
+  try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
+}
+function scheduleSensorCalWarmup(epoch,identity,attempt=0){
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
+  if(!identity||!profileCap('optionsRead')||(ecuProfile&&ecuProfile.family==='v8'))return;
+  const delay=attempt===0?900:700+attempt*450;
+  sensorWarmupTimer=setTimeout(async()=>{
+    sensorWarmupTimer=null;
+    if(epoch!==transportEpoch||!cmdChar()||!mapChar()||!handshakeInfo)return;
+    if(busy){
+      if(attempt<6)scheduleSensorCalWarmup(epoch,identity,attempt+1);
+      return;
+    }
+    try{
+      log('LIVE ECT/IAT · reading A2 sensor calibration in background');
+      await readA2SensorPageReal(false);
+      if(epoch!==transportEpoch)return;
+      if(sensorCalCache&&sensorCalIdentity===identity){
+        saveStoredSensorCal(identity,sensorCalCache);
+        log('LIVE ECT/IAT · A2 calibration ready');
+      }
+    }catch(e){
+      log('LIVE ECT/IAT · A2 calibration warmup failed',String(e&&e.message||e));
+      if(attempt<2)scheduleSensorCalWarmup(epoch,identity,attempt+1);
+    }
+  },delay);
+}
 // Large 0xCD upload strategy.
 // FW1.5 advertises MTU 185. TURBO therefore tries ~160B RAW payload chunks
 // (7B protocol header + 160B data) and uses write-without-response bursts with
@@ -38,6 +138,41 @@ let otaPaused=false;
 // the conservative all-with-response path.
 let rawWritePacingMode='safe'; // 'turbo' | 'safe'
 let rawJumboSessionCap=null;   // null=unknown, true=works, false=use 13B fallback
+
+function desktopChromiumAdaptiveTx(){
+  const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+  const windows=/Windows/i.test(ua)||/Win32|Win64/i.test(platform);
+  const chromium=/Chrome|Chromium|Edg\//i.test(ua);
+  const mobile=/Android|iPhone|iPad|iPod|EdgiOS|CriOS/i.test(ua);
+  if(!windows||!chromium||mobile||window.blinkBridgeTxAdaptive!==true)return null;
+  const n=Math.round(Number(window.blinkBridgeTxPayload)||0);
+  return [160,120,80,40,13].includes(n)?n:13;
+}
+function nextDesktopTxChunk(current){
+  const ladder=[160,120,80,40,13];
+  const i=ladder.indexOf(Math.round(Number(current)||0));
+  return i>=0&&i<ladder.length-1?ladder[i+1]:13;
+}
+async function setAppleSensorSafeRx(enable){
+  if(!isAppleMobileBleClient())return false;
+  const ch=cmdChar();
+  if(!ch)return false;
+  const text=enable?'RXJUMBO:0':'RXJUMBO:160';
+  const bytes=new TextEncoder().encode(text);
+  try{
+    if(typeof ch.writeValueWithResponse==='function')await ch.writeValueWithResponse(bytes);
+    else if(typeof ch.writeValue==='function')await ch.writeValue(bytes);
+    else if(typeof ch.writeValueWithoutResponse==='function'){await ch.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,35));}
+    else return false;
+    window.blinkBridgeRxPayload=enable?12:160;
+    await new Promise(r=>setTimeout(r,90));
+    log('APPLE SENSOR RX',enable?'SAFE 12B':'RESTORE 160B');
+    return true;
+  }catch(e){
+    log('APPLE SENSOR RX control failed',String(e&&e.message||e));
+    return false;
+  }
+}
 function isAppleMobileBleClient(){
   const ua=String(navigator.userAgent||'');
   const platform=String(navigator.platform||'');
@@ -1169,6 +1304,14 @@ async function initializeRealSession(){
       sensorCalIdentity=null;
       log('sensor calibration cache cleared: ECU identity changed');
     }
+    if(!sensorCalCache){
+      const storedCal=loadStoredSensorCal(newCalIdentity);
+      if(storedCal){
+        sensorCalCache=storedCal;
+        sensorCalIdentity=newCalIdentity;
+        log('LIVE ECT/IAT · restored calibration cache for current ECU');
+      }
+    }
 
     // Profiles explicitly advertising live support enter the live pipeline.
     // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
@@ -1179,9 +1322,10 @@ async function initializeRealSession(){
       // If the user connected while already viewing a supported ECU table,
       // lazily read only that visible table. INJ VE itself remains manual-read.
       setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
-      // Do NOT auto-read the large V11 A2 page on connect. It blocks the ECU
-      // for several seconds on Bluefy/iOS and can collide with the user's first action.
-      // A2 is read lazily only when an A2-backed feature is opened or explicitly requested.
+      // ECT/IAT/MAP need the ECU voltage-relation tables. Restore the calibration
+      // cache immediately when available; otherwise read A2 once after live settles.
+      // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
+      if(!sensorCalCache)scheduleSensorCalWarmup(epoch,newCalIdentity,0);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1200,9 +1344,11 @@ function cmdChar(){return window.blinkCommandChar||null}
 function statusChar(){return window.blinkStatusChar||null}
 function abortRawTransport(reason='BLE disconnected'){
   transportEpoch++;
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
   stopLiveLoop();
   for(const [id,p] of pending){
     try{clearTimeout(p.to);}catch(_e){}
+    try{clearTimeout(p.stallTo);}catch(_e){}
     try{p.reject(new Error(reason));}catch(_e){}
   }
   pending.clear();
@@ -1248,10 +1394,18 @@ function installRawListener(){
     // Count each offset only once; reconnect/retransmit must not make got exceed total.
     if(!p.seen)p.seen=new Set();
     if(!p.seen.has(off)){p.seen.add(off);p.got+=bytes.length;}
+    if(p.cmd===0xAB&&p.total>0){
+      const pct=Math.min(100,Math.floor((p.got*100)/p.total));
+      if(pct===100||p.lastProgressPct<0||pct>=p.lastProgressPct+5){
+        p.lastProgressPct=pct;
+        taskUi('loading','ĐANG ĐỌC TẤT CẢ ECU · '+pct+'% · '+p.got+'/'+p.total+'B');
+      }
+      armReadAllStallTimer(id,p);
+    }
     // Do not trust the END flag alone. Large INJ VE streams can lose one BLE
     // notification on iOS; only resolve after every unique payload offset arrived.
     if(p.got>=p.total){
-      clearTimeout(p.to);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
+      clearTimeout(p.to);clearTimeout(p.stallTo);pending.delete(id);p.resolve(p.buf||new Uint8Array(0));
     }
   });
   log('raw listener installed on current BLE characteristic');
@@ -1377,6 +1531,22 @@ function rejectPending(p,err){
   try{p&&p.reject&&p.reject(err);}catch(_e){}
 }
 
+function armReadAllStallTimer(id,p){
+  if(!p||p.cmd!==0xAB)return;
+  try{if(p.stallTo)clearTimeout(p.stallTo);}catch(_e){}
+  p.stallTo=setTimeout(()=>{
+    const q=pending.get(id);
+    if(q!==p)return;
+    pending.delete(id);
+    try{if(p.to)clearTimeout(p.to);}catch(_e){}
+    const got=Math.max(0,Number(p.got)||0),total=Math.max(0,Number(p.total)||0);
+    const pct=total?Math.floor((got*100)/total):0;
+    const e=new Error('READ ALL BLE dừng ở '+pct+'% · '+got+'/'+total+'B');
+    e.code='READ_ALL_STALL';e.partialGot=got;e.partialTotal=total;
+    rejectPending(p,e);
+  },8000);
+}
+
 let lastExchangeMeta=null;
 const previousBlinkStatusHandler=typeof window.onBlinkStatus==='function'?window.onBlinkStatus:null;
 window.onBlinkStatus=function(text){
@@ -1422,7 +1592,7 @@ async function rawExchange(bytes,timeout=12000){
     let pendingState=null;
     const exchangeStarted=performance.now();
     const response=new Promise((resolve,reject)=>{
-      pendingState={resolve,reject,to:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0};
+      pendingState={resolve,reject,to:null,stallTo:null,total:0,buf:null,got:0,seen:new Set(),epoch:myEpoch,txDoneAt:0,bridgeReadyAt:0,cmd:data[0],lastProgressPct:-1};
       pending.set(id,pendingState);
     });
     try{
@@ -1452,26 +1622,58 @@ async function rawExchange(bytes,timeout=12000){
       let usedJumbo=false;
       const nativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(String(navigator.userAgent||''));
       const nativeMtu=Number(window.__androidBleMtu||0);
-      const jumboAllowed=!nativeAndroid||nativeMtu>=170;
-      if(turboWrite&&rawJumboSessionCap!==false&&jumboAllowed){
-        try{
-          await sendPass(RAW_JUMBO_CHUNK,true);
-          usedJumbo=true;
-          rawJumboSessionCap=true;
-        }catch(e){
-          const msg=String(e&&e.message||e);
-          if(!cmdChar()||!mapChar()||/disconnect|ngắt|mất kết nối/i.test(msg))throw e;
-          // Browser/client did not accept the negotiated MTU size. Re-send the
-          // whole offset-addressed frame with 13B burst chunks; already received
-          // bytes are harmless duplicates and fill accounting remains exact.
-          rawJumboSessionCap=false;
-          log('JUMBO RAW fallback to 13B burst',msg);
-          if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
-          await sendPass(RAW_CHUNK,true);
+      const desktopChunk=desktopChromiumAdaptiveTx();
+      const desktopAdaptive=desktopChunk!=null;
+      let turboChunk=desktopAdaptive?desktopChunk:RAW_JUMBO_CHUNK;
+      const jumboAllowed=desktopAdaptive
+        ?turboChunk>RAW_CHUNK
+        :(!nativeAndroid||nativeMtu>=170);
+
+      // Only Windows Chrome/Edge uses this adaptive ladder. Android and iOS
+      // preserve the existing transport exactly as before.
+      if(turboWrite&&(desktopAdaptive||rawJumboSessionCap!==false)&&jumboAllowed){
+        while(true){
+          try{
+            if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&desktopAdaptive){
+              updateActiveMapIoText('⚡ TURBO '+turboChunk+'B · ĐANG GHI...');
+            }
+            await sendPass(turboChunk,true);
+            usedJumbo=turboChunk>RAW_CHUNK;
+            if(!desktopAdaptive)rawJumboSessionCap=true;
+            break;
+          }catch(e){
+            const msg=String(e&&e.message||e);
+            if(!cmdChar()||!mapChar()||/disconnect|ngắt|mất kết nối/i.test(msg))throw e;
+
+            if(desktopAdaptive){
+              const next=nextDesktopTxChunk(turboChunk);
+              window.blinkBridgeTxPayload=next;
+              log('Windows Chromium TX degrade',turboChunk+'B → '+next+'B',msg);
+              if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+                updateActiveMapIoText('↘ TURBO '+next+'B · THỬ LẠI...');
+              }
+              if(next>RAW_CHUNK){
+                turboChunk=next;
+                continue;
+              }
+              usedJumbo=false;
+              await sendPass(RAW_CHUNK,true);
+              break;
+            }
+
+            rawJumboSessionCap=false;
+            log('JUMBO RAW fallback to 13B burst',msg);
+            if(ecuMapIoUiBusy&&ecuMapIoKind==='write')updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
+            await sendPass(RAW_CHUNK,true);
+            break;
+          }
         }
       }else if(turboWrite){
         if(nativeAndroid&&!jumboAllowed){
           log('ANDROID MTU chưa đủ jumbo',nativeMtu||23,'→ 13B reliable path');
+        }
+        if(desktopAdaptive&&turboChunk<=RAW_CHUNK&&ecuMapIoUiBusy&&ecuMapIoKind==='write'){
+          updateActiveMapIoText('⚡ TURBO 13B · ĐANG GHI...');
         }
         await sendPass(RAW_CHUNK,true);
       }else{
@@ -1487,7 +1689,16 @@ async function rawExchange(bytes,timeout=12000){
         await new Promise(r=>setTimeout(r,8));
         const ready=await confirmBridgeRawReady(id,pendingState);
         if(ready===false){
-          if(usedJumbo)rawJumboSessionCap=false;
+          if(usedJumbo){
+            const desktopNow=desktopChromiumAdaptiveTx();
+            if(desktopNow!=null){
+              const next=nextDesktopTxChunk(desktopNow);
+              window.blinkBridgeTxPayload=next;
+              log('Windows Chromium RAWREADY degrade',desktopNow+'B → '+next+'B');
+            }else{
+              rawJumboSessionCap=false;
+            }
+          }
           throw new Error('BLE bridge chưa ráp đủ frame RAW · chuyển sang retry an toàn');
         }
       }
@@ -1501,6 +1712,7 @@ async function rawExchange(bytes,timeout=12000){
           const q=pending.get(id);
           if(q!==p)return;
           pending.delete(id);
+          try{if(p.stallTo)clearTimeout(p.stallTo);}catch(_e){}
           const cmdHex=data[0].toString(16).toUpperCase();
           const hint=(data[0]===0xCD&&data.length>RAW_CHUNK)?' · bridge không trả RAW_RX sau frame '+data.length+'B':'';
           rejectPending(p,new Error('ECU timeout cmd 0x'+cmdHex+' sau khi TX xong'+hint));
@@ -1509,7 +1721,7 @@ async function rawExchange(bytes,timeout=12000){
       log('TX BLE complete',total+'B',txMs+'ms','cmd 0x'+data[0].toString(16).toUpperCase());
     }catch(e){
       const p=pending.get(id);
-      if(p){if(p.to)clearTimeout(p.to);pending.delete(id);}
+      if(p){if(p.to)clearTimeout(p.to);if(p.stallTo)clearTimeout(p.stallTo);pending.delete(id);}
       throw e;
     }
     const rx=await response;
@@ -2474,12 +2686,28 @@ async function readA2SensorPageReal(showUi=true){
   const ultra2=v11&&isUltraPro2Direct();
   const minData=v11?(ultra2?V11_A2_286.LEN:V11_A2.LEN):(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
   const label=v11?(ultra2?'REDLEO ULTRA PRO2 · A2 286B':'ATE / REDLEO V11 · A2 / OPTIONS'):(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
-  const R=await readDirectPageReal(0xA2,minData,label,showUi);
+  const appleSafe=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
+  const resumeAppleLive=appleSafe&&liveRunning;
+  let R;
+  if(appleSafe){
+    stopLiveLoop();
+    await waitForEcuIdle(12000);
+    await setAppleSensorSafeRx(true);
+  }
+  try{
+    R=await readDirectPageReal(0xA2,minData,label,showUi);
+  }finally{
+    if(appleSafe){
+      await setAppleSensorSafeRx(false);
+      if(resumeAppleLive&&cmdChar()&&mapChar()&&handshakeInfo)scheduleLiveResume(420);
+    }
+  }
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
   ].join('|'):null;
+  if(sensorCalIdentity)saveStoredSensorCal(sensorCalIdentity,C);
 
   const a2AxesOk=Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis);
   if(a2AxesOk){
@@ -2933,31 +3161,70 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
 async function readAll(cmd=0xAB,timeoutMs=35000){
   if(cmd===0x8B)requireProfile('restore','Khôi phục ECU');
   else requireProfile('readAll','Đọc toàn bộ ECU');
-  taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU...');
-  const rx=await rawExchange(req5(cmd,cmd),Math.max(5000,Number(timeoutMs)||35000));
-  let C=parseReadAll(rx,cmd);
-  // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
-  // even if its byte length happens to collide with a known modern length.
-  if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
-    C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
+
+  // READ ALL is a large 8-10 KB transaction. Give it priority over live 0x69
+  // and the background A2 warmup so a user tap cannot be starved by polling.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
+  const warmupWasPending=!!sensorWarmupTimer;
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
+  stopLiveLoop();
+
+  try{
+    if(busy)taskUi('loading','ĐỌC TẤT CẢ · CHỜ LIVE/A2 NHẢ ECU...');
+    await waitForEcuIdle(9000);
+
+    // Keep the RX payload that was negotiated and probe-validated at BLE connect.
+    // For FW1.8+ browser clients, 160B is enabled only after RXPROBE succeeds.
+    // Forcing a proven jumbo link back to 12B turns a ~10 KB Read All into 800+
+    // notifications and can choke the browser BLE queue around mid-transfer.
+    const readAllRxPayload=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+    taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0% · RX '+readAllRxPayload+'B');
+    let rx=null;
+    const readTimeout=Math.max(5000,Number(timeoutMs)||35000);
+    for(let attempt=1;attempt<=2;attempt++){
+      try{
+        rx=await rawExchange(req5(cmd,cmd),readTimeout);
+        break;
+      }catch(e){
+        const retryable=cmd===0xAB&&(e&&e.code==='READ_ALL_STALL'||/ECU timeout cmd 0xAB/i.test(String(e&&e.message||e)));
+        if(!retryable||attempt>=2)throw e;
+        const detail=(e&&e.partialTotal)?(' · '+e.partialGot+'/'+e.partialTotal+'B'):'';
+        taskUi('loading','READ ALL BỊ NGẮT'+detail+' · TỰ THỬ LẠI 1 LẦN...');
+        await new Promise(r=>setTimeout(r,650));
+      }
+    }
+    let C=parseReadAll(rx,cmd);
+    // Never decode a legacy/V8 Read All using the modern 9.x memory layout,
+    // even if its byte length happens to collide with a known modern length.
+    if(ecuProfile.family!=='modern'&&!C.rawOnly&&!C.v11Decoded){
+      C={raw:C.raw.slice(),sourceLength:C.sourceLength,layoutInfo:'raw-'+C.sourceLength+'-'+ecuProfile.key,rawOnly:true,banks:[],hidden:{}};
+    }
+    window.blinkReadAllRaw=C.raw.slice();
+    window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
+    if(C.rawOnly){
+      // Never keep a decoded cache from an earlier Read All when the newest
+      // response could only be preserved as RAW.
+      readCache=null;
+      const s=document.getElementById('redIoStatus');
+      if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
+      log('ReadAll raw frame accepted:',C.sourceLength+'B');
+    }else if(C.v11Decoded){
+      syncV11ReadAll(C);
+    }else{
+      syncAll(C);
+    }
+    try{applyProfileUi();}catch(_e){}
+    taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
+    return C;
+  }finally{
+    if(resumeLive&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
+      scheduleLiveResume(420);
+    }
+    if((warmupWasPending||!sensorCalCache)&&handshakeInfo&&profileCap('optionsRead')&&!(ecuProfile&&ecuProfile.family==='v8')){
+      const id=sensorIdentity();
+      if(id)scheduleSensorCalWarmup(transportEpoch,id,0);
+    }
   }
-  window.blinkReadAllRaw=C.raw.slice();
-  window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,rawOnly:!!C.rawOnly};
-  if(C.rawOnly){
-    // Never keep a decoded cache from an earlier Read All when the newest
-    // response could only be preserved as RAW.
-    readCache=null;
-    const s=document.getElementById('redIoStatus');
-    if(s)s.textContent='ECU REAL · READ ALL '+C.sourceLength+'B OK · RAW backup'+(ecuProfile&&ecuProfile.family==='v8'?' · V8 expected ~8087B':ecuProfile&&ecuProfile.family==='v11'?' · ATE V11 full image preserved':'');
-    log('ReadAll raw frame accepted:',C.sourceLength+'B');
-  }else if(C.v11Decoded){
-    syncV11ReadAll(C);
-  }else{
-    syncAll(C);
-  }
-  try{applyProfileUi();}catch(_e){}
-  taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
-  return C;
 }
 
 // ----- write builders -----
@@ -4387,13 +4654,10 @@ async function restoreReal(){
   requireProfile('restore','Khôi phục dữ liệu gốc');
   const restoreBtn=document.getElementById('restoreEcuBtn')||document.querySelector('[data-ecucmd="RESTORE"]');
   if(restoreInFlight){
-    taskUi('loading','ATE · KHÔI PHỤC / XÁC NHẬN ĐANG HOẠT ĐỘNG...');
+    taskUi('loading','KHÔI PHỤC / XÁC NHẬN ĐANG HOẠT ĐỘNG...');
     return false;
   }
 
-  // Lock from the very first tap, including the confirmation phase. This avoids
-  // two rapid taps replacing the in-app dialog and leaving the first Promise
-  // unresolved.
   restoreInFlight=true;
   if(restoreBtn){
     restoreBtn.dataset.restoreBusy='1';
@@ -4401,9 +4665,6 @@ async function restoreReal(){
     restoreBtn.disabled=true;
     restoreBtn.textContent='? XÁC NHẬN KHÔI PHỤC...';
   }
-
-  // Acknowledge the tap before opening any dialog. Android/WebView launchers may
-  // suppress native JS dialogs, so Restore must never appear to do nothing.
   taskUi('loading','ĐÃ NHẬN LỆNH KHÔI PHỤC · CHỜ XÁC NHẬN');
 
   let confirmed=false;
@@ -4430,79 +4691,78 @@ async function restoreReal(){
   }
 
   if(restoreBtn)restoreBtn.textContent='⏳ ĐANG KHÔI PHỤC...';
-  const resume=liveRunning;stopLiveLoop();
+  const resume=liveRunning;
+  const oldIdentity=sensorIdentity();
+  stopLiveLoop();
+
   try{
-    taskUi('loading','ATE · RESTORE 0x8B · ĐANG CHỜ ECU...');
+    taskUi('loading','RESTORE 0x8B · ĐANG GỬI ECU...');
+    let restored=null;
+    let ackLost=false;
+    let ackError=null;
 
-    if(isV11Profile()){
-      // Restore 0x8B is its own transaction. Do NOT force its response through
-      // the 9958-byte 0xAB Read-All decoder; real V11 ECUs can return a different
-      // checksum-valid restore response layout.
-      const rx=await rawExchange(req5(0x8B,0x8B),35000);
-      const restored=parseRestoreResponse(rx);
-      taskUi('loading','ATE V11 · 0x8B ACK '+restored.sourceLength+'B · ĐANG XÁC MINH 0xAB...');
+    try{
+      // A successful restore can reboot/reset the ECU before its response reaches BLE.
+      // Keep this wait short; a missing reply after TX is not automatically a failed restore.
+      const rx=await rawExchange(req5(0x8B,0x8B),5500);
+      restored=parseRestoreResponse(rx);
+    }catch(e){
+      const msg=String(e&&e.message||e);
+      if(!/ECU timeout cmd 0x8B sau khi TX xong/i.test(msg))throw e;
+      ackLost=true;
+      ackError=e;
+      log('RESTORE 0x8B · ACK lost after TX; ECU may have reset after applying restore:',msg);
+    }
 
-      let verify=null,lastVerify=null,lastVerifyError=null;
-      const delays=[850,1800];
-      for(let attempt=0;attempt<delays.length&&!verify;attempt++){
-        await new Promise(r=>setTimeout(r,delays[attempt]));
-        try{
-          taskUi('loading','ATE V11 · 0x8B OK '+restored.sourceLength+'B · VERIFY 0xAB '+(attempt+1)+'/'+delays.length);
-          const C=await readAll(0xAB,20000);
-          lastVerify=C;
-          if(C&&C.v11Decoded&&C.sourceLength===9958)verify=C;
-          else log('ATE V11 restore verify returned alternate valid Read All',C&&C.sourceLength,C&&C.layoutInfo);
-        }catch(e){
-          lastVerifyError=e;
-          log('ATE V11 restore readback attempt '+(attempt+1)+' warning:',String(e&&e.message||e));
-        }
-      }
+    // The restored ECU may contain different sensor voltage tables and maps.
+    // Never leave pre-restore data/calibration visible or cached.
+    invalidateCachesAfterRestore(oldIdentity);
 
-      let handshakeOk=false;
-      try{
-        await refreshV11PasswordHandshake();
-        handshakeOk=true;
-      }catch(e){
-        if(handshakeInfo)handshakeInfo.password=null;
-        log('Restore ACK OK nhưng refresh PIN handshake thất bại:',String(e&&e.message||e));
-      }
-
-      if(verify){
-        notice('success','RESTORE ATE V11 OK','0x8B ACK '+restored.sourceLength+'B checksum OK · 0xAB Read All 9958B verify OK'+(handshakeOk?' · handshake OK':'')+'.');
-        return verify;
-      }
-
-      const readbackDetail=lastVerify
-        ?'0xAB trả frame checksum hợp lệ '+lastVerify.sourceLength+'B nhưng chưa phải layout 9958B'
-        :(lastVerifyError?'0xAB chưa xác minh: '+String(lastVerifyError&&lastVerifyError.message||lastVerifyError):'0xAB chưa xác minh');
-      taskUi('success','ATE V11 · RESTORE 0x8B ĐÃ PHẢN HỒI',4200);
-      if(typeof window.showEcuNotice==='function'){
-        showEcuNotice('info','RESTORE ATE V11 ĐÃ THỰC HIỆN','0x8B trả '+restored.sourceLength+'B checksum hợp lệ. '+readbackDetail+'.'+(handshakeOk?' ECU đã handshake lại thành công.':'')+' Không báo lỗi giả; hãy ĐỌC TOÀN BỘ lại nếu cần xác minh full image.',0);
-      }
+    if(restored){
+      taskUi('success','RESTORE 0x8B · ECU ACK OK',2400);
+      notice('success','RESTORE ECU OK','0x8B trả '+restored.sourceLength+'B checksum hợp lệ. Dữ liệu cũ trong app đã được xóa; hãy ĐỌC map lại để xem dữ liệu gốc.');
+      const id=sensorIdentity();
+      if(id)scheduleSensorCalWarmup(transportEpoch,id,0);
       return restored;
     }
 
-    const restored=await readAll(0x8B);
-    if(ecuProfile&&ecuProfile.key==='MODERN_V9'){
-      if(!restored||!restored.raw||restored.raw.length<100)throw new Error('REDLEO V9 Restore 0x8B không trả full image hợp lệ.');
-      await new Promise(r=>setTimeout(r,350));
-      taskUi('loading','REDLEO V9 · RESTORE 0x8B · READ ALL VERIFY...');
-      const verify=await readAll(0xAB);
-      if(!verify||!verify.raw||verify.raw.length!==restored.raw.length)throw new Error('RESTORE VERIFY: độ dài dữ liệu sau 0x8B không khớp lần READ ALL xác nhận.');
-      const a=restored.raw.slice(1,-2),b=verify.raw.slice(1,-2);
-      if(!bytesEqual(a,b))throw new Error('RESTORE VERIFY: dữ liệu sau 0x8B khác lần READ ALL xác nhận.');
-      notice('success','RESTORE REDLEO V9 OK','0x8B + Read All verify byte-level · '+verify.raw.length+'B.');
-      return verify;
+    // No ACK, but TX itself completed. Most affected ECUs restore successfully
+    // then reboot before the reply is forwarded. Confirm the ECU comes back online
+    // instead of waiting 35 seconds and reporting a false failure.
+    taskUi('loading','0x8B ĐÃ GỬI · CHỜ ECU KHỞI ĐỘNG LẠI...');
+    await new Promise(r=>setTimeout(r,900));
+
+    let online=false;
+    let onlineError=null;
+    for(let attempt=0;attempt<2&&!online;attempt++){
+      try{
+        if(isV11Profile()){
+          await refreshV11PasswordHandshake();
+        }else{
+          await handshakeReal();
+        }
+        online=true;
+      }catch(e){
+        onlineError=e;
+        if(attempt===0)await new Promise(r=>setTimeout(r,650));
+      }
     }
-    notice('success','RESTORE ECU OK','0x8B hoàn tất · ECU trả '+restored.raw.length+'B.');
-    return restored;
+
+    if(online){
+      taskUi('success','RESTORE 0x8B · ECU ĐÃ ONLINE LẠI',2800);
+      notice('success','RESTORE ECU ĐÃ THỰC HIỆN','0x8B đã gửi đầy đủ. ECU reset trước khi trả ACK nên app không còn báo timeout giả; handshake lại đã OK. Hãy ĐỌC map để xác minh dữ liệu gốc.');
+      const id=sensorIdentity();
+      if(id)scheduleSensorCalWarmup(transportEpoch,id,0);
+      return {restoreSent:true,ackLost:true,handshake:true,ackError:String(ackError&&ackError.message||ackError||'')};
+    }
+
+    throw new Error('RESTORE 0x8B đã được gửi nhưng ECU chưa online lại sau reset'+(onlineError?' · '+String(onlineError&&onlineError.message||onlineError):''));
   }finally{
     restoreInFlight=false;
     if(restoreBtn){
       restoreBtn.textContent=restoreBtn.dataset.restoreIdleText||'↺ KHÔI PHỤC DỮ LIỆU GỐC';
       delete restoreBtn.dataset.restoreIdleText;
       delete restoreBtn.dataset.restoreBusy;
-      // Respect the profile gate after Restore completes or fails.
       restoreBtn.disabled=restoreBtn.dataset.profileBlocked==='1';
     }
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),350);
