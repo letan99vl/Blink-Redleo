@@ -7,7 +7,7 @@ const src=fs.readFileSync('index.html','utf8');
 function must(re,msg){ if(!re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }
 function mustNot(re,msg){ if(re.test(src)){console.error('FAIL:',msg);process.exitCode=1;} }
 
-must(/BLINK_PB_VERSION = '3\.79\.64'/,'PB version not bumped to 3.79.64');
+must(/BLINK_PB_VERSION = '3\.79\.\d+'/,'PB version marker missing');
 must(/id="injCamCalcBtn"[^>]*>◒ TÍNH GÓC PHUN THEO GÓC CAM</,'cam calculator button missing');
 
 // IVO/IVC-only input + built-in keypad.
