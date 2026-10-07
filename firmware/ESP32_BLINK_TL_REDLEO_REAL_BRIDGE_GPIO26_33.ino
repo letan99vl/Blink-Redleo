@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.9"
+#define FW_VERSION "2.0"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -93,7 +93,7 @@ static const size_t OTA_MAX_PAYLOAD = 100;
 // a slower stream than the smaller one-byte REDLEO pages on iOS/Bluefy.
 static uint16_t rawNotifyDelayFor(uint16_t total, uint16_t payloadSize) {
   if (payloadSize > RAW_SAFE_PAYLOAD) {
-    if (total >= 8000) return 4;
+    if (total >= 8000) return 14;
     if (total >= 800) return 3;
     return 2;
   }
@@ -103,7 +103,7 @@ static uint16_t rawNotifyDelayFor(uint16_t total, uint16_t payloadSize) {
 }
 static uint16_t rawNotifyYieldEveryFor(uint16_t total, uint16_t payloadSize) {
   if (payloadSize > RAW_SAFE_PAYLOAD) {
-    if (total >= 8000) return 6;
+    if (total >= 8000) return 4;
     if (total >= 800) return 8;
     return 12;
   }
@@ -710,7 +710,7 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
 
     delay(packetDelay);
     if ((((off / payloadSize) + 1) % yieldEvery) == 0) {
-      delay(jumbo ? 12 : (longFrame ? 30 : 18));
+      delay(jumbo ? (total >= 8000 ? 24 : 14) : (longFrame ? 30 : 18));
       yield();
     }
   }
