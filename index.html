@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.66';
+  window.BLINK_PB_VERSION = '3.79.67';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -6860,7 +6860,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v;
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v);
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
 </script>
