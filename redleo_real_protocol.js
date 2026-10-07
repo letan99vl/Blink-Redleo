@@ -30,6 +30,75 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
+let sensorWarmupTimer=null;
+const SENSOR_CAL_STORE_KEY='BLINK_SENSOR_CAL_V1';
+
+function validSensorCurve(a){
+  return Array.isArray(a)&&a.length===11&&a.every(v=>Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=20);
+}
+function compactSensorCal(C){
+  if(!C||!validSensorCurve(C.vEct)||!validSensorCurve(C.vIat)||!validSensorCurve(C.vMap))return null;
+  const out={
+    vEct:C.vEct.map(Number),
+    vIat:C.vIat.map(Number),
+    vMap:C.vMap.map(Number)
+  };
+  if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
+    out.tpsPct=C.tpsPct.map(Number);
+    out.rpmAxis=C.rpmAxis.map(Number);
+  }
+  if(C.v11A2Layout)out.v11A2Layout=String(C.v11A2Layout);
+  return out;
+}
+function loadStoredSensorCal(identity){
+  if(!identity)return null;
+  try{
+    const root=JSON.parse(localStorage.getItem(SENSOR_CAL_STORE_KEY)||'{}');
+    const e=root&&root.entries&&root.entries[identity];
+    if(!e||!e.cal)return null;
+    const C=e.cal;
+    if(!validSensorCurve(C.vEct)||!validSensorCurve(C.vIat)||!validSensorCurve(C.vMap))return null;
+    return C;
+  }catch(_e){return null}
+}
+function saveStoredSensorCal(identity,C){
+  if(!identity)return false;
+  const cal=compactSensorCal(C);
+  if(!cal)return false;
+  try{
+    const root=JSON.parse(localStorage.getItem(SENSOR_CAL_STORE_KEY)||'{}');
+    const entries=(root&&root.entries&&typeof root.entries==='object')?root.entries:{};
+    entries[identity]={ts:Date.now(),cal};
+    const keep=Object.entries(entries).sort((a,b)=>(b[1]?.ts||0)-(a[1]?.ts||0)).slice(0,8);
+    localStorage.setItem(SENSOR_CAL_STORE_KEY,JSON.stringify({version:1,entries:Object.fromEntries(keep)}));
+    return true;
+  }catch(_e){return false}
+}
+function scheduleSensorCalWarmup(epoch,identity,attempt=0){
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
+  if(!identity||!profileCap('optionsRead')||(ecuProfile&&ecuProfile.family==='v8'))return;
+  const delay=attempt===0?900:700+attempt*450;
+  sensorWarmupTimer=setTimeout(async()=>{
+    sensorWarmupTimer=null;
+    if(epoch!==transportEpoch||!cmdChar()||!mapChar()||!handshakeInfo)return;
+    if(busy){
+      if(attempt<6)scheduleSensorCalWarmup(epoch,identity,attempt+1);
+      return;
+    }
+    try{
+      log('LIVE ECT/IAT · reading A2 sensor calibration in background');
+      await readA2SensorPageReal(false);
+      if(epoch!==transportEpoch)return;
+      if(sensorCalCache&&sensorCalIdentity===identity){
+        saveStoredSensorCal(identity,sensorCalCache);
+        log('LIVE ECT/IAT · A2 calibration ready');
+      }
+    }catch(e){
+      log('LIVE ECT/IAT · A2 calibration warmup failed',String(e&&e.message||e));
+      if(attempt<2)scheduleSensorCalWarmup(epoch,identity,attempt+1);
+    }
+  },delay);
+}
 // Large 0xCD upload strategy.
 // FW1.5 advertises MTU 185. TURBO therefore tries ~160B RAW payload chunks
 // (7B protocol header + 160B data) and uses write-without-response bursts with
@@ -1184,6 +1253,14 @@ async function initializeRealSession(){
       sensorCalIdentity=null;
       log('sensor calibration cache cleared: ECU identity changed');
     }
+    if(!sensorCalCache){
+      const storedCal=loadStoredSensorCal(newCalIdentity);
+      if(storedCal){
+        sensorCalCache=storedCal;
+        sensorCalIdentity=newCalIdentity;
+        log('LIVE ECT/IAT · restored calibration cache for current ECU');
+      }
+    }
 
     // Profiles explicitly advertising live support enter the live pipeline.
     // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
@@ -1194,9 +1271,10 @@ async function initializeRealSession(){
       // If the user connected while already viewing a supported ECU table,
       // lazily read only that visible table. INJ VE itself remains manual-read.
       setTimeout(()=>{try{window.autoReadVisibleEcuPage?.('connect')}catch(_e){}},250);
-      // Do NOT auto-read the large V11 A2 page on connect. It blocks the ECU
-      // for several seconds on Bluefy/iOS and can collide with the user's first action.
-      // A2 is read lazily only when an A2-backed feature is opened or explicitly requested.
+      // ECT/IAT/MAP need the ECU voltage-relation tables. Restore the calibration
+      // cache immediately when available; otherwise read A2 once after live settles.
+      // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
+      if(!sensorCalCache)scheduleSensorCalWarmup(epoch,newCalIdentity,0);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1215,6 +1293,7 @@ function cmdChar(){return window.blinkCommandChar||null}
 function statusChar(){return window.blinkStatusChar||null}
 function abortRawTransport(reason='BLE disconnected'){
   transportEpoch++;
+  if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
   stopLiveLoop();
   for(const [id,p] of pending){
     try{clearTimeout(p.to);}catch(_e){}
@@ -2536,6 +2615,7 @@ async function readA2SensorPageReal(showUi=true){
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
   ].join('|'):null;
+  if(sensorCalIdentity)saveStoredSensorCal(sensorCalIdentity,C);
 
   const a2AxesOk=Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis);
   if(a2AxesOk){
