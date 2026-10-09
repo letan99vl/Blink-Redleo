@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.0"
+#define FW_VERSION "2.1"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -687,30 +687,56 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
   // can be much shorter without overflowing the phone BLE queue.
   if (longFrame) delay(jumbo ? 8 : 40);
 
-  for (uint16_t off = 0; off < total && deviceConnected; off += payloadSize) {
-    const uint8_t count = (uint8_t)min((size_t)payloadSize, (size_t)(total - off));
-    uint8_t pkt[7 + RAW_JUMBO_PAYLOAD];
-    pkt[0] = RAW_RX_MARKER;
-    pkt[1] = sid;
-    pkt[2] = (off == 0 ? 0x01 : 0x00) | ((off + count >= total) ? 0x02 : 0x00);
-    put16le(&pkt[3], total);
-    put16le(&pkt[5], off);
-    memcpy(&pkt[7], data + off, count);
+  const bool reliableHugeFrame = jumbo && total >= 8000;
+  const uint8_t passes = reliableHugeFrame ? 2 : 1;
 
-    mapChar->setValue(pkt, 7 + count);
-    mapChar->notify();
+  // FW2.1 reliability rule for 8-10 KB Read All frames:
+  // - pass 1 sends every chunk except the final END chunk;
+  // - pass 2 sends the whole frame again, including END;
+  // - browser reassembly is offset-addressed and de-duplicates repeats.
+  // This gives every middle chunk two independent delivery chances while
+  // deliberately preventing the browser from declaring 100% before pass 2.
+  for (uint8_t pass = 0; pass < passes && deviceConnected; ++pass) {
+    const bool firstReliablePass = reliableHugeFrame && pass == 0;
 
-    // First and last chunks are critical for browser reassembly. Repeat them
-    // on long frames so a single lost notification does not cause 0x9A timeout.
-    if (longFrame && (off == 0 || off + count >= total)) {
-      delay(jumbo ? 6 : 22);
+    for (uint16_t off = 0; off < total && deviceConnected; off += payloadSize) {
+      const uint8_t count = (uint8_t)min((size_t)payloadSize, (size_t)(total - off));
+      const bool finalChunk = (off + count >= total);
+
+      // Hold the END chunk back from pass 1. The app therefore cannot resolve
+      // the 0xAB Promise until pass 2 has completed the redundant stream.
+      if (firstReliablePass && finalChunk) break;
+
+      uint8_t pkt[7 + RAW_JUMBO_PAYLOAD];
+      pkt[0] = RAW_RX_MARKER;
+      pkt[1] = sid;
+      pkt[2] = (off == 0 ? 0x01 : 0x00) | (finalChunk ? 0x02 : 0x00);
+      put16le(&pkt[3], total);
+      put16le(&pkt[5], off);
+      memcpy(&pkt[7], data + off, count);
+
       mapChar->setValue(pkt, 7 + count);
       mapChar->notify();
+
+      // START is repeated on each long pass so browser reassembly always has
+      // a valid initialization point. END is repeated only on the final pass.
+      if (longFrame && (off == 0 || (finalChunk && !firstReliablePass))) {
+        delay(jumbo ? 8 : 22);
+        mapChar->setValue(pkt, 7 + count);
+        mapChar->notify();
+      }
+
+      delay(packetDelay);
+      if ((((off / payloadSize) + 1) % yieldEvery) == 0) {
+        delay(jumbo ? (total >= 8000 ? 24 : 14) : (longFrame ? 30 : 18));
+        yield();
+      }
     }
 
-    delay(packetDelay);
-    if ((((off / payloadSize) + 1) % yieldEvery) == 0) {
-      delay(jumbo ? (total >= 8000 ? 24 : 14) : (longFrame ? 30 : 18));
+    if (reliableHugeFrame && pass == 0 && deviceConnected) {
+      // Separate the passes enough that a short host-side notification backlog
+      // cannot drop the same offset in both passes.
+      delay(70);
       yield();
     }
   }

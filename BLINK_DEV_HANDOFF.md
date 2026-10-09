@@ -1231,3 +1231,20 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - PB bump: 6db5f64f55ca90616f0bb16f6c2ca166de190324
 - Regression test stale PB assertion fixed in a5c13214f2265a217e7a13d0d036450016ab1693.
 - Check REDLEO Protocol JS run 37652761144: SUCCESS.
+
+
+## ESP32 FW 2.1 · redundant two-pass Read All BLE stream · 2026-10-09
+
+- Ported the proven QH FW2.1 large-frame transport hardening into Blink-Redleo.
+- ECU command flow is unchanged: Read All still sends ECU command 0xAB only once and keeps the returned 8-10 KB image in ESP32 RAM.
+- For negotiated jumbo BLE and responses >= 8000 bytes, ESP32 now sends the same offset-addressed RAW_RX frame in two BLE passes:
+  - pass 1 sends every chunk except the final END chunk;
+  - wait 70 ms;
+  - pass 2 sends the whole frame again and includes END.
+- Browser/app reassembly already de-duplicates repeated offsets, so a chunk lost in pass 1 can be filled by pass 2 without a second ECU transaction.
+- START is repeated on each pass; END is emitted only on the final pass so the app cannot resolve Read All before redundancy has completed.
+- Existing FW2.0 pacing remains: >=8 KB jumbo streams use 14 ms packet pacing, yield every 4 packets, and 24 ms jumbo yield pauses.
+- Existing app-side Read All stall watchdog + one automatic full retry remain unchanged as an additional fallback.
+- Firmware version advanced from 2.0 to 2.1. OTA workflow now publishes manifest version 2.1 and builds the matching binary.
+- No BLE UUID, RAW E1/E2 packet format, ECU UART command, map write format, OTA transport contract, or protocol JS change was made.
+- Pre-change backup branch: backup-blink-fw20-pre-qh-fw21-readall-20261009.
