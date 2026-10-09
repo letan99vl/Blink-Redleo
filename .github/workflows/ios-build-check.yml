@@ -1,0 +1,62 @@
+name: Check BLINK REDLEO iOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build-check.yml'
+  push:
+    branches: [main, ios-testflight]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build-check.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+      - name: Generate project and icons
+        working-directory: ios
+        run: |
+          python3 tools/make_icons.py
+          xcodegen generate
+      - name: Build unsigned simulator app
+        working-directory: ios
+        run: |
+          xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build unsigned device app and IPA
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          rm -rf build-device Payload BLINK-REDLEO-unsigned.ipa
+          xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Release -sdk iphoneos -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+          APP_PATH="build-device/Build/Products/Release-iphoneos/BLINK REDLEO.app"
+          test -d "$APP_PATH"
+
+          INDEX_PATH="$(find "$APP_PATH" -name index.html -type f -print -quit)"
+          PROTOCOL_PATH="$(find "$APP_PATH" -name redleo_real_protocol.js -type f -print -quit)"
+          test -n "$INDEX_PATH"
+          test -n "$PROTOCOL_PATH"
+          test "$(dirname "$INDEX_PATH")" = "$(dirname "$PROTOCOL_PATH")"
+          if grep -R -q 'letan99vl.github.io/Blink-Redleo' "$APP_PATH"; then
+            echo "Runtime bundle still contains GitHub Pages URL"
+            exit 1
+          fi
+          echo "Bundled web app verified: $INDEX_PATH"
+
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry BLINK-REDLEO-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLINK-REDLEO-iOS-unsigned
+          path: ios/BLINK-REDLEO-unsigned.ipa
+          if-no-files-found: error
