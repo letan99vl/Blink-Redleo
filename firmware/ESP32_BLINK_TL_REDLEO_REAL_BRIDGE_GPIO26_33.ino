@@ -27,10 +27,10 @@
 */
 
 #ifndef ECU_RX_PIN
-#define ECU_RX_PIN 26
+#define ECU_RX_PIN 22
 #endif
 #ifndef ECU_TX_PIN
-#define ECU_TX_PIN 33
+#define ECU_TX_PIN 23
 #endif
 #ifndef ECU_RTS_PIN
 #define ECU_RTS_PIN -1
@@ -43,7 +43,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.1"
+#define FW_VERSION "2.2"
 #endif
 
 static const char *OTA_MANIFEST_URL =

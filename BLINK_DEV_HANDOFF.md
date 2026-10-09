@@ -1248,3 +1248,15 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - Firmware version advanced from 2.0 to 2.1. OTA workflow now publishes manifest version 2.1 and builds the matching binary.
 - No BLE UUID, RAW E1/E2 packet format, ECU UART command, map write format, OTA transport contract, or protocol JS change was made.
 - Pre-change backup branch: backup-blink-fw20-pre-qh-fw21-readall-20261009.
+
+
+## ESP32 FW 2.2 · ECU UART pins moved to RX22 / TX23 · 2026-10-09
+
+- Blink classic ESP32 ECU UART default pins changed from RX26 / TX33 to RX22 / TX23.
+- UART electrical/protocol settings remain 38400 baud, 8E2; only the default GPIO routing changed.
+- FW2.1 two-pass redundant Read All BLE transport remains unchanged.
+- BLE UUIDs, RAW E1/E2 framing, OTA protocol, ECU commands, map formats, and protocol JS remain unchanged.
+- Firmware version advanced from 2.1 to 2.2 so devices already on 2.1 can detect and install the pin-routing update through OTA.
+- OTA workflow now publishes manifest version 2.2 and the matching binary.
+- Source filename still contains GPIO26_33 for repository/workflow compatibility; the active compiled defaults inside the source are RX22 / TX23.
+- Pre-change backup branch: backup-blink-fw21-rx26-tx33-pre-rx22-tx23-20261009.
