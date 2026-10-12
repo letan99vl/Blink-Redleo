@@ -1260,3 +1260,13 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - OTA workflow now publishes manifest version 2.2 and the matching binary.
 - Source filename still contains GPIO26_33 for repository/workflow compatibility; the active compiled defaults inside the source are RX22 / TX23.
 - Pre-change backup branch: backup-blink-fw21-rx26-tx33-pre-rx22-tx23-20261009.
+
+
+## Android REDLEO 9.13 missing 0xCD write ACK · PB 3.79.73 · 2026-10-12
+- Customer report: Android native APK + REDLEO 9.13 YAMAHA LC150 ID 151 / Signal 11. BLE RAWREADY after 425B page, then missing RAW_RX; some other 9.13 ECUs write normally. No UART serial logs available from shipped device.
+- The firmware 9.13 identifier alone does not prove serializer incompatibility; preserve original 0xCD page wire format, checksum, 38400 8E2 and existing normal fast path.
+- Backed up pre-change main to branch `backup-android-913-write-ack-before-repair-20261012`.
+- Native Android 14x30 V9+ fuel writes now treat a missing 0xCD ACK as ambiguous: after ONE attempted half-page, read ECU page 0x9A and compare the exact 420 on-wire bytes for the attempted half (do not overwrite the unsaved desired UI map during verification).
+- If all 420 bytes already match, count the half-page as readback-verified despite a lost ACK; safely proceed to next half. If mismatched, attempt the SAME half-page only once more through conservative 13B write-with-response packets, then require exact 420B readback before proceeding. If still mismatched or unable to read, stop immediately and leave existing UI/Auto Tune safety handler to resync/block; never report a false success.
+- Android firmware bridge and APK are unchanged. Other OS clients keep their existing write path; native Android good-ACK path stays fast. New result label distinguishes ECU ACK from recovered READBACK success.
+- Important: code change is a remote-app compatibility fix, NOT an on-hardware root-cause confirmation. No live ECU regression test is claimed. Customer should restart Android APK online, confirm PB 3.79.73 and test a backed-up, small MAP edit while engine is off. If still failing, capture new error/readback details; bridge firmware diagnosis/OTA may be needed.
