@@ -7,6 +7,7 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
+window.BLINK_REAL_PROTOCOL_BUILD='WR74-READBACK-V9';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -4157,12 +4158,10 @@ async function writeOptionsReal(){
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
 
-// Native Android recovery: a lost short 0xCD BLE ACK must be verified from
-// the real 0x9A fuel page before the exact same half-page is sent again.
-// This is only entered after a write failure; good ECU fast paths stay unchanged.
-function isBlinkNativeAndroidClient(){
-  return String(navigator.userAgent||'').toUpperCase().includes('BLINK-REDLEO-ANDROID/');
-}
+// V9 write recovery: a short 0xCD BLE ACK can be lost even when ECU wrote.
+// Do not depend on the Android WebView User-Agent: some customer APK builds
+// use a different marker or browser wrapper. GOOD ACK paths are unchanged.
+// An ambiguous failure is only retried after a real 0x9A readback mismatch.
 async function readFuelHalfForAckRecovery(bank,half,payload){
   const readPage=page(1,bank);
   const rx=await exchangePage9A(readPage,'XÁC MINH MAP SAU MẤT ACK',2,650,18000,false,
@@ -4213,7 +4212,8 @@ async function writeFuelBank(bank){
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
     const writePage=0x10|low|h;
-    if(!isBlinkNativeAndroidClient()){
+    const wrTag='WR74/CD'+writePage.toString(16).toUpperCase();
+    if(!(ecuProfile&&ecuProfile.key==='MODERN_V9')){
       await writePageChecked(writePage,payload,false,1);
     }else{
       let writeErr=null;
@@ -4223,35 +4223,37 @@ async function writeFuelBank(bank){
       }catch(e){writeErr=e;}
       if(writeErr){
         const msg=String(writeErr&&writeErr.message||writeErr);
-        if(!/ECU timeout cmd 0xCD|ECU không ACK CD/i.test(msg)||!cmdChar()||!mapChar())throw writeErr;
-        taskUi('loading','ANDROID MẤT ACK CD '+writePage.toString(16).toUpperCase()+' · ĐỌC LẠI ECU TRƯỚC KHI THỬ GHI');
+        if(!/ECU timeout cmd 0xCD|ECU không ACK CD/i.test(msg)||!cmdChar()||!mapChar()){
+          throw new Error(wrTag+' · KHÔNG THỂ XÁC MINH · '+msg);
+        }
+        taskUi('loading',wrTag+' · MẤT ACK · ĐỌC ECU TRƯỚC KHI THỬ GHI');
         let check;
         try{
           check=await readFuelHalfForAckRecovery(bank,h,payload);
         }catch(readErr){
-          throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' mất ACK; READBACK không thành công ('+String(readErr&&readErr.message||readErr)+'). Đã dừng ghi để tránh MAP không xác định.');
+          throw new Error(wrTag+' · MẤT ACK; READBACK không thành công ('+String(readErr&&readErr.message||readErr)+'). Đã dừng ghi để tránh MAP không xác định.');
         }
         if(!check.matches){
           // A verified mismatch permits one idempotent, conservative 13B retry.
           // Even a successful ACK on this retry must be checked against ECU bytes.
-          taskUi('loading','ANDROID CD '+writePage.toString(16).toUpperCase()+' · '+check.differentBytes+' BYTE CHƯA KHỚP · THỬ GHI CHẬM 1 LẦN');
+          taskUi('loading',wrTag+' · '+check.differentBytes+' BYTE CHƯA KHỚP · THỬ GHI CHẬM 1 LẦN');
           let safeErr=null;
           try{await writePageChecked(writePage,payload,false,0,null,true);}
           catch(e){safeErr=e;}
           try{
             check=await readFuelHalfForAckRecovery(bank,h,payload);
           }catch(readErr){
-            throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' · đã thử ghi chậm nhưng không đọc lại được ECU ('+String(readErr&&readErr.message||readErr)+'). Dừng ghi.');
+            throw new Error(wrTag+' · đã thử ghi chậm nhưng không đọc lại được ECU ('+String(readErr&&readErr.message||readErr)+'). Dừng ghi.');
           }
           if(!check.matches){
-            throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' · ghi chậm vẫn lệch '+check.differentBytes+'/420 byte so với MAP cần ghi'+(safeErr?' · '+String(safeErr&&safeErr.message||safeErr):'')+'. Đã dừng, không ghi tiếp nửa MAP khác.');
+            throw new Error(wrTag+' · ghi chậm vẫn lệch '+check.differentBytes+'/420 byte so với MAP cần ghi'+(safeErr?' · '+String(safeErr&&safeErr.message||safeErr):'')+'. Đã dừng, không ghi tiếp nửa MAP khác.');
           }
         }
         recoveredHalves++;
-        log('ANDROID missing write ACK recovered from exact ECU bytes',
+        log('WR74 missing write ACK recovered from exact ECU bytes',
           'MAP',bank,'page 0x'+writePage.toString(16).toUpperCase(),
           'half',h+1,'420/420B MATCH');
-        taskUi('loading','ANDROID CD '+writePage.toString(16).toUpperCase()+' · READBACK 420/420 BYTE KHỚP · TIẾP TỤC AN TOÀN');
+        taskUi('loading',wrTag+' · READBACK 420/420 BYTE KHỚP · TIẾP TỤC AN TOÀN');
       }
     }
     if(h===0)await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,6)?15:60));
