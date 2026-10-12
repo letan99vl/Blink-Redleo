@@ -86,7 +86,7 @@ async function main(){
   assert.strictEqual(c.reads.length,2);
 
   const d=harness({lostAck:true,retryFails:true});
-  await assert.rejects(()=>d.ctx.writeFuelBank(1),/WR75\/CD12.*ghi chậm vẫn lệch/);
+  await assert.rejects(()=>d.ctx.writeFuelBank(1),/WR75\/CD12.*GHI THẤT BẠI/);
   assert.deepStrictEqual(d.attempts.map(x=>x.pg),[0x12,0x12],'Stop before writing second half if first half is unknown');
 
   const e=harness({lostAck:true,readFails:true});
