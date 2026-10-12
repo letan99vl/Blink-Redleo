@@ -3259,7 +3259,7 @@ function hasWriteAck(rx,pg){
   for(let i=from;i+1<rx.length;i++)if(rx[i]===0xCD&&rx[i+1]===want)return true;
   return false;
 }
-async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=null){
+async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=null,forceSafe=false){
   requireProfile(cap||(requireReadAll?'fullWrite':'fuelWrite'),'Ghi dữ liệu ECU');
   if(requireReadAll)assertSafeWriteLayout();
   if(requireReadAll)taskUi('loading','ĐANG GHI ECU · PAGE 0x'+pg.toString(16).toUpperCase());
@@ -3293,7 +3293,7 @@ async function writePageChecked(pg,payload,requireReadAll=true,retries=0,cap=nul
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
         updateActiveMapIoText('⟳ ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts);
       }
-      const turboFirst=(attempt===0&&bridgeFirmwareAtLeast(1,5));
+      const turboFirst=(attempt===0&&!forceSafe&&bridgeFirmwareAtLeast(1,5));
       rawWritePacingMode=turboFirst?'turbo':'safe';
       taskUi('loading','ĐANG GHI · '+phase+' · LẦN '+tryNo+'/'+totalAttempts+(turboFirst?' · TURBO':''));
       if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&turboFirst){
@@ -4157,6 +4157,27 @@ async function writeOptionsReal(){
   return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
 }
 
+// Native Android recovery: a lost short 0xCD BLE ACK must be verified from
+// the real 0x9A fuel page before the exact same half-page is sent again.
+// This is only entered after a write failure; good ECU fast paths stay unchanged.
+function isBlinkNativeAndroidClient(){
+  return String(navigator.userAgent||'').toUpperCase().includes('BLINK-REDLEO-ANDROID/');
+}
+async function readFuelHalfForAckRecovery(bank,half,payload){
+  const readPage=page(1,bank);
+  const rx=await exchangePage9A(readPage,'XÁC MINH MAP SAU MẤT ACK',2,650,18000,false,
+    bytes=>{parseCurrentFuelFrame(bytes,bank);return true;});
+  const R=parseCurrentFuelFrame(rx,bank);
+  const offset=half*420;
+  if(!R.rawPayload||R.rawPayload.length<840||payload.length!==420){
+    throw new Error('READBACK MAP thiếu 840 byte hoặc TX half-page sai 420 byte.');
+  }
+  let diff=0,first=-1;
+  for(let k=0;k<420;k++){
+    if(R.rawPayload[offset+k]!==payload[k]){diff++;if(first<0)first=k;}
+  }
+  return {matches:diff===0,differentBytes:diff,firstDifferentByte:first};
+}
 async function writeFuelBank(bank){
   requireProfile('fuelWrite','Ghi MAP thời gian phun');
   bank=normalizeBankForProfile(bank);
@@ -4184,15 +4205,58 @@ async function writeFuelBank(bank){
     return;
   }
 
+  let recoveredHalves=0;
   for(let h=0;h<2;h++){
     if(typeof state!=='undefined')state.ecuPhase=h===0?'write1':'write2';
     taskUi('loading','ĐANG GHI MAP NO.'+bank+' · PHẦN '+(h+1)+'/2');
     const payload=[];
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
-    await writePageChecked(0x10|low|h,payload,false,1);
+    const writePage=0x10|low|h;
+    if(!isBlinkNativeAndroidClient()){
+      await writePageChecked(writePage,payload,false,1);
+    }else{
+      let writeErr=null;
+      try{
+        // No blind retry: the ECU can write successfully even when its BLE ACK is lost.
+        await writePageChecked(writePage,payload,false,0);
+      }catch(e){writeErr=e;}
+      if(writeErr){
+        const msg=String(writeErr&&writeErr.message||writeErr);
+        if(!/ECU timeout cmd 0xCD|ECU không ACK CD/i.test(msg)||!cmdChar()||!mapChar())throw writeErr;
+        taskUi('loading','ANDROID MẤT ACK CD '+writePage.toString(16).toUpperCase()+' · ĐỌC LẠI ECU TRƯỚC KHI THỬ GHI');
+        let check;
+        try{
+          check=await readFuelHalfForAckRecovery(bank,h,payload);
+        }catch(readErr){
+          throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' mất ACK; READBACK không thành công ('+String(readErr&&readErr.message||readErr)+'). Đã dừng ghi để tránh MAP không xác định.');
+        }
+        if(!check.matches){
+          // A verified mismatch permits one idempotent, conservative 13B retry.
+          // Even a successful ACK on this retry must be checked against ECU bytes.
+          taskUi('loading','ANDROID CD '+writePage.toString(16).toUpperCase()+' · '+check.differentBytes+' BYTE CHƯA KHỚP · THỬ GHI CHẬM 1 LẦN');
+          let safeErr=null;
+          try{await writePageChecked(writePage,payload,false,0,null,true);}
+          catch(e){safeErr=e;}
+          try{
+            check=await readFuelHalfForAckRecovery(bank,h,payload);
+          }catch(readErr){
+            throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' · đã thử ghi chậm nhưng không đọc lại được ECU ('+String(readErr&&readErr.message||readErr)+'). Dừng ghi.');
+          }
+          if(!check.matches){
+            throw new Error('ANDROID CD '+writePage.toString(16).toUpperCase()+' · ghi chậm vẫn lệch '+check.differentBytes+'/420 byte so với MAP cần ghi'+(safeErr?' · '+String(safeErr&&safeErr.message||safeErr):'')+'. Đã dừng, không ghi tiếp nửa MAP khác.');
+          }
+        }
+        recoveredHalves++;
+        log('ANDROID missing write ACK recovered from exact ECU bytes',
+          'MAP',bank,'page 0x'+writePage.toString(16).toUpperCase(),
+          'half',h+1,'420/420B MATCH');
+        taskUi('loading','ANDROID CD '+writePage.toString(16).toUpperCase()+' · READBACK 420/420 BYTE KHỚP · TIẾP TỤC AN TOÀN');
+      }
+    }
     if(h===0)await new Promise(r=>setTimeout(r,bridgeFirmwareAtLeast(1,6)?15:60));
   }
+  return {recoveredHalves};
 }
 async function readCurrentFuelBankRetry(bank){
   // readCurrentFuelBank already owns the 0x9A retry loop. Do not multiply it
@@ -4224,12 +4288,13 @@ async function writeCurrentFuelAndVerify(bank){
   if(mapSelect)mapSelect.disabled=true;
   taskUi('loading','ĐANG GHI HIỆN TẠI · MAP NO.'+bank);
   try{
-    await writeFuelBank(bank);
+    const writeResult=await writeFuelBank(bank);
+    const recoveredHalves=Number(writeResult&&writeResult.recoveredHalves)||0;
     fuelPagePrimed.delete(bank);
     const wholeMs=Math.round(performance.now()-wholeWriteStarted);
-    taskUi('success','GHI MAP NO.'+bank+' OK · ECU ACK · '+(wholeMs/1000).toFixed(1)+'s');
-    log('fuel write ACK-only total',wholeMs+'ms','MAP',bank);
-    return {ack:true,bank,elapsedMs:wholeMs};
+    taskUi('success','GHI MAP NO.'+bank+' OK · '+(recoveredHalves?'READBACK XÁC MINH '+recoveredHalves+' NỬA MAP':'ECU ACK')+' · '+(wholeMs/1000).toFixed(1)+'s');
+    log('fuel write complete',wholeMs+'ms','MAP',bank,'readback-recovered-halves',recoveredHalves);
+    return {ack:true,bank,elapsedMs:wholeMs,recoveredHalves};
   }finally{
     if(typeof state!=='undefined')state.ecuPhase=(previousPhase==='write1'||previousPhase==='write2')?'live':previousPhase;
     if(mapSelect)mapSelect.disabled=!!(typeof state!=='undefined'&&state.threeRun&&state.threeRun.active);
