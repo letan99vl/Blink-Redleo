@@ -8,7 +8,7 @@ const fs=require('fs');
 const vm=require('vm');
 const src=fs.readFileSync('redleo_real_protocol.js','utf8');
 
-assert(src.includes("window.BLINK_REAL_PROTOCOL_BUILD='WR74-READBACK-V9';"));
+assert(src.includes("window.BLINK_REAL_PROTOCOL_BUILD='WR75-CELL-DIAG-V9';"));
 const found=src.match(/async function readFuelHalfForAckRecovery\(bank,half,payload\)\{[\s\S]*?\n}\nasync function writeFuelBank\(bank\)\{[\s\S]*?\n}\nasync function readCurrentFuelBankRetry\(bank\)\{/);
 assert(found,'Unable to extract real half-map recovery and V9 writer');
 const snippet=found[0].replace(/\nasync function readCurrentFuelBankRetry\(bank\)\{$/,'');
@@ -55,6 +55,8 @@ function harness(opts={}){
       return dummy;
     },
     parseCurrentFuelFrame:()=>({rawPayload:wire.slice()}),
+    LEGACY_TPS_PCT:[0,2,5,8,14,20,30,40,50,60,70,80,90,100],
+    LEGACY_RPM_AXIS:Array.from({length:30},(_,i)=>(i+1)*500),
     Uint8Array,Number,Array,Error,String,Promise,setTimeout,Math,console
   };
   vm.createContext(ctx);
@@ -83,11 +85,11 @@ async function main(){
   assert.strictEqual(c.reads.length,2);
 
   const d=harness({lostAck:true,retryFails:true});
-  await assert.rejects(()=>d.ctx.writeFuelBank(1),/WR74\/CD12.*ghi chậm vẫn lệch/);
+  await assert.rejects(()=>d.ctx.writeFuelBank(1),/WR75\/CD12.*ghi chậm vẫn lệch/);
   assert.deepStrictEqual(d.attempts.map(x=>x.pg),[0x12,0x12],'Stop before writing second half if first half is unknown');
 
   const e=harness({lostAck:true,readFails:true});
-  await assert.rejects(()=>e.ctx.writeFuelBank(1),/WR74\/CD12.*READBACK không thành công/);
+  await assert.rejects(()=>e.ctx.writeFuelBank(1),/WR75\/CD12.*READBACK không thành công/);
   assert.deepStrictEqual(e.attempts.map(x=>x.pg),[0x12],'No blind retry when readback itself fails');
 
   const f=harness({profile:'MODERN_V10'});
@@ -105,6 +107,29 @@ async function main(){
   g.wire[421]^=1;
   assert.strictEqual((await g.ctx.readFuelHalfForAckRecovery(1,1,upper)).matches,false);
 
-  console.log('PASS: WR74 V9 ACK recovery: normal, missing ACK/committed, one safe retry, two hard stops, non-V9, half offset');
+  // Reproduce customer-facing pattern: five edited TPS5% cells, both bytes
+  // unequal in each -> exactly 5 cells and 10/420 different bytes on CD16.
+  const h=harness();
+  const desired=Uint8Array.from({length:420},(_,i)=>(i%2?214:6)); // 1750 raw = 3.500 ms
+  h.wire.set(desired,0);
+  for(let col=0;col<5;col++){
+    const k=(2*30+col)*2; // page 0x16, wire row 2 is TPS 5%
+    h.wire[k]=0;h.wire[k+1]=0;
+  }
+  const five=await h.ctx.readFuelHalfForAckRecovery(1,0,desired);
+  assert.strictEqual(five.differentBytes,10);
+  assert.strictEqual(five.differentCells,5);
+  assert.strictEqual(five.cells[0].tps,'5%');
+  assert.strictEqual(five.cells[0].rpm,500);
+  assert.strictEqual(five.cells[0].sentMs,3.5);
+  assert.strictEqual(five.cells[0].ecuMs,0);
+  const hBefore=five;
+  h.wire[(2*30)*2]=6;h.wire[(2*30)*2+1]=214;
+  const hAfter=await h.ctx.readFuelHalfForAckRecovery(1,0,desired);
+  assert.strictEqual(h.ctx.countFuelHalfChangedCells(hBefore,hAfter),1);
+  assert.strictEqual(hAfter.differentCells,4);
+  assert.match(h.ctx.describeFuelHalfCells(hAfter,2),/5%\/1000rpm/);
+
+  console.log('PASS: WR75 V9 ACK recovery: normal, missing ACK/committed, one safe retry, two hard stops, non-V9, half offset');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
