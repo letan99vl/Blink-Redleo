@@ -9,7 +9,7 @@ const vm=require('vm');
 const src=fs.readFileSync('redleo_real_protocol.js','utf8');
 
 assert(src.includes("window.BLINK_REAL_PROTOCOL_BUILD='WR75-CELL-DIAG-V9';"));
-const found=src.match(/async function readFuelHalfForAckRecovery\(bank,half,payload\)\{[\s\S]*?\n}\nasync function writeFuelBank\(bank\)\{[\s\S]*?\n}\nasync function readCurrentFuelBankRetry\(bank\)\{/);
+const found=src.match(/function compareFuelHalfRaw\(readAllRaw,half,payload\)\{[\s\S]*?\n}\nasync function writeFuelBank\(bank\)\{[\s\S]*?\n}\nasync function readCurrentFuelBankRetry\(bank\)\{/);
 assert(found,'Unable to extract real half-map recovery and V9 writer');
 const snippet=found[0].replace(/\nasync function readCurrentFuelBankRetry\(bank\)\{$/,'');
 assert(!snippet.includes('isBlinkNativeAndroidClient'), 'V9 recovery must not depend on APK userAgent');
