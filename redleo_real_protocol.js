@@ -7,7 +7,7 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
-window.BLINK_REAL_PROTOCOL_BUILD='WR74-READBACK-V9';
+window.BLINK_REAL_PROTOCOL_BUILD='WR75-CELL-DIAG-V9';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -1715,7 +1715,7 @@ async function rawExchange(bytes,timeout=12000){
           pending.delete(id);
           try{if(p.stallTo)clearTimeout(p.stallTo);}catch(_e){}
           const cmdHex=data[0].toString(16).toUpperCase();
-          const hint=(data[0]===0xCD&&data.length>RAW_CHUNK)?' · bridge không trả RAW_RX sau frame '+data.length+'B':'';
+          const hint=(data[0]===0xCD&&data.length>RAW_CHUNK)?' · app chưa nhận RAW_RX sau frame '+data.length+'B':'';
           rejectPending(p,new Error('ECU timeout cmd 0x'+cmdHex+' sau khi TX xong'+hint));
         },timeout);
       }
@@ -4162,20 +4162,54 @@ async function writeOptionsReal(){
 // Do not depend on the Android WebView User-Agent: some customer APK builds
 // use a different marker or browser wrapper. GOOD ACK paths are unchanged.
 // An ambiguous failure is only retried after a real 0x9A readback mismatch.
+function compareFuelHalfRaw(readAllRaw,half,payload){
+  const actualAll=readAllRaw instanceof Uint8Array?readAllRaw:Uint8Array.from(readAllRaw||[]);
+  const requested=payload instanceof Uint8Array?payload:Uint8Array.from(payload||[]);
+  const offset=half*420;
+  if(actualAll.length<840||requested.length!==420||!(half===0||half===1)){
+    throw new Error('READBACK MAP thiếu 840 byte hoặc TX half-page sai 420 byte.');
+  }
+  const actual=actualAll.slice(offset,offset+420);
+  const cells=[];
+  let differentBytes=0;
+  for(let cell=0;cell<210;cell++){
+    const k=cell*2;
+    const badHi=actual[k]!==requested[k],badLo=actual[k+1]!==requested[k+1];
+    if(!badHi&&!badLo)continue;
+    differentBytes+=(badHi?1:0)+(badLo?1:0);
+    const wireRow=half*7+Math.floor(cell/30); // 0 = IDLE, 1 = 2%, 2 = 5%, ... 13 = 100%
+    const col=cell%30;
+    const rawSent=(requested[k]<<8)|requested[k+1];
+    const rawEcu=(actual[k]<<8)|actual[k+1];
+    cells.push({
+      tps:wireRow===0?'IDLE':String(LEGACY_TPS_PCT[wireRow])+'%',
+      rpm:LEGACY_RPM_AXIS[col],
+      sentRaw:rawSent,ecuRaw:rawEcu,
+      sentMs:rawSent/500,ecuMs:rawEcu/500,
+      cell:cell,byteIndex:k
+    });
+  }
+  return {matches:differentBytes===0,differentBytes,differentCells:cells.length,
+    firstDifferentByte:cells.length?cells[0].byteIndex:-1,cells,actual};
+}
+function countFuelHalfChangedCells(before,after){
+  const a=before&&before.actual,b=after&&after.actual;
+  if(!a||!b||a.length!==420||b.length!==420)return null;
+  let changed=0;
+  for(let i=0;i<420;i+=2)if(a[i]!==b[i]||a[i+1]!==b[i+1])changed++;
+  return changed;
+}
+function describeFuelHalfCells(check,limit=3){
+  return (check&&Array.isArray(check.cells)?check.cells:[]).slice(0,limit).map(c=>
+    c.tps+'/'+c.rpm+'rpm: gửi '+c.sentMs.toFixed(3)+' / ECU '+c.ecuMs.toFixed(3)+'ms'
+  ).join(' ; ');
+}
 async function readFuelHalfForAckRecovery(bank,half,payload){
   const readPage=page(1,bank);
   const rx=await exchangePage9A(readPage,'XÁC MINH MAP SAU MẤT ACK',2,650,18000,false,
     bytes=>{parseCurrentFuelFrame(bytes,bank);return true;});
   const R=parseCurrentFuelFrame(rx,bank);
-  const offset=half*420;
-  if(!R.rawPayload||R.rawPayload.length<840||payload.length!==420){
-    throw new Error('READBACK MAP thiếu 840 byte hoặc TX half-page sai 420 byte.');
-  }
-  let diff=0,first=-1;
-  for(let k=0;k<420;k++){
-    if(R.rawPayload[offset+k]!==payload[k]){diff++;if(first<0)first=k;}
-  }
-  return {matches:diff===0,differentBytes:diff,firstDifferentByte:first};
+  return compareFuelHalfRaw(R.rawPayload,half,payload);
 }
 async function writeFuelBank(bank){
   requireProfile('fuelWrite','Ghi MAP thời gian phun');
@@ -4212,7 +4246,7 @@ async function writeFuelBank(bank){
     for(const r of halves[h])for(let c=0;c<30;c++)push16be(payload,encOilTab(inj[r][c]));
     // Re-sending the exact same half-page is safe if its ACK was lost.
     const writePage=0x10|low|h;
-    const wrTag='WR74/CD'+writePage.toString(16).toUpperCase();
+    const wrTag='WR75/CD'+writePage.toString(16).toUpperCase();
     if(!(ecuProfile&&ecuProfile.key==='MODERN_V9')){
       await writePageChecked(writePage,payload,false,1);
     }else{
@@ -4236,7 +4270,8 @@ async function writeFuelBank(bank){
         if(!check.matches){
           // A verified mismatch permits one idempotent, conservative 13B retry.
           // Even a successful ACK on this retry must be checked against ECU bytes.
-          taskUi('loading',wrTag+' · '+check.differentBytes+' BYTE CHƯA KHỚP · THỬ GHI CHẬM 1 LẦN');
+          const beforeRetry=check;
+          taskUi('loading',wrTag+' · '+check.differentCells+' Ô / '+check.differentBytes+' BYTE CHƯA KHỚP · THỬ GHI CHẬM 1 LẦN');
           let safeErr=null;
           try{await writePageChecked(writePage,payload,false,0,null,true);}
           catch(e){safeErr=e;}
@@ -4246,7 +4281,16 @@ async function writeFuelBank(bank){
             throw new Error(wrTag+' · đã thử ghi chậm nhưng không đọc lại được ECU ('+String(readErr&&readErr.message||readErr)+'). Dừng ghi.');
           }
           if(!check.matches){
-            throw new Error(wrTag+' · ghi chậm vẫn lệch '+check.differentBytes+'/420 byte so với MAP cần ghi'+(safeErr?' · '+String(safeErr&&safeErr.message||safeErr):'')+'. Đã dừng, không ghi tiếp nửa MAP khác.');
+            const changed=countFuelHalfChangedCells(beforeRetry,check);
+            const details=describeFuelHalfCells(check,3);
+            window.blinkLastWriteDiagnosis={
+              build:window.BLINK_REAL_PROTOCOL_BUILD,page:writePage,bank,
+              first:{cells:beforeRetry.differentCells,bytes:beforeRetry.differentBytes},
+              after:{cells:check.differentCells,bytes:check.differentBytes},
+              changedCellsAfterRetry:changed,
+              examples:check.cells.slice(0,8).map(c=>({tps:c.tps,rpm:c.rpm,sentMs:c.sentMs,ecuMs:c.ecuMs}))
+            };
+            throw new Error(wrTag+' · GHI THẤT BẠI: còn '+check.differentCells+' ô / '+check.differentBytes+'/420 byte không khớp; trước thử lại '+beforeRetry.differentCells+' ô; ECU đổi '+(changed===null?'?':changed)+' ô. Ví dụ: '+(details||'không có')+(safeErr?' · ACK: '+String(safeErr&&safeErr.message||safeErr):'')+'. Đã dừng, không ghi nửa MAP còn lại.');
           }
         }
         recoveredHalves++;
