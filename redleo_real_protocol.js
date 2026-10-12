@@ -8,6 +8,7 @@
 
 const TAG='[BLINK TL REAL]';
 window.BLINK_REAL_PROTOCOL_BUILD='WR75-CELL-DIAG-V9';
+try{const pb=document.getElementById('appBuildLabel');if(pb)pb.textContent='P.b v'+String(window.BLINK_PB_VERSION||'—')+' · WR75';}catch(_e){}
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
