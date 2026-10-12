@@ -20,6 +20,7 @@ function harness(opts={}){
   const map=Array.from({length:14},()=>Array(30).fill(3.5));
   let firstPageCalls=0;
   const ctx={
+    window:{BLINK_REAL_PROTOCOL_BUILD:'WR75-CELL-DIAG-V9'},
     state:{ecuPhase:'live',mapBanks:[{inject:map}]},
     ecuProfile:{key:opts.profile||'MODERN_V9',family:'modern'},
     requireProfile:()=>{},
