@@ -1270,3 +1270,13 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - If all 420 bytes already match, count the half-page as readback-verified despite a lost ACK; safely proceed to next half. If mismatched, attempt the SAME half-page only once more through conservative 13B write-with-response packets, then require exact 420B readback before proceeding. If still mismatched or unable to read, stop immediately and leave existing UI/Auto Tune safety handler to resync/block; never report a false success.
 - Android firmware bridge and APK are unchanged. Other OS clients keep their existing write path; native Android good-ACK path stays fast. New result label distinguishes ECU ACK from recovered READBACK success.
 - Important: code change is a remote-app compatibility fix, NOT an on-hardware root-cause confirmation. No live ECU regression test is claimed. Customer should restart Android APK online, confirm PB 3.79.73 and test a backed-up, small MAP edit while engine is off. If still failing, capture new error/readback details; bridge firmware diagnosis/OTA may be needed.
+
+
+## Remote write-recovery v2 · PB 3.79.74 · 2026-10-12
+- Customer reported PB 3.79.73 still shows the old `ECU timeout cmd 0xCD` on a shipped Android device. Github Pages deploy and protocol CI for PB 3.79.73 were both SUCCESS, so deployed source is not proof that the phone actually loaded the JS recovery branch.
+- Root of gate weakness: PB 3.79.73 only enabled ACK recovery when `navigator.userAgent` included `BLINK-REDLEO-ANDROID/`. Customer APK build/User-Agent may differ; avoid this fragile gate entirely.
+- In PB 3.79.74, enable the loss-of-ACK readback/controlled slow-retry path on REDLEO MODERN V9 (including 9.13) regardless of Android WebView/browser User-Agent. V8, V10, V11 keep prior transport behavior. Successful write ACK takes the normal fast path without readback or extra traffic.
+- Every unsuccessful V9 page write that enters this path returns a distinct `WR74/CDxx` prefix on failure. This is an observable code-loading indicator in the phone screenshot, beyond HTML PB label alone. Also expose `window.BLINK_REAL_PROTOCOL_BUILD='WR74-READBACK-V9'`.
+- V9 failure handling remains readback-first: `0x9A` full fuel-map checksum frame, compare *exact* 420 bytes for the half attempted, allow at most one conservative resend of that half after confirmed mismatch, require readback equality, otherwise STOP and preserve index.html map-state protections.
+- No ECU hardware tests performed; live ship-device validation needed. Test with backup, stable power, engine off. Do not use Auto Tune or run engine until a readback has verified every edited cell.
+- Pre-change backup: `backup-pb-37973-before-write-recovery-v2-20261012`.
