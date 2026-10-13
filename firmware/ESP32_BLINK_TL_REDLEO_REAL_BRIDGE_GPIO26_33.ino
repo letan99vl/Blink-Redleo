@@ -1291,7 +1291,7 @@ static void guardApplyHandshake(const uint8_t *rx,size_t n){
       if(rx[pos]!=0x5A)continue;
       for(size_t len:sizes){
         if(pos+len<=n && validRedleoFrame(rx+pos,len) &&
-           BlinkGuard::isPrintableId(rx+pos) && rx[pos+33]<=3){
+           BlinkGuard::isPrintableId(rx+pos)){
           guardUnsupported=true;
           guardSupported=false;
           guardLimitMask=0;
