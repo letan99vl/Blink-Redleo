@@ -170,6 +170,36 @@ inline bool validLiveReply(const uint8_t *p, size_t n) {
   const uint16_t rpm=((uint16_t)p[6]<<8)|p[7];
   return rpm <= 20000;
 }
+
+// Normalize a valid framed reply even when a UART adapter prefixes noise or
+// appends trailing status bytes. This mirrors Blink's findValidCommandFrame().
+inline size_t normalizeHandshake(uint8_t *p,size_t n) {
+  if (!p) return 0;
+  static const size_t standardSizes[] = {41,37,9};
+  for (size_t off=0; off<n && off<512; ++off) {
+    if (p[off]!=0x5A) continue;
+    for (size_t len:standardSizes) {
+      if (off+len>n || !validHandshakeReply(p+off,len)) continue;
+      if (off) memmove(p,p+off,len);
+      return len;
+    }
+    for (size_t len=35; len<=96 && off+len<=n; ++len) {
+      if (!validHandshakeReply(p+off,len)) continue;
+      if (off) memmove(p,p+off,len);
+      return len;
+    }
+  }
+  return 0;
+}
+inline size_t normalizeLive(uint8_t *p,size_t n) {
+  if (!p || n<53) return 0;
+  for (size_t off=0;off+53<=n && off<512;off++) {
+    if (!validLiveReply(p+off,53)) continue;
+    if (off) memmove(p,p+off,53);
+    return 53;
+  }
+  return 0;
+}
 } // namespace BlinkAutoPins
 
 #include <mbedtls/sha256.h>
@@ -957,25 +987,34 @@ static size_t transactUartAutopin(const uint8_t *tx, size_t len,
   const bool liveProbe = !ecuUartConfirmed && BlinkAutoPins::isLiveRequest(tx, len);
   const size_t got = transactUart(tx, len, rx, maxRx, firstOverrideMs);
   if (!handshake && !liveProbe) return got;
-  bool valid = handshake ? BlinkAutoPins::validHandshakeReply(rx, got)
-                         : BlinkAutoPins::validLiveReply(rx, got);
-  if (valid) {
+  const size_t validLen = handshake ? BlinkAutoPins::normalizeHandshake(rx,got)
+                                    : BlinkAutoPins::normalizeLive(rx,got);
+  if (validLen) {
     confirmEcuUartSlot();
-    return got;
+    return validLen;
   }
   if (ecuUartConfirmed) return got;
+  // Preserve raw initial reply for Blink's own diagnostics if neither port
+  // can be validated; never turn transport uncertainty into an ECU identity.
+  uint8_t originalReply[128];
+  const size_t originalReplyLen = got <= sizeof(originalReply) ? got : 0;
+  if (originalReplyLen) memcpy(originalReply,rx,originalReplyLen);
   const uint8_t originalSlot = ecuUartSlot;
   openEcuUartSlot(BlinkAutoPins::otherSlot(originalSlot));
   delay(5);
   const size_t secondGot = transactUart(tx, len, rx, maxRx, firstOverrideMs);
-  valid = handshake ? BlinkAutoPins::validHandshakeReply(rx, secondGot)
-                    : BlinkAutoPins::validLiveReply(rx, secondGot);
-  if (valid) {
+  const size_t secondValidLen = handshake ? BlinkAutoPins::normalizeHandshake(rx,secondGot)
+                                         : BlinkAutoPins::normalizeLive(rx,secondGot);
+  if (secondValidLen) {
     confirmEcuUartSlot();
-    return secondGot;
+    return secondValidLen;
   }
-  // Neither layout proven: don't persist it or fabricate an ECU response.
+  // No verified ECU: restore the original physical UART pair and raw response.
   openEcuUartSlot(originalSlot);
+  if (originalReplyLen) {
+    memcpy(rx,originalReply,originalReplyLen);
+    return originalReplyLen;
+  }
   return 0;
 }
 
