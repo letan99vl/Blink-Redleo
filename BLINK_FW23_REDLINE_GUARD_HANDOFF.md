@@ -1,7 +1,7 @@
 # FW 2.3 Redline Guard — isolated lab candidate
 
-Status: **candidate, NOT shipped or published to public OTA**.
-Baseline retained on `main`: Blink PB 3.79.72 + ESP32 FW 2.2.
+Status: **source release authorized by owner on 2026-10-13; real-ECU/on-bike verification remains pending**.
+Rollback snapshot: `backup-release-pb37972-fw22-20261013` (Blink PB 3.79.72 + ESP32 FW 2.2).
 Candidate branch: `feature/fw23-autonomous-redline-guard-20261013`.
 
 ## Goal
@@ -22,8 +22,10 @@ Once explicitly armed from Blink with the motorcycle engine stopped, the ESP32 r
 - `RGON` / `RGOFF`: opt in/out (stored in ESP32 NVS) **only** when a recently validated live RPM <= 800 is available. Otherwise `RG:STOP`. Firmware v2.2 does not support these commands.
 - In Blink candidate PB3.79.76, Settings > AN TOÀN REDLINE gives controls and confirms MAP4 was safely prepared. The app stops live Auto Tune / 3-run and latches display MAP4 on status `RG:TRIP:M4`.
 
-## Safety and release rules
-- **Do NOT update** `ota/manifest.json` to 2.3 until real-ECU validation, and do not silently enable this on current customers.
+## Release and safety rules
+- Owner explicitly authorized immediate release; new firmware exposes Redline Guard **OFF by default**. The app's FW2.3 OTA is **not automatic**: a user must request an OTA update and separately arm the guard with a confirmed stationary engine.
+- CAUTION: real-ECU active-map handshake verification and real-world redline behavior still require on-hardware tests; compile/tests are not physical proof.
+- Public OTA may be published only by a one-time main-branch commit tagged `[RELEASE_FW23]` or an explicitly approved manual workflow dispatch. Never auto-publish future code changes.
 - Github Actions branch workflow `FW2.3 Redline Guard Candidate Checks`: C++ checksum/RPM/timer tests, Blink UI syntax/safety assertions, compile full ESP32 sketch and attach LAB-CANDIDATE binary artifact. This proves source compiles, not that on-bike switching works.
 - Hardware test first with engine stopped/ECU powered: test 0x5A V9 handshake, all 4 page6 limits, RGON NVS persistence, actual selected ECU map, power interruption and BLE disconnect. Then on controlled bench using a simulated 53B A1 stream verify exactly 5s and signal gaps. Only then try gentle, supervised real-ECU test, with map4 verified in advance.
 - **Do not test intentional 5-second limiter bouncing on public roads.** Long redline episodes can cause engine damage before any automatic protection acts.
