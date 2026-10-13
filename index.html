@@ -4761,6 +4761,7 @@ window.addEventListener('beforeunload',save);
         'RG:OFF':'TẮT · ESP32 NVS OFF',
         'RG:WAIT':'ĐANG NHẬN DIỆN ECU...',
         'RG:READING':'ĐANG ĐỌC GIỚI HẠN RPM 4 MAP...',
+        'RG:UNSUP':'ECU CHƯA HỖ TRỢ · CHỈ REDLEO 9.1x/9.2x',
         'RG:TRIP:M4':'ĐÃ KÍCH HOẠT · ECU MAP 4 (KHÓA)',
         'RG:FAULT':'LỖI XÁC MINH MAP 4 · KHÔNG ĐƯỢC COI LÀ ĐÃ CHUYỂN',
         'RG:STOP':'TỪ CHỐI: động cơ phải dừng và RPM Live phải hợp lệ',
@@ -4768,6 +4769,9 @@ window.addEventListener('beforeunload',save);
         'RG:LOCKED':'GUARD ĐÃ KHÓA GHI ECU TRONG CHẾ ĐỘ MAP4'
       };
       e.value=nice[value]||(value.startsWith('RG:ON:M')?('ĐANG BẢO VỆ · '+value.slice(3)):value);
+    }
+    if(value==='RG:STOP'||value==='RG:UNSUP'||value==='RG:FAULT'){
+      showEcuNotice('error','REDLINE GUARD',e?.value||value,6000);
     }
     if(value==='RG:TRIP:M4'){
       if(!window.blinkGuardLatched){
