@@ -95,27 +95,36 @@ inline bool parseHandshake(const uint8_t *rx,size_t n,Handshake &out) {
   }
   return false;
 }
+// Decode direct 0x9A page6 using the same verified framing as Blink web:
+// 1 page byte + AT LEAST the family-specific writable data + 2 checksum
+// bytes. Some ECU builds append read-only reply bytes after the writable area.
+// Require a COMPLETE checksum-valid frame, never trust a bare byte count.
 inline bool parseLimitForFamily(const uint8_t *rx,size_t n,uint8_t page,
                                 Family family,uint16_t &limit){
   if(!rx || (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
-  const size_t v91[]={33},v92[]={65,66},v10[]={21,22},ultra[]={45,46};
-  const size_t *sizes=nullptr;
-  size_t count=0,offset=5;
+  size_t minFrame=0,offset=5;
   switch(family){
-    case V91:sizes=v91;count=1;break;
-    case V92:sizes=v92;count=2;break;
-    case V10:sizes=v10;count=2;break;
-    case ULTRA1:sizes=ultra;count=2;offset=7;break; // Ultra maxSpeed is Idle u16 index 3.
-    default:return false;
+    case V91:minFrame=33;break;  // 30B writable + page/checksum trailer.
+    case V92:minFrame=65;break;  // 62B writable + page/checksum trailer.
+    case V10:minFrame=21;break;  // 18B writable + page/checksum trailer.
+    case ULTRA1:minFrame=45;offset=7;break; // 42B; index3=maxSpeed.
+    default:return false;       // V8/V11/unknown: no automatic MAP4.
   }
-  for(size_t i=0;i<n;++i){
+  if(n<minFrame)return false;
+  // Blink findValidCommandFrame searches the longest checksum-valid frame
+  // following each page marker, allowing reply-only tail bytes (V9.13 etc.).
+  // Scan the UART buffer in case it starts with a byte echo/status prefix.
+  for(size_t i=0;i+minFrame<=n;++i){
     if(rx[i]!=page)continue;
-    for(size_t k=0;k<count;++k){
-      const size_t size=sizes[k];
-      if(i+size>n || !validReply(rx+i,size))continue;
+    const size_t available=n-i;
+    for(size_t len=available;len>=minFrame;--len){
+      if(rx[i+len-1]!=(uint8_t)(0xFFU-page))continue;
+      if(!validReply(rx+i,len))continue;
       const uint8_t *f=rx+i;
       const uint16_t rpm=(uint16_t)(((uint16_t)f[offset]<<8)|f[offset+1]);
-      if(rpm<RPM_LIMIT_MIN || rpm>RPM_LIMIT_MAX)continue;
+      // A complete valid reply with an implausible limit is a hard failure,
+      // NOT an invitation to find a shorter coincidental checksum.
+      if(rpm<RPM_LIMIT_MIN || rpm>RPM_LIMIT_MAX)return false;
       limit=rpm;
       return true;
     }
