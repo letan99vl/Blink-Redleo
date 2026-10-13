@@ -1,7 +1,7 @@
 # BLINK REDLEO - PROJECT STATE
 
 > Source of truth for cross-chat continuity.
-> Last verified: 2026-10-05 (Asia/Ho_Chi_Minh).
+> Last verified: 2026-10-13 (Asia/Ho_Chi_Minh).
 > Read this file before making changes in a new chat.
 > After any meaningful architecture/release change, update this file on the active branches.
 
@@ -646,3 +646,13 @@ The assistant should then:
 - APPLY remains local-only; explicit GHI ECU is required.
 - Backup: backup-pb-3.79.62-pre-cam-reference-curve.
 - Final CI run **37340103880 = SUCCESS**.
+
+## 38. ESP32 FW2.4 public OTA & Blink PB3.79.80 - 2026-10-13
+
+- Public OTA `ota/manifest.json` is now FW **2.4**, SHA256 `00c779dcabab06d90fa559a61fc8280e6d17593d19d74423696ba7f6ea404358`. GitHub Actions release run `38392942724` passed and published BIN; independent SHA check matched.
+- Firmware source on main is FW2.4 one-file `firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino`: UART auto pair RX22/TX23 vs RX26/TX33 with checksum validation + saved NVS slot, preserving FW2.2 UART transport and BLE/OTA protocol; opt-in 5000ms Redline Guard autonomously monitors qualified RPM and verifies MAP4 on supported 9.1x/9.2x.
+- Blink PB3.79.80 retains AFR Target Blink virtual keypad, floating +/- and safe local-only save; removes FW2.2 recovery controls/function from web UI, guard requires FW>=2.4, OTA prompts for engine OFF and blocks measured running RPM.
+- `Check REDLEO Protocol JS` passed after updating stale test PB version assertion; no ECU auth profile bypass introduced.
+- **PHYSICAL ACCEPTANCE NOT COMPLETE:** FW2.3 previously caused customer 0x5A handshake failures. FW2.4 must still be validated on both physical wiring variants, long-read, 0x5A and MAP4 bench simulation before describing it as real-hardware certified. No actual ECU data/write readback test was possible in this GitHub-only release.
+- Historical original FW2.2 binary/source remains retrievable through Git history for emergency stopped-engine USB flashing, but is no longer an in-app downgrade option.
+- Full operational notes: `FW24_AUTOPIN_REDLINE_LAB_HANDOFF.md` and last entry of `BLINK_DEV_HANDOFF.md`.
