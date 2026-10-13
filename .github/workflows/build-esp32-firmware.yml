@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_ota:
-        description: 'Explicitly publish tested FW2.2 binary to public OTA'
+        description: 'Explicitly publish compiled current firmware to public OTA (FW2.4)'
         type: boolean
         required: true
         default: false
@@ -24,6 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify firmware safety cores and Blink UI before compilation
+        run: |
+          python3 tools/extract-fw24-cores.py firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino /tmp/fw24_extracted.h
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-release-tests
+          /tmp/fw24-release-tests
+          node tools/test-fw24-ui.js
+          node --check redleo_real_protocol.js
+
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
@@ -33,12 +41,12 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12
 
-      - name: Prepare FW2.2 single-file sketch
+      - name: Prepare single-file FW2.4 sketch
         run: |
           mkdir -p build-sketch/BLINK_FW
           cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
 
-      - name: Compile FW2.2 firmware
+      - name: Compile FW2.4 firmware
         run: |
           mkdir -p build-out
           arduino-cli compile \
@@ -47,33 +55,38 @@ jobs:
             build-sketch/BLINK_FW
           test -s build-out/BLINK_FW.ino.bin
 
-      - name: Upload FW2.2 build artifact (no automatic OTA)
+      - name: Upload firmware build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK_FW22_BUILD_ONLY
+          name: BLINK_FW24_BUILD
           path: build-out/BLINK_FW.ino.bin
 
-      - name: Update OTA binary and manifest (manual release only)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_ota == true }}
+      - name: Publish OTA binary and manifest (explicit release only)
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW24]')) }}
         run: |
           cp build-out/BLINK_FW.ino.bin ota/blink_esp32.bin
           python3 - <<'PY'
-          import hashlib, json
+          import hashlib, json, re
           from pathlib import Path
 
           bin_path = Path('ota/blink_esp32.bin')
           manifest_path = Path('ota/manifest.json')
+          firmware_source = Path('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino').read_text(encoding='utf-8')
+          match = re.search(r'^#define FW_VERSION\s+"([^"]+)"', firmware_source, flags=re.MULTILINE)
+          if not match or match.group(1) != '2.4':
+              raise SystemExit('Refusing to publish: production release must be FW2.4')
+          version = match.group(1)
           sha = hashlib.sha256(bin_path.read_bytes()).hexdigest()
           manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          manifest['version'] = '2.2'
+          manifest['version'] = version
           manifest['url'] = 'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin'
           manifest['sha256'] = sha
           manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          print('FW 2.2 sha256', sha)
+          print('FW '+version+' sha256', sha)
           PY
 
-      - name: Commit OTA firmware (manual release only)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_ota == true }}
+      - name: Commit OTA firmware (explicit release only)
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW24]')) }}
         run: |
           if git diff --quiet -- ota/blink_esp32.bin ota/manifest.json; then
             echo "OTA firmware already current"
@@ -82,6 +95,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ota/blink_esp32.bin ota/manifest.json
-          git commit -m "Manually publish ESP32 FW 2.2 OTA binary"
+          git commit -m "Publish ESP32 FW 2.4 OTA binary [OTA_RELEASED]"
           git pull --rebase origin main
           git push

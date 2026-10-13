@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.79';
+  window.BLINK_PB_VERSION = '3.79.80';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2250,10 +2250,10 @@
     </div>
     <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
-    <details class="settings" id="redlineGuardSettings"><summary>AN TOÀN REDLINE · ESP32 FW2.3 · MAP 4</summary>
-      <div class="hint" style="margin:9px 0">FW2.3: sau khi bật, ESP32 tự nhận ECU và đọc RPM kể cả khi không kết nối Bluetooth. Chỉ hỗ trợ REDLEO 9.1x/9.2x đã xác minh giới hạn tua. Mặc định TẮT. MAP 4 phải được kiểm tra là MAP bảo vệ an toàn trước khi bật.</div>
+    <details class="settings" id="redlineGuardSettings"><summary>AN TOÀN REDLINE · ESP32 FW2.4 · MAP 4</summary>
+      <div class="hint" style="margin:9px 0">FW2.4: sau khi bật, ESP32 tự nhận ECU và đọc RPM kể cả khi không kết nối Bluetooth. Chỉ hỗ trợ REDLEO 9.1x/9.2x đã xác minh giới hạn tua. Mặc định TẮT. MAP 4 phải được kiểm tra là MAP bảo vệ an toàn trước khi bật.</div>
       <div class="settingsGrid" style="grid-template-columns:minmax(220px,1fr)">
-        <div class="field"><label>Trạng thái thật trên ESP32</label><input id="rgStatus" value="Chưa kiểm tra · chỉ tương thích FW 2.3+" readonly></div>
+        <div class="field"><label>Trạng thái thật trên ESP32</label><input id="rgStatus" value="Chưa kiểm tra · chỉ tương thích FW 2.4+" readonly></div>
       </div>
       <div class="toolrow" style="margin-top:8px">
         <button id="rgReadBtn" type="button">ĐỌC TRẠNG THÁI</button>
@@ -2273,11 +2273,10 @@
         <button id="otaScanBtn">QUÉT WI-FI</button>
         <button id="otaCheckBtn" class="primary">KIỂM TRA FIRMWARE</button>
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
-        <button id="otaRollbackFw22Btn" type="button">KHÔI PHỤC FW 2.2</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
       <div class="hint" id="otaInfo">Phiên bản mới và file firmware được tải bằng Internet của điện thoại rồi truyền sang ESP32 qua BLE. ESP32 không cần mở TLS.</div>
-      <div class="hint">Khôi phục FW 2.2 dùng bản BIN gốc đã khóa SHA-256, cho phép quay về FW cũ khi FW 2.3 lỗi. Chỉ thực hiện khi động cơ đã TẮT, xe đứng yên và nguồn ESP32 ổn định. OTA qua BLE vẫn cần ESP32 có thể kết nối Bluetooth; nếu phần BLE của firmware hỏng hoàn toàn, phải dùng USB.</div>
+      <div class="hint">Chỉ cập nhật firmware khi đã tắt động cơ, dừng Auto Tune và giữ nguồn ESP32 ổn định. Không ngắt BLE hoặc nguồn khi đang nạp.</div>
     </details>
   </section>
 
@@ -4834,7 +4833,7 @@ window.addEventListener('beforeunload',save);
     if(typeof commandChar.writeValueWithoutResponse==='function'){await commandChar.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,30));return;}
     throw new Error('BLE COMMAND không hỗ trợ control write.');
   }
-  // FW2.3 guard commands are plain BLE control, never RAW E1.
+  // FW2.4 guard commands are plain BLE control, never RAW E1.
   function renderGuardStatus(text){
     const value=String(text||'').trim(),e=$('rgStatus');
     if(e){
@@ -4877,7 +4876,7 @@ window.addEventListener('beforeunload',save);
     try{
       if(!state.ecuConnected||!commandChar)throw new Error('Chưa kết nối Bluetooth với ESP32.');
       const version=await ensureBridgeFirmwareStatus(2);
-      if(!bridgeStatusAtLeast(version,2,3))throw new Error('ESP32 cần FW 2.3 trở lên. Hiện tại: '+(version||'không rõ')+'.');
+      if(!bridgeStatusAtLeast(version,2,4))throw new Error('ESP32 cần FW 2.4 trở lên. Hiện tại: '+(version||'không rõ')+'.');
       await writeBridgeControl(action);
       if(action!=='RG?'){
         await new Promise(r=>setTimeout(r,180));
@@ -5405,7 +5404,10 @@ window.addEventListener('beforeunload',save);
     try{
       if(!otaUpdateReady||!otaManifestCache)throw new Error('Chưa có firmware mới sẵn sàng.');
       if(!state.ecuConnected)throw new Error('BLE với ESP32 đã ngắt.');
-      if(!confirm('Cập nhật ESP32 lên FW '+otaManifestCache.version+' ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
+      if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng ghi AFR / Auto Tune 3 lượt trước khi cập nhật ESP32.');
+      const otaRpm=Number(state.live?.rpm);
+      if(Number.isFinite(otaRpm)&&otaRpm>200)throw new Error('RPM đang là '+otaRpm+'. Phải tắt động cơ trước khi cập nhật.');
+      if(!confirm('CẬP NHẬT ESP32 LÊN FW '+otaManifestCache.version+'?\\n\\nPHẢI TẮT ĐỘNG CƠ, giữ nguồn ESP32 ổn định và không ngắt BLE cho tới khi hoàn tất.\\n\\nTiếp tục?'))return;
 
       otaUpdateReady=false;
       otaBleFatalError='';
@@ -5442,36 +5444,6 @@ window.addEventListener('beforeunload',save);
       setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
     }
   }
-  // Recovery path is independent of the public OTA version comparison.
-  // This immutable reference points to the checked FW2.2 BIN in the original
-  // PB3.79.72 commit, even if main's OTA manifest has already changed to 2.3.
-  const LAST_GOOD_FW22=Object.freeze({
-    version:'2.2',
-    url:'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/efb101e67f80da252b81b7f03931ab357fec4778/ota/blink_esp32.bin',
-    sha256:'ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e'
-  });
-  async function otaRollbackToFW22(){
-    try{
-      if(!state.ecuConnected||!commandChar)throw new Error('Cần kết nối BLE với ESP32 để khôi phục firmware.');
-      if(otaBleTransferActive)throw new Error('ESP32 đang thực hiện OTA khác.');
-      if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng Auto Tune và chế độ chạy 3 lượt.');
-      const fw=await ensureBridgeFirmwareStatus(3);
-      if(!bridgeStatusAtLeast(fw,2,3))throw new Error('Chỉ khôi phục khi ESP32 đang dùng FW 2.3 trở lên. Phiên bản: '+(fw||'không rõ'));
-      const rpm=Number(state.live?.rpm);
-      if(Number.isFinite(rpm)&&rpm>200)throw new Error('ECU đang có RPM '+rpm+'. Phải tắt động cơ trước khi khôi phục.');
-      if(!confirm('KHÔI PHỤC FW 2.2 GỐC?\\n\\nBẢO ĐẢM ĐỘNG CƠ ĐÃ TẮT, xe đứng yên và nguồn ESP32 không gián đoạn.\\n\\nTính năng Redline Guard của FW2.3 sẽ không còn hoạt động. Dữ liệu MAP ECU không bị ghi lại.\\n\\nTiếp tục?'))return;
-      // otaInstall performs a second explicit version confirmation and verifies
-      // every byte of the fixed old binary via SHA-256 before flashing.
-      otaManifestCache={...LAST_GOOD_FW22};
-      otaUpdateReady=true;
-      $('otaNewVersion').value='2.2 (khôi phục)';
-      setOtaInfo('Đã chọn FW 2.2 gốc · SHA-256 cố định · xác nhận để khôi phục');
-      await otaInstall();
-    }catch(e){
-      setOtaInfo('KHÔI PHỤC FW 2.2: '+String(e&&e.message||e),'error');
-    }
-  }
-  $('otaRollbackFw22Btn')?.addEventListener('click',otaRollbackToFW22);
   $('otaScanBtn').addEventListener('click',otaScanWifi);
   $('otaCheckBtn').addEventListener('click',otaCheck);
   $('otaInstallBtn').addEventListener('click',otaInstall);
@@ -5648,7 +5620,7 @@ window.addEventListener('beforeunload',save);
       }
       setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG XÁC THỰC ECU 0x5A...');
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
-      // FW2.3 RG? is deliberately not sent during the first 0x5A exchange.
+      // Guard RG? is deliberately not sent during the first ECU 0x5A exchange.
       // The Settings "ĐỌC TRẠNG THÁI" button remains available afterwards.
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
