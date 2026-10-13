@@ -462,6 +462,8 @@ static uint16_t guardLastRpm=0;
 static uint32_t guardLastValidRpmMs=0;
 static uint32_t guardStationarySinceMs=0;
 static uint32_t guardLastInitTryMs=0;
+static uint8_t guardInitFailures=0;
+static const uint8_t GUARD_MAX_IDENTITY_RETRIES=6;
 static uint32_t guardLastLimitTryMs=0;
 static uint32_t guardLastHostCommandMs=0;
 static uint32_t guardLastHostLongCommandMs=0;
@@ -527,6 +529,7 @@ static void guardHandleControlRequest(){
     guardLimitRetryMap=0;
     guardLimitRetryCount=0;
     guardLastLimitTryMs=0;
+    guardInitFailures=0;
     for(uint8_t i=1;i<=4;++i)guardLimits[i]=0;
     guardWindow.reset();
     guardAnnounce=true;
@@ -1325,6 +1328,7 @@ static void guardApplyHandshake(const uint8_t *rx,size_t n){
     guardHasIdentity=true;
     guardFault=false;
   }
+  guardInitFailures=0;
   guardIdentity=h;
   guardSupported=true;
   if(!guardPending && !guardLatched && h.map>=1&&h.map<=4)guardMap=h.map;
@@ -1394,6 +1398,47 @@ static size_t guardExchange(uint8_t cmd,uint8_t arg,uint8_t *rx,size_t maxRx){
 // CURRENT ignition's ECU identity first (0x5A), then requires >=3 valid
 // actual Live 0xA1 RPM=0 frames over >=1s. A BLE link, missing crank pulses,
 // stale RPM, or a cached previous key-cycle RPM=0 is never enough.
+// Self-contained MCU-only page6 read. The actual ECU family from checksum-
+// valid 0x5A determines both expected reply length and maxSpeed offset.
+// No guessed limits, no unlimited retry loop and no ON while MAP4 is unknown.
+static bool guardTryReadLimit(uint32_t now){
+  if(!guardSupported || !guardHasIdentity || guardLimitFailMap)return false;
+  if(guardLimitMask==0x0FU)return true;
+  if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<1150U)
+    return false;
+  uint8_t bank=0;
+  for(uint8_t i=1;i<=4;++i)
+    if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
+  if(!bank)return true;
+  if(guardLimitRetryMap!=bank){guardLimitRetryMap=bank;guardLimitRetryCount=0;}
+  ++guardLimitRetryCount;
+  uint8_t rx[192]={0};
+  const uint8_t page=(uint8_t)(0x60U+2U*bank);
+  const size_t n=guardExchange(0x9A,page,rx,sizeof(rx));
+  guardLastLimitTryMs=millis();
+  guardUpdatePageLimit(rx,n,page);
+  const bool verified=(guardLimitMask&(1U<<(bank-1)))!=0;
+  if(verified){
+    guardAnnounce=true;
+    return guardLimitMask==0x0FU;
+  }
+  Serial.printf("REDLINE limit MAP%u invalid ECU profile=%u attempt=%u/%u bytes=%u\n",
+     bank,(unsigned)guardIdentity.family,(unsigned)guardLimitRetryCount,
+     (unsigned)GUARD_MAX_LIMIT_RETRIES,(unsigned)n);
+  if(guardLimitRetryCount>=GUARD_MAX_LIMIT_RETRIES){
+    guardLimitFailMap=bank;
+    guardArmPending=false;
+    guardArmFailure=5;
+    guardEnabled=false; // Stored protection cannot run with incomplete limits.
+    guardPending=false;
+    guardWindow.reset();
+    guardStoreEnabled(false);
+    guardAnnounce=true;
+    Serial.printf("REDLINE SAFETY OFF: unable to validate MAP%u max RPM\n",bank);
+  }
+  return false;
+}
+
 static void guardTryArm(){
   if(!guardArmPending)return;
   const uint32_t now=millis();
@@ -1413,13 +1458,19 @@ static void guardTryArm(){
   }
   if((uint32_t)(now-guardArmStartMs)>BlinkGuardArm::TIMEOUT_MS){
     guardArmPending=false;
-    guardArmFailure=guardArmIdentityValidated?1:4;
+    guardArmFailure=guardArmIdentityValidated?(guardLimitMask==0x0FU?1:5):4;
+    if(guardArmFailure==5){
+      for(uint8_t i=1;i<=4;++i)
+        if(!(guardLimitMask&(1U<<(i-1)))){guardLimitFailMap=i;break;}
+    }
     guardAnnounce=true;
-    Serial.printf("REDLINE ARM TIMEOUT: identity=%u zeroSamples=%u\n",
-                  guardArmIdentityValidated?1U:0U,(unsigned)guardArmProof.samples);
+    Serial.printf("REDLINE ARM TIMEOUT: identity=%u verifiedMask=0x%X zeroSamples=%u\n",
+                  guardArmIdentityValidated?1U:0U,(unsigned)guardLimitMask,
+                  (unsigned)guardArmProof.samples);
     return;
   }
-  if(guardArmIdentityValidated && guardSupported && guardArmProof.ready(now)){
+  if(guardArmIdentityValidated && guardSupported && guardLimitMask==0x0FU
+      && guardArmProof.ready(now)){
     guardArmPending=false;
     guardArmFailure=0;
     guardEnabled=true;
@@ -1456,6 +1507,13 @@ static void guardTryArm(){
        BlinkGuard::parseHandshake(rx,n,ident))
       guardArmIdentityValidated=true;
     return; // NEVER send 0x69 to an unknown ECU/map.
+  }
+
+  // Read all 4 MAP limits BEFORE authorizing NVS guard enable.
+  // Each bad page gets at most five spaced retries and a named error.
+  if(guardLimitMask!=0x0FU){
+    guardTryReadLimit(now);
+    return;
   }
 
   // If real Blink 0x69 Live already supplies valid fresh samples, reuse them.
@@ -1517,7 +1575,7 @@ static void guardAutonomousTick(){
     return;
   }
   if(!guardEnabled || !uartReady || otaBusy || bleOtaActive)return;
-  if(guardUnsupported)return; // never probe the unverified ECU page6 layout
+  if(guardUnsupported || guardLimitFailMap)return; // never probe unverified/failed layouts
   // A lost ECU (power-off/reboot) invalidates old limits before another trip.
   if(guardSupported && guardLimitMask==0x0F && !guardLatched &&
      !guardPending && guardLastValidRpmMs &&
@@ -1547,20 +1605,18 @@ static void guardAutonomousTick(){
     if(guardLastInitTryMs && (uint32_t)(now-guardLastInitTryMs)<2500U)return;
     uint8_t rx[256]={0};
     const size_t n=guardExchange(0x5A,0x5A,rx,sizeof(rx));
-    guardLastInitTryMs=millis(); // Count retry delay after a slow ECU timeout.
+    guardLastInitTryMs=millis(); // Delay begins only after ECU timeout.
     guardApplyHandshake(rx,n);
+    if(!guardSupported && !guardUnsupported &&
+       ++guardInitFailures>=GUARD_MAX_IDENTITY_RETRIES){
+      guardArmFailure=4;guardEnabled=false;guardPending=false;
+      guardStoreEnabled(false);guardAnnounce=true;
+      Serial.println("REDLINE SAFETY OFF: ECU identity timeout");
+    }
     return;
   }
-  if(guardLimitMask!=0x0F){
-    if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<850U)return;
-    uint8_t bank=0;
-    for(uint8_t i=1;i<=4;i++)if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
-    if(!bank)return;
-    uint8_t rx[192]={0};
-    const uint8_t pg=(uint8_t)(0x60U+2U*bank);
-    const size_t n=guardExchange(0x9A,pg,rx,sizeof(rx));
-    guardLastLimitTryMs=millis(); // A bad ECU page must not starve phone BLE.
-    guardUpdatePageLimit(rx,n,pg);
+  if(guardLimitMask!=0x0FU){
+    guardTryReadLimit(now);
     return;
   }
   // When Blink is absent, ESP32 sends the same live 0x69 that the phone uses.
