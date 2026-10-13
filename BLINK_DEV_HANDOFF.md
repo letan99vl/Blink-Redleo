@@ -1282,3 +1282,13 @@ PB3.79.78 hotfix changes:
 - `index.html` and `redleo_real_protocol.js` changed; ESP32 OTA FW2.3 and manifest unchanged.
 - `feature/debug-map-nav-pb37977-20261013` is a discarded diagnostic branch that allows offline previews. **DO NOT MERGE** it: requirement is to unlock only after ECU identity verification.
 - If a customer stays blocked in PB3.79.78, record text shown in MAP auth banner and Settings > ECU diagnostic status, and ask them to read `RG?` to see whether guard is on. Test same hardware with the existing "Khôi phục FW2.2" BLE control *while engine OFF* to isolate FW2.3 vs UART wiring/profile.
+
+
+## 2026-10-13 · Restore entire firmware/ folder to FW 2.2 (user request)
+
+- Production ECU authentication error persisted at 0x5A with ESP32 FW 2.3. Owner requested the GitHub `firmware/` folder be put back to FW 2.2, in addition to the already restored public OTA.
+- `firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino` is now **byte-for-byte the original FW2.2 source blob** `a2c9724b9aff9c8d0b69cdce84b395254bcb717e` from commit `efb101e67f80da252b81b7f03931ab357fec4778`.
+- Removed `firmware/redline_guard_core.h`; the `firmware/` directory contains **one self-contained INO only**. The experimental FW2.3 sources remain preserved in the Git history and on branch `backup-fw23-firmware-source-before-restore-fw22-20261013`.
+- Removed the FW2.3-only CI workflow and C++ redline tests from active main. The standard ESP32 build compiles the one INO file with **no header dependency**, uploads a FW2.2 build artifact, and does not automatically change the OTA binary or manifest. Publishing an OTA from CI requires explicitly choosing the `publish_ota` checkbox in manual workflow dispatch.
+- Production `ota/blink_esp32.bin` is already the original FW2.2 blob `b5bb40eea95a55e951a6668cc41085b6fecf586c`, and `ota/manifest.json` is pinned to FW 2.2 / SHA256 `ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e`. Never reinstate FW2.3 from an archived workflow or test branch without hardware validation.
+- The public Blink web UI is still PB3.79.78 with handshake-status diagnostics and FW2.2 recovery option, not the earlier PB3.79.72 UI. Restoring code on GitHub **does not remotely flash ESP32 modules already running FW2.3**; use the explicit BLE FW2.2 restore control with engine off.
