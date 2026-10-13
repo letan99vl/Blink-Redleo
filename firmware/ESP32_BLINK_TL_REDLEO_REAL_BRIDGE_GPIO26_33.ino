@@ -99,7 +99,8 @@ inline bool parseLimitForFamily(const uint8_t *rx,size_t n,uint8_t page,
                                 Family family,uint16_t &limit){
   if(!rx || (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
   const size_t v91[]={33},v92[]={65,66},v10[]={21,22},ultra[]={45,46};
-  const size_t *sizes=nullptr,count=0,offset=5;
+  const size_t *sizes=nullptr;
+  size_t count=0,offset=5;
   switch(family){
     case V91:sizes=v91;count=1;break;
     case V92:sizes=v92;count=2;break;
