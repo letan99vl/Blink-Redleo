@@ -1,0 +1,54 @@
+name: FW2.3 Redline Guard Candidate Checks
+
+on:
+  push:
+    branches:
+      - feature/fw23-autonomous-redline-guard-20261013
+    paths:
+      - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - 'firmware/redline_guard_core.h'
+      - 'tools/test-redline-guard.cpp'
+      - 'tools/test-redline-guard-ui.js'
+      - 'index.html'
+      - '.github/workflows/check-fw23-redline-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  firmware-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test redline timing and ECU checksum in pure C++
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror tools/test-redline-guard.cpp -o /tmp/guard-tests
+          /tmp/guard-tests
+      - name: Test web controls and syntax
+        run: |
+          node tools/test-redline-guard-ui.js
+          node --check redleo_real_protocol.js
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+      - name: Compile FW2.3 without OTA publication
+        run: |
+          mkdir -p build-sketch/BLINK_FW build-out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
+          cp firmware/redline_guard_core.h build-sketch/BLINK_FW/redline_guard_core.h
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs --output-dir build-out build-sketch/BLINK_FW
+          test -s build-out/BLINK_FW.ino.bin
+          sha256sum build-out/BLINK_FW.ino.bin > build-out/FW2.3-REDLINE-GUARD-SHA256.txt
+          echo "LAB CANDIDATE ONLY - NOT FOR CUSTOMER / PUBLIC OTA" > build-out/READ-ME-FIRST.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_FW23_REDLINE_GUARD_LAB_CANDIDATE
+          path: |
+            build-out/BLINK_FW.ino.bin
+            build-out/FW2.3-REDLINE-GUARD-SHA256.txt
+            build-out/READ-ME-FIRST.txt
+          retention-days: 30
