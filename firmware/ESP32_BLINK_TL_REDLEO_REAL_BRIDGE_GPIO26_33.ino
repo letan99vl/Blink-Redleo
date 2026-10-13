@@ -31,28 +31,63 @@ inline bool validReply(const uint8_t *f, size_t n) {
   return sum==f[n-2];
 }
 
+// Firmware-specific ECU guard contracts from Blink's original verified page6
+// serializers. No V11/V8 guesswork and no fallback to a different page size.
+enum Family:uint8_t {NONE=0,V91=1,V92=2,V10=3,ULTRA1=4};
 struct Handshake {
   uint8_t map=0;
   char fw[5]={0};
   char id[17]={0};
+  Family family=NONE;
 };
-
-// Only verified four-MAP 9.1x/9.2x family, never 9B shortcut/V8/V10/V11.
+inline bool isPrintableId(const uint8_t *f){
+  if(!f)return false;
+  for(uint8_t i=1;i<=16;++i)
+    if(f[i] && (f[i]<32 || f[i]>126))return false;
+  return true;
+}
+inline bool includesUltra(const uint8_t *f){
+  const char word[]="ULTRA";
+  for(uint8_t i=1;i<=12;++i){
+    bool match=true;
+    for(uint8_t j=0;j<5;++j){
+      uint8_t c=f[i+j];
+      if(c>='a'&&c<='z')c-=32;
+      if(c!=(uint8_t)word[j]){match=false;break;}
+    }
+    if(match)return true;
+  }
+  return false;
+}
+inline Family familyFromFrame(const uint8_t *f){
+  if(!f)return NONE;
+  if(f[17]=='9' && f[18]=='.' && f[20]>='0' && f[20]<='9'){
+    if(f[19]=='1')return V91;
+    if(f[19]=='2')return V92;
+  }
+  if(f[17]=='1' && f[18]=='0' && f[19]=='.' &&
+     f[20]>='0' && f[20]<='9')
+    return includesUltra(f)?ULTRA1:V10;
+  // V8 may have only one MAP. V11's page6 4x3 encoded limits do not
+  // identify one verified "max RPM" value. Both MUST fail closed.
+  return NONE;
+}
 inline bool parseHandshake(const uint8_t *rx,size_t n,Handshake &out) {
-  if (!rx) return false;
-  const size_t sizes[]={41,37};
-  for (size_t i=0;i<n;++i) {
-    if(rx[i]!=0x5A)continue;
-    for (size_t size:sizes) {
-      if (i+size>n || !validReply(rx+i,size))continue;
-      const uint8_t *f=rx+i;
-      if (f[17]!='9' || f[18]!='.' ||
-          !((f[19]=='1' || f[19]=='2') && f[20]>='0' && f[20]<='9'))continue;
-      if (f[33]>3)continue;
+  if(!rx)return false;
+  const size_t lengths[]={41,37};
+  for(size_t offset=0;offset<n;++offset){
+    if(rx[offset]!=0x5A)continue;
+    for(size_t len:lengths){
+      if(offset+len>n || !validReply(rx+offset,len))continue;
+      const uint8_t *f=rx+offset;
+      if(f[33]>3 || !isPrintableId(f))continue;
+      Family fam=familyFromFrame(f);
+      if(fam==NONE)continue;
       Handshake h;
       h.map=(uint8_t)(f[33]+1);
-      for(int j=0;j<4;j++)h.fw[j]=(char)f[17+j];
-      for(int j=0;j<16;j++)h.id[j]=(char)f[1+j];
+      h.family=fam;
+      for(uint8_t j=0;j<4;++j)h.fw[j]=(char)f[17+j];
+      for(uint8_t j=0;j<16;++j)h.id[j]=(char)f[1+j];
       h.id[16]=0;
       out=h;
       return true;
@@ -60,23 +95,47 @@ inline bool parseHandshake(const uint8_t *rx,size_t n,Handshake &out) {
   }
   return false;
 }
-
-inline bool parseLimit(const uint8_t *rx,size_t n,uint8_t page,uint16_t &limit){
-  if(!rx || (page&0xF0U)!=0x60U || 
-     (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
-  const size_t sizes[]={33,65,66}; // V9.1 30B, V9.2 62B or 63B reply payload
-  for(size_t i=0;i<n;++i){
+// Decode direct 0x9A page6 using the same verified framing as Blink web:
+// 1 page byte + AT LEAST the family-specific writable data + 2 checksum
+// bytes. Some ECU builds append read-only reply bytes after the writable area.
+// Require a COMPLETE checksum-valid frame, never trust a bare byte count.
+inline bool parseLimitForFamily(const uint8_t *rx,size_t n,uint8_t page,
+                                Family family,uint16_t &limit){
+  if(!rx || (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
+  size_t minFrame=0,offset=5;
+  switch(family){
+    case V91:minFrame=33;break;  // 30B writable + page/checksum trailer.
+    case V92:minFrame=65;break;  // 62B writable + page/checksum trailer.
+    case V10:minFrame=21;break;  // 18B writable + page/checksum trailer.
+    case ULTRA1:minFrame=45;offset=7;break; // 42B; index3=maxSpeed.
+    default:return false;       // V8/V11/unknown: no automatic MAP4.
+  }
+  if(n<minFrame)return false;
+  // Blink findValidCommandFrame searches the longest checksum-valid frame
+  // following each page marker, allowing reply-only tail bytes (V9.13 etc.).
+  // Scan the UART buffer in case it starts with a byte echo/status prefix.
+  for(size_t i=0;i+minFrame<=n;++i){
     if(rx[i]!=page)continue;
-    for(size_t size:sizes){
-      if(i+size>n || !validReply(rx+i,size))continue;
+    const size_t available=n-i;
+    for(size_t len=available;len>=minFrame;--len){
+      if(rx[i+len-1]!=(uint8_t)(0xFFU-page))continue;
+      if(!validReply(rx+i,len))continue;
       const uint8_t *f=rx+i;
-      const uint16_t rpm=(uint16_t)((uint16_t)f[5]<<8 | (uint16_t)f[6]);
+      const uint16_t rpm=(uint16_t)(((uint16_t)f[offset]<<8)|f[offset+1]);
+      // A complete valid reply with an implausible limit is a hard failure,
+      // NOT an invitation to find a shorter coincidental checksum.
       if(rpm<RPM_LIMIT_MIN || rpm>RPM_LIMIT_MAX)return false;
       limit=rpm;
       return true;
     }
   }
   return false;
+}
+// Compatibility wrapper for host regression fixtures; production must always
+// supply the identity-verified family, never auto-guess it from reply length.
+inline bool parseLimit(const uint8_t *rx,size_t n,uint8_t page,uint16_t &limit){
+  return parseLimitForFamily(rx,n,page,V91,limit) ||
+         parseLimitForFamily(rx,n,page,V92,limit);
 }
 
 inline void request5(uint8_t cmd,uint8_t arg,uint8_t out[5]){
@@ -136,7 +195,7 @@ struct Window {
 namespace BlinkGuardArm {
 static const uint32_t PROOF_MS=1000U;
 static const uint32_t GAP_MS=700U;
-static const uint32_t TIMEOUT_MS=14000U;
+static const uint32_t TIMEOUT_MS=30000U; // ECU limits 4 MAP + recent RPM=0 proof
 static const uint32_t POLL_MS=250U;
 static const uint32_t IDENTITY_MS=1700U;
 struct Proof {
@@ -258,7 +317,7 @@ inline size_t normalizeLive(uint8_t *p,size_t n) {
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.5"
+#define FW_VERSION "2.6.1"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -401,6 +460,10 @@ static bool guardSupported=false;
 static bool guardUnsupported=false;
 static uint8_t guardMap=1;
 static uint8_t guardLimitMask=0;
+static uint8_t guardLimitFailMap=0;     // No false 'RG:ON' after invalid page6 replies.
+static uint8_t guardLimitRetryMap=0;
+static uint8_t guardLimitRetryCount=0;
+static const uint8_t GUARD_MAX_LIMIT_RETRIES=5;
 static uint16_t guardLimits[5]={0,0,0,0,0};
 static BlinkGuard::Handshake guardIdentity;
 static bool guardHasIdentity=false;
@@ -409,6 +472,8 @@ static uint16_t guardLastRpm=0;
 static uint32_t guardLastValidRpmMs=0;
 static uint32_t guardStationarySinceMs=0;
 static uint32_t guardLastInitTryMs=0;
+static uint8_t guardInitFailures=0;
+static const uint8_t GUARD_MAX_IDENTITY_RETRIES=6;
 static uint32_t guardLastLimitTryMs=0;
 static uint32_t guardLastHostCommandMs=0;
 static uint32_t guardLastHostLongCommandMs=0;
@@ -418,12 +483,23 @@ static bool guardAnnounce=false;
 static bool guardUartActive=false;
 
 static String guardStatusText(){
-  if(guardControlRequest==1 || guardArmPending)return "RG:CHECK";
+  if(guardLimitFailMap)
+    return String("RG:LIMITERR:M")+String(guardLimitFailMap);
+  if(guardUnsupported)return "RG:UNSUP";
+  if(guardControlRequest==1 || guardArmPending){
+    if(guardArmPending && guardArmIdentityValidated && guardLimitMask!=0x0FU){
+      for(uint8_t i=1;i<=4;++i)
+        if(!(guardLimitMask&(1U<<(i-1))))
+          return String("RG:ARMREAD:M")+String(i);
+    }
+    return "RG:CHECK";
+  }
   if(!guardEnabled){
     if(guardArmFailure==1)return "RG:NORPM";
     if(guardArmFailure==2)return "RG:RUNNING";
     if(guardArmFailure==3)return "RG:UNSUP";
     if(guardArmFailure==4)return "RG:NOECU";
+    if(guardArmFailure==5)return "RG:LIMITERR";
     return "RG:OFF";
   }
   if(guardLatched)return "RG:TRIP:M4";
@@ -459,9 +535,15 @@ static void guardHandleControlRequest(){
     guardUnsupported=false;
     guardHasIdentity=false;
     guardLimitMask=0;
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
+    guardLastLimitTryMs=0;
+    guardInitFailures=0;
+    for(uint8_t i=1;i<=4;++i)guardLimits[i]=0;
     guardWindow.reset();
     guardAnnounce=true;
-    Serial.println("REDLINE ARM: verifying live RPM=0 after key ON");
+    Serial.println("REDLINE ARM: check ECU identity + four page6 limits, THEN RPM=0");
     return;
   }
   if(control==3){ // Cancelling an OFF-to-ON request is always safe.
@@ -475,6 +557,9 @@ static void guardHandleControlRequest(){
     guardArmPending=false;
     guardArmFailure=0;
     guardArmProof.reset();
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
     guardEnabled=false;
     guardLatched=false; // DO NOT switch ECU away from its current map.
     guardPending=false;
@@ -1208,35 +1293,52 @@ static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
 static void guardApplyHandshake(const uint8_t *rx,size_t n){
   BlinkGuard::Handshake h;
   if(!BlinkGuard::parseHandshake(rx,n,h)){
-    // An actual full ECU handshake from a different version means this
-    // experimental V9.1x/9.2x guard must NOT attempt page6 interpretations.
+    // A fully checksum-valid 0x5A from an unknown ECU means NO cross-family
+    // guessing. V8 single-map and V11 4x3 Idle must never inherit V9 limits.
     const size_t sizes[]={41,37};
     for(size_t pos=0;pos<n;++pos){
       if(rx[pos]!=0x5A)continue;
       for(size_t len:sizes){
-        if(pos+len<=n && validRedleoFrame(rx+pos,len)){
+        if(pos+len<=n && validRedleoFrame(rx+pos,len) &&
+           BlinkGuard::isPrintableId(rx+pos)){
           guardUnsupported=true;
           guardSupported=false;
           guardLimitMask=0;
+          guardLimitFailMap=0;
+          guardLimitRetryMap=0;
+          guardLimitRetryCount=0;
           guardWindow.reset();
+          if(guardArmPending){guardArmPending=false;guardArmFailure=3;}
+          if(guardEnabled){
+            guardEnabled=false; // No unattended map switching with unknown ECU.
+            guardPending=false;
+            guardStoreEnabled(false);
+          }
           guardAnnounce=true;
+          Serial.println("REDLINE UNSUPPORTED ECU family; protection DISARMED");
           return;
         }
       }
     }
-    return;
+    return; // No valid ECU handshake at all: remain unverified, retry bounded.
   }
   guardUnsupported=false;
   const bool different=!guardHasIdentity ||
                        strcmp(h.id,guardIdentity.id)!=0 ||
-                       strcmp(h.fw,guardIdentity.fw)!=0;
+                       strcmp(h.fw,guardIdentity.fw)!=0 ||
+                       h.family!=guardIdentity.family;
   if(different){
     guardLimitMask=0;
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
+    guardLastLimitTryMs=0;
     for(int i=1;i<=4;i++)guardLimits[i]=0;
     guardWindow.reset();
     guardHasIdentity=true;
     guardFault=false;
   }
+  guardInitFailures=0;
   guardIdentity=h;
   guardSupported=true;
   if(!guardPending && !guardLatched && h.map>=1&&h.map<=4)guardMap=h.map;
@@ -1244,12 +1346,16 @@ static void guardApplyHandshake(const uint8_t *rx,size_t n){
 
 static void guardUpdatePageLimit(const uint8_t *rx,size_t n,uint8_t page){
   uint16_t rpm=0;
-  if(!BlinkGuard::parseLimit(rx,n,page,rpm))return;
+  if(!guardHasIdentity || !guardSupported ||
+     !BlinkGuard::parseLimitForFamily(rx,n,page,guardIdentity.family,rpm))return;
   const uint8_t bank=(uint8_t)((page&0x0F)/2);
   if(bank<1||bank>4)return;
   if(guardLimits[bank]!=rpm)guardWindow.reset();
   guardLimits[bank]=rpm;
   guardLimitMask|=(uint8_t)(1U<<(bank-1));
+  guardLimitRetryCount=0;
+  guardLimitRetryMap=0;
+  guardLimitFailMap=0;
   if(guardEnabled && guardLimitMask==0x0FU)guardAnnounce=true;
   Serial.printf("REDLINE limit MAP%u=%u rpm mask=0x%X\n",
                 bank,rpm,(unsigned)guardLimitMask);
@@ -1264,7 +1370,8 @@ static void guardObserveHostTransaction(const uint8_t *tx,size_t txLen,
     guardApplyHandshake(rx,rxLen);
     BlinkGuard::Handshake id;
     if(guardArmPending && guardSupported && !guardUnsupported &&
-       BlinkGuard::parseHandshake(rx,rxLen,id))
+       BlinkGuard::parseHandshake(rx,rxLen,id) &&
+       id.family==guardIdentity.family)
       guardArmIdentityValidated=true;
     return;
   }
@@ -1301,6 +1408,47 @@ static size_t guardExchange(uint8_t cmd,uint8_t arg,uint8_t *rx,size_t maxRx){
 // CURRENT ignition's ECU identity first (0x5A), then requires >=3 valid
 // actual Live 0xA1 RPM=0 frames over >=1s. A BLE link, missing crank pulses,
 // stale RPM, or a cached previous key-cycle RPM=0 is never enough.
+// Self-contained MCU-only page6 read. The actual ECU family from checksum-
+// valid 0x5A determines both expected reply length and maxSpeed offset.
+// No guessed limits, no unlimited retry loop and no ON while MAP4 is unknown.
+static bool guardTryReadLimit(uint32_t now){
+  if(!guardSupported || !guardHasIdentity || guardLimitFailMap)return false;
+  if(guardLimitMask==0x0FU)return true;
+  if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<1150U)
+    return false;
+  uint8_t bank=0;
+  for(uint8_t i=1;i<=4;++i)
+    if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
+  if(!bank)return true;
+  if(guardLimitRetryMap!=bank){guardLimitRetryMap=bank;guardLimitRetryCount=0;}
+  ++guardLimitRetryCount;
+  uint8_t rx[192]={0};
+  const uint8_t page=(uint8_t)(0x60U+2U*bank);
+  const size_t n=guardExchange(0x9A,page,rx,sizeof(rx));
+  guardLastLimitTryMs=millis();
+  guardUpdatePageLimit(rx,n,page);
+  const bool verified=(guardLimitMask&(1U<<(bank-1)))!=0;
+  if(verified){
+    guardAnnounce=true;
+    return guardLimitMask==0x0FU;
+  }
+  Serial.printf("REDLINE limit MAP%u invalid ECU profile=%u attempt=%u/%u bytes=%u\n",
+     bank,(unsigned)guardIdentity.family,(unsigned)guardLimitRetryCount,
+     (unsigned)GUARD_MAX_LIMIT_RETRIES,(unsigned)n);
+  if(guardLimitRetryCount>=GUARD_MAX_LIMIT_RETRIES){
+    guardLimitFailMap=bank;
+    guardArmPending=false;
+    guardArmFailure=5;
+    guardEnabled=false; // Stored protection cannot run with incomplete limits.
+    guardPending=false;
+    guardWindow.reset();
+    guardStoreEnabled(false);
+    guardAnnounce=true;
+    Serial.printf("REDLINE SAFETY OFF: unable to validate MAP%u max RPM\n",bank);
+  }
+  return false;
+}
+
 static void guardTryArm(){
   if(!guardArmPending)return;
   const uint32_t now=millis();
@@ -1320,13 +1468,19 @@ static void guardTryArm(){
   }
   if((uint32_t)(now-guardArmStartMs)>BlinkGuardArm::TIMEOUT_MS){
     guardArmPending=false;
-    guardArmFailure=guardArmIdentityValidated?1:4;
+    guardArmFailure=guardArmIdentityValidated?(guardLimitMask==0x0FU?1:5):4;
+    if(guardArmFailure==5){
+      for(uint8_t i=1;i<=4;++i)
+        if(!(guardLimitMask&(1U<<(i-1)))){guardLimitFailMap=i;break;}
+    }
     guardAnnounce=true;
-    Serial.printf("REDLINE ARM TIMEOUT: identity=%u zeroSamples=%u\n",
-                  guardArmIdentityValidated?1U:0U,(unsigned)guardArmProof.samples);
+    Serial.printf("REDLINE ARM TIMEOUT: identity=%u verifiedMask=0x%X zeroSamples=%u\n",
+                  guardArmIdentityValidated?1U:0U,(unsigned)guardLimitMask,
+                  (unsigned)guardArmProof.samples);
     return;
   }
-  if(guardArmIdentityValidated && guardSupported && guardArmProof.ready(now)){
+  if(guardArmIdentityValidated && guardSupported && guardLimitMask==0x0FU
+      && guardArmProof.ready(now)){
     guardArmPending=false;
     guardArmFailure=0;
     guardEnabled=true;
@@ -1365,6 +1519,13 @@ static void guardTryArm(){
     return; // NEVER send 0x69 to an unknown ECU/map.
   }
 
+  // Read all 4 MAP limits BEFORE authorizing NVS guard enable.
+  // Each bad page gets at most five spaced retries and a named error.
+  if(guardLimitMask!=0x0FU){
+    guardTryReadLimit(now);
+    return;
+  }
+
   // If real Blink 0x69 Live already supplies valid fresh samples, reuse them.
   // Otherwise query the current map (discovered by the 0x5A identity).
   if(guardLastValidRpmMs &&
@@ -1398,7 +1559,11 @@ static void guardTrySwitch(){
   delay(65);
   const size_t hsSize=guardExchange(0x5A,0x5A,rx,sizeof(rx));
   BlinkGuard::Handshake hs;
-  if(liveOk && BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4){
+  if(liveOk && guardSupported && guardHasIdentity &&
+     BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4 &&
+     hs.family==guardIdentity.family &&
+     strcmp(hs.id,guardIdentity.id)==0 &&
+     strcmp(hs.fw,guardIdentity.fw)==0){
     guardLatched=true;
     guardPending=false;
     guardMap=4;
@@ -1420,7 +1585,7 @@ static void guardAutonomousTick(){
     return;
   }
   if(!guardEnabled || !uartReady || otaBusy || bleOtaActive)return;
-  if(guardUnsupported)return; // never probe the unverified ECU page6 layout
+  if(guardUnsupported || guardLimitFailMap)return; // never probe unverified/failed layouts
   // A lost ECU (power-off/reboot) invalidates old limits before another trip.
   if(guardSupported && guardLimitMask==0x0F && !guardLatched &&
      !guardPending && guardLastValidRpmMs &&
@@ -1450,20 +1615,18 @@ static void guardAutonomousTick(){
     if(guardLastInitTryMs && (uint32_t)(now-guardLastInitTryMs)<2500U)return;
     uint8_t rx[256]={0};
     const size_t n=guardExchange(0x5A,0x5A,rx,sizeof(rx));
-    guardLastInitTryMs=millis(); // Count retry delay after a slow ECU timeout.
+    guardLastInitTryMs=millis(); // Delay begins only after ECU timeout.
     guardApplyHandshake(rx,n);
+    if(!guardSupported && !guardUnsupported &&
+       ++guardInitFailures>=GUARD_MAX_IDENTITY_RETRIES){
+      guardArmFailure=4;guardEnabled=false;guardPending=false;
+      guardStoreEnabled(false);guardAnnounce=true;
+      Serial.println("REDLINE SAFETY OFF: ECU identity timeout");
+    }
     return;
   }
-  if(guardLimitMask!=0x0F){
-    if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<850U)return;
-    uint8_t bank=0;
-    for(uint8_t i=1;i<=4;i++)if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
-    if(!bank)return;
-    uint8_t rx[192]={0};
-    const uint8_t pg=(uint8_t)(0x60U+2U*bank);
-    const size_t n=guardExchange(0x9A,pg,rx,sizeof(rx));
-    guardLastLimitTryMs=millis(); // A bad ECU page must not starve phone BLE.
-    guardUpdatePageLimit(rx,n,pg);
+  if(guardLimitMask!=0x0FU){
+    guardTryReadLimit(now);
     return;
   }
   // When Blink is absent, ESP32 sends the same live 0x69 that the phone uses.
@@ -2253,15 +2416,22 @@ void setup() {
   Serial.printf("\nBLINK TL REDLEO ECU REAL BRIDGE ESP32 FW%s\n", FW_VERSION);
   Serial.printf("ECU UART: 38400 8E2 AUTO RX22/TX23 or RX26/TX33 RTS=%d\n", ECU_RTS_PIN);
 
-  // Legacy FW2.2 installs stay OFF. Users explicitly opt in via RGON with
-  // engine stopped; the setting survives key cycles in NVS.
+  // FW2.6 changes physical ECU family/limit interpretation. Old FW2.5 NVS
+  // "enabled" is NOT transferable: require a fresh stopped-engine RGON and
+  // four page6 limit confirmations before any MAP4 automation can run.
   {
     Preferences p;
-    if(p.begin("blinkguard",true)){
-      guardEnabled=p.getBool("enabled",false);
+    if(p.begin("blinkguard",false)){
+      const uint8_t schema=p.getUChar("schema",0U);
+      if(schema!=2U){
+        p.putBool("enabled",false);
+        p.putUChar("schema",2U);
+        guardEnabled=false;
+        Serial.println("REDLINE schema migration: old automatic guard OFF pending new ECU validation");
+      }else guardEnabled=p.getBool("enabled",false);
       p.end();
     }
-    Serial.printf("REDLINE guard enabled=%u (OFF by default)\n",guardEnabled?1U:0U);
+    Serial.printf("REDLINE guard enabled=%u (new FW2.6 ECU profile requires opt-in)\n",guardEnabled?1U:0U);
   }
   {
     Preferences p;

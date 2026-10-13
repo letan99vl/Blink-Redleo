@@ -4,12 +4,12 @@ const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
 const fw=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
 const handoff=fs.readFileSync('BLINK_FW23_REDLINE_GUARD_HANDOFF.md','utf8');
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.82'"));
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.83'"));
 for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBtn"',
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
   'RG:TRIP:M4'])
   assert(html.includes(token),'Blink UI missing '+token);
-for(const token of ['#define FW_VERSION "2.5"','namespace BlinkGuard {',
+for(const token of ['#define FW_VERSION "2.6.1"','namespace BlinkGuard {',
   'namespace BlinkAutoPins {','{{22,23},{26,33}}',
   'transactUartAutopin(txBuf, n, rxBuf, RX_MAX);',
   'guardAutonomousTick();','guardObserveHostTransaction(txBuf,n,rxBuf,got);',
@@ -19,16 +19,31 @@ for(const token of ['#define FW_VERSION "2.5"','namespace BlinkGuard {',
   assert(fw.includes(token),'FW2.4 missing '+token);
 for(const token of ['namespace BlinkGuardArm {','guardTryArm(); // Runs even while normal protection is OFF, only after RGON.',
   'if(guardArmPending)guardArmProof.observe(guardLastValidRpmMs,rpm);',
-  'BlinkGuard::parseHandshake(rx,n,ident)', 'guardArmIdentityValidated?1:4',
-  'if(guardArmIdentityValidated && guardSupported && guardArmProof.ready(now))',
+  'BlinkGuard::parseHandshake(rx,n,ident)', 'guardArmIdentityValidated?(guardLimitMask==0x0FU?1:5):4',
+  'if(guardArmIdentityValidated && guardSupported && guardLimitMask==0x0FU',
   'guardEnabled=true;','guardStoreEnabled(true);',
   'guardControlRequest=1;', 'notifyStatus("RG:CHECK");',
-  'guardArmFailure=guardArmIdentityValidated?1:4;',
+  'guardArmProof.ready(now)',
   'guardArmProof.reset();'])
   assert(fw.includes(token),'FW2.5 safe arm missing '+token);
 for(const token of ["'RG:CHECK':'ĐANG KIỂM TRA ECU", "'RG:NORPM':'CHƯA BẬT", "'RG:NOECU':'CHƯA BẬT",
   "'RG:RUNNING':'TỪ CHỐI"])
   assert(html.includes(token),'FW2.5 Blink UI missing '+token);
+// Multi-family guard source contract: never arm from a guessed RPM page.
+for(const token of ['parseLimitForFamily(rx,n,page,guardIdentity.family,rpm)',
+  'guardLimitMask==0x0FU','guardTryReadLimit(now);',
+  'GUARD_MAX_LIMIT_RETRIES=5','guardLimitFailMap=bank;',
+  'guardEnabled=false; // Stored protection cannot run with incomplete limits.',
+  'if(guardUnsupported || guardLimitFailMap)return;',
+  'BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4',
+  'hs.family==guardIdentity.family','guardStoreEnabled(false);',
+  'static const uint8_t GUARD_MAX_IDENTITY_RETRIES=6',
+  'if(guardArmFailure==5)return "RG:LIMITERR";'])
+ assert(fw.includes(token),'FW2.6 missing safety contract: '+token);
+assert(html.includes('RG:ARMREAD:M')&&html.includes('RG:LIMITERR:M'),
+  'Blink must display named MAP limit-reading state and failure');
+assert(!fw.includes('if(!BlinkGuard::parseLimit(rx,n,page,rpm))return;'),
+  'Unsafe V9-only page6 decode still in live MCU path');
 const callback=fw.slice(fw.indexOf('if (text == "RG?" || text == "RGON" || text == "RGOFF")'),
                          fw.indexOf('if (text == "PING")'));
 assert(!callback.includes('guardEnabled=true;')&&!callback.includes('guardStoreEnabled(true);'),
@@ -64,7 +79,7 @@ for(const item of required)assert(html.includes(item),'Missing AFR target UI '+i
 for(const old of ['id="otaRollbackFw22Btn"', 'otaRollbackToFW22', 'LAST_GOOD_FW22', 'KHÔI PHỤC FW 2.2']){
   assert(!html.includes(old),'Obsolete rollback path must be removed: '+old);
 }
-assert(html.includes("if(!bridgeStatusAtLeast(version,2,4))"),'Guard must require FW2.4');
+assert(html.includes("if(!bridgeStatusAtLeast(version,2,6))"),'Guard must require FW2.6');
 assert(html.includes("if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng ghi AFR"),'OTA cannot run during recording');
 assert(html.includes("if(Number.isFinite(otaRpm)&&otaRpm>200)"),'OTA must block measured running RPM');
 
@@ -82,4 +97,4 @@ for (const hit of html.matchAll(re)) {
   new vm.Script(hit[1],{filename:'Blink inline script '+scripts});
 }
 assert(scripts>=2);
-console.log('PASS: '+scripts+' inline Blink scripts; FW2.5 safe key-on arming and no extra .h required');
+console.log('PASS: '+scripts+' inline Blink scripts; FW2.6 multi-family RPM limit arming, no extra .h and safe error states');

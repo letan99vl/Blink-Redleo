@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.82';
+  window.BLINK_PB_VERSION = '3.79.83';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2250,8 +2250,8 @@
     </div>
     <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
-    <details class="settings" id="redlineGuardSettings"><summary>AN TOÀN REDLINE · ESP32 FW2.4+ · MAP 4</summary>
-      <div class="hint" style="margin:9px 0">FW2.5: bấm BẬT, ESP32 tự xác thực ECU và kiểm tra RPM=0 liên tục ít nhất 1 giây trước khi lưu bảo vệ. Không có phản hồi RPM hợp lệ thì giữ TẮT. Sau khi bật, ESP32 tự nhận ECU và đọc RPM kể cả khi không kết nối Bluetooth. Chỉ hỗ trợ REDLEO 9.1x/9.2x đã xác minh giới hạn tua. Mặc định TẮT. MAP 4 phải được kiểm tra là MAP bảo vệ an toàn trước khi bật.</div>
+    <details class="settings" id="redlineGuardSettings"><summary>AN TOÀN REDLINE · FW2.6 ĐA ĐỜI ECU · MAP 4</summary>
+      <div class="hint" style="margin:9px 0">FW2.6: bấm BẬT, ESP32 xác nhận đời ECU, đọc và kiểm tra giới hạn RPM của 4 MAP, rồi kiểm tra RPM=0 ít nhất 1 giây trước khi lưu bảo vệ. ECU chưa xác minh MAP4 thì không bật. Không có phản hồi RPM hợp lệ thì giữ TẮT. Sau khi bật, ESP32 tự nhận ECU và đọc RPM kể cả khi không kết nối Bluetooth. Chỉ hỗ trợ REDLEO 9.1x/9.2x đã xác minh giới hạn tua. Mặc định TẮT. MAP 4 phải được kiểm tra là MAP bảo vệ an toàn trước khi bật.</div>
       <div class="settingsGrid" style="grid-template-columns:minmax(220px,1fr)">
         <div class="field"><label>Trạng thái thật trên ESP32</label><input id="rgStatus" value="Chưa kiểm tra · chỉ tương thích FW 2.4+" readonly></div>
       </div>
@@ -4845,18 +4845,22 @@ window.addEventListener('beforeunload',save);
         'RG:NOECU':'CHƯA BẬT · KHÔNG XÁC THỰC ĐƯỢC ECU 0x5A',
         'RG:OTA':'KHÔNG THỂ BẬT · ESP32 ĐANG CẬP NHẬT FIRMWARE',
         'RG:WAIT':'ĐANG NHẬN DIỆN ECU...',
-        'RG:READING':'ĐANG ĐỌC GIỚI HẠN RPM 4 MAP...',
-        'RG:UNSUP':'ECU CHƯA HỖ TRỢ · CHỈ REDLEO 9.1x/9.2x',
+        'RG:READING':'ĐANG XÁC NHẬN GIỚI HẠN RPM CỦA 4 MAP · CHƯA BẢO VỆ...',
+        'RG:UNSUP':'ECU CHƯA CÓ BỘ BẢO VỆ MAP4 ĐÃ XÁC MINH (V8/V11/UNKNOWN) · ĐÃ TẮT BẢO VỆ',
+        'RG:LIMITERR':'CHƯA BẬT · KHÔNG ĐỌC ĐỦ GIỚI HẠN RPM 4 MAP',
         'RG:TRIP:M4':'ĐÃ KÍCH HOẠT · ECU MAP 4 (KHÓA)',
         'RG:FAULT':'LỖI XÁC MINH MAP 4 · KHÔNG ĐƯỢC COI LÀ ĐÃ CHUYỂN',
         'RG:STOP':'TỪ CHỐI: động cơ phải dừng và RPM Live phải hợp lệ',
         'RG:QUEUED':'ĐANG LƯU CÀI ĐẶT VÀO ESP32...',
         'RG:LOCKED':'GUARD ĐÃ KHÓA GHI ECU TRONG CHẾ ĐỘ MAP4'
       };
-      e.value=nice[value]||(value.startsWith('RG:ON:M')?('ĐANG BẢO VỆ · '+value.slice(3)):value);
+      e.value=nice[value]||
+        (value.startsWith('RG:ARMREAD:M')?('ĐANG KIỂM TRA GIỚI HẠN RPM MAP '+value.split('M').pop()+' · CHƯA BẬT BẢO VỆ'):
+        (value.startsWith('RG:LIMITERR:M')?('BẢO VỆ ĐÃ TẮT · KHÔNG XÁC MINH ĐƯỢC GIỚI HẠN RPM MAP '+value.split('M').pop()):
+        (value.startsWith('RG:ON:M')?('ĐANG BẢO VỆ · '+value.slice(3)):value)));
     }
     if(value==='RG:FAULT')window.blinkGuardFault=true;
-    if(['RG:STOP','RG:UNSUP','RG:FAULT','RG:NORPM','RG:RUNNING','RG:NOECU','RG:OTA'].includes(value)){
+    if(['RG:STOP','RG:UNSUP','RG:FAULT','RG:NORPM','RG:RUNNING','RG:NOECU','RG:OTA','RG:LIMITERR'].includes(value)||value.startsWith('RG:LIMITERR:M')){
       showEcuNotice('error','REDLINE GUARD',e?.value||value,6000);
     }
     if(value==='RG:TRIP:M4'){
@@ -4926,8 +4930,8 @@ window.addEventListener('beforeunload',save);
       if(status)status.value='ĐANG CHỜ BLE NHẢ GIAO DỊCH ECU...';
       lease=await api.beginBridgeGuardControl(20000);
       const version=await ensureBridgeFirmwareStatus(2);
-      if(!bridgeStatusAtLeast(version,2,4))
-        throw new Error('ESP32 cần FW 2.4 trở lên. Hiện tại: '+(version||'không rõ')+'.');
+      if(!bridgeStatusAtLeast(version,2,6))
+        throw new Error('ESP32 cần FW 2.6 trở lên. Hiện tại: '+(version||'không rõ')+'.');
       if(!state.ecuConnected||!commandChar)
         throw new Error('Bluetooth đã ngắt kết nối.');
       // Leave a short guard band after the previous RAW/GATT operation.
