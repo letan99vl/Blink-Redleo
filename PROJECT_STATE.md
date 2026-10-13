@@ -656,3 +656,10 @@ The assistant should then:
 - **PHYSICAL ACCEPTANCE NOT COMPLETE:** FW2.3 previously caused customer 0x5A handshake failures. FW2.4 must still be validated on both physical wiring variants, long-read, 0x5A and MAP4 bench simulation before describing it as real-hardware certified. No actual ECU data/write readback test was possible in this GitHub-only release.
 - Historical original FW2.2 binary/source remains retrievable through Git history for emergency stopped-engine USB flashing, but is no longer an in-app downgrade option.
 - Full operational notes: `FW24_AUTOPIN_REDLINE_LAB_HANDOFF.md` and last entry of `BLINK_DEV_HANDOFF.md`.
+
+## 39. 2026-10-13 · FW2.5 released + PB3.79.82 key-on zero-RPM arming fix
+
+- **Production OTA FW2.5 is live**, manifest SHA-256 `98d86910015085f837158b50b1a2804c3f307eab1bcd5b710c206d0b7f9e01b3`. GitHub Actions release run `38399914538` PASS and build artifact SHA independently matches manifest.
+- **Blink UI PB3.79.82** on GitHub Pages. Guard arming RGON queues ESP32 verification, asks real ECU 0x5A and checksum-valid 0x69 RPM=0 for >=1s with 3 samples. Distinguishes missing ECU (RG:NOECU), missing RPM (RG:NORPM), observed movement (RG:RUNNING) and ongoing check (RG:CHECK). Existing 5s MAP4 logic and UART auto-discovery remain.
+- **NO real ECU test yet:** do not bypass lack of 0RPM telemetry, never assume key ON implies ECU has emitted 0RPM. Real readback testing needed before relying on engine protection. For exact engineering notes see latest BLINK_DEV_HANDOFF.md and FW2.5 test branch.
+- OTA build workflow release guard upgraded to FW2.5; no in-app FW2.2 rollback.
