@@ -185,7 +185,7 @@ struct Window {
 namespace BlinkGuardArm {
 static const uint32_t PROOF_MS=1000U;
 static const uint32_t GAP_MS=700U;
-static const uint32_t TIMEOUT_MS=14000U;
+static const uint32_t TIMEOUT_MS=30000U; // ECU limits 4 MAP + recent RPM=0 proof
 static const uint32_t POLL_MS=250U;
 static const uint32_t IDENTITY_MS=1700U;
 struct Proof {
