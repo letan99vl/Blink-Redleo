@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.76';
+  window.BLINK_PB_VERSION = '3.79.77';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -1383,6 +1383,48 @@
     max-height:none!important;
   }
 
+  /* ===== PB 3.79.77 · AFR TARGET BLINK VIRTUAL KEYPAD =====
+     Shares the proven fuel keypad shell; no native phone keyboard.
+     AFR target is local Auto Tune data, NOT REDLEO ECU AFR firmware. */
+  #mapEditorScreen.targetAfrEditor{--fuel-keypad-h:304px}
+  #mapEditorScreen.targetAfrEditor .fuelKeypadToggle{display:grid;place-items:center}
+  #mapEditorScreen.targetAfrEditor.mapKeypadOpen .fuelKeypad{display:flex}
+  #mapEditorScreen.targetAfrEditor.mapKeypadOpen #mapWrap{
+    margin-bottom:var(--fuel-keypad-h)!important;
+  }
+  body.mapZoomMode #mapEditorScreen.targetAfrEditor.mapKeypadOpen #mapWrap{
+    bottom:var(--fuel-keypad-h)!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin-bottom:0!important;
+  }
+  .fuelKeypadHead .fuelTargetSave{
+    display:none;
+    flex:0 0 auto;
+    min-width:58px;
+    min-height:28px;
+    padding:0 7px;
+    border:1px solid #377c4f;
+    border-radius:8px;
+    color:#edfff2;
+    background:#14612e;
+    font-size:11px;
+    font-weight:900;
+    touch-action:manipulation;
+  }
+  #mapEditorScreen.targetAfrEditor .fuelKeypadHead .fuelTargetSave{display:block}
+  @media(orientation:landscape){
+    #mapEditorScreen.targetAfrEditor{--fuel-keypad-h:132px}
+    #mapEditorScreen.targetAfrEditor .fuelKeypadHead .fuelTargetSave{
+      min-height:22px;min-width:52px;font-size:10px;
+    }
+  }
+  body.appForceLandscape #mapEditorScreen.targetAfrEditor{--fuel-keypad-h:132px}
+  body.appForceLandscape #mapEditorScreen.targetAfrEditor .fuelKeypadHead .fuelTargetSave{
+    min-height:22px;min-width:52px;font-size:10px;
+  }
+
   /* ===== REDLEO TOUCH VALUE EDITOR · ALL MAP SIZES ===== */
   #redleoEditorScreen.redValueEditor{--fuel-keypad-h:304px}
   #redleoEditorScreen .redSelectionPad{
@@ -2052,7 +2094,7 @@
     </div>
     <button id="fuelKeypadToggle" class="fuelKeypadToggle" type="button" aria-label="Mở bàn phím nhập thời gian phun" title="Bàn phím số">⌨</button>
     <div id="fuelKeypad" class="fuelKeypad" aria-hidden="true">
-      <div class="fuelKeypadHead"><span id="fuelKeypadCell">Chưa chọn ô</span><strong id="fuelKeypadValue">-- ms</strong></div>
+      <div class="fuelKeypadHead"><span id="fuelKeypadCell">Chưa chọn ô</span><strong id="fuelKeypadValue">-- ms</strong><button id="fuelKeypadSave" class="fuelTargetSave" type="button" aria-label="Lưu AFR mục tiêu và ẩn bàn phím">✓ LƯU</button></div>
       <div class="fuelKeypadGrid">
         <button type="button" data-fuel-key="1">1</button><button type="button" data-fuel-key="2">2</button><button type="button" data-fuel-key="3">3</button><button type="button" class="clear" data-fuel-key="clear">C</button>
         <button type="button" data-fuel-key="4">4</button><button type="button" data-fuel-key="5">5</button><button type="button" data-fuel-key="6">6</button><button type="button" class="backspace" data-fuel-key="backspace">⌫</button>
@@ -2552,7 +2594,7 @@ function correctedMatrix(){return correctedFrom(state.inject,state.measured,stat
 function displayValue(tab,r,c){
   const data=matrixFor(tab),v=data[r][c];
   if(tab==='measured') return v==null?'0':fmt(Number(v),2);
-  if(tab==='target') return fmt(Number(v),1);
+  if(tab==='target') return fmt(Number(v),2);
   if(tab==='inject') return v==null?'--':fmt(Number(v),2);
   return v==null?'--':fmt(Number(v),2);
 }
@@ -2618,9 +2660,11 @@ function commitCell(td){
 function isEditableTab(){return !state.threeRun.active&&(state.tab==='target'||state.tab==='inject')}
 function beginEdit(td){
   if(!isEditableTab())return;
-  if(state.tab==='inject'&&window.BlinkFuelKeypad?.preferCustom?.()){
+  // AFR target always uses Blink's numeric keypad, including on PC, so a
+  // double-tap never summons the iPhone/Android/system contenteditable keyboard.
+  if(state.tab==='target'||(state.tab==='inject'&&window.BlinkFuelKeypad?.preferCustom?.())){
     setSelection(+td.dataset.r,+td.dataset.c,false);
-    window.BlinkFuelKeypad.open();
+    window.BlinkFuelKeypad?.open();
     return;
   }
   if(state.editingCell&&state.editingCell!==td)state.editingCell.blur();
@@ -4584,7 +4628,16 @@ function clearMeasuredMap(){
   saveSoon();
   flashSave('Đã xóa bảng AFR đo · MAP No.'+state.activeMap);
 }
-function setTab(tab){resetQuickType();state.tab=tab;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));syncMeasuredClearButton();render();}
+function setTab(tab){
+  resetQuickType();
+  if(tab!==state.tab)try{window.hideFuelKeypad?.()}catch(_e){}
+  state.tab=tab;
+  document.getElementById('mapEditorScreen')?.classList.toggle('targetAfrEditor',tab==='target');
+  const toggle=document.getElementById('fuelKeypadToggle');
+  if(toggle)toggle.setAttribute('aria-label',tab==='target'?'Mở bàn phím nhập AFR mục tiêu':'Mở bàn phím nhập thời gian phun');
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  syncMeasuredClearButton();render();
+}
 async function toggleRecord(){
   if(state.threeRun.active)return;
   if(!state.recording){
@@ -6597,7 +6650,8 @@ const table=document.getElementById('mapTable'),wrap=document.getElementById('ma
       fuelKeypad=document.getElementById('fuelKeypad'),
       fuelKeypadToggle=document.getElementById('fuelKeypadToggle'),
       fuelKeypadCell=document.getElementById('fuelKeypadCell'),
-      fuelKeypadValue=document.getElementById('fuelKeypadValue');
+      fuelKeypadValue=document.getElementById('fuelKeypadValue'),
+      fuelKeypadSave=document.getElementById('fuelKeypadSave');
 function updateMapControls(){
   document.querySelectorAll('[data-mapstep]').forEach(b=>b.classList.toggle('on',Number(b.dataset.mapstep)===mapStep));
   document.querySelectorAll('[data-mapmode]').forEach(b=>b.classList.toggle('on',b.dataset.mapmode===mapMode));
@@ -6680,6 +6734,11 @@ function standaloneFuelEditorActive(){
   const screen=document.getElementById('mapEditorScreen');
   return !!(screen?.classList.contains('active')&&screen.classList.contains('standaloneFuel')&&state.tab==='inject');
 }
+function targetAfrKeypadEditorActive(){
+  const screen=document.getElementById('mapEditorScreen');
+  return !!(screen?.classList.contains('active')&&screen.classList.contains('targetAfrEditor')&&state.tab==='target');
+}
+function virtualKeypadEditorActive(){return standaloneFuelEditorActive()||targetAfrKeypadEditorActive();}
 function preferCustomFuelKeypad(){
   if(!standaloneFuelEditorActive())return false;
   try{return matchMedia('(pointer:coarse)').matches||innerWidth<=1100}catch(_e){return innerWidth<=1100}
@@ -6687,25 +6746,27 @@ function preferCustomFuelKeypad(){
 function selectedFuelMeta(){
   if(!state.selection.active)return null;
   const b=selectionBounds(),r=state.selection.focusR,c=state.selection.focusC;
-  const v=Number(state.inject?.[r]?.[c]);
-  return {b,r,c,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),key:b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+c};
+  const dst=state.tab==='target'?state.target:state.inject;
+  const v=Number(dst?.[r]?.[c]);
+  return {b,r,c,v,count:(b.r1-b.r0+1)*(b.c1-b.c0+1),
+    key:state.tab+':'+state.activeMap+':'+b.r0+':'+b.c0+':'+b.r1+':'+b.c1+':'+r+':'+c};
 }
 function formatFuelEntry(v){
   if(!Number.isFinite(Number(v)))return '';
-  return Number(v).toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
+  return Number(v).toFixed(state.tab==='target'?2:3).replace(/0+$/,'').replace(/\.$/,'');
 }
 function syncFuelKeypadSelection(force=false){
   if(!fuelKeypad||fuelKeypad.getAttribute('aria-hidden')==='true')return;
   const m=selectedFuelMeta();
-  if(!m){fuelKeypadCell.textContent='Chưa chọn ô';fuelKeypadValue.textContent='-- ms';return}
+  if(!m){fuelKeypadCell.textContent='Chưa chọn ô';fuelKeypadValue.textContent=state.tab==='target'?'-- AFR':'-- ms';return}
   if(force||m.key!==fuelKeypadSelectionKey||!fuelKeypadDirty){
     fuelKeypadSelectionKey=m.key;
     fuelKeypadBuffer=formatFuelEntry(m.v);
     fuelKeypadDirty=false;
   }
   const tps=TPS_ROWS[m.r]==='IDLE'?'IDLE':TPS_ROWS[m.r]+'%';
-  fuelKeypadCell.textContent=tps+' · '+RPMS[m.c]+' RPM · '+m.count+' ô';
-  fuelKeypadValue.textContent=(fuelKeypadBuffer||'--')+' ms';
+  fuelKeypadCell.textContent=(state.tab==='target'?'AFR MỤC TIÊU · ':'')+tps+' · '+RPMS[m.c]+' RPM · '+m.count+' ô';
+  fuelKeypadValue.textContent=(fuelKeypadBuffer||'--')+(state.tab==='target'?' AFR':' ms');
 }
 function keepFuelSelectionVisible(){
   if(!fuelKeypad||fuelKeypad.getAttribute('aria-hidden')==='true'||!wrap)return;
@@ -6721,7 +6782,7 @@ function keepFuelSelectionVisible(){
   if(nx!==left||ny!==top)wrap.scrollTo({left:nx,top:ny,behavior:'auto'});
 }
 function openFuelKeypad(){
-  if(!standaloneFuelEditorActive()||!isEditableTab())return;
+  if(!virtualKeypadEditorActive()||!isEditableTab())return;
   ensureSelection();
   document.getElementById('mapEditorScreen')?.classList.add('mapKeypadOpen');
   fuelKeypad?.setAttribute('aria-hidden','false');
@@ -6737,14 +6798,17 @@ function hideFuelKeypad(){
   requestAnimationFrame(updateMapSelectionPad);
 }
 function applyFuelKeypadLive(){
-  if(!standaloneFuelEditorActive()||!isEditableTab()||!state.selection.active)return;
+  if(!virtualKeypadEditorActive()||!isEditableTab()||!state.selection.active)return;
   const typed=fuelKeypadBuffer;
   const parsed=typed===''?0:Number(typed);
   if(!Number.isFinite(parsed))return;
-  const safe=clamp(parsed,0,fuelProtocolMaxMs()),b=selectionBounds();
-  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)state.inject[r][c]=Number(safe.toFixed(3));
+  const afrTarget=state.tab==='target',b=selectionBounds();
+  const safe=clamp(parsed,0,afrTarget?30:fuelProtocolMaxMs());
+  const dst=afrTarget?state.target:state.inject;
+  const value=Number(safe.toFixed(afrTarget?2:3));
+  for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)dst[r][c]=value;
   render();saveSoon();
-  $('selectionInfo').textContent='Đang nhập '+(typed===''?'0':typed)+' ms · '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô';
+  $('selectionInfo').textContent='Đang nhập '+(typed===''?'0':typed)+(afrTarget?' AFR':' ms')+' · '+((b.r1-b.r0+1)*(b.c1-b.c0+1))+' ô';
   requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
 }
 function fuelKeypadAppend(ch){
@@ -6754,6 +6818,11 @@ function fuelKeypadAppend(ch){
     fuelKeypadBuffer=fuelKeypadBuffer?fuelKeypadBuffer+'.':'0.';
   }else if(/^\d$/.test(ch)){
     if(fuelKeypadBuffer.length>=8)return;
+    if(state.tab==='target'){
+      const fraction=fuelKeypadBuffer.split('.')[1];
+      if(fraction?.length>=2)return; // AFR target precision: 0.01
+      if(Number(fuelKeypadBuffer+ch)>30)return; // no silent out-of-range clamp
+    }
     fuelKeypadBuffer+=ch;
   }
   applyFuelKeypadLive();
@@ -6772,6 +6841,18 @@ function fuelKeypadClear(){
   syncFuelKeypadSelection(false);
 }
 fuelKeypadToggle?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openFuelKeypad()});
+fuelKeypadSave?.addEventListener('click',e=>{
+  e.preventDefault();e.stopPropagation();
+  if(!targetAfrKeypadEditorActive()||!isEditableTab())return;
+  try{
+    clearTimeout(saveTimer);
+    save(); // save local Blink target only; never write REDLEO ECU from this button
+    hideFuelKeypad();
+    flashSave('Đã lưu AFR mục tiêu MAP No.'+state.activeMap);
+  }catch(err){
+    showEcuNotice('error','LƯU AFR MỤC TIÊU THẤT BẠI',String(err&&err.message||err),5000);
+  }
+});
 fuelKeypad?.querySelectorAll('[data-fuel-key]').forEach(btn=>btn.addEventListener('click',e=>{
   e.preventDefault();e.stopPropagation();
   const k=btn.dataset.fuelKey;
