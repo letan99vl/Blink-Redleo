@@ -1,8 +1,9 @@
-name: FW2.4 Auto-UART + 5s Guard (LAB ONLY)
+name: FW2.4/FW2.5 Lab Safety Build (NEVER OTA)
 on:
   push:
     branches:
       - feature/blink-fw24-autopin-redline5s-20261013
+      - feature/blink-fw25-keyon-safe-guard-arm-20261013
     paths:
       - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
       - 'index.html'
@@ -35,7 +36,7 @@ jobs:
           arduino-cli config init
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12
-      - name: Compile one-file FW2.4, never publish OTA
+      - name: Compile one-file FW2.5, never publish OTA
         run: |
           mkdir -p build-sketch/BLINK_FW build-out
           cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
@@ -44,15 +45,15 @@ jobs:
             --output-dir build-out \
             build-sketch/BLINK_FW
           test -s build-out/BLINK_FW.ino.bin
-          sha256sum build-out/BLINK_FW.ino.bin > build-out/FW24-SHA256.txt
-          cp build-sketch/BLINK_FW/BLINK_FW.ino build-out/BLINK_FW24_SINGLE_FILE.ino
+          sha256sum build-out/BLINK_FW.ino.bin > build-out/FW25-SHA256.txt
+          cp build-sketch/BLINK_FW/BLINK_FW.ino build-out/BLINK_FW25_SINGLE_FILE.ino
           printf 'LAB CANDIDATE - NOT PRODUCTION OTA.\nBootloader+partition may also be required for full chip erase flash.\nPlease test ECU 0x5A and 5-second guard only on stationary controlled bench.\nDo not test at sustained redline on public roads.\n' > build-out/READ-ME-FIRST.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: BLINK_FW24_SINGLE_INO_AUTO_UART_GUARD5S_LAB
+          name: BLINK_FW25_KEYON_GUARD_LAB
           path: |
             build-out/BLINK_FW.ino.bin
-            build-out/BLINK_FW24_SINGLE_FILE.ino
-            build-out/FW24-SHA256.txt
+            build-out/BLINK_FW25_SINGLE_FILE.ino
+            build-out/FW25-SHA256.txt
             build-out/READ-ME-FIRST.txt
           retention-days: 30
