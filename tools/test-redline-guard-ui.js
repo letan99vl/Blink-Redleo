@@ -4,11 +4,7 @@ const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
 const firmware=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
 const core=fs.readFileSync('firmware/redline_guard_core.h','utf8');
-const pb=html.match(/window\.BLINK_PB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'/);
-assert(pb,'Blink PB version missing');
-const [pbMajor,pbMinor,pbPatch]=pb[1].split('.').map(Number);
-assert(pbMajor>3 || (pbMajor===3 && (pbMinor>79 || (pbMinor===79 && pbPatch>=76))),
-  'FW2.3 guard UI requires Blink PB 3.79.76 or newer');
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.76'"));
 for(const tok of ['id="redlineGuardSettings"','id="rgStatus"','id="rgReadBtn"',
  'id="rgEnableBtn"','id="rgDisableBtn"',"writeBridgeControl('RG?')",
  "guardControlCommand('RGON')","guardControlCommand('RGOFF')",
