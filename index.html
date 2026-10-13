@@ -5407,7 +5407,7 @@ window.addEventListener('beforeunload',save);
       if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng ghi AFR / Auto Tune 3 lượt trước khi cập nhật ESP32.');
       const otaRpm=Number(state.live?.rpm);
       if(Number.isFinite(otaRpm)&&otaRpm>200)throw new Error('RPM đang là '+otaRpm+'. Phải tắt động cơ trước khi cập nhật.');
-      if(!confirm('CẬP NHẬT ESP32 LÊN FW '+otaManifestCache.version+'?\\n\\nPHẢI TẮT ĐỘNG CƠ, giữ nguồn ESP32 ổn định và không ngắt BLE cho tới khi hoàn tất.\\n\\nTiếp tục?'))return;
+      if(!confirm('CẬP NHẬT ESP32 LÊN FW '+otaManifestCache.version+'?\n\nPHẢI TẮT ĐỘNG CƠ, giữ nguồn ESP32 ổn định và không ngắt BLE cho tới khi hoàn tất.\n\nTiếp tục?'))return;
 
       otaUpdateReady=false;
       otaBleFatalError='';
