@@ -4,11 +4,10 @@ const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
 const fw=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
 const handoff=fs.readFileSync('BLINK_FW23_REDLINE_GUARD_HANDOFF.md','utf8');
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.79'"));
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.80'"));
 for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBtn"',
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
-  'RG:TRIP:M4','id="otaRollbackFw22Btn"',
-  "sha256:'ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e'"])
+  'RG:TRIP:M4'])
   assert(html.includes(token),'Blink UI missing '+token);
 for(const token of ['#define FW_VERSION "2.4"','namespace BlinkGuard {',
   'namespace BlinkAutoPins {','{{22,23},{26,33}}',
@@ -40,6 +39,13 @@ const required=[
 "save(); // Blink localStorage, never an ECU injection-map write."
 ];
 for(const item of required)assert(html.includes(item),'Missing AFR target UI '+item);
+for(const old of ['id="otaRollbackFw22Btn"', 'otaRollbackToFW22', 'LAST_GOOD_FW22', 'KHÔI PHỤC FW 2.2']){
+  assert(!html.includes(old),'Obsolete rollback path must be removed: '+old);
+}
+assert(html.includes("if(!bridgeStatusAtLeast(version,2,4))"),'Guard must require FW2.4');
+assert(html.includes("if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng ghi AFR"),'OTA cannot run during recording');
+assert(html.includes("if(Number.isFinite(otaRpm)&&otaRpm>200)"),'OTA must block measured running RPM');
+
 const saveFn=html.slice(html.indexOf('function saveTargetAfrLocal(){'),html.indexOf('function setTab(tab){'));
 assert(saveFn.includes('save();')&&!/writeCurrentFuelMap|writeMapBle|writeTest|rawExchange|writeCommand/.test(saveFn),
   'Target AFR local save must never write ECU');
