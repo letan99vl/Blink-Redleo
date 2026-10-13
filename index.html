@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.80';
+  window.BLINK_PB_VERSION = '3.79.81';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -4872,20 +4872,80 @@ window.addEventListener('beforeunload',save);
     }
   }
   window.blinkGuardStatus=renderGuardStatus;
+  // PB3.79.81: GATT belongs to the ESP32/Bluetooth stack, not to the ECU.
+  // Reserve the real bridge before sending RG? so live 0x69 / map RAW reads
+  // cannot overlap a BLE control write. One user tap = one guarded sequence.
+  let guardControlInFlight=false;
+  function setGuardControlsBusy(on){
+    for(const id of ['rgReadBtn','rgEnableBtn','rgDisableBtn']){
+      const el=$(id);if(el)el.disabled=!!on;
+    }
+    for(const id of ['otaScanBtn','otaCheckBtn','otaInstallBtn']){
+      const el=$(id);if(!el)continue;
+      if(on){el.dataset.guardOldDisabled=el.disabled?'1':'0';el.disabled=true;}
+      else if(el.dataset.guardOldDisabled!==undefined){
+        el.disabled=el.dataset.guardOldDisabled==='1';
+        delete el.dataset.guardOldDisabled;
+      }
+    }
+  }
+  async function writeGuardControlWithRetry(action){
+    // Chromium/Bluefy may still be draining the final ATT ACK even after
+    // the previous Promise resolves. Retry only these idempotent RG controls,
+    // never a MAP/ECU write or a binary OTA packet.
+    for(let attempt=0;attempt<4;attempt++){
+      if(!state.ecuConnected||!commandChar)throw new Error('Bluetooth đã ngắt.');
+      if(otaBleTransferActive)throw new Error('ESP32 đang cập nhật OTA.');
+      try{await writeBridgeControl(action);return true;}
+      catch(e){
+        const detail=String(e&&e.message||e);
+        if(!/GATT operation already in progress|GATT.*(busy|in progress)|operation.*in progress/i.test(detail)||attempt===3)
+          throw e;
+        await new Promise(r=>setTimeout(r,140+attempt*180));
+      }
+    }
+    return false;
+  }
   async function guardControlCommand(action){
+    if(guardControlInFlight)return;
+    guardControlInFlight=true;
+    setGuardControlsBusy(true);
+    let lease=null;
+    const api=window.BlinkRealProtocol;
     try{
       if(!state.ecuConnected||!commandChar)throw new Error('Chưa kết nối Bluetooth với ESP32.');
+      if(!api || typeof api.beginBridgeGuardControl!=='function' ||
+          typeof api.endBridgeGuardControl!=='function')
+        throw new Error('Chưa nạp xong trình điều khiển Bluetooth Blink. Hãy tải lại trang.');
+      const status=$('rgStatus');
+      if(status)status.value='ĐANG CHỜ BLE NHẢ GIAO DỊCH ECU...';
+      lease=await api.beginBridgeGuardControl(20000);
       const version=await ensureBridgeFirmwareStatus(2);
-      if(!bridgeStatusAtLeast(version,2,4))throw new Error('ESP32 cần FW 2.4 trở lên. Hiện tại: '+(version||'không rõ')+'.');
-      await writeBridgeControl(action);
+      if(!bridgeStatusAtLeast(version,2,4))
+        throw new Error('ESP32 cần FW 2.4 trở lên. Hiện tại: '+(version||'không rõ')+'.');
+      if(!state.ecuConnected||!commandChar)
+        throw new Error('Bluetooth đã ngắt kết nối.');
+      // Leave a short guard band after the previous RAW/GATT operation.
+      await new Promise(r=>setTimeout(r,70));
+      await writeGuardControlWithRetry(action);
       if(action!=='RG?'){
         await new Promise(r=>setTimeout(r,180));
-        await writeBridgeControl('RG?');
+        await writeGuardControlWithRetry('RG?');
       }
+      // Only the actual RG:... STATUS notification can assert ON/OFF/TRIP.
+      // Do not set RG:ON locally or pretend the switch was confirmed.
     }catch(e){
       const detail=String(e&&e.message||e);
-      renderGuardStatus('RG:ERROR '+detail);
-      showEcuNotice('error','REDLINE GUARD',detail,5000);
+      const gatt=/GATT operation already in progress|GATT.*(busy|in progress)/i.test(detail);
+      const field=$('rgStatus');
+      if(field)field.value=gatt?'CHƯA ĐỌC ĐƯỢC · BLUETOOTH GATT ĐANG BẬN':
+                          'CHƯA XÁC NHẬN · '+detail;
+      showEcuNotice('error',gatt?'BLUETOOTH ĐANG XỬ LÝ GATT':'REDLINE GUARD',
+        gatt?'Lệnh RG chưa gửi được vì Bluetooth đang bận, KHÔNG phải ECU bận. Thử đọc lại trạng thái.':detail,5000);
+    }finally{
+      if(lease){try{api.endBridgeGuardControl(lease);}catch(_e){}}
+      guardControlInFlight=false;
+      setGuardControlsBusy(false);
     }
   }
   $('rgReadBtn')?.addEventListener('click',()=>guardControlCommand('RG?'));
