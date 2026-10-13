@@ -184,6 +184,7 @@ static bool guardHasIdentity=false;
 static BlinkGuard::Window guardWindow;
 static uint16_t guardLastRpm=0;
 static uint32_t guardLastValidRpmMs=0;
+static uint32_t guardStationarySinceMs=0;
 static uint32_t guardLastInitTryMs=0;
 static uint32_t guardLastLimitTryMs=0;
 static uint32_t guardLastHostCommandMs=0;
@@ -429,8 +430,11 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
         } else {
           // Do not arm/disarm an ECU protection feature while engine is running
           // or without a recent, validated live RPM=0 sample.
-          const uint32_t age=(uint32_t)(millis()-guardLastValidRpmMs);
-          if (!guardLastValidRpmMs || age>1800U || guardLastRpm>800U) {
+          const uint32_t now=millis();
+          const uint32_t age=(uint32_t)(now-guardLastValidRpmMs);
+          if (!guardLastValidRpmMs || age>700U || guardLastRpm>200U ||
+              !guardStationarySinceMs ||
+              (uint32_t)(now-guardStationarySinceMs)<1000U) {
             notifyStatus("RG:STOP");
           } else {
             guardControlRequest=(text == "RGON")?1:2;
@@ -835,6 +839,11 @@ static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
   if(rpm>20000U)return;
   guardLastRpm=rpm;
   guardLastValidRpmMs=millis();
+  if(rpm<=200U){
+    if(!guardStationarySinceMs)guardStationarySinceMs=guardLastValidRpmMs;
+  }else{
+    guardStationarySinceMs=0;
+  }
   if(bank>=1&&bank<=4 && !guardPending && !guardLatched)guardMap=bank;
   if(!guardEnabled || !guardSupported || guardLimitMask!=0x0F ||
      guardFault || guardPending || guardLatched)return;
