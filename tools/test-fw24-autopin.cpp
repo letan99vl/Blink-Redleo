@@ -178,8 +178,8 @@ int main() {
   zero.observe(0xFFFFFF00U,0);
   zero.observe(0xFFFFFFC8U,0);
   zero.observe(0x00000090U,0);
-  zero.observe(0x00000350U,0); // now-first = 1104ms across millis rollover
-  assert(zero.ready(0x00000350U));
+  zero.observe(0x000002E8U,0); // now-first = 1000ms across millis rollover
+  assert(zero.ready(0x000002E8U));
   assert(BlinkGuardArm::PROOF_MS==1000U);
   assert(BlinkGuardArm::TIMEOUT_MS==14000U);
 
