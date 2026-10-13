@@ -1477,8 +1477,12 @@ function endBridgeGuardControl(lease){
   if(lease.epoch!==transportEpoch || lease.token!==bridgeControlToken)return;
   bridgeControlReserved=false;
   if(lease.resumeLive && cmdChar() && mapChar() && handshakeInfo &&
-     profileCap('live') && !otaPaused)
-    scheduleLiveResume(450);
+     profileCap('live') && !otaPaused){
+    // A manual map operation may start while guard control held the BLE gate.
+    // Let that operation restart Live when done, instead of losing polling.
+    if(manualMapIoDepth>0)manualMapIoResumeLive=true;
+    else scheduleLiveResume(450);
+  }
 }
 
 let manualMapIoDepth=0;
