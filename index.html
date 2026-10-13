@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.76';
+  window.BLINK_PB_VERSION = '3.79.78';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2029,6 +2029,10 @@
 
   <section id="mapsScreen" class="screen scrollScreen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Bản Đồ ECU</div><div class="screenSub" id="mapsProfileSub">AUTO ECU PROFILE · chờ nhận diện</div></div><div id="mapBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div id="ecuAuthNotice" class="hint" role="status" aria-live="polite" style="display:none;margin:5px 8px 9px;padding:10px;border:1px solid #aa8040;border-radius:10px">
+      <div id="ecuAuthNoticeText">ĐÃ KẾT NỐI BLUETOOTH · CHƯA XÁC THỰC ECU</div>
+      <button id="retryEcuAuthBtn" type="button" class="primary" style="margin-top:7px">↻ XÁC THỰC LẠI ECU</button>
+    </div>
     <div class="mapBankBar"><button class="mapBankBtn active" data-mapbank="1">NO.1</button><button class="mapBankBtn" data-mapbank="2">NO.2</button><button class="mapBankBtn" data-mapbank="3">NO.3</button><button class="mapBankBtn" data-mapbank="4">NO.4</button></div>
     <div class="groupHead"><h3>BẢN ĐỒ CHÍNH</h3><span>MAIN MAPS</span></div><div class="menuGrid"><button class="menuCard featureCard" data-feature="inj_ve"><div class="menuIcon">◉</div><span class="srcTag">INJ VE</span><h3>Thời gian phun</h3><p>INJ VE · TPS × RPM</p><span class="menuCode">MAP_01</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="inj_degree"><div class="menuIcon">◒</div><span class="srcTag">INJ degree</span><h3>Góc phun</h3><p>Thời điểm phun · TPS × RPM</p><span class="menuCode">MAP_02</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ign_degree"><div class="menuIcon">ϟ</div><span class="srcTag">IGN degree</span><h3>Góc đánh lửa</h3><p>TPS × RPM</p><span class="menuCode">MAP_03</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ign_time"><div class="menuIcon">⌁</div><span class="srcTag">IGN Time</span><h3>Dwell bobin</h3><p>Thời gian tích điện theo RPM</p><span class="menuCode">MAP_04</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="afr_map"><div class="menuIcon">λ</div><span class="srcTag">Air fuel ratio</span><h3>Air fuel ratio</h3><p>Auto tuner zin của ECU · TPS × RPM · ON/OFF từng ô</p><span class="menuCode">MAP_05</span><span class="menuArrow">›</span></button></div>
     <div class="groupHead"><h3>BÙ TRỪ</h3><span>COMPENSATIONS</span></div><div class="menuGrid"><button class="menuCard featureCard" data-feature="ect_inj"><div class="menuIcon">♨</div><span class="srcTag">ECT Comp INJ</span><h3>Bù phun theo ECT</h3><p>Nhiệt độ máy × RPM</p><span class="menuCode">COMP_01</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ect_ign"><div class="menuIcon">ϟ</div><span class="srcTag">ECT Comp IGN</span><h3>Bù đánh lửa theo ECT</h3><p>Nhiệt độ máy × RPM</p><span class="menuCode">COMP_02</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="map_inj"><div class="menuIcon">◫</div><span class="srcTag">MAP Comp INJ</span><h3>Bù phun theo MAP</h3><p>Áp suất nạp × RPM</p><span class="menuCode">COMP_03</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="iat_inj"><div class="menuIcon">≈</div><span class="srcTag">IAT Compensating Injection</span><h3>Bù phun theo IAT</h3><p>Nhiệt độ khí nạp</p><span class="menuCode">COMP_04</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ect_start"><div class="menuIcon">S</div><span class="srcTag">Start Add Injection</span><h3>Bù khởi động theo ECT</h3><p>Delay · INJ Add · Start Assist</p><span class="menuCode">COMP_05</span><span class="menuArrow">›</span></button></div>
@@ -4673,7 +4677,9 @@ window.addEventListener('beforeunload',save);
   render();
 
   function setBleUi(on,label){
-    state.ecuConnected=!!on;state.ecuPhase=on?'live':'idle';
+    // BLE GATT connection is NOT ECU authorization. The real protocol
+    // marks 'live' only after a checksum-valid 0x5A identification.
+    state.ecuConnected=!!on;state.ecuPhase=on?'ble-linked':'idle';
     $('ecuBadge').textContent=on?('BLE: '+(label||'CONNECTED')):'BLE: OFF';
     $('ecuBadge').className='badge '+(on?'ok':'bad');
     $('connectEcuBtn').disabled=!!on;
@@ -5541,22 +5547,36 @@ window.addEventListener('beforeunload',save);
       await liveChar.startNotifications();liveChar.addEventListener('characteristicvaluechanged',parseLive);
       await mapChar.startNotifications();mapChar.addEventListener('characteristicvaluechanged',parseMap);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
-      window.blinkLiveChar=liveChar;window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkStatusChar=statusChar;window.blinkWriteCommand=writeCommand;
       window.blinkBridgeFirmwareStatus='';
       setBleUi(true,device.name||'ECU Blink');
-      setEcuTaskStatus('success','ECU ĐÃ KẾT NỐI · OK');
-      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
-      $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
-      try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
-      const bridgeFw=await ensureBridgeFirmwareStatus(3);
-      if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
-      else{
-        try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
-        try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
-        if(bridgeStatusAtLeast(bridgeFw,2,3)){
-          try{await writeBridgeControl('RG?');}catch(e){console.warn('RG status',e);}
+      setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG KIỂM TRA ESP32...');
+      $('ecuDiag').textContent='BLE GATT OK · ĐỢI ECU HANDSHAKE 0x5A · '+(device.name||'ECU Blink');
+      $('studyTpsInfo').textContent='BLE đã kết nối ESP32. Blink chỉ mở MAP sau khi ECU xác thực 0x5A thành công.';
+      // PB3.79.78: finish all optional bridge PING/RX/TX capability probes
+      // BEFORE publishing the two RAW characteristics to the real ECU layer.
+      // Otherwise an RG?/RXJUMBO probe can overlap the 0x5A GATT write on
+      // iOS/Android, fail identification, and leave every MAP disabled.
+      try{
+        const bridgeFw=await ensureBridgeFirmwareStatus(3);
+        if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận; thử xác thực ECU trực tiếp');
+        else{
+          try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
+          try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
         }
+      }finally{
+        // Real protocol observes these objects in one atomic JS turn.
+        // Publish even if PING/probes were inconclusive: older bridges still
+        // deserve a valid ECU handshake rather than a false BLE failure.
+        window.blinkLiveChar=liveChar;
+        window.blinkMapChar=mapChar;
+        window.blinkCommandChar=commandChar;
+        window.blinkStatusChar=statusChar;
+        window.blinkWriteCommand=writeCommand;
       }
+      setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG XÁC THỰC ECU 0x5A...');
+      try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
+      // FW2.3 RG? is deliberately not sent during the first 0x5A exchange.
+      // The Settings "ĐỌC TRẠNG THÁI" button remains available afterwards.
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);
