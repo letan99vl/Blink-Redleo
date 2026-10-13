@@ -9,7 +9,7 @@ for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBt
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
   'RG:TRIP:M4'])
   assert(html.includes(token),'Blink UI missing '+token);
-for(const token of ['#define FW_VERSION "2.6"','namespace BlinkGuard {',
+for(const token of ['#define FW_VERSION "2.6.1"','namespace BlinkGuard {',
   'namespace BlinkAutoPins {','{{22,23},{26,33}}',
   'transactUartAutopin(txBuf, n, rxBuf, RX_MAX);',
   'guardAutonomousTick();','guardObserveHostTransaction(txBuf,n,rxBuf,got);',
