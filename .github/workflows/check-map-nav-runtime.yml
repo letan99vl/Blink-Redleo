@@ -1,0 +1,24 @@
+name: Runtime MAP navigation smoke test
+
+on:
+  push:
+    branches:
+      - feature/debug-map-nav-pb37977-20261013
+    paths:
+      - index.html
+      - tools/check-map-nav-runtime.js
+      - .github/workflows/check-map-nav-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-dom-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated DOM test dependency
+        run: npm install --no-save --no-package-lock --omit=dev jsdom@26
+      - name: Validate full MAP navigation runtime
+        run: node tools/check-map-nav-runtime.js
