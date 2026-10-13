@@ -131,6 +131,35 @@ struct Window {
 } // namespace BlinkGuard
 
 
+// Firmware 2.5: require fresh zero-RPM ECU packets after pressing RGON.
+// A powered ECU/connected BLE link by itself cannot prove motor stopped.
+namespace BlinkGuardArm {
+static const uint32_t PROOF_MS=1000U;
+static const uint32_t GAP_MS=700U;
+static const uint32_t TIMEOUT_MS=14000U;
+static const uint32_t POLL_MS=250U;
+static const uint32_t IDENTITY_MS=1700U;
+struct Proof {
+  bool hasSample=false;
+  bool sawMotion=false;
+  uint32_t firstMs=0,lastMs=0;
+  uint8_t samples=0;
+  void reset(){hasSample=false;sawMotion=false;firstMs=lastMs=0;samples=0;}
+  void observe(uint32_t now,uint16_t rpm){
+    if(rpm!=0){sawMotion=true;hasSample=false;samples=0;return;}
+    if(!hasSample || (uint32_t)(now-lastMs)>GAP_MS){
+      hasSample=true;firstMs=now;samples=1;
+    }else if(samples<255U)samples++;
+    lastMs=now;
+  }
+  bool ready(uint32_t now) const {
+    return hasSample && !sawMotion && samples>=3U &&
+           (uint32_t)(now-lastMs)<=GAP_MS &&
+           (uint32_t)(now-firstMs)>=PROOF_MS;
+  }
+};
+} // namespace BlinkGuardArm
+
 // BLINK FW2.4: known-hardware UART autodetection (no blind GPIO scan).
 namespace BlinkAutoPins {
 struct PinPair { int8_t rx; int8_t tx; };
@@ -229,7 +258,7 @@ inline size_t normalizeLive(uint8_t *p,size_t n) {
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.4"
+#define FW_VERSION "2.5"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -361,7 +390,12 @@ static volatile uint32_t guardBleLinkedAtMs = 0;
 static volatile bool guardEnabled=false;
 static volatile bool guardLatched=false;
 static volatile bool guardPending=false;
-static volatile uint8_t guardControlRequest=0; // 1=enable,2=disable (main loop only)
+static volatile uint8_t guardControlRequest=0; // 1=arm-check,2=disable,3=cancel waiting
+static volatile bool guardArmPending=false;
+static uint8_t guardArmFailure=0; // 1=no valid RPM,2=moving,3=unsupported,4=no ECU identity
+static uint32_t guardArmStartMs=0,guardArmLastPollMs=0,guardArmLastIdentityMs=0;
+static bool guardArmIdentityValidated=false;
+static BlinkGuardArm::Proof guardArmProof;
 static bool guardFault=false;
 static bool guardSupported=false;
 static bool guardUnsupported=false;
@@ -384,7 +418,14 @@ static bool guardAnnounce=false;
 static bool guardUartActive=false;
 
 static String guardStatusText(){
-  if(!guardEnabled)return "RG:OFF";
+  if(guardControlRequest==1 || guardArmPending)return "RG:CHECK";
+  if(!guardEnabled){
+    if(guardArmFailure==1)return "RG:NORPM";
+    if(guardArmFailure==2)return "RG:RUNNING";
+    if(guardArmFailure==3)return "RG:UNSUP";
+    if(guardArmFailure==4)return "RG:NOECU";
+    return "RG:OFF";
+  }
   if(guardLatched)return "RG:TRIP:M4";
   if(guardFault)return "RG:FAULT";
   if(guardUnsupported)return "RG:UNSUP";
@@ -404,22 +445,38 @@ static void guardHandleControlRequest(){
   if(!control)return;
   guardControlRequest=0;
   if(control==1){
-    guardEnabled=true;
-    guardWindow.reset();
-    guardFault=false;
-    guardPending=false;
-    guardSwitchAttempts=0;
-    guardLastInitTryMs=0;
-    guardUnsupported=false;
-  }else if(control==2){
-    guardEnabled=false;
-    guardLatched=false; // DO NOT switch the ECU away from its current map.
-    guardPending=false;
-    guardFault=false;
-    guardWindow.reset();
+    if(guardEnabled){guardAnnounce=true;return;}
+    // RGON only requests validation. NEVER persist ON before fresh proof.
+    guardArmPending=true;
+    guardArmStartMs=millis();
+    guardArmLastPollMs=0;
+    guardArmLastIdentityMs=0;
+    guardArmIdentityValidated=false;
+    guardArmFailure=0;
+    guardArmProof.reset();
+    guardAnnounce=true;
+    Serial.println("REDLINE ARM: verifying live RPM=0 after key ON");
+    return;
   }
-  guardStoreEnabled(guardEnabled);
-  guardAnnounce=true;
+  if(control==3){ // Cancelling an OFF-to-ON request is always safe.
+    guardArmPending=false;
+    guardArmFailure=0;
+    guardArmProof.reset();
+    guardAnnounce=true;
+    return;
+  }
+  if(control==2){
+    guardArmPending=false;
+    guardArmFailure=0;
+    guardArmProof.reset();
+    guardEnabled=false;
+    guardLatched=false; // DO NOT switch ECU away from its current map.
+    guardPending=false;
+    guardFault=false;
+    guardWindow.reset();
+    guardStoreEnabled(false);
+    guardAnnounce=true;
+  }
 }
 
 
@@ -616,19 +673,36 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "RG?" || text == "RGON" || text == "RGOFF") {
-        if (text == "RG?") {
+        if(text=="RG?"){
           notifyStatus(guardStatusText());
-        } else {
-          // Do not arm/disarm an ECU protection feature while engine is running
-          // or without a recent, validated live RPM=0 sample.
+        }else if(text=="RGON"){
+          if(otaBusy || bleOtaActive || otaCommandReady){
+            notifyStatus("RG:OTA");
+          }else if(guardEnabled || guardPending || guardLatched){
+            notifyStatus(guardStatusText());
+          }else if(guardArmPending || guardControlRequest==1){
+            notifyStatus("RG:CHECK");
+          }else{
+            // No UART inside BLE callback and NO blind arming.
+            guardControlRequest=1;
+            notifyStatus("RG:CHECK");
+          }
+        }else if(!guardEnabled && (guardArmPending || guardControlRequest==1)){
+          guardControlRequest=3; // cancel pending while OFF
+          notifyStatus("RG:QUEUED");
+        }else if(!guardEnabled){
+          guardArmFailure=0;
+          notifyStatus("RG:OFF");
+        }else{
+          // Preserve original disarm safety rule for an already active guard.
           const uint32_t now=millis();
           const uint32_t age=(uint32_t)(now-guardLastValidRpmMs);
-          if (!guardLastValidRpmMs || age>700U || guardLastRpm>200U ||
-              !guardStationarySinceMs ||
-              (uint32_t)(now-guardStationarySinceMs)<1000U) {
+          if(!guardLastValidRpmMs || age>700U || guardLastRpm>200U ||
+             !guardStationarySinceMs ||
+             (uint32_t)(now-guardStationarySinceMs)<1000U){
             notifyStatus("RG:STOP");
-          } else {
-            guardControlRequest=(text == "RGON")?1:2;
+          }else{
+            guardControlRequest=2;
             notifyStatus("RG:QUEUED");
           }
         }
@@ -1104,6 +1178,7 @@ static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
   if(rpm>20000U)return;
   guardLastRpm=rpm;
   guardLastValidRpmMs=millis();
+  if(guardArmPending)guardArmProof.observe(guardLastValidRpmMs,rpm);
   if(rpm<=200U){
     if(!guardStationarySinceMs)guardStationarySinceMs=guardLastValidRpmMs;
   }else{
