@@ -1301,3 +1301,18 @@ PB3.79.78 hotfix changes:
 - Lab automated pure-C++ tests, Blink UI contract assertions and Arduino compile passed on prior FW2.4 commits; latest branch CI should be checked before flashing any device.
 - IMPORTANT: prior FW2.3 experimental release broke ECU 0x5A authentication for customers. FW2.4 has NOT yet been verified with a physical ECU on both wiring layouts and has NOT been published to customer OTA. Production firmware/ and ota/manifest.json remain FW2.2. Do not use public OTA as substitute for a real ECU 0x5A/Read All/MAP4 bench test.
 - Candidate handoff: FW24_AUTOPIN_REDLINE_LAB_HANDOFF.md in branch; PR: https://github.com/letan99vl/Blink-Redleo/pull/5
+
+## 2026-10-13 · FW2.4 PUBLISHED to public OTA; Blink PB3.79.80 no FW2.2 rollback
+
+**This supersedes the earlier 2026-10-13 status "FW2.4 OTA HELD FOR HARDWARE TEST".** The owner expressly requested public FW2.4 release and removal of the FW2.2 downgrade UI.
+
+- MAIN release source commit: `2719c1a5fbdd280a7b5a40f4f4f5ba1e84f37a78`, `firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino` reports `FW_VERSION "2.4"`.
+- GitHub Actions build / public OTA publish: run `38392942724` SUCCESS; OTA commit `f2e043e5467d3827977300fcf9b254302287a28f`.
+- Live manifest: `ota/manifest.json` version **2.4**; URL raw main `ota/blink_esp32.bin`; SHA-256 **`00c779dcabab06d90fa559a61fc8280e6d17593d19d74423696ba7f6ea404358`**. The Actions build artifact was independently extracted and its BIN SHA-256 matched the published manifest.
+- FW2.4 supports **auto ECU UART RX22/TX23 or RX26/TX33**, learns matching UART pair from checksum-verified 0x5A/0xA1 read response, remembers slot in ESP32 NVS `blinkuart/slot`, and keeps the pair fixed after a valid confirmation while running.
+- The opt-in **5-second Redline Guard** is available from PB3.79.80, default OFF on fresh NVS. In supported V9.1x/V9.2x ECUs it reads RPM limit, requests MAP4 on a qualifying near-limit window and independently verifies map index. Old 0x5A regressions from FW2.3 are NOT proven resolved on a physical ECU yet. Real boards and MAP4 switching need controlled bench tests. Do not use the 5-second mode as the ECU rev limiter on public roads.
+- Blink UI `index.html` is **PB3.79.80**. It keeps PB3.79.79 Blink AFR Target virtual keypad / floating +/- and local-only save; removes the `KHÔI PHỤC FW 2.2` button, `LAST_GOOD_FW22`, `otaRollbackToFW22` and event listeners; guard controls now require FW>=2.4. OTA installation blocks active Auto Tune and measured RPM >200, with explicit engine-off confirmation.
+- Historical FW2.2 source/BIN remains in Git history for emergency recovery using USB when the engine is fully stopped; do not re-add the app rollback UI unless the owner requests it.
+- Regression CI `Check REDLEO Protocol JS` passed after fixing an outdated test-only PB3.79.78 literal in `tools/check-ecu-auth-unlock.js`; production 0x5A profile safety gates and auth retry behavior were not bypassed.
+- Workflow `.github/workflows/build-esp32-firmware.yml` publishes only on explicit `[RELEASE_FW24]` main push or approved manual dispatch. Routine pushes do not republish OTA.
+- Detailed release/hardware testing instructions: `FW24_AUTOPIN_REDLINE_LAB_HANDOFF.md` on main.
