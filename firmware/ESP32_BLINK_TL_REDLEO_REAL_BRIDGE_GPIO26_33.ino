@@ -450,6 +450,10 @@ static bool guardSupported=false;
 static bool guardUnsupported=false;
 static uint8_t guardMap=1;
 static uint8_t guardLimitMask=0;
+static uint8_t guardLimitFailMap=0;     // No false 'RG:ON' after invalid page6 replies.
+static uint8_t guardLimitRetryMap=0;
+static uint8_t guardLimitRetryCount=0;
+static const uint8_t GUARD_MAX_LIMIT_RETRIES=5;
 static uint16_t guardLimits[5]={0,0,0,0,0};
 static BlinkGuard::Handshake guardIdentity;
 static bool guardHasIdentity=false;
@@ -467,12 +471,23 @@ static bool guardAnnounce=false;
 static bool guardUartActive=false;
 
 static String guardStatusText(){
-  if(guardControlRequest==1 || guardArmPending)return "RG:CHECK";
+  if(guardLimitFailMap)
+    return String("RG:LIMITERR:M")+String(guardLimitFailMap);
+  if(guardUnsupported)return "RG:UNSUP";
+  if(guardControlRequest==1 || guardArmPending){
+    if(guardArmPending && guardArmIdentityValidated && guardLimitMask!=0x0FU){
+      for(uint8_t i=1;i<=4;++i)
+        if(!(guardLimitMask&(1U<<(i-1))))
+          return String("RG:ARMREAD:M")+String(i);
+    }
+    return "RG:CHECK";
+  }
   if(!guardEnabled){
     if(guardArmFailure==1)return "RG:NORPM";
     if(guardArmFailure==2)return "RG:RUNNING";
     if(guardArmFailure==3)return "RG:UNSUP";
     if(guardArmFailure==4)return "RG:NOECU";
+    if(guardArmFailure==5)return "RG:LIMITERR";
     return "RG:OFF";
   }
   if(guardLatched)return "RG:TRIP:M4";
@@ -508,9 +523,14 @@ static void guardHandleControlRequest(){
     guardUnsupported=false;
     guardHasIdentity=false;
     guardLimitMask=0;
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
+    guardLastLimitTryMs=0;
+    for(uint8_t i=1;i<=4;++i)guardLimits[i]=0;
     guardWindow.reset();
     guardAnnounce=true;
-    Serial.println("REDLINE ARM: verifying live RPM=0 after key ON");
+    Serial.println("REDLINE ARM: check ECU identity + four page6 limits, THEN RPM=0");
     return;
   }
   if(control==3){ // Cancelling an OFF-to-ON request is always safe.
@@ -524,6 +544,9 @@ static void guardHandleControlRequest(){
     guardArmPending=false;
     guardArmFailure=0;
     guardArmProof.reset();
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
     guardEnabled=false;
     guardLatched=false; // DO NOT switch ECU away from its current map.
     guardPending=false;
