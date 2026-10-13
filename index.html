@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.72';
+  window.BLINK_PB_VERSION = '3.79.76';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2196,6 +2196,18 @@
     </div>
     <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
+    <details class="settings" id="redlineGuardSettings"><summary>AN TOÀN REDLINE · ESP32 FW2.3 · MAP 4</summary>
+      <div class="hint" style="margin:9px 0">FW2.3: sau khi bật, ESP32 tự nhận ECU và đọc RPM kể cả khi không kết nối Bluetooth. Chỉ hỗ trợ REDLEO 9.1x/9.2x đã xác minh giới hạn tua. Mặc định TẮT. MAP 4 phải được kiểm tra là MAP bảo vệ an toàn trước khi bật.</div>
+      <div class="settingsGrid" style="grid-template-columns:minmax(220px,1fr)">
+        <div class="field"><label>Trạng thái thật trên ESP32</label><input id="rgStatus" value="Chưa kiểm tra · chỉ tương thích FW 2.3+" readonly></div>
+      </div>
+      <div class="toolrow" style="margin-top:8px">
+        <button id="rgReadBtn" type="button">ĐỌC TRẠNG THÁI</button>
+        <button id="rgEnableBtn" type="button" class="good">BẬT BẢO VỆ 5 GIÂY</button>
+        <button id="rgDisableBtn" type="button" class="danger">TẮT BẢO VỆ</button>
+      </div>
+      <div class="hint">Chỉ bật/tắt khi động cơ đã dừng (RPM 0). Nếu kích hoạt, ECU chuyển MAP 4 sau khi ở gần giới hạn tua 5 giây và giữ MAP 4 cho đến khi tắt khóa hoặc tắt bảo vệ lúc máy dừng. Không thể bảo đảm tránh hỏng động cơ.</div>
+    </details>
     <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
       <div class="settingsGrid">
         <div class="field"><label>Mạng Wi-Fi</label><select id="otaSsid"><option value="">Bấm QUÉT WI-FI để chọn mạng</option></select></div>
@@ -2385,6 +2397,11 @@ for(const k of ['measured','counts','target','inject']){
 
 function selectMapBank(n,autoRead=true){
   n=clamp(Math.round(Number(n)||1),1,4);
+  if(window.blinkGuardLatched && n!==4){
+    $('mapSelect').value='4';
+    showEcuNotice('error','REDLINE GUARD ĐÃ CHUYỂN MAP 4','ESP32 đang khóa MAP 4. Hãy dừng động cơ, tắt Redline Guard rồi mới chọn MAP khác.',4200);
+    return;
+  }
   try{
     const api=window.BlinkRealProtocol;
     if(api&&typeof api.normalizeBank==='function')n=api.normalizeBank(n);
@@ -5351,6 +5368,7 @@ window.addEventListener('beforeunload',save);
   function parseStatus(ev){
     const text=dec.decode(ev.target.value).replace(/\0/g,'').trim();if(!text)return;
     $('ecuDiag').textContent='BLE STATUS: '+text;if(typeof window.onBlinkStatus==='function')window.onBlinkStatus(text);
+    if(text.startsWith('RG:')){window.blinkGuardStatus?.(text);return;}
     // FW1.5 diagnostic: the bridge has fully assembled one RAW request.
     // The REAL protocol layer consumes this internally for timing/diagnostics.
     // Do not overwrite the user-facing footer with RAWREADY xx.
@@ -5439,6 +5457,9 @@ window.addEventListener('beforeunload',save);
       else{
         try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
         try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
+        if(bridgeStatusAtLeast(bridgeFw,2,3)){
+          try{await writeBridgeControl('RG?');}catch(e){console.warn('RG status',e);}
+        }
       }
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
