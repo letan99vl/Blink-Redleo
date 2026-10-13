@@ -1,5 +1,5 @@
 {
-  "version": "2.2",
-  "url": "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/efb101e67f80da252b81b7f03931ab357fec4778/ota/blink_esp32.bin",
-  "sha256": "ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e"
+  "version": "2.4",
+  "url": "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin",
+  "sha256": "00c779dcabab06d90fa559a61fc8280e6d17593d19d74423696ba7f6ea404358"
 }
