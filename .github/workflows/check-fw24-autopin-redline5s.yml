@@ -5,6 +5,7 @@ on:
       - feature/blink-fw24-autopin-redline5s-20261013
     paths:
       - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - 'index.html'
       - 'tools/extract-fw24-cores.py'
       - 'tools/test-fw24-autopin.cpp'
       - 'tools/test-fw24-ui.js'
