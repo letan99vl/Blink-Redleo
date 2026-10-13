@@ -454,6 +454,12 @@ static void guardHandleControlRequest(){
     guardArmIdentityValidated=false;
     guardArmFailure=0;
     guardArmProof.reset();
+    // Invalidate identity/limit data from the previous ignition or ECU session.
+    guardSupported=false;
+    guardUnsupported=false;
+    guardHasIdentity=false;
+    guardLimitMask=0;
+    guardWindow.reset();
     guardAnnounce=true;
     Serial.println("REDLINE ARM: verifying live RPM=0 after key ON");
     return;
@@ -1256,6 +1262,10 @@ static void guardObserveHostTransaction(const uint8_t *tx,size_t txLen,
   if(tx[0]!=0x69)guardLastHostLongCommandMs=millis();
   if(tx[0]==0x5A){
     guardApplyHandshake(rx,rxLen);
+    BlinkGuard::Handshake id;
+    if(guardArmPending && guardSupported && !guardUnsupported &&
+       BlinkGuard::parseHandshake(rx,rxLen,id))
+      guardArmIdentityValidated=true;
     return;
   }
   if(tx[0]==0x69&&txLen>=2){
@@ -1287,6 +1297,88 @@ static size_t guardExchange(uint8_t cmd,uint8_t arg,uint8_t *rx,size_t maxRx){
   guardUartActive=false;
   return n;
 }
+// FW2.5: RGON is a deferred, fail-closed request. The ESP32 proves the
+// CURRENT ignition's ECU identity first (0x5A), then requires >=3 valid
+// actual Live 0xA1 RPM=0 frames over >=1s. A BLE link, missing crank pulses,
+// stale RPM, or a cached previous key-cycle RPM=0 is never enough.
+static void guardTryArm(){
+  if(!guardArmPending)return;
+  const uint32_t now=millis();
+  if(guardArmProof.sawMotion){
+    guardArmPending=false;
+    guardArmFailure=2;
+    guardAnnounce=true;
+    Serial.println("REDLINE ARM REFUSED: engine RPM nonzero");
+    return;
+  }
+  if(guardUnsupported){
+    guardArmPending=false;
+    guardArmFailure=3;
+    guardAnnounce=true;
+    Serial.println("REDLINE ARM REFUSED: ECU version unsupported");
+    return;
+  }
+  if((uint32_t)(now-guardArmStartMs)>BlinkGuardArm::TIMEOUT_MS){
+    guardArmPending=false;
+    guardArmFailure=guardArmIdentityValidated?1:4;
+    guardAnnounce=true;
+    Serial.printf("REDLINE ARM TIMEOUT: identity=%u zeroSamples=%u\n",
+                  guardArmIdentityValidated?1U:0U,(unsigned)guardArmProof.samples);
+    return;
+  }
+  if(guardArmIdentityValidated && guardSupported && guardArmProof.ready(now)){
+    guardArmPending=false;
+    guardArmFailure=0;
+    guardEnabled=true;
+    guardFault=false;
+    guardPending=false;
+    guardSwitchAttempts=0;
+    guardLastInitTryMs=0;
+    guardLastLimitTryMs=0;
+    guardWindow.reset();
+    guardStoreEnabled(true);
+    guardAnnounce=true;
+    Serial.println("REDLINE GUARD ARMED: identity OK, fresh stationary RPM=0 >=1s");
+    return;
+  }
+  if(!uartReady || otaBusy || bleOtaActive)return;
+  // Same single-loop UART ownership and phone RAW priority as FW2.4.
+  if(transactionBusy || transactionReady || guardUartActive)return;
+  if(deviceConnected && guardBleLinkedAtMs &&
+     (uint32_t)(now-guardBleLinkedAtMs)<2500U)return;
+  if(deviceConnected && txExpected && txGot<txExpected &&
+     (uint32_t)(now-lastRawChunkMs)<800U)return;
+  if(deviceConnected && guardLastHostLongCommandMs &&
+     (uint32_t)(now-guardLastHostLongCommandMs)<450U)return;
+
+  if(!guardArmIdentityValidated){
+    if(guardArmLastIdentityMs &&
+       (uint32_t)(now-guardArmLastIdentityMs)<BlinkGuardArm::IDENTITY_MS)return;
+    guardArmLastIdentityMs=now;
+    uint8_t rx[256]={0};
+    const size_t n=guardExchange(0x5A,0x5A,rx,sizeof(rx));
+    BlinkGuard::Handshake ident;
+    guardApplyHandshake(rx,n);
+    if(guardSupported && !guardUnsupported &&
+       BlinkGuard::parseHandshake(rx,n,ident))
+      guardArmIdentityValidated=true;
+    return; // NEVER send 0x69 to an unknown ECU/map.
+  }
+
+  // If real Blink 0x69 Live already supplies valid fresh samples, reuse them.
+  // Otherwise query the current map (discovered by the 0x5A identity).
+  if(guardLastValidRpmMs &&
+     (uint32_t)(now-guardLastValidRpmMs)<BlinkGuardArm::POLL_MS)return;
+  if(guardArmLastPollMs &&
+     (uint32_t)(now-guardArmLastPollMs)<BlinkGuardArm::POLL_MS)return;
+  if(deviceConnected && guardLastHostCommandMs &&
+     (uint32_t)(now-guardLastHostCommandMs)<100U)return;
+  guardArmLastPollMs=now;
+  uint8_t rx[96]={0};
+  const size_t n=guardExchange(0x69,guardMap,rx,sizeof(rx));
+  if(n==53)guardObserveLive(rx,n,guardMap);
+}
+
 static void guardTrySwitch(){
   const uint32_t now=millis();
   if(!guardPending || guardLatched || guardFault ||
@@ -1323,6 +1415,10 @@ static void guardTrySwitch(){
 static void guardAutonomousTick(){
   const uint32_t now=millis();
   guardHandleControlRequest();
+  if(guardArmPending){
+    guardTryArm(); // Runs even while normal protection is OFF, only after RGON.
+    return;
+  }
   if(!guardEnabled || !uartReady || otaBusy || bleOtaActive)return;
   if(guardUnsupported)return; // never probe the unverified ECU page6 layout
   // A lost ECU (power-off/reboot) invalidates old limits before another trip.
