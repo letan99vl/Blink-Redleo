@@ -873,6 +873,7 @@ static void guardUpdatePageLimit(const uint8_t *rx,size_t n,uint8_t page){
   if(guardLimits[bank]!=rpm)guardWindow.reset();
   guardLimits[bank]=rpm;
   guardLimitMask|=(uint8_t)(1U<<(bank-1));
+  if(guardEnabled && guardLimitMask==0x0FU)guardAnnounce=true;
   Serial.printf("REDLINE limit MAP%u=%u rpm mask=0x%X\n",
                 bank,rpm,(unsigned)guardLimitMask);
 }
@@ -954,6 +955,10 @@ static void guardAutonomousTick(){
   if(guardLastValidRpmMs && (uint32_t)(now-guardLastValidRpmMs)>BlinkGuard::MAX_SAMPLE_GAP_MS)
     guardWindow.stale(now);
   if(transactionBusy || transactionReady || guardUartActive)return;
+  // A multi-packet phone RAW frame is assembling: defer our periodic read,
+  // rather than starting a potentially slow 0x9A during the phone's write.
+  if(deviceConnected && txExpected && txGot<txExpected &&
+     (uint32_t)(now-lastRawChunkMs)<800U)return;
   // Give each manual READ/WRITE and the user-facing BLE transport preference.
   if(deviceConnected && guardLastHostLongCommandMs &&
      (uint32_t)(now-guardLastHostLongCommandMs)<450U)return;
@@ -961,21 +966,21 @@ static void guardAutonomousTick(){
 
   if(!guardSupported){
     if(guardLastInitTryMs && (uint32_t)(now-guardLastInitTryMs)<2500U)return;
-    guardLastInitTryMs=now;
     uint8_t rx[256]={0};
     const size_t n=guardExchange(0x5A,0x5A,rx,sizeof(rx));
+    guardLastInitTryMs=millis(); // Count retry delay after a slow ECU timeout.
     guardApplyHandshake(rx,n);
     return;
   }
   if(guardLimitMask!=0x0F){
     if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<850U)return;
-    guardLastLimitTryMs=now;
     uint8_t bank=0;
     for(uint8_t i=1;i<=4;i++)if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
     if(!bank)return;
     uint8_t rx[192]={0};
     const uint8_t pg=(uint8_t)(0x60U+2U*bank);
     const size_t n=guardExchange(0x9A,pg,rx,sizeof(rx));
+    guardLastLimitTryMs=millis(); // A bad ECU page must not starve phone BLE.
     guardUpdatePageLimit(rx,n,pg);
     return;
   }
