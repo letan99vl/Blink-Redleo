@@ -8,7 +8,7 @@ assert(html.includes("window.BLINK_PB_VERSION = '3.79.76'"));
 for(const tok of ['id="redlineGuardSettings"','id="rgStatus"','id="rgReadBtn"',
  'id="rgEnableBtn"','id="rgDisableBtn"',"writeBridgeControl('RG?')",
  "guardControlCommand('RGON')","guardControlCommand('RGOFF')",
- "if(window.blinkGuardLatched && n!==4)","RG:TRIP:M4"]){
+ "(window.blinkGuardLatched || window.blinkGuardFault) && n!==4","RG:TRIP:M4"]){
   assert(html.includes(tok),'HTML guard control missing: '+tok);
 }
 for(const tok of ['#include <Preferences.h>','#include "redline_guard_core.h"',
