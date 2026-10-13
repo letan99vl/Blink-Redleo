@@ -2407,15 +2407,22 @@ void setup() {
   Serial.printf("\nBLINK TL REDLEO ECU REAL BRIDGE ESP32 FW%s\n", FW_VERSION);
   Serial.printf("ECU UART: 38400 8E2 AUTO RX22/TX23 or RX26/TX33 RTS=%d\n", ECU_RTS_PIN);
 
-  // Legacy FW2.2 installs stay OFF. Users explicitly opt in via RGON with
-  // engine stopped; the setting survives key cycles in NVS.
+  // FW2.6 changes physical ECU family/limit interpretation. Old FW2.5 NVS
+  // "enabled" is NOT transferable: require a fresh stopped-engine RGON and
+  // four page6 limit confirmations before any MAP4 automation can run.
   {
     Preferences p;
-    if(p.begin("blinkguard",true)){
-      guardEnabled=p.getBool("enabled",false);
+    if(p.begin("blinkguard",false)){
+      const uint8_t schema=p.getUChar("schema",0U);
+      if(schema!=2U){
+        p.putBool("enabled",false);
+        p.putUChar("schema",2U);
+        guardEnabled=false;
+        Serial.println("REDLINE schema migration: old automatic guard OFF pending new ECU validation");
+      }else guardEnabled=p.getBool("enabled",false);
       p.end();
     }
-    Serial.printf("REDLINE guard enabled=%u (OFF by default)\n",guardEnabled?1U:0U);
+    Serial.printf("REDLINE guard enabled=%u (new FW2.6 ECU profile requires opt-in)\n",guardEnabled?1U:0U);
   }
   {
     Preferences p;
