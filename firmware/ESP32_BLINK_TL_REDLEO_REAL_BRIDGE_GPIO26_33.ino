@@ -1031,7 +1031,7 @@ static void guardAutonomousTick(){
     if(deviceConnected && guardLastHostCommandMs &&
        (uint32_t)(now-guardLastHostCommandMs)<100U)return;
     uint8_t rx[96]={0};
-    const uint8_t mapNo=guardLatched?4:guardMap;
+    const uint8_t mapNo=(guardLatched || guardFault)?4:guardMap;
     const size_t n=guardExchange(0x69,mapNo,rx,sizeof(rx));
     if(n==53)guardObserveLive(rx,n,mapNo);
   }
@@ -1078,7 +1078,7 @@ static void processTransaction() {
   // Once MAP4 is confirmed or a safety transition is pending, refuse ECU
   // restore/write commands and force the running-map selection to MAP4.
   // Read-only commands remain available for remote diagnostics.
-  if(guardEnabled && (guardLatched || guardPending)){
+  if(guardEnabled && (guardLatched || guardPending || guardFault)){
     if(n>0 && (txBuf[0]==0xCD || txBuf[0]==0x8B)){
       notifyStatus("RG:LOCKED");
       sendRawResponse(sid,nullptr,0);
