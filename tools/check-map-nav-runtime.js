@@ -2,6 +2,7 @@
 'use strict';
 const fs = require('fs');
 const {JSDOM, VirtualConsole} = require('jsdom');
+const {TextEncoder,TextDecoder}=require('node:util');
 const file = process.argv[2] || 'index.html';
 const html = fs.readFileSync(file, 'utf8');
 const reports=[];
@@ -14,6 +15,7 @@ const dom=new JSDOM(html,{
  pretendToBeVisual:true,
  virtualConsole:vconsole,
  beforeParse(w){
+   w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;
    w.matchMedia=()=>({matches:false,media:'',addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}});
    w.scrollTo=()=>{};
    w.alert=()=>{};
