@@ -1295,17 +1295,6 @@ static void processTransaction() {
     return;
   }
 
-  uint8_t *rxBuf = (uint8_t *)malloc(RX_MAX);
-  if (!rxBuf) {
-    Serial.printf("ECU RX alloc failed need=%u heap=%u max=%u\n",
-                  (unsigned)RX_MAX, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    notifyStatus("ERR ECU RAM");
-    sendRawResponse(sid, nullptr, 0);
-    lastProcessedSid = sid; lastProcessedMs = millis();
-    transactionBusy = false; activeTransactionSid = 0;
-    return;
-  }
-
   // Once MAP4 is confirmed or a safety transition is pending, refuse ECU
   // restore/write commands and force the running-map selection to MAP4.
   // Read-only commands remain available for remote diagnostics.
@@ -1321,6 +1310,17 @@ static void processTransaction() {
       BlinkGuard::request5(0x69,4,txBuf);
     }
   }
+  uint8_t *rxBuf = (uint8_t *)malloc(RX_MAX);
+  if (!rxBuf) {
+    Serial.printf("ECU RX alloc failed need=%u heap=%u max=%u\n",
+                  (unsigned)RX_MAX, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    notifyStatus("ERR ECU RAM");
+    sendRawResponse(sid, nullptr, 0);
+    lastProcessedSid = sid; lastProcessedMs = millis();
+    transactionBusy = false; activeTransactionSid = 0;
+    return;
+  }
+
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
   const size_t got = transactUartAutopin(txBuf, n, rxBuf, RX_MAX);
   Serial.printf("ECU RX sid=%u len=%u", sid, (unsigned)got);
