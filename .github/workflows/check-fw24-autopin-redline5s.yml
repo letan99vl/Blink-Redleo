@@ -1,0 +1,57 @@
+name: FW2.4 Auto-UART + 5s Guard (LAB ONLY)
+on:
+  push:
+    branches:
+      - feature/blink-fw24-autopin-redline5s-20261013
+    paths:
+      - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - 'tools/extract-fw24-cores.py'
+      - 'tools/test-fw24-autopin.cpp'
+      - 'tools/test-fw24-ui.js'
+      - '.github/workflows/check-fw24-autopin-redline5s.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  firmware-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test actual INO core for pin detection / redline timing
+        run: |
+          python3 tools/extract-fw24-cores.py firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino /tmp/fw24_extracted.h
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-tests
+          /tmp/fw24-tests
+      - name: Validate current Blink UI and FW2.4 source safety
+        run: |
+          node tools/test-fw24-ui.js
+          node --check redleo_real_protocol.js
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install classic ESP32 Arduino core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+      - name: Compile one-file FW2.4, never publish OTA
+        run: |
+          mkdir -p build-sketch/BLINK_FW build-out
+          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
+            --output-dir build-out \
+            build-sketch/BLINK_FW
+          test -s build-out/BLINK_FW.ino.bin
+          sha256sum build-out/BLINK_FW.ino.bin > build-out/FW24-SHA256.txt
+          cp build-sketch/BLINK_FW/BLINK_FW.ino build-out/BLINK_FW24_SINGLE_FILE.ino
+          printf 'LAB CANDIDATE - NOT PRODUCTION OTA.\nBootloader+partition may also be required for full chip erase flash.\nPlease test ECU 0x5A and 5-second guard only on stationary controlled bench.\nDo not test at sustained redline on public roads.\n' > build-out/READ-ME-FIRST.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_FW24_SINGLE_INO_AUTO_UART_GUARD5S_LAB
+          path: |
+            build-out/BLINK_FW.ino.bin
+            build-out/BLINK_FW24_SINGLE_FILE.ino
+            build-out/FW24-SHA256.txt
+            build-out/READ-ME-FIRST.txt
+          retention-days: 30
