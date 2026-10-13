@@ -3,7 +3,7 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const html = fs.readFileSync('index.html','utf8');
 
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.77';"));
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.78';"));
 for (const marker of [
   'id="fuelKeypadSave"',
   'class="fuelTargetSave"',
