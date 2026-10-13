@@ -77,6 +77,23 @@ int main() {
     assert(validHandshakeReply(f.data(),f.size())); // pins work on OTHER ECU too
     assert(!parseHandshake(f.data(),f.size(),parsed)); // guard stays disarmed
   }
+  // UART adapters can prepend echo/noise and append trailing bytes.
+  auto cleanHs=handshake("9.13",3,41);
+  std::vector<uint8_t> noisyHs={0xDE,0xAD};
+  noisyHs.insert(noisyHs.end(),cleanHs.begin(),cleanHs.end());
+  noisyHs.push_back(0x77);
+  assert(normalizeHandshake(noisyHs.data(),noisyHs.size())==41);
+  assert(std::memcmp(noisyHs.data(),cleanHs.data(),41)==0);
+  auto cleanLive=live(8000);
+  std::vector<uint8_t> noisyLive={0x99,0x88,0x77};
+  noisyLive.insert(noisyLive.end(),cleanLive.begin(),cleanLive.end());
+  noisyLive.push_back(0x22);
+  assert(normalizeLive(noisyLive.data(),noisyLive.size())==53);
+  assert(std::memcmp(noisyLive.data(),cleanLive.data(),53)==0);
+  auto corruptOnly=handshake("9.13",3);
+  corruptOnly[20]^=1;
+  assert(normalizeHandshake(corruptOnly.data(),corruptOnly.size())==0);
+
   auto shortHs=handshake("",1,9);
   assert(validHandshakeReply(shortHs.data(),shortHs.size()));
   assert(!parseHandshake(shortHs.data(),shortHs.size(),parsed));
