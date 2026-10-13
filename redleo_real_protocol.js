@@ -5223,7 +5223,7 @@ function boot(){
         },delayMs);
       }else{
         notice('error','BLUETOOTH OK · ECU CHƯA XÁC THỰC',
-          'Lệnh ECU 0x5A chưa thành công, không mở khóa MAP. '+msg,0);
+          'Lệnh ECU 0x5A chưa thành công, không mở khóa MAP. '+msg,8500);
       }
     }finally{
       if(retryButton&&cc===cmdChar()&&mc===mapChar()&&!sessionInitPromise)
