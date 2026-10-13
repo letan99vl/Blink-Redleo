@@ -10,7 +10,8 @@ const between=(s,a,b)=>{
  assert(i>=0&&j>i,'Missing source anchors: '+a);
  return s.slice(i,j);
 };
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.81'"));
+const pb=html.match(/window\.BLINK_PB_VERSION = '3\.79\.(\d+)'/);
+assert(pb && Number(pb[1])>=81,'GATT-lock test requires Blink PB3.79.81 or newer');
 assert(raw.includes('if(!cmdChar()||busy||bridgeControlReserved||document.hidden)return;'));
 assert(raw.includes('if(bridgeControlReserved || manualMapIoDepth>0)return;'));
 const control=between(raw,'async function beginBridgeGuardControl(','let manualMapIoDepth=0;');
