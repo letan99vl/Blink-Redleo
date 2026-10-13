@@ -8,7 +8,12 @@ assert(html.includes("window.BLINK_PB_VERSION = '3.79.76'"));
 for(const tok of ['id="redlineGuardSettings"','id="rgStatus"','id="rgReadBtn"',
  'id="rgEnableBtn"','id="rgDisableBtn"',"writeBridgeControl('RG?')",
  "guardControlCommand('RGON')","guardControlCommand('RGOFF')",
- "(window.blinkGuardLatched || window.blinkGuardFault) && n!==4","RG:TRIP:M4"]){
+ "(window.blinkGuardLatched || window.blinkGuardFault) && n!==4","RG:TRIP:M4",
+ 'id="otaRollbackFw22Btn"',
+ "otaManifestCache={...LAST_GOOD_FW22}",
+ "await otaInstall()",
+ "if(Number.isFinite(rpm)&&rpm>200)",
+ "sha256:'ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e'"]){
   assert(html.includes(tok),'HTML guard control missing: '+tok);
 }
 for(const tok of ['#include <Preferences.h>','#include "redline_guard_core.h"',
@@ -32,4 +37,4 @@ let found=0;for(const match of html.matchAll(re)){
   new vm.Script(code,{filename:'index.html inline script '+found});
 }
 assert(found>=2,'expected inline Blink JS scripts');
-console.log('PASS: '+found+' Blink inline script blocks compile; FW2.3 UI status/opt-in/latch checked; OTA 2.2 unchanged');
+console.log('PASS: '+found+' Blink inline scripts compile; FW2.3 opt-in/latch and SHA-256 pinned FW2.2 BLE recovery verified');
