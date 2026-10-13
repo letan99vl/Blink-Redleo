@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_ota:
-        description: 'DANGER: Publish FW2.3 to public OTA for customers (only after real ECU testing)'
+        description: 'Publish FW2.3 to public OTA (owner authorization required; guard defaults OFF)'
         type: boolean
         required: true
         default: false
