@@ -1292,3 +1292,12 @@ PB3.79.78 hotfix changes:
 - Removed the FW2.3-only CI workflow and C++ redline tests from active main. The standard ESP32 build compiles the one INO file with **no header dependency**, uploads a FW2.2 build artifact, and does not automatically change the OTA binary or manifest. Publishing an OTA from CI requires explicitly choosing the `publish_ota` checkbox in manual workflow dispatch.
 - Production `ota/blink_esp32.bin` is already the original FW2.2 blob `b5bb40eea95a55e951a6668cc41085b6fecf586c`, and `ota/manifest.json` is pinned to FW 2.2 / SHA256 `ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e`. Never reinstate FW2.3 from an archived workflow or test branch without hardware validation.
 - The public Blink web UI is still PB3.79.78 with handshake-status diagnostics and FW2.2 recovery option, not the earlier PB3.79.72 UI. Restoring code on GitHub **does not remotely flash ESP32 modules already running FW2.3**; use the explicit BLE FW2.2 restore control with engine off.
+
+
+## 2026-10-13 · Blink PB3.79.79 AFR target keypad RELEASED; FW2.4 OTA HELD FOR HARDWARE TEST
+
+- Production Blink main index.html PB3.79.79 released at commit d8841c9b37e0f256ff469bd43e4689640be75ee3: supports a custom virtual keypad for Blink-only AFR Target, target-only save button, floating +/- and multi-cell selection. AFR Target changes save in Blink localStorage; they DO NOT send ECU write commands. User can edit in software landscape as in the fuel keypad.
+- FW2.4 candidate remains on branch feature/blink-fw24-autopin-redline5s-20261013; draft PR #5. It is single-file Arduino INO, UART autoselect known 22/23 and 26/33 pairs + NVS persistence, and opt-in autonomous 5-second guard. Redline guard stays OFF for fresh NVS installs.
+- Lab automated pure-C++ tests, Blink UI contract assertions and Arduino compile passed on prior FW2.4 commits; latest branch CI should be checked before flashing any device.
+- IMPORTANT: prior FW2.3 experimental release broke ECU 0x5A authentication for customers. FW2.4 has NOT yet been verified with a physical ECU on both wiring layouts and has NOT been published to customer OTA. Production firmware/ and ota/manifest.json remain FW2.2. Do not use public OTA as substitute for a real ECU 0x5A/Read All/MAP4 bench test.
+- Candidate handoff: FW24_AUTOPIN_REDLINE_LAB_HANDOFF.md in branch; PR: https://github.com/letan99vl/Blink-Redleo/pull/5
