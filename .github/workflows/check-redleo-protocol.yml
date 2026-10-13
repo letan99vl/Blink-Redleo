@@ -11,6 +11,7 @@ on:
       - 'tools/check-map-selection.js'
       - 'tools/check-ecu-auth-unlock.js'
       - 'tools/check-redline-gatt-lock.js'
+      - 'tools/test-fw24-ui.js'
       - 'tools/check-air-fuel-ratio.js'
       - 'tools/check-injection-cam-calculator.js'
       - 'tools/check-ecu-feature-surfaces.js'
@@ -43,6 +44,8 @@ jobs:
         run: node tools/check-ecu-auth-unlock.js
       - name: Redline Guard GATT concurrency regression
         run: node tools/check-redline-gatt-lock.js
+      - name: FW2.4 bridge and Blink UI guard contract
+        run: node tools/test-fw24-ui.js
       - name: Air fuel ratio cross-family regression
         run: node tools/check-air-fuel-ratio.js
       - name: Injection cam calculator regression
