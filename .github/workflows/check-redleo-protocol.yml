@@ -3,12 +3,13 @@ name: Check REDLEO Protocol JS
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, hotfix/pb37978-ecu-auth-before-map-unlock-20261013]
     paths:
       - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-row-orientation.js'
       - 'tools/check-map-selection.js'
+      - 'tools/check-ecu-auth-unlock.js'
       - 'tools/check-air-fuel-ratio.js'
       - 'tools/check-injection-cam-calculator.js'
       - 'tools/check-ecu-feature-surfaces.js'
@@ -37,6 +38,8 @@ jobs:
         run: node tools/check-row-orientation.js
       - name: Map selection direction regression
         run: node tools/check-map-selection.js
+      - name: ECU BLE handshake, profile unlock, and retry regression
+        run: node tools/check-ecu-auth-unlock.js
       - name: Air fuel ratio cross-family regression
         run: node tools/check-air-fuel-ratio.js
       - name: Injection cam calculator regression
