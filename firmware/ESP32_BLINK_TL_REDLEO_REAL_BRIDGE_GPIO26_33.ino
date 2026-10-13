@@ -175,6 +175,7 @@ static volatile bool guardPending=false;
 static volatile uint8_t guardControlRequest=0; // 1=enable,2=disable (main loop only)
 static bool guardFault=false;
 static bool guardSupported=false;
+static bool guardUnsupported=false;
 static uint8_t guardMap=1;
 static uint8_t guardLimitMask=0;
 static uint16_t guardLimits[5]={0,0,0,0,0};
@@ -196,6 +197,7 @@ static String guardStatusText(){
   if(!guardEnabled)return "RG:OFF";
   if(guardLatched)return "RG:TRIP:M4";
   if(guardFault)return "RG:FAULT";
+  if(guardUnsupported)return "RG:UNSUP";
   if(!guardSupported)return "RG:WAIT";
   if(guardLimitMask!=0x0F)return "RG:READING";
   return String("RG:ON:M")+String(guardMap)+":"+String(guardLimits[guardMap]);
@@ -218,6 +220,7 @@ static void guardHandleControlRequest(){
     guardPending=false;
     guardSwitchAttempts=0;
     guardLastInitTryMs=0;
+    guardUnsupported=false;
   }else if(control==2){
     guardEnabled=false;
     guardLatched=false; // DO NOT switch the ECU away from its current map.
@@ -849,7 +852,26 @@ static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
 
 static void guardApplyHandshake(const uint8_t *rx,size_t n){
   BlinkGuard::Handshake h;
-  if(!BlinkGuard::parseHandshake(rx,n,h))return;
+  if(!BlinkGuard::parseHandshake(rx,n,h)){
+    // An actual full ECU handshake from a different version means this
+    // experimental V9.1x/9.2x guard must NOT attempt page6 interpretations.
+    const size_t sizes[]={41,37};
+    for(size_t pos=0;pos<n;++pos){
+      if(rx[pos]!=0x5A)continue;
+      for(size_t len:sizes){
+        if(pos+len<=n && validRedleoFrame(rx+pos,len)){
+          guardUnsupported=true;
+          guardSupported=false;
+          guardLimitMask=0;
+          guardWindow.reset();
+          guardAnnounce=true;
+          return;
+        }
+      }
+    }
+    return;
+  }
+  guardUnsupported=false;
   const bool different=!guardHasIdentity ||
                        strcmp(h.id,guardIdentity.id)!=0 ||
                        strcmp(h.fw,guardIdentity.fw)!=0;
@@ -952,6 +974,16 @@ static void guardAutonomousTick(){
   const uint32_t now=millis();
   guardHandleControlRequest();
   if(!guardEnabled || !uartReady || otaBusy || bleOtaActive)return;
+  if(guardUnsupported)return; // never probe the unverified ECU page6 layout
+  // A lost ECU (power-off/reboot) invalidates old limits before another trip.
+  if(guardSupported && guardLimitMask==0x0F && !guardLatched &&
+     !guardPending && guardLastValidRpmMs &&
+     (uint32_t)(now-guardLastValidRpmMs)>4500U){
+    guardSupported=false;
+    guardLimitMask=0;
+    guardWindow.reset();
+    guardLastInitTryMs=0;
+  }
   if(guardLastValidRpmMs && (uint32_t)(now-guardLastValidRpmMs)>BlinkGuard::MAX_SAMPLE_GAP_MS)
     guardWindow.stale(now);
   if(transactionBusy || transactionReady || guardUartActive)return;
