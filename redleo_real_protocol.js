@@ -654,14 +654,27 @@ function applyProfileUi(){
     setProfileDisabled(b,blocked,blocked?'ECU Profile: '+p.label+' · ECU_MODE này chỉ có một MAP.':'');
   });
 
-  // Show only features whose parser/writer surface is verified for the
-  // detected ECU profile. Before identification keep cards visible but locked.
+  // PB3.79.78: NAVIGATION is not ECU I/O. Keeping menu tiles disabled for
+  // UNKNOWN profiles made every MAP tap silent before the ECU handshake.
+  // Allow OFFLINE PREVIEW of visible MAP pages, but NEVER broaden any parser,
+  // READ, WRITE, RESTORE, or ECU profile capability.
   document.querySelectorAll('[data-feature]').forEach(el=>{
     const id=el.dataset.feature;
     const pending=p.key==='UNKNOWN'||p.key==='LEGACY_PROBE';
     const supported=profileSupportsFeature(id,p);
-    setProfileDisabled(el,!supported,!supported?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
+    // Preserve the exact supported-feature visibility policy per ECU family.
     el.style.display=(pending||supported)?'':'none';
+    // Removing the HTML disabled state is safe: this is only a UI router.
+    // Read/write buttons and transport functions retain their profile guards.
+    delete el.dataset.profileBlocked;
+    el.disabled=false;
+    if(!supported){
+      el.dataset.profilePreview='1';
+      el.title='ECU Profile: '+p.label+' · chỉ xem trước MAP khi chưa được hỗ trợ. ĐỌC/GHI ECU vẫn khóa an toàn.';
+    }else{
+      delete el.dataset.profilePreview;
+      if(el.title?.startsWith('ECU Profile:'))el.title='';
+    }
   });
 }
 function setEcuProfile(p){
