@@ -10,7 +10,7 @@ preamble = "#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <st
 out = [preamble]
 for name in ("BlinkGuard", "BlinkGuardArm", "BlinkAutoPins"):
     start = "namespace " + name + " {"
-    finish = "} // namespace " + name
+    finish = "} // namespace " + name + "\n"  # exact closing line; avoid BlinkGuardArm prefix match
     if src.count(start) != 1 or src.count(finish) != 1:
         raise RuntimeError(f"Missing/ambiguous C++ source core: {name}")
     a = src.index(start)
