@@ -55,7 +55,7 @@ jobs:
           name: BLINK_FW23_COMPILED_UNPUBLISHED
           path: build-out/BLINK_FW.ino.bin
       - name: Update OTA binary and manifest
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_ota == true }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW23]')) }}
         run: |
           cp build-out/BLINK_FW.ino.bin ota/blink_esp32.bin
           python3 - <<'PY'
@@ -74,7 +74,7 @@ jobs:
           PY
 
       - name: Commit OTA firmware
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_ota == true }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW23]')) }}
         run: |
           if git diff --quiet -- ota/blink_esp32.bin ota/manifest.json; then
             echo "OTA firmware already current"
