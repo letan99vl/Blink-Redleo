@@ -24,6 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify firmware safety cores and Blink UI before compilation
+        run: |
+          python3 tools/extract-fw24-cores.py firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino /tmp/fw24_extracted.h
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-release-tests
+          /tmp/fw24-release-tests
+          node tools/test-fw24-ui.js
+          node --check redleo_real_protocol.js
+
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
