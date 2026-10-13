@@ -20,6 +20,13 @@ for(const token of ['#define FW_VERSION "2.4"','namespace BlinkGuard {',
   assert(fw.includes(token),'FW2.4 missing '+token);
 assert(!fw.includes('#include "redline_guard_core.h"'));
 assert(!fw.includes('#include "blink_autopin_core.h"'));
+const txn=fw.slice(fw.indexOf('static void processTransaction()'), fw.indexOf('static void sendAfrPacket()'));
+assert(txn.includes('uint8_t *rxBuf = (uint8_t *)malloc(RX_MAX);'));
+assert(txn.indexOf('if(guardEnabled && (guardLatched || guardPending || guardFault))') <
+       txn.indexOf('uint8_t *rxBuf = (uint8_t *)malloc(RX_MAX);'),
+       'Blocked ECU writes must not leak the 12KB receive buffer');
+assert(fw.includes('BlinkAutoPins::normalizeHandshake'));
+assert(fw.includes('BlinkAutoPins::normalizeLive'));
 assert(fw.includes('HOLD_MS = 5000U'));
 assert(handoff.includes('MAP 4'));
 const re=/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi;
