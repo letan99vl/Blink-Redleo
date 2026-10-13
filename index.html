@@ -4753,6 +4753,63 @@ window.addEventListener('beforeunload',save);
     if(typeof commandChar.writeValueWithoutResponse==='function'){await commandChar.writeValueWithoutResponse(bytes);await new Promise(r=>setTimeout(r,30));return;}
     throw new Error('BLE COMMAND không hỗ trợ control write.');
   }
+  // FW2.3 guard commands are plain BLE control, never RAW E1.
+  function renderGuardStatus(text){
+    const value=String(text||'').trim(),e=$('rgStatus');
+    if(e){
+      const nice={
+        'RG:OFF':'TẮT · ESP32 NVS OFF',
+        'RG:WAIT':'ĐANG NHẬN DIỆN ECU...',
+        'RG:READING':'ĐANG ĐỌC GIỚI HẠN RPM 4 MAP...',
+        'RG:TRIP:M4':'ĐÃ KÍCH HOẠT · ECU MAP 4 (KHÓA)',
+        'RG:FAULT':'LỖI XÁC MINH MAP 4 · KHÔNG ĐƯỢC COI LÀ ĐÃ CHUYỂN',
+        'RG:STOP':'TỪ CHỐI: động cơ phải dừng và RPM Live phải hợp lệ',
+        'RG:QUEUED':'ĐANG LƯU CÀI ĐẶT VÀO ESP32...',
+        'RG:LOCKED':'GUARD ĐÃ KHÓA GHI ECU TRONG CHẾ ĐỘ MAP4'
+      };
+      e.value=nice[value]||(value.startsWith('RG:ON:M')?('ĐANG BẢO VỆ · '+value.slice(3)):value);
+    }
+    if(value==='RG:TRIP:M4'){
+      if(!window.blinkGuardLatched){
+        window.blinkGuardLatched=true;
+        if(state.threeRun?.active)resetThreeRunCancelled('REDLINE GUARD: HỦY AUTO TUNE 3 LƯỢT');
+        if(state.recording)setRecording(false);
+        showEcuNotice('error','REDLINE GUARD · ECU MAP 4',
+          'ESP32 xác nhận ECU đã sang MAP 4. Đã dừng tự học và khóa chọn MAP khác cho đến khi động cơ dừng và tắt bảo vệ.',0);
+      }
+      state.activeMap=4;
+      $('mapSelect').value='4';
+      try{syncBanks();render();updateLive();saveSoon();}catch(_e){}
+    }else if(value==='RG:OFF'){
+      window.blinkGuardLatched=false;
+    }
+  }
+  window.blinkGuardStatus=renderGuardStatus;
+  async function guardControlCommand(action){
+    try{
+      if(!state.ecuConnected||!commandChar)throw new Error('Chưa kết nối Bluetooth với ESP32.');
+      const version=await ensureBridgeFirmwareStatus(2);
+      if(!bridgeStatusAtLeast(version,2,3))throw new Error('ESP32 cần FW 2.3 trở lên. Hiện tại: '+(version||'không rõ')+'.');
+      await writeBridgeControl(action);
+      if(action!=='RG?'){
+        await new Promise(r=>setTimeout(r,180));
+        await writeBridgeControl('RG?');
+      }
+    }catch(e){
+      const detail=String(e&&e.message||e);
+      renderGuardStatus('RG:ERROR '+detail);
+      showEcuNotice('error','REDLINE GUARD',detail,5000);
+    }
+  }
+  $('rgReadBtn')?.addEventListener('click',()=>guardControlCommand('RG?'));
+  $('rgEnableBtn')?.addEventListener('click',()=>{
+    if(confirm('BẬT REDLINE GUARD?\\n\\nĐỘNG CƠ PHẢI DỪNG (RPM 0).\\nMAP 4 ĐÃ ĐƯỢC BẠN KIỂM TRA AN TOÀN và phù hợp với xe.\\n\\nSau khi đủ 5 giây gần giới hạn tua, ESP32 tự chuyển MAP 4 và giữ đến khi tắt khóa. Chức năng không thay thế việc kiểm soát ga và không bảo đảm ngăn hỏng máy.')){
+      guardControlCommand('RGON');
+    }
+  });
+  $('rgDisableBtn')?.addEventListener('click',()=>{
+    if(confirm('TẮT REDLINE GUARD?\\nChỉ thực hiện khi động cơ đã dừng (RPM 0). ESP32 sẽ không tự trả về MAP cũ.'))guardControlCommand('RGOFF');
+  });
   let rxProbeResolve=null;
   let txProbeResolve=null;
 
