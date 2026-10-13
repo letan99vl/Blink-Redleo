@@ -2219,9 +2219,11 @@
         <button id="otaScanBtn">QUÉT WI-FI</button>
         <button id="otaCheckBtn" class="primary">KIỂM TRA FIRMWARE</button>
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
+        <button id="otaRollbackFw22Btn" type="button">KHÔI PHỤC FW 2.2</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
       <div class="hint" id="otaInfo">Phiên bản mới và file firmware được tải bằng Internet của điện thoại rồi truyền sang ESP32 qua BLE. ESP32 không cần mở TLS.</div>
+      <div class="hint">Khôi phục FW 2.2 dùng bản BIN gốc đã khóa SHA-256, cho phép quay về FW cũ khi FW 2.3 lỗi. Chỉ thực hiện khi động cơ đã TẮT, xe đứng yên và nguồn ESP32 ổn định. OTA qua BLE vẫn cần ESP32 có thể kết nối Bluetooth; nếu phần BLE của firmware hỏng hoàn toàn, phải dùng USB.</div>
     </details>
   </section>
 
@@ -5361,6 +5363,36 @@ window.addEventListener('beforeunload',save);
       setEcuTaskStatus('error','UPDATE ESP32 · LỖI');
     }
   }
+  // Recovery path is independent of the public OTA version comparison.
+  // This immutable reference points to the checked FW2.2 BIN in the original
+  // PB3.79.72 commit, even if main's OTA manifest has already changed to 2.3.
+  const LAST_GOOD_FW22=Object.freeze({
+    version:'2.2',
+    url:'https://raw.githubusercontent.com/letan99vl/Blink-Redleo/efb101e67f80da252b81b7f03931ab357fec4778/ota/blink_esp32.bin',
+    sha256:'ce18b7d20e6cee223bda4f29b2932d9d236f3f2181fbc209a740015ebda25c8e'
+  });
+  async function otaRollbackToFW22(){
+    try{
+      if(!state.ecuConnected||!commandChar)throw new Error('Cần kết nối BLE với ESP32 để khôi phục firmware.');
+      if(otaBleTransferActive)throw new Error('ESP32 đang thực hiện OTA khác.');
+      if(state.recording||state.threeRun?.active)throw new Error('Hãy dừng Auto Tune và chế độ chạy 3 lượt.');
+      const fw=await ensureBridgeFirmwareStatus(3);
+      if(!bridgeStatusAtLeast(fw,2,3))throw new Error('Chỉ khôi phục khi ESP32 đang dùng FW 2.3 trở lên. Phiên bản: '+(fw||'không rõ'));
+      const rpm=Number(state.live?.rpm);
+      if(Number.isFinite(rpm)&&rpm>200)throw new Error('ECU đang có RPM '+rpm+'. Phải tắt động cơ trước khi khôi phục.');
+      if(!confirm('KHÔI PHỤC FW 2.2 GỐC?\\n\\nBẢO ĐẢM ĐỘNG CƠ ĐÃ TẮT, xe đứng yên và nguồn ESP32 không gián đoạn.\\n\\nTính năng Redline Guard của FW2.3 sẽ không còn hoạt động. Dữ liệu MAP ECU không bị ghi lại.\\n\\nTiếp tục?'))return;
+      // otaInstall performs a second explicit version confirmation and verifies
+      // every byte of the fixed old binary via SHA-256 before flashing.
+      otaManifestCache={...LAST_GOOD_FW22};
+      otaUpdateReady=true;
+      $('otaNewVersion').value='2.2 (khôi phục)';
+      setOtaInfo('Đã chọn FW 2.2 gốc · SHA-256 cố định · xác nhận để khôi phục');
+      await otaInstall();
+    }catch(e){
+      setOtaInfo('KHÔI PHỤC FW 2.2: '+String(e&&e.message||e),'error');
+    }
+  }
+  $('otaRollbackFw22Btn')?.addEventListener('click',otaRollbackToFW22);
   $('otaScanBtn').addEventListener('click',otaScanWifi);
   $('otaCheckBtn').addEventListener('click',otaCheck);
   $('otaInstallBtn').addEventListener('click',otaInstall);
