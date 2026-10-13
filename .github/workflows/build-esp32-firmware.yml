@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_ota:
-        description: 'Explicitly publish compiled current firmware to public OTA (FW2.4)'
+        description: 'Explicitly publish compiled current firmware to public OTA (FW2.5)'
         type: boolean
         required: true
         default: false
@@ -41,12 +41,12 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12
 
-      - name: Prepare single-file FW2.4 sketch
+      - name: Prepare single-file FW2.5 sketch
         run: |
           mkdir -p build-sketch/BLINK_FW
           cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
 
-      - name: Compile FW2.4 firmware
+      - name: Compile FW2.5 firmware
         run: |
           mkdir -p build-out
           arduino-cli compile \
@@ -58,11 +58,11 @@ jobs:
       - name: Upload firmware build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK_FW24_BUILD
+          name: BLINK_FW25_BUILD
           path: build-out/BLINK_FW.ino.bin
 
       - name: Publish OTA binary and manifest (explicit release only)
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW24]')) }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW25]')) }}
         run: |
           cp build-out/BLINK_FW.ino.bin ota/blink_esp32.bin
           python3 - <<'PY'
@@ -73,8 +73,8 @@ jobs:
           manifest_path = Path('ota/manifest.json')
           firmware_source = Path('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino').read_text(encoding='utf-8')
           match = re.search(r'^#define FW_VERSION\s+"([^"]+)"', firmware_source, flags=re.MULTILINE)
-          if not match or match.group(1) != '2.4':
-              raise SystemExit('Refusing to publish: production release must be FW2.4')
+          if not match or match.group(1) != '2.5':
+              raise SystemExit('Refusing to publish: production release must be FW2.5')
           version = match.group(1)
           sha = hashlib.sha256(bin_path.read_bytes()).hexdigest()
           manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
@@ -86,7 +86,7 @@ jobs:
           PY
 
       - name: Commit OTA firmware (explicit release only)
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW24]')) }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_ota == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[RELEASE_FW25]')) }}
         run: |
           if git diff --quiet -- ota/blink_esp32.bin ota/manifest.json; then
             echo "OTA firmware already current"
@@ -95,6 +95,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ota/blink_esp32.bin ota/manifest.json
-          git commit -m "Publish ESP32 FW 2.4 OTA binary [OTA_RELEASED]"
+          git commit -m "Publish ESP32 FW 2.5 OTA binary [OTA_RELEASED]"
           git pull --rebase origin main
           git push

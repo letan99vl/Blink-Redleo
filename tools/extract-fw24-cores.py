@@ -8,13 +8,13 @@ if len(sys.argv) != 3:
 src = Path(sys.argv[1]).read_text(encoding="utf-8")
 preamble = "#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <string.h>\n\n"
 out = [preamble]
-for name in ("BlinkGuard", "BlinkAutoPins"):
+for name in ("BlinkGuard", "BlinkGuardArm", "BlinkAutoPins"):
     start = "namespace " + name + " {"
-    finish = "} // namespace " + name
+    finish = "} // namespace " + name + "\n"  # exact closing line; avoid BlinkGuardArm prefix match
     if src.count(start) != 1 or src.count(finish) != 1:
         raise RuntimeError(f"Missing/ambiguous C++ source core: {name}")
     a = src.index(start)
     b = src.index(finish, a) + len(finish)
     out.append(src[a:b] + "\n\n")
 Path(sys.argv[2]).write_text("".join(out), encoding="utf-8")
-print("PASS: extracted actual BlinkGuard + BlinkAutoPins from one-file INO")
+print("PASS: extracted actual BlinkGuard + BlinkGuardArm + BlinkAutoPins from one-file INO")

@@ -148,6 +148,41 @@ int main() {
   w.target(4,10000);
   for (uint32_t t=3400;t<11000;t+=100) assert(!w.observe(t,10000));
 
+  // FW2.5 key-on arming proof: NEVER infer an RPM=0 from missing ECU data.
+  BlinkGuardArm::Proof zero{};
+  assert(!zero.ready(5000)); // ignition ON + no real Live frames
+  zero.observe(100,0);
+  zero.observe(350,0);
+  zero.observe(600,0);
+  zero.observe(850,0);
+  assert(!zero.ready(850));  // <1s
+  zero.observe(1100,0);
+  assert(zero.ready(1100));  // 1s and >=3 checksum-valid 0-RPM samples
+  assert(!zero.ready(1801)); // stale packet
+  zero.reset();
+  zero.observe(100,0);
+  zero.observe(250,0);
+  zero.observe(1000,0); // missing >700ms resets sequence
+  zero.observe(1150,0);
+  assert(!zero.ready(1150));
+  zero.reset();
+  zero.observe(50,0);
+  zero.observe(300,0);
+  zero.observe(350,1); // even a low nonzero RPM fails closed
+  zero.observe(750,0);
+  zero.observe(1000,0);
+  zero.observe(1350,0);
+  zero.observe(1600,0);
+  assert(zero.sawMotion && !zero.ready(1600));
+  zero.reset();
+  zero.observe(0xFFFFFF00U,0);
+  zero.observe(0xFFFFFFC8U,0);
+  zero.observe(0x00000090U,0);
+  zero.observe(0x000002E8U,0); // now-first = 1000ms across millis rollover
+  assert(zero.ready(0x000002E8U));
+  assert(BlinkGuardArm::PROOF_MS==1000U);
+  assert(BlinkGuardArm::TIMEOUT_MS==14000U);
+
   std::cout << "PASS: firmware one-file cores; RX22/23 and RX26/33; handshake/live checksum;\n"
             << "      unsupported ECU guard locked; RPM page6; 5000ms timer; dip/stale exclusion\n";
 }
