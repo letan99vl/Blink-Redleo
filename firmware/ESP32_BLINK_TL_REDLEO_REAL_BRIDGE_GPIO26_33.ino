@@ -1280,30 +1280,46 @@ static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
 static void guardApplyHandshake(const uint8_t *rx,size_t n){
   BlinkGuard::Handshake h;
   if(!BlinkGuard::parseHandshake(rx,n,h)){
-    // An actual full ECU handshake from a different version means this
-    // experimental V9.1x/9.2x guard must NOT attempt page6 interpretations.
+    // A fully checksum-valid 0x5A from an unknown ECU means NO cross-family
+    // guessing. V8 single-map and V11 4x3 Idle must never inherit V9 limits.
     const size_t sizes[]={41,37};
     for(size_t pos=0;pos<n;++pos){
       if(rx[pos]!=0x5A)continue;
       for(size_t len:sizes){
-        if(pos+len<=n && validRedleoFrame(rx+pos,len)){
+        if(pos+len<=n && validRedleoFrame(rx+pos,len) &&
+           BlinkGuard::isPrintableId(rx+pos) && rx[pos+33]<=3){
           guardUnsupported=true;
           guardSupported=false;
           guardLimitMask=0;
+          guardLimitFailMap=0;
+          guardLimitRetryMap=0;
+          guardLimitRetryCount=0;
           guardWindow.reset();
+          if(guardArmPending){guardArmPending=false;guardArmFailure=3;}
+          if(guardEnabled){
+            guardEnabled=false; // No unattended map switching with unknown ECU.
+            guardPending=false;
+            guardStoreEnabled(false);
+          }
           guardAnnounce=true;
+          Serial.println("REDLINE UNSUPPORTED ECU family; protection DISARMED");
           return;
         }
       }
     }
-    return;
+    return; // No valid ECU handshake at all: remain unverified, retry bounded.
   }
   guardUnsupported=false;
   const bool different=!guardHasIdentity ||
                        strcmp(h.id,guardIdentity.id)!=0 ||
-                       strcmp(h.fw,guardIdentity.fw)!=0;
+                       strcmp(h.fw,guardIdentity.fw)!=0 ||
+                       h.family!=guardIdentity.family;
   if(different){
     guardLimitMask=0;
+    guardLimitFailMap=0;
+    guardLimitRetryMap=0;
+    guardLimitRetryCount=0;
+    guardLastLimitTryMs=0;
     for(int i=1;i<=4;i++)guardLimits[i]=0;
     guardWindow.reset();
     guardHasIdentity=true;
@@ -1316,12 +1332,16 @@ static void guardApplyHandshake(const uint8_t *rx,size_t n){
 
 static void guardUpdatePageLimit(const uint8_t *rx,size_t n,uint8_t page){
   uint16_t rpm=0;
-  if(!BlinkGuard::parseLimit(rx,n,page,rpm))return;
+  if(!guardHasIdentity || !guardSupported ||
+     !BlinkGuard::parseLimitForFamily(rx,n,page,guardIdentity.family,rpm))return;
   const uint8_t bank=(uint8_t)((page&0x0F)/2);
   if(bank<1||bank>4)return;
   if(guardLimits[bank]!=rpm)guardWindow.reset();
   guardLimits[bank]=rpm;
   guardLimitMask|=(uint8_t)(1U<<(bank-1));
+  guardLimitRetryCount=0;
+  guardLimitRetryMap=0;
+  guardLimitFailMap=0;
   if(guardEnabled && guardLimitMask==0x0FU)guardAnnounce=true;
   Serial.printf("REDLINE limit MAP%u=%u rpm mask=0x%X\n",
                 bank,rpm,(unsigned)guardLimitMask);
@@ -1336,7 +1356,8 @@ static void guardObserveHostTransaction(const uint8_t *tx,size_t txLen,
     guardApplyHandshake(rx,rxLen);
     BlinkGuard::Handshake id;
     if(guardArmPending && guardSupported && !guardUnsupported &&
-       BlinkGuard::parseHandshake(rx,rxLen,id))
+       BlinkGuard::parseHandshake(rx,rxLen,id) &&
+       id.family==guardIdentity.family)
       guardArmIdentityValidated=true;
     return;
   }
@@ -1470,7 +1491,11 @@ static void guardTrySwitch(){
   delay(65);
   const size_t hsSize=guardExchange(0x5A,0x5A,rx,sizeof(rx));
   BlinkGuard::Handshake hs;
-  if(liveOk && BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4){
+  if(liveOk && guardSupported && guardHasIdentity &&
+     BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4 &&
+     hs.family==guardIdentity.family &&
+     strcmp(hs.id,guardIdentity.id)==0 &&
+     strcmp(hs.fw,guardIdentity.fw)==0){
     guardLatched=true;
     guardPending=false;
     guardMap=4;
