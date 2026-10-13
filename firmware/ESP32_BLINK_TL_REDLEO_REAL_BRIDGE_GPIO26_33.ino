@@ -9,6 +9,9 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <Preferences.h>
+#include "redline_guard_core.h"
+#include "blink_autopin_core.h"
 #include <mbedtls/sha256.h>
 #include <mbedtls/version.h>
 
@@ -21,17 +24,10 @@
   BLE advertised name intentionally stays BLINK-REDLEO for compatibility with
   the existing iOS/Android device filter.
 
-  IMPORTANT: set ECU_RX_PIN and ECU_TX_PIN to the two GPIOs actually wired to
-  your ECU interface. They are intentionally -1 by default: guessing these
-  pins could drive the wrong wire on real hardware.
+  Auto-discover known production RX22/TX23 or RX26/TX33 using checksum-verified
+  ECU replies. Never infer ECU pin selection from BLE connect status alone.
 */
 
-#ifndef ECU_RX_PIN
-#define ECU_RX_PIN 22
-#endif
-#ifndef ECU_TX_PIN
-#define ECU_TX_PIN 23
-#endif
 #ifndef ECU_RTS_PIN
 #define ECU_RTS_PIN -1
 #endif
@@ -43,7 +39,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.2"
+#define FW_VERSION "2.4"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -164,6 +160,78 @@ uint32_t lastRawChunkMs = 0;
 
 uint32_t lastAfrMs = 0;
 bool uartReady = false;
+// UART pairing persists in NVS but is trusted only after a valid ECU reply.
+static uint8_t ecuUartSlot = BlinkAutoPins::DEFAULT_SLOT;
+static uint8_t ecuUartSavedSlot = BlinkAutoPins::DEFAULT_SLOT;
+static bool ecuUartConfirmed = false;
+static volatile uint32_t guardBleLinkedAtMs = 0;
+
+// Guard opt-in is stored on ESP32, not the phone. OFF on every freshly
+// flashed device. This state is intentionally separate from BLE lifecycle.
+static volatile bool guardEnabled=false;
+static volatile bool guardLatched=false;
+static volatile bool guardPending=false;
+static volatile uint8_t guardControlRequest=0; // 1=enable,2=disable (main loop only)
+static bool guardFault=false;
+static bool guardSupported=false;
+static bool guardUnsupported=false;
+static uint8_t guardMap=1;
+static uint8_t guardLimitMask=0;
+static uint16_t guardLimits[5]={0,0,0,0,0};
+static BlinkGuard::Handshake guardIdentity;
+static bool guardHasIdentity=false;
+static BlinkGuard::Window guardWindow;
+static uint16_t guardLastRpm=0;
+static uint32_t guardLastValidRpmMs=0;
+static uint32_t guardStationarySinceMs=0;
+static uint32_t guardLastInitTryMs=0;
+static uint32_t guardLastLimitTryMs=0;
+static uint32_t guardLastHostCommandMs=0;
+static uint32_t guardLastHostLongCommandMs=0;
+static uint32_t guardNextSwitchMs=0;
+static uint8_t guardSwitchAttempts=0;
+static bool guardAnnounce=false;
+static bool guardUartActive=false;
+
+static String guardStatusText(){
+  if(!guardEnabled)return "RG:OFF";
+  if(guardLatched)return "RG:TRIP:M4";
+  if(guardFault)return "RG:FAULT";
+  if(guardUnsupported)return "RG:UNSUP";
+  if(!guardSupported)return "RG:WAIT";
+  if(guardLimitMask!=0x0F)return "RG:READING";
+  return String("RG:ON:M")+String(guardMap)+":"+String(guardLimits[guardMap]);
+}
+static void guardStoreEnabled(bool enabled){
+  Preferences p;
+  if(p.begin("blinkguard",false)){
+    p.putBool("enabled",enabled);
+    p.end();
+  }
+}
+static void guardHandleControlRequest(){
+  const uint8_t control=guardControlRequest;
+  if(!control)return;
+  guardControlRequest=0;
+  if(control==1){
+    guardEnabled=true;
+    guardWindow.reset();
+    guardFault=false;
+    guardPending=false;
+    guardSwitchAttempts=0;
+    guardLastInitTryMs=0;
+    guardUnsupported=false;
+  }else if(control==2){
+    guardEnabled=false;
+    guardLatched=false; // DO NOT switch the ECU away from its current map.
+    guardPending=false;
+    guardFault=false;
+    guardWindow.reset();
+  }
+  guardStoreEnabled(guardEnabled);
+  guardAnnounce=true;
+}
+
 
 uint8_t otaBuf[OTA_MAX_PAYLOAD];
 uint8_t otaSeen[OTA_MAX_PAYLOAD];
@@ -221,10 +289,12 @@ static void resetOtaAssembler(uint8_t cmd, uint16_t total) {
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *) override {
     deviceConnected = true;
+    guardBleLinkedAtMs = millis();
     Serial.println("BLE client connected");
   }
   void onDisconnect(BLEServer *s) override {
     deviceConnected = false;
+    guardBleLinkedAtMs = 0;
     if (bleOtaActive) {
       Serial.println("BLE disconnected during OTA; aborting partial update");
       abortBleOta(nullptr);
@@ -355,6 +425,25 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     // Compatibility / diagnostics.
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
+      if (text == "RG?" || text == "RGON" || text == "RGOFF") {
+        if (text == "RG?") {
+          notifyStatus(guardStatusText());
+        } else {
+          // Do not arm/disarm an ECU protection feature while engine is running
+          // or without a recent, validated live RPM=0 sample.
+          const uint32_t now=millis();
+          const uint32_t age=(uint32_t)(now-guardLastValidRpmMs);
+          if (!guardLastValidRpmMs || age>700U || guardLastRpm>200U ||
+              !guardStationarySinceMs ||
+              (uint32_t)(now-guardStationarySinceMs)<1000U) {
+            notifyStatus("RG:STOP");
+          } else {
+            guardControlRequest=(text == "RGON")?1:2;
+            notifyStatus("RG:QUEUED");
+          }
+        }
+        return;
+      }
       if (text == "PING") {
         notifyStatus(String("PONG FW") + FW_VERSION);
       } else if (text.startsWith("RXPROBE:")) {
@@ -592,7 +681,7 @@ static bool writeAckSettled(const uint8_t *tx, size_t txLen,
   return false;
 }
 
-static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t rxMax) {
+static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t rxMax, uint32_t firstOverrideMs = 0) {
   if (!uartReady) return 0;
 
   while (EcuSerial.available()) EcuSerial.read();
@@ -602,7 +691,7 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
   EcuSerial.flush();
 
   const uint32_t t0 = millis();
-  const uint32_t firstTimeout = firstByteTimeoutFor(tx, txLen);
+  const uint32_t firstTimeout = firstOverrideMs ? firstOverrideMs : firstByteTimeoutFor(tx, txLen);
   const uint32_t totalTimeout = totalTimeoutFor(tx, txLen);
   const uint32_t idleGap = idleGapFor(tx, txLen);
   uint32_t lastRx = 0;
@@ -663,6 +752,71 @@ static size_t transactUart(const uint8_t *tx, size_t txLen, uint8_t *rx, size_t 
     got -= txLen;
   }
   return got;
+}
+
+// One UART owner: this helper is called from loop() only, never BLE callbacks.
+// Never treat a missing ECU or corrupted bytes as proof of pin configuration.
+static void openEcuUartSlot(uint8_t slot) {
+  if (slot >= BlinkAutoPins::SLOT_COUNT) slot = BlinkAutoPins::DEFAULT_SLOT;
+  if (uartReady) {
+    const BlinkAutoPins::PinPair oldPins = BlinkAutoPins::PAIRS[ecuUartSlot];
+    EcuSerial.end();
+    pinMode(oldPins.rx, INPUT);
+    pinMode(oldPins.tx, INPUT);
+  }
+  const BlinkAutoPins::PinPair pins = BlinkAutoPins::PAIRS[slot];
+  EcuSerial.begin(ECU_BAUD, SERIAL_8E2, pins.rx, pins.tx);
+  ecuUartSlot = slot;
+  uartReady = true;
+  Serial.printf("ECU UART active RX=%d TX=%d (slot=%u, confirmed=%u)\n",
+                pins.rx, pins.tx, (unsigned)slot, ecuUartConfirmed ? 1U : 0U);
+}
+
+static void confirmEcuUartSlot() {
+  ecuUartConfirmed = true;
+  if (ecuUartSlot == ecuUartSavedSlot) return;
+  Preferences p;
+  if (p.begin("blinkuart", false)) {
+    const size_t written = p.putUChar("slot", ecuUartSlot);
+    p.end();
+    if (written) {
+      ecuUartSavedSlot = ecuUartSlot;
+      Serial.printf("ECU UART pin slot learned and saved=%u\n", (unsigned)ecuUartSlot);
+    }
+  }
+}
+
+// Replay only the SAME read command originally requested by the phone/guard.
+// Writes and arbitrary ECU commands are never replayed on multiple pin pairs.
+// One broken packet does not move a previously verified live UART mapping.
+static size_t transactUartAutopin(const uint8_t *tx, size_t len,
+                                 uint8_t *rx, size_t maxRx,
+                                 uint32_t firstOverrideMs = 0) {
+  if (!uartReady || !tx || !len) return 0;
+  const bool handshake = BlinkAutoPins::isHandshakeRequest(tx, len);
+  const bool liveProbe = !ecuUartConfirmed && BlinkAutoPins::isLiveRequest(tx, len);
+  const size_t got = transactUart(tx, len, rx, maxRx, firstOverrideMs);
+  if (!handshake && !liveProbe) return got;
+  bool valid = handshake ? BlinkAutoPins::validHandshakeReply(rx, got)
+                         : BlinkAutoPins::validLiveReply(rx, got);
+  if (valid) {
+    confirmEcuUartSlot();
+    return got;
+  }
+  if (ecuUartConfirmed) return got;
+  const uint8_t originalSlot = ecuUartSlot;
+  openEcuUartSlot(BlinkAutoPins::otherSlot(originalSlot));
+  delay(5);
+  const size_t secondGot = transactUart(tx, len, rx, maxRx, firstOverrideMs);
+  valid = handshake ? BlinkAutoPins::validHandshakeReply(rx, secondGot)
+                    : BlinkAutoPins::validLiveReply(rx, secondGot);
+  if (valid) {
+    confirmEcuUartSlot();
+    return secondGot;
+  }
+  // Neither layout proven: don't persist it or fabricate an ECU response.
+  openEcuUartSlot(originalSlot);
+  return 0;
 }
 
 static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
@@ -742,6 +896,218 @@ static void sendRawResponse(uint8_t sid, const uint8_t *data, uint16_t total) {
   }
 }
 
+// AUTONOMOUS REDLINE GUARD (FW2.3)
+// All ESP32-owned UART transactions execute only in loop(), never in BLE
+// callbacks. The BLE bridge keeps highest priority for finished RAW commands.
+static void guardObserveLive(const uint8_t *rx,size_t n,uint8_t bank){
+  if (!rx || n!=53 || rx[0]!=0xA1 || !validRedleoFrame(rx,n))return;
+  const uint16_t rpm=(uint16_t)((uint16_t)rx[6]<<8 | rx[7]);
+  if(rpm>20000U)return;
+  guardLastRpm=rpm;
+  guardLastValidRpmMs=millis();
+  if(rpm<=200U){
+    if(!guardStationarySinceMs)guardStationarySinceMs=guardLastValidRpmMs;
+  }else{
+    guardStationarySinceMs=0;
+  }
+  if(bank>=1&&bank<=4 && !guardPending && !guardLatched)guardMap=bank;
+  if(!guardEnabled || !guardSupported || guardLimitMask!=0x0F ||
+     guardFault || guardPending || guardLatched)return;
+  if(bank<1 || bank>3){guardWindow.reset();return;} // MAP4 is a refuge, not another trigger
+  guardWindow.target(bank,guardLimits[bank]);
+  if(guardWindow.observe(guardLastValidRpmMs,rpm)){
+    guardPending=true;
+    guardNextSwitchMs=0;
+    guardSwitchAttempts=0;
+    guardAnnounce=true;
+    Serial.printf("REDLINE TRIGGER M%u rpm=%u limit=%u hold=%ums\n",
+                  bank,rpm,guardLimits[bank],(unsigned)BlinkGuard::HOLD_MS);
+  }
+}
+
+static void guardApplyHandshake(const uint8_t *rx,size_t n){
+  BlinkGuard::Handshake h;
+  if(!BlinkGuard::parseHandshake(rx,n,h)){
+    // An actual full ECU handshake from a different version means this
+    // experimental V9.1x/9.2x guard must NOT attempt page6 interpretations.
+    const size_t sizes[]={41,37};
+    for(size_t pos=0;pos<n;++pos){
+      if(rx[pos]!=0x5A)continue;
+      for(size_t len:sizes){
+        if(pos+len<=n && validRedleoFrame(rx+pos,len)){
+          guardUnsupported=true;
+          guardSupported=false;
+          guardLimitMask=0;
+          guardWindow.reset();
+          guardAnnounce=true;
+          return;
+        }
+      }
+    }
+    return;
+  }
+  guardUnsupported=false;
+  const bool different=!guardHasIdentity ||
+                       strcmp(h.id,guardIdentity.id)!=0 ||
+                       strcmp(h.fw,guardIdentity.fw)!=0;
+  if(different){
+    guardLimitMask=0;
+    for(int i=1;i<=4;i++)guardLimits[i]=0;
+    guardWindow.reset();
+    guardHasIdentity=true;
+    guardFault=false;
+  }
+  guardIdentity=h;
+  guardSupported=true;
+  if(!guardPending && !guardLatched && h.map>=1&&h.map<=4)guardMap=h.map;
+}
+
+static void guardUpdatePageLimit(const uint8_t *rx,size_t n,uint8_t page){
+  uint16_t rpm=0;
+  if(!BlinkGuard::parseLimit(rx,n,page,rpm))return;
+  const uint8_t bank=(uint8_t)((page&0x0F)/2);
+  if(bank<1||bank>4)return;
+  if(guardLimits[bank]!=rpm)guardWindow.reset();
+  guardLimits[bank]=rpm;
+  guardLimitMask|=(uint8_t)(1U<<(bank-1));
+  if(guardEnabled && guardLimitMask==0x0FU)guardAnnounce=true;
+  Serial.printf("REDLINE limit MAP%u=%u rpm mask=0x%X\n",
+                bank,rpm,(unsigned)guardLimitMask);
+}
+
+static void guardObserveHostTransaction(const uint8_t *tx,size_t txLen,
+                                         const uint8_t *rx,size_t rxLen){
+  if(!txLen)return;
+  guardLastHostCommandMs=millis();
+  if(tx[0]!=0x69)guardLastHostLongCommandMs=millis();
+  if(tx[0]==0x5A){
+    guardApplyHandshake(rx,rxLen);
+    return;
+  }
+  if(tx[0]==0x69&&txLen>=2){
+    // If the guard has latched, processTransaction has already forced MAP4.
+    const uint8_t m=tx[1]&0x0F;
+    if(m>=1 && m<=4)guardObserveLive(rx,rxLen,m);
+    return;
+  }
+  if(tx[0]==0x9A&&txLen>=2 && guardSupported && (tx[1]&0xF0)==0x60){
+    guardUpdatePageLimit(rx,rxLen,tx[1]);
+    return;
+  }
+  if(tx[0]==0xCD&&txLen>=2 && guardSupported && (tx[1]&0xF0)==0x60){
+    const uint8_t bank=(uint8_t)((tx[1]&0x0F)/2);
+    if(bank>=1&&bank<=4){
+      guardLimitMask&=(uint8_t)~(1U<<(bank-1));
+      guardWindow.reset();
+      guardLastLimitTryMs=0;
+    }
+  }
+}
+
+static size_t guardExchange(uint8_t cmd,uint8_t arg,uint8_t *rx,size_t maxRx){
+  uint8_t tx[5];
+  BlinkGuard::request5(cmd,arg,tx);
+  guardUartActive=true;
+  const size_t n=(cmd==0x5A) ? transactUartAutopin(tx,sizeof(tx),rx,maxRx,950U)
+                              : transactUart(tx,sizeof(tx),rx,maxRx);
+  guardUartActive=false;
+  return n;
+}
+static void guardTrySwitch(){
+  const uint32_t now=millis();
+  if(!guardPending || guardLatched || guardFault ||
+     (guardNextSwitchMs && (int32_t)(now-guardNextSwitchMs)<0))return;
+  if(guardSwitchAttempts>=3){
+    guardFault=true;guardPending=false;guardAnnounce=true;
+    Serial.println("REDLINE MAP4 FAILED: verify retries exhausted");
+    return;
+  }
+  guardSwitchAttempts++;
+  uint8_t rx[256]={0};
+  const size_t liveSize=guardExchange(0x69,4,rx,sizeof(rx));
+  const bool liveOk=(liveSize==53 && rx[0]==0xA1 && validRedleoFrame(rx,liveSize));
+  if(liveOk)guardObserveLive(rx,liveSize,4);
+  // A valid Live packet is not proof that the ECU actually persisted MAP4.
+  // Independently verify active MAP index via 0x5A handshake.
+  delay(65);
+  const size_t hsSize=guardExchange(0x5A,0x5A,rx,sizeof(rx));
+  BlinkGuard::Handshake hs;
+  if(liveOk && BlinkGuard::parseHandshake(rx,hsSize,hs) && hs.map==4){
+    guardLatched=true;
+    guardPending=false;
+    guardMap=4;
+    guardWindow.reset();
+    guardAnnounce=true;
+    Serial.println("REDLINE MAP4 CONFIRMED by ECU 0x5A");
+    return;
+  }
+  guardNextSwitchMs=millis()+1100U;
+  Serial.printf("REDLINE MAP4 not verified attempt=%u live=%u handshake=%u\n",
+                guardSwitchAttempts,liveOk?1:0,(unsigned)hsSize);
+}
+
+static void guardAutonomousTick(){
+  const uint32_t now=millis();
+  guardHandleControlRequest();
+  if(!guardEnabled || !uartReady || otaBusy || bleOtaActive)return;
+  if(guardUnsupported)return; // never probe the unverified ECU page6 layout
+  // A lost ECU (power-off/reboot) invalidates old limits before another trip.
+  if(guardSupported && guardLimitMask==0x0F && !guardLatched &&
+     !guardPending && guardLastValidRpmMs &&
+     (uint32_t)(now-guardLastValidRpmMs)>4500U){
+    guardSupported=false;
+    guardLimitMask=0;
+    guardWindow.reset();
+    guardLastInitTryMs=0;
+  }
+  if(guardLastValidRpmMs && (uint32_t)(now-guardLastValidRpmMs)>BlinkGuard::MAX_SAMPLE_GAP_MS)
+    guardWindow.stale(now);
+  if(transactionBusy || transactionReady || guardUartActive)return;
+  // Wait for PB3.79.78 to complete ECU auth on a freshly linked BLE session.
+  // Pending MAP4 switching still runs promptly after any phone RAW command.
+  if(deviceConnected && !guardPending && guardBleLinkedAtMs &&
+     (uint32_t)(now-guardBleLinkedAtMs)<2500U)return;
+  // A multi-packet phone RAW frame is assembling: defer our periodic read,
+  // rather than starting a potentially slow 0x9A during the phone's write.
+  if(deviceConnected && txExpected && txGot<txExpected &&
+     (uint32_t)(now-lastRawChunkMs)<800U)return;
+  // Give each manual READ/WRITE and the user-facing BLE transport preference.
+  if(deviceConnected && guardLastHostLongCommandMs &&
+     (uint32_t)(now-guardLastHostLongCommandMs)<450U)return;
+  if(guardPending){guardTrySwitch();return;}
+
+  if(!guardSupported){
+    if(guardLastInitTryMs && (uint32_t)(now-guardLastInitTryMs)<2500U)return;
+    uint8_t rx[256]={0};
+    const size_t n=guardExchange(0x5A,0x5A,rx,sizeof(rx));
+    guardLastInitTryMs=millis(); // Count retry delay after a slow ECU timeout.
+    guardApplyHandshake(rx,n);
+    return;
+  }
+  if(guardLimitMask!=0x0F){
+    if(guardLastLimitTryMs && (uint32_t)(now-guardLastLimitTryMs)<850U)return;
+    uint8_t bank=0;
+    for(uint8_t i=1;i<=4;i++)if(!(guardLimitMask&(1U<<(i-1)))){bank=i;break;}
+    if(!bank)return;
+    uint8_t rx[192]={0};
+    const uint8_t pg=(uint8_t)(0x60U+2U*bank);
+    const size_t n=guardExchange(0x9A,pg,rx,sizeof(rx));
+    guardLastLimitTryMs=millis(); // A bad ECU page must not starve phone BLE.
+    guardUpdatePageLimit(rx,n,pg);
+    return;
+  }
+  // When Blink is absent, ESP32 sends the same live 0x69 that the phone uses.
+  // When Blink is active, recent verified host live frames feed the tracker.
+  if(!guardLastValidRpmMs || (uint32_t)(now-guardLastValidRpmMs)>=240U){
+    if(deviceConnected && guardLastHostCommandMs &&
+       (uint32_t)(now-guardLastHostCommandMs)<100U)return;
+    uint8_t rx[96]={0};
+    const uint8_t mapNo=(guardLatched || guardFault)?4:guardMap;
+    const size_t n=guardExchange(0x69,mapNo,rx,sizeof(rx));
+    if(n==53)guardObserveLive(rx,n,mapNo);
+  }
+}
+
 static void processTransaction() {
   if (!transactionReady || transactionBusy) return;
   noInterrupts();
@@ -780,8 +1146,23 @@ static void processTransaction() {
     return;
   }
 
+  // Once MAP4 is confirmed or a safety transition is pending, refuse ECU
+  // restore/write commands and force the running-map selection to MAP4.
+  // Read-only commands remain available for remote diagnostics.
+  if(guardEnabled && (guardLatched || guardPending || guardFault)){
+    if(n>0 && (txBuf[0]==0xCD || txBuf[0]==0x8B)){
+      notifyStatus("RG:LOCKED");
+      sendRawResponse(sid,nullptr,0);
+      lastProcessedSid=sid;lastProcessedMs=millis();
+      transactionBusy=false;activeTransactionSid=0;
+      return;
+    }
+    if(n>=5 && txBuf[0]==0x69){
+      BlinkGuard::request5(0x69,4,txBuf);
+    }
+  }
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
-  const size_t got = transactUart(txBuf, n, rxBuf, RX_MAX);
+  const size_t got = transactUartAutopin(txBuf, n, rxBuf, RX_MAX);
   Serial.printf("ECU RX sid=%u len=%u", sid, (unsigned)got);
   if (got > 0) {
     Serial.printf(" first=%02X last=%02X valid=%u", rxBuf[0], rxBuf[got - 1], validRedleoFrame(rxBuf, got) ? 1 : 0);
@@ -793,6 +1174,7 @@ static void processTransaction() {
                   sid, (unsigned)got, (unsigned)payloadSize,
                   (unsigned)rawNotifyDelayFor((uint16_t)got, payloadSize));
   }
+  guardObserveHostTransaction(txBuf,n,rxBuf,got);
   sendRawResponse(sid, rxBuf, (uint16_t)got);
   free(rxBuf);
 
@@ -1499,17 +1881,32 @@ void setup() {
   Serial.begin(115200);
   delay(250);
   Serial.printf("\nBLINK TL REDLEO ECU REAL BRIDGE ESP32 FW%s\n", FW_VERSION);
-  Serial.printf("ECU UART: 38400 8E2 RX=%d TX=%d RTS=%d\n", ECU_RX_PIN, ECU_TX_PIN, ECU_RTS_PIN);
+  Serial.printf("ECU UART: 38400 8E2 AUTO RX22/TX23 or RX26/TX33 RTS=%d\n", ECU_RTS_PIN);
 
-  if (ECU_RX_PIN >= 0 && ECU_TX_PIN >= 0) {
-    EcuSerial.begin(ECU_BAUD, SERIAL_8E2, ECU_RX_PIN, ECU_TX_PIN);
-    uartReady = true;
+  // Legacy FW2.2 installs stay OFF. Users explicitly opt in via RGON with
+  // engine stopped; the setting survives key cycles in NVS.
+  {
+    Preferences p;
+    if(p.begin("blinkguard",true)){
+      guardEnabled=p.getBool("enabled",false);
+      p.end();
+    }
+    Serial.printf("REDLINE guard enabled=%u (OFF by default)\n",guardEnabled?1U:0U);
+  }
+  {
+    Preferences p;
+    if (p.begin("blinkuart", true)) {
+      const uint8_t stored = p.getUChar("slot", BlinkAutoPins::DEFAULT_SLOT);
+      ecuUartSavedSlot = (stored < BlinkAutoPins::SLOT_COUNT) ? stored : BlinkAutoPins::DEFAULT_SLOT;
+      p.end();
+    }
+    openEcuUartSlot(ecuUartSavedSlot);
     if (ECU_RTS_PIN >= 0) {
       pinMode(ECU_RTS_PIN, OUTPUT);
       digitalWrite(ECU_RTS_PIN, HIGH);
     }
-  } else {
-    Serial.println("WARNING: set ECU_RX_PIN and ECU_TX_PIN before real ECU use.");
+    Serial.printf("ECU UART NVS preference slot=%u; awaiting valid 0x5A/0xA1 reply\n",
+                  (unsigned)ecuUartSavedSlot);
   }
 
 #if AFR_INPUT_ENABLED
@@ -1565,6 +1962,14 @@ void setup() {
 void loop() {
   processOtaCommand();
   if (!otaBusy && !bleOtaActive) processTransaction();
+  guardAutonomousTick();
+  // Publish only on state change or explicit RG?; never periodically clobber
+  // RAWREADY status which the app reads to confirm long BLE write frames.
+  if(guardAnnounce && deviceConnected && !transactionReady && !transactionBusy
+      && !otaBusy && !bleOtaActive){
+    guardAnnounce=false;
+    notifyStatus(guardStatusText());
+  }
   const uint32_t now = millis();
   if (!otaBusy && !bleOtaActive && deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
     lastAfrMs = now;
