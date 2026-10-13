@@ -4,7 +4,7 @@ const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
 const fw=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
 const handoff=fs.readFileSync('BLINK_FW23_REDLINE_GUARD_HANDOFF.md','utf8');
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.78'"));
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.79'"));
 for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBtn"',
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
   'RG:TRIP:M4','id="otaRollbackFw22Btn"',
@@ -29,6 +29,20 @@ assert(fw.includes('BlinkAutoPins::normalizeHandshake'));
 assert(fw.includes('BlinkAutoPins::normalizeLive'));
 assert(fw.includes('HOLD_MS = 5000U'));
 assert(handoff.includes('MAP 4'));
+const required=[
+'id="afrTargetLocalSaveBtn"','id="afrTargetKeypadSave"',
+"if(state.tab==='target'&&saveTargetAfrLocal())hideFuelKeypad();",
+"document.getElementById('mapEditorScreen')?.classList.toggle('targetAfrEditor',tab==='target')",
+"return (state.tab==='inject'&&screen.classList.contains('standaloneFuel'))||",
+"const values=state.tab==='target'?state.target:state.inject;",
+"const dst=isAfr?state.target:state.inject;",
+"if(state.tab==='target'){",
+"save(); // Blink localStorage, never an ECU injection-map write."
+];
+for(const item of required)assert(html.includes(item),'Missing AFR target UI '+item);
+const saveFn=html.slice(html.indexOf('function saveTargetAfrLocal(){'),html.indexOf('function setTab(tab){'));
+assert(saveFn.includes('save();')&&!/writeCurrentFuelMap|writeMapBle|writeTest|rawExchange|writeCommand/.test(saveFn),
+  'Target AFR local save must never write ECU');
 const re=/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi;
 let scripts=0;
 for (const hit of html.matchAll(re)) {
