@@ -137,8 +137,8 @@ int main() {
     f[6]^=1;
     assert(!parseLimit(f.data(),f.size(),0x62,rpm));
   }
-  // Four exact verified 0x9A page-6 layouts. Wrong-family data is
-  // rejected even when the checksum and physical UART pin are valid.
+  // Family minimum writable 0x9A page6 layouts. Wrong-family data is
+  // rejected even when the checksum and physical UART pin are valid. Family always comes from 0x5A.
   struct Layout {Family fam;size_t size;size_t off;};
   for(const Layout &layout : {
        Layout{V91,33,5},Layout{V92,65,5},Layout{V92,66,5},
@@ -149,14 +149,54 @@ int main() {
       uint16_t got=0;
       assert(parseLimitForFamily(frame.data(),frame.size(),pg,layout.fam,got));
       assert(got==9000);
-      assert(!parseLimitForFamily(frame.data(),frame.size(),pg,
-             layout.fam==V91?V10:V91,got));
+      // The handshake decides the ECU family; no family is inferred from
+      // reply length. An 18B V10 page cannot satisfy the 30B V9.1 minimum,
+      // and a 30B V9.1 page cannot satisfy the 42B Ultra minimum.
+      assert(!parseLimitForFamily(frame.data(),frame.size(),pg,NONE,got));
+      if(layout.size<33)assert(!parseLimitForFamily(frame.data(),frame.size(),pg,V91,got));
+      if(layout.size<45)assert(!parseLimitForFamily(frame.data(),frame.size(),pg,ULTRA1,got));
+      if(layout.size<65)assert(!parseLimitForFamily(frame.data(),frame.size(),pg,V92,got));
       assert(!parseLimitForFamily(frame.data(),frame.size(),
              uint8_t(pg^2),layout.fam,got));
       frame[layout.off]^=1;
       assert(!parseLimitForFamily(frame.data(),frame.size(),pg,layout.fam,got));
     }
   }
+  // User-confirmed 9.13 Blink Idle/ECT Motor direct READ succeeds even if
+  // ECU appends reply-only tail data beyond its 30B writable prefix.
+  // These are synthetic checksums; verify actual ECU payload separately.
+  for(const Layout &layout : {
+       Layout{V91,34,5},Layout{V91,35,5},Layout{V91,41,5},
+       Layout{V91,51,5},Layout{V92,67,5},Layout{V92,79,5},
+       Layout{V10,23,5},Layout{V10,34,5},
+       Layout{ULTRA1,47,7},Layout{ULTRA1,60,7}}){
+    for(uint8_t pg:{uint8_t(0x62),uint8_t(0x64),
+                    uint8_t(0x66),uint8_t(0x68)}){
+      auto frame=limitPage(pg,9200,layout.size,layout.off);
+      uint16_t got=0;
+      assert(parseLimitForFamily(frame.data(),frame.size(),pg,layout.fam,got));
+      assert(got==9200);
+      // Read-only extra bytes do not justify ignoring a broken checksum.
+      frame[layout.size-2]^=1;
+      assert(!parseLimitForFamily(frame.data(),frame.size(),pg,layout.fam,got));
+    }
+  }
+  // Refuse undersized but otherwise checksum-valid pages (no accidental
+  // acceptance of truncated ECU memory as a valid RPM threshold).
+  for(const Layout &layout : {
+      Layout{V91,32,5},Layout{V92,64,5},
+      Layout{V10,20,5},Layout{ULTRA1,44,7}}){
+    auto frame=limitPage(0x62,8500,layout.size,layout.off);
+    assert(!parseLimitForFamily(frame.data(),frame.size(),0x62,layout.fam,rpm));
+  }
+  // The same fully valid wire frame may be preceded or followed by serial
+  // echo/status noise; only the checksum-protected page body is trusted.
+  auto variable=limitPage(0x62,9350,37);
+  std::vector<uint8_t> padded={0x01,0x62,0x12,0xAB};
+  padded.insert(padded.end(),variable.begin(),variable.end());
+  padded.insert(padded.end(),{0x12,0x34,0x56,0x78});
+  assert(parseLimitForFamily(padded.data(),padded.size(),0x62,V91,rpm)&&rpm==9350);
+
   // Ultra parser must never mistake an index2 word for index3 maxSpeed.
   auto ultraWrong=limitPage(0x68,10000,45,5);
   assert(!parseLimitForFamily(ultraWrong.data(),ultraWrong.size(),0x68,ULTRA1,rpm));
