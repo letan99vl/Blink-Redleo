@@ -38,3 +38,10 @@ Blink UI on branch: `index.html` PB3.79.83. Public main OTA still FW2.5 / public
 - C++ regression simulations cover extra valid suffix lengths, serial noise/echo prefixes, invalid CRC, truncated frames, unsupported ECU and redline timing; these are synthetic fixtures, **not** the real physical V9.13 wire capture.
 - **A successful Blink MAP1 READ does not by itself prove this patch resolves RG:LIMITERR:M1**: for example guard autonomous UART may have received 0 bytes, ECU limit may be outside plausible range, or requested MAP may be different. On next key-ON engine-OFF test collect ESP32 Serial line `REDLINE limit MAP1 invalid ECU profile=... attempt=... bytes=...` if the failure persists. Do not bypass fail-closed guard protection.
 - No public OTA release for the lab revision. Customer OTA remains 2.5.
+
+## Latest lab artifact — FW2.6.1 (supersedes earlier FW2.6 lab BIN)
+- Firmware now intentionally reports `PONG FW2.6.1` to differentiate the V9.13 parser fix from original FW2.6 despite preserving the 2.6 feature branch.
+- GitHub Actions lab run `38422510560`: all PASS (host C++ checksum/variable-length page6 tests, UI script source contract, Arduino ESP32 compilation), artifact ID `11827695453`, named `BLINK_FW26_MULTIFAMILY_GUARD_LAB`.
+- Built `BLINK_FW.ino.bin` is 1,810,128 bytes, SHA-256 `e55a93e3aa550efeda968ad3a46ae788a1a888ed0ef4e2f1806a2e6a25af3172`. Verified independent matching `FW26-SHA256.txt` and matching `FW_VERSION "2.6.1"` in single-source .ino.
+- Previous FW2.6 lab artifact `11824913279` was the strict-length version that might return RG:LIMITERR:M1 on a valid V9.13 with a read-only payload suffix; don't confuse the two.
+- **Still unverified on actual V9.13 guard activation.** Successful normal Blink MAP1 page READ alone is not proof of this specific change's adequacy. Preserve fail-closed RPM checks and collect raw Serial `bytes=` on failure. Public OTA still 2.5.
