@@ -45,6 +45,7 @@
 #endif
 
 #ifndef FW_VERSION
+// Release 2.3: guard is opt-in and defaults OFF on existing customer devices.
 #define FW_VERSION "2.3"
 #endif
 
