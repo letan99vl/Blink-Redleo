@@ -4,7 +4,7 @@ const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
 const fw=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
 const handoff=fs.readFileSync('BLINK_FW23_REDLINE_GUARD_HANDOFF.md','utf8');
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.80'"));
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.81'"));
 for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBtn"',
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
   'RG:TRIP:M4'])
@@ -49,6 +49,9 @@ assert(html.includes("if(Number.isFinite(otaRpm)&&otaRpm>200)"),'OTA must block 
 const saveFn=html.slice(html.indexOf('function saveTargetAfrLocal(){'),html.indexOf('function setTab(tab){'));
 assert(saveFn.includes('save();')&&!/writeCurrentFuelMap|writeMapBle|writeTest|rawExchange|writeCommand/.test(saveFn),
   'Target AFR local save must never write ECU');
+assert(html.includes('beginBridgeGuardControl(20000)'),'Guard must reserve the whole BLE control sequence');
+assert(html.includes('writeGuardControlWithRetry'),'Guard GATT retry wrapper missing');
+assert(!html.includes('RG:ERROR '+String.fromCharCode(43)+'detail'),'Do not confuse BLE errors with actual ECU status');
 const re=/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi;
 let scripts=0;
 for (const hit of html.matchAll(re)) {
