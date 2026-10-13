@@ -3,12 +3,13 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync('index.html','utf8');
 const real=fs.readFileSync('redleo_real_protocol.js','utf8');
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.78'"));
+const pbMatch=html.match(/window\.BLINK_PB_VERSION = '3\.79\.(\d+)'/);
+assert(pbMatch&&Number(pbMatch[1])>=78,'ECU auth regression expects Blink PB3.79.78 or newer');
 assert(html.includes('id="ecuAuthNotice"'));
 assert(html.includes('id="retryEcuAuthBtn"'));
 assert(html.includes("state.ecuConnected=!!on;state.ecuPhase=on?'ble-linked':'idle'"));
 assert(html.includes("ĐANG XÁC THỰC ECU 0x5A"));
-assert(html.includes("FW2.3 RG? is deliberately not sent during the first 0x5A exchange."));
+assert(html.includes("Guard RG? is deliberately not sent during the first ECU 0x5A exchange."));
 const idx=html.indexOf('async function connectBle(){');
 const end=html.indexOf('function onDisconnected(){',idx);
 const connect=html.slice(idx,end);
@@ -105,5 +106,5 @@ async function checkAuthScenario(shouldInitiallyFail){
 (async()=>{
  await checkAuthScenario(false);
  await checkAuthScenario(true);
- console.log('PASS PB3.79.78 ECU: bridge probes finish before RAW 0x5A; no fake BLE authorization; retry recovers; UNKNOWN profile tiles/writes stay locked');
+ console.log('PASS PB3.79.78+ ECU: bridge probes finish before RAW 0x5A; no fake BLE authorization; retry recovers; UNKNOWN profile tiles/writes stay locked');
 })().catch(e=>{console.error(e.stack||e);process.exitCode=1});
