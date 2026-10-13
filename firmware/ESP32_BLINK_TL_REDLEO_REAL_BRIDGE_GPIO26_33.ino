@@ -31,28 +31,63 @@ inline bool validReply(const uint8_t *f, size_t n) {
   return sum==f[n-2];
 }
 
+// Firmware-specific ECU guard contracts from Blink's original verified page6
+// serializers. No V11/V8 guesswork and no fallback to a different page size.
+enum Family:uint8_t {NONE=0,V91=1,V92=2,V10=3,ULTRA1=4};
 struct Handshake {
   uint8_t map=0;
   char fw[5]={0};
   char id[17]={0};
+  Family family=NONE;
 };
-
-// Only verified four-MAP 9.1x/9.2x family, never 9B shortcut/V8/V10/V11.
+inline bool isPrintableId(const uint8_t *f){
+  if(!f)return false;
+  for(uint8_t i=1;i<=16;++i)
+    if(f[i] && (f[i]<32 || f[i]>126))return false;
+  return true;
+}
+inline bool includesUltra(const uint8_t *f){
+  const char word[]="ULTRA";
+  for(uint8_t i=1;i<=12;++i){
+    bool match=true;
+    for(uint8_t j=0;j<5;++j){
+      uint8_t c=f[i+j];
+      if(c>='a'&&c<='z')c-=32;
+      if(c!=(uint8_t)word[j]){match=false;break;}
+    }
+    if(match)return true;
+  }
+  return false;
+}
+inline Family familyFromFrame(const uint8_t *f){
+  if(!f)return NONE;
+  if(f[17]=='9' && f[18]=='.' && f[20]>='0' && f[20]<='9'){
+    if(f[19]=='1')return V91;
+    if(f[19]=='2')return V92;
+  }
+  if(f[17]=='1' && f[18]=='0' && f[19]=='.' &&
+     f[20]>='0' && f[20]<='9')
+    return includesUltra(f)?ULTRA1:V10;
+  // V8 may have only one MAP. V11's page6 4x3 encoded limits do not
+  // identify one verified "max RPM" value. Both MUST fail closed.
+  return NONE;
+}
 inline bool parseHandshake(const uint8_t *rx,size_t n,Handshake &out) {
-  if (!rx) return false;
-  const size_t sizes[]={41,37};
-  for (size_t i=0;i<n;++i) {
-    if(rx[i]!=0x5A)continue;
-    for (size_t size:sizes) {
-      if (i+size>n || !validReply(rx+i,size))continue;
-      const uint8_t *f=rx+i;
-      if (f[17]!='9' || f[18]!='.' ||
-          !((f[19]=='1' || f[19]=='2') && f[20]>='0' && f[20]<='9'))continue;
-      if (f[33]>3)continue;
+  if(!rx)return false;
+  const size_t lengths[]={41,37};
+  for(size_t offset=0;offset<n;++offset){
+    if(rx[offset]!=0x5A)continue;
+    for(size_t len:lengths){
+      if(offset+len>n || !validReply(rx+offset,len))continue;
+      const uint8_t *f=rx+offset;
+      if(f[33]>3 || !isPrintableId(f))continue;
+      Family fam=familyFromFrame(f);
+      if(fam==NONE)continue;
       Handshake h;
       h.map=(uint8_t)(f[33]+1);
-      for(int j=0;j<4;j++)h.fw[j]=(char)f[17+j];
-      for(int j=0;j<16;j++)h.id[j]=(char)f[1+j];
+      h.family=fam;
+      for(uint8_t j=0;j<4;++j)h.fw[j]=(char)f[17+j];
+      for(uint8_t j=0;j<16;++j)h.id[j]=(char)f[1+j];
       h.id[16]=0;
       out=h;
       return true;
@@ -60,23 +95,37 @@ inline bool parseHandshake(const uint8_t *rx,size_t n,Handshake &out) {
   }
   return false;
 }
-
-inline bool parseLimit(const uint8_t *rx,size_t n,uint8_t page,uint16_t &limit){
-  if(!rx || (page&0xF0U)!=0x60U || 
-     (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
-  const size_t sizes[]={33,65,66}; // V9.1 30B, V9.2 62B or 63B reply payload
+inline bool parseLimitForFamily(const uint8_t *rx,size_t n,uint8_t page,
+                                Family family,uint16_t &limit){
+  if(!rx || (page!=0x62 && page!=0x64 && page!=0x66 && page!=0x68))return false;
+  const size_t v91[]={33},v92[]={65,66},v10[]={21,22},ultra[]={45,46};
+  const size_t *sizes=nullptr,count=0,offset=5;
+  switch(family){
+    case V91:sizes=v91;count=1;break;
+    case V92:sizes=v92;count=2;break;
+    case V10:sizes=v10;count=2;break;
+    case ULTRA1:sizes=ultra;count=2;offset=7;break; // Ultra maxSpeed is Idle u16 index 3.
+    default:return false;
+  }
   for(size_t i=0;i<n;++i){
     if(rx[i]!=page)continue;
-    for(size_t size:sizes){
+    for(size_t k=0;k<count;++k){
+      const size_t size=sizes[k];
       if(i+size>n || !validReply(rx+i,size))continue;
       const uint8_t *f=rx+i;
-      const uint16_t rpm=(uint16_t)((uint16_t)f[5]<<8 | (uint16_t)f[6]);
-      if(rpm<RPM_LIMIT_MIN || rpm>RPM_LIMIT_MAX)return false;
+      const uint16_t rpm=(uint16_t)(((uint16_t)f[offset]<<8)|f[offset+1]);
+      if(rpm<RPM_LIMIT_MIN || rpm>RPM_LIMIT_MAX)continue;
       limit=rpm;
       return true;
     }
   }
   return false;
+}
+// Compatibility wrapper for host regression fixtures; production must always
+// supply the identity-verified family, never auto-guess it from reply length.
+inline bool parseLimit(const uint8_t *rx,size_t n,uint8_t page,uint16_t &limit){
+  return parseLimitForFamily(rx,n,page,V91,limit) ||
+         parseLimitForFamily(rx,n,page,V92,limit);
 }
 
 inline void request5(uint8_t cmd,uint8_t arg,uint8_t out[5]){
@@ -258,7 +307,7 @@ inline size_t normalizeLive(uint8_t *p,size_t n) {
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.5"
+#define FW_VERSION "2.6"
 #endif
 
 static const char *OTA_MANIFEST_URL =
