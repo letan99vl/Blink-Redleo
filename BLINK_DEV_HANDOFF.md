@@ -1260,3 +1260,25 @@ The next developer/ChatGPT MUST continue from this note, not restart protocol as
 - OTA workflow now publishes manifest version 2.2 and the matching binary.
 - Source filename still contains GPIO26_33 for repository/workflow compatibility; the active compiled defaults inside the source are RX22 / TX23.
 - Pre-change backup branch: backup-blink-fw21-rx26-tx33-pre-rx22-tx23-20261009.
+
+
+## PB 3.79.78 · BLE connected but ECU not authenticated = MAP tiles silently disabled (2026-10-13)
+
+User report: After public FW2.3 + Blink PB3.79.76, tapping every ECU MAP tile is silent even though the app reports "BLE connected." Reverting the PB3.79.77 AFR-target-keypad UI back to 3.79.76 did NOT resolve it.
+
+Actual source analysis:
+- `index.html` `connectBle()` called `setBleUi(true)`, which previously set `state.ecuPhase='live'` and displayed **"ECU ĐÃ KẾT NỐI · OK"** immediately after *GATT* linking, before `redleo_real_protocol.js` received valid ECU 0x5A. This is a false-positive success label.
+- `redleo_real_protocol.js` `applyProfileUi()` strictly disables every `[data-feature]` when the current profile is UNKNOWN; the browser ignores taps on a disabled HTML button. This correctly prevents unsafe operations but used to be silent about the BLE-vs-ECU distinction.
+- Original `boot()` attempted `initializeRealSession()` only ONCE per BLE characteristic lifetime (after 450ms). If 0x5A/0x69 failed once, there was no retry unless the user disconnected/reconnected.
+- PB3.79.76 `connectBle()` published `window.blinkCommandChar` and `window.blinkMapChar` to the real ECU protocol *before* finishing bridge `PING`, `RXJUMBO`, desktop TX probes, and the newly-added FW2.3 `RG?`. The real protocol could start a raw 0x5A GATT write concurrently with bridge control writes on that SAME characteristic. This plausible race is mitigated by finishing bridge probe writes BEFORE publishing the characteristics to the REAL layer.
+- FW2.3 autonomous guard itself only enters `guardAutonomousTick()` when `guardEnabled` NVS is true (default OFF). If the user has enabled Guard, its autonomous UART 0x5A/0x9A/0x69 activity might still compete with the initial app handshake despite `processTransaction` priority; this hardware explanation has NOT been verified on real ECU. Do not claim FW2.3 is conclusively responsible.
+
+PB3.79.78 hotfix changes:
+- `setBleUi(true)` sets `ecuPhase='ble-linked'`, **not** `live`. Status explicitly says Bluetooth connected, waiting for real ECU 0x5A.
+- Finish PING/RX/TX bridge setup BEFORE publishing raw BLE characteristics; move automatic RG? out of this competing startup period (manual Settings button still works).
+- After transport is available, attempt REAL ECU 0x5A -> profile detection; up to 3 bounded attempts on errors with delays; show error details and a manual "↻ XÁC THỰC LẠI ECU" control on the MAP page.
+- Keep `setProfileDisabled(el,!supported,...)` and ALL ECU read/write gates unchanged. UNKNOWN/LEGACY profiles do NOT unlock any ECU MAP. Valid but unsupported ECU profile stays SAFE MODE without retry spam.
+- `tools/check-ecu-auth-unlock.js` asserts no premature success, correct bridge-probe ordering, safe profile gate, and a mocked real ECU handshake-failure -> manual recovery flow.
+- `index.html` and `redleo_real_protocol.js` changed; ESP32 OTA FW2.3 and manifest unchanged.
+- `feature/debug-map-nav-pb37977-20261013` is a discarded diagnostic branch that allows offline previews. **DO NOT MERGE** it: requirement is to unlock only after ECU identity verification.
+- If a customer stays blocked in PB3.79.78, record text shown in MAP auth banner and Settings > ECU diagnostic status, and ask them to read `RG?` to see whether guard is on. Test same hardware with the existing "Khôi phục FW2.2" BLE control *while engine OFF* to isolate FW2.3 vs UART wiring/profile.
