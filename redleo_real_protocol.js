@@ -5164,35 +5164,116 @@ function installUI(){
 function boot(){
   installUI();
   applyProfileUi();
-  let lastCmd=null,lastMap=null,settleTimer=null;
+  let lastCmd=null,lastMap=null,settleTimer=null,retryTimer=null,authAttempts=0;
+  const panel=document.getElementById('ecuAuthNotice');
+  const banner=document.getElementById('ecuAuthNoticeText');
+  const retryButton=document.getElementById('retryEcuAuthBtn');
+  function authPanel(mode,text=''){
+    const visible=!!cmdChar()&&!!mapChar()&&mode!=='ready';
+    if(panel)panel.style.display=visible?'':'none';
+    if(banner&&visible)banner.textContent=text;
+    if(retryButton)retryButton.disabled=!visible||mode==='loading'||!!sessionInitPromise;
+  }
+  function clearAuthTimers(){
+    if(settleTimer){clearTimeout(settleTimer);settleTimer=null;}
+    if(retryTimer){clearTimeout(retryTimer);retryTimer=null;}
+  }
+  async function authenticateBridgeEcu(cc,mc){
+    if(!cc||!mc||cc!==cmdChar()||mc!==mapChar()||otaPaused||
+       (typeof window.blinkOtaTransferActive==='function'&&window.blinkOtaTransferActive()))return;
+    if(sessionInitPromise)return;
+    authAttempts++;
+    authPanel('loading','BLUETOOTH OK · ĐANG XÁC THỰC ECU (0x5A) · LẦN '+authAttempts+'/3');
+    taskUi('loading','BLE ĐÃ KẾT NỐI · ĐANG XÁC THỰC ECU 0x5A · '+authAttempts+'/3');
+    try{
+      await initializeRealSession();
+      if(cc!==cmdChar()||mc!==mapChar())return;
+      if(profileCap('live')){
+        authAttempts=0;
+        window.blinkLastEcuAuthError='';
+        authPanel('ready');
+        log('ECU handshake OK',ecuProfile?.key||'UNKNOWN',handshakeInfo?.firmware||'');
+        notice('success','ECU ĐÃ XÁC THỰC',(ecuProfile?.label||'ECU')+' · MAP được mở khóa theo profile · Live 0x69');
+      }else{
+        // A valid handshake from an unsupported ECU is NOT authorization to
+        // decode or write its unknown map layout. Keep the original safety gate.
+        const label=ecuProfile?.label||'ECU CHƯA XÁC ĐỊNH';
+        window.blinkLastEcuAuthError='ECU phản hồi nhưng profile chưa được hỗ trợ: '+label;
+        authPanel('unsupported','ECU ĐÃ PHẢN HỒI · '+label+' · MAP vẫn khóa an toàn. Xem lại phiên bản ECU.');
+        taskUi('error','BLE OK · ECU SAFE MODE · '+label,8000);
+        notice('error','ECU CHƯA HỖ TRỢ',window.blinkLastEcuAuthError,7000);
+      }
+    }catch(e){
+      if(cc!==cmdChar()||mc!==mapChar())return;
+      const msg=String(e&&e.message||e);
+      window.blinkLastEcuAuthError=msg;
+      if(typeof state!=='undefined')state.ecuPhase='auth-failed';
+      applyProfileUi(); // MAP tiles stay locked, ECU writes NEVER unlocked.
+      const willRetry=authAttempts<3;
+      authPanel('failed','BLUETOOTH ĐÃ KẾT NỐI nhưng ECU CHƯA XÁC THỰC 0x5A. '
+        +(willRetry?'Tự thử lại... ':'Bấm XÁC THỰC LẠI ECU. ')+'Chi tiết: '+msg.slice(0,180));
+      taskUi('error','BLE OK · ECU CHƯA XÁC THỰC 0x5A'+(willRetry?' · THỬ LẠI':' · MAP ĐANG KHÓA'),willRetry?2500:9500);
+      err('0x5A ECU auth failed attempt='+authAttempts,msg);
+      if(willRetry){
+        const delayMs=1300+authAttempts*1350;
+        retryTimer=setTimeout(()=>{
+          retryTimer=null;
+          if(cc===cmdChar()&&mc===mapChar()&&!sessionInitPromise)
+            void authenticateBridgeEcu(cc,mc);
+        },delayMs);
+      }else{
+        notice('error','BLUETOOTH OK · ECU CHƯA XÁC THỰC',
+          'Lệnh ECU 0x5A chưa thành công, không mở khóa MAP. '+msg,0);
+      }
+    }finally{
+      if(retryButton&&cc===cmdChar()&&mc===mapChar()&&!sessionInitPromise)
+        retryButton.disabled=false;
+    }
+  }
+  retryButton?.addEventListener('click',()=>{
+    const cc=cmdChar(),mc=mapChar();
+    if(!cc||!mc){notice('error','CHƯA CÓ BLUETOOTH','Kết nối với ESP32 trước.');return;}
+    if(sessionInitPromise){taskUi('loading','ECU ĐANG XÁC THỰC · KHÔNG GỬI LỆNH CHỒNG');return;}
+    clearAuthTimers();authAttempts=0;
+    void authenticateBridgeEcu(cc,mc);
+  });
+  window.blinkRetryEcuAuth=()=>{
+    const cc=cmdChar(),mc=mapChar();
+    if(!cc||!mc||sessionInitPromise)return false;
+    clearAuthTimers();authAttempts=0;
+    void authenticateBridgeEcu(cc,mc);return true;
+  };
   setInterval(()=>{
     const cc=cmdChar(),mc=mapChar();
     const changed=(cc!==lastCmd)||(mc!==lastMap);
     if(!changed)return;
     lastCmd=cc;lastMap=mc;
-
-    if(settleTimer){clearTimeout(settleTimer);settleTimer=null;}
+    clearAuthTimers();
+    authAttempts=0;
 
     if(!cc||!mc){
+      authPanel('ready');
+      window.blinkLastEcuAuthError='';
       transportCmdChar=null;transportMapChar=null;installedChar=null;
       abortRawTransport('BLE disconnected');
       return;
     }
 
-    // New BLE characteristic objects = a fresh connection/reconnection.
+    // A fresh BLE session must authenticate ECU anew. Completion of BLE PING,
+    // RXJUMBO and desktop TX probes is now guaranteed before these chars appear.
     abortRawTransport('BLE transport reconnected');
     transportCmdChar=cc;transportMapChar=mc;
     installRawListener();installAfrListener();
-    log('transport ready / reconnect detected');
+    authPanel('loading','BLUETOOTH OK · CHỜ ECU XÁC THỰC 0x5A');
+    log('transport ready; start ECU identification after bridge probes');
     settleTimer=setTimeout(()=>{
-      if(cmdChar()!==cc||mapChar()!==mc)return;
-      initializeRealSession()
-        .then(()=>notice('success','ECU REAL ONLINE',(ecuProfile?.label||'ECU')+(profileCap('live')?' · Handshake + Live 0x69':' · SAFE MODE')+' · không tự Read All'))
-        .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
-    },450);
+      settleTimer=null;
+      if(cc!==cmdChar()||mc!==mapChar())return;
+      void authenticateBridgeEcu(cc,mc);
+    },380);
   },150);
 
-  window.addEventListener('pagehide',()=>abortRawTransport('pagehide'));
+  window.addEventListener('pagehide',()=>{clearAuthTimers();abortRawTransport('pagehide')});
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden)stopLiveLoop();
     else if(!otaPaused&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
