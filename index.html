@@ -2397,7 +2397,7 @@ for(const k of ['measured','counts','target','inject']){
 
 function selectMapBank(n,autoRead=true){
   n=clamp(Math.round(Number(n)||1),1,4);
-  if(window.blinkGuardLatched && n!==4){
+  if((window.blinkGuardLatched || window.blinkGuardFault) && n!==4){
     $('mapSelect').value='4';
     showEcuNotice('error','REDLINE GUARD ĐÃ CHUYỂN MAP 4','ESP32 đang khóa MAP 4. Hãy dừng động cơ, tắt Redline Guard rồi mới chọn MAP khác.',4200);
     return;
@@ -4770,12 +4770,14 @@ window.addEventListener('beforeunload',save);
       };
       e.value=nice[value]||(value.startsWith('RG:ON:M')?('ĐANG BẢO VỆ · '+value.slice(3)):value);
     }
+    if(value==='RG:FAULT')window.blinkGuardFault=true;
     if(value==='RG:STOP'||value==='RG:UNSUP'||value==='RG:FAULT'){
       showEcuNotice('error','REDLINE GUARD',e?.value||value,6000);
     }
     if(value==='RG:TRIP:M4'){
       if(!window.blinkGuardLatched){
         window.blinkGuardLatched=true;
+        window.blinkGuardFault=false;
         if(state.threeRun?.active)resetThreeRunCancelled('REDLINE GUARD: HỦY AUTO TUNE 3 LƯỢT');
         if(state.recording)setRecording(false);
         showEcuNotice('error','REDLINE GUARD · ECU MAP 4',
@@ -4786,6 +4788,7 @@ window.addEventListener('beforeunload',save);
       try{syncBanks();render();updateLive();saveSoon();}catch(_e){}
     }else if(value==='RG:OFF'){
       window.blinkGuardLatched=false;
+      window.blinkGuardFault=false;
     }
   }
   window.blinkGuardStatus=renderGuardStatus;
