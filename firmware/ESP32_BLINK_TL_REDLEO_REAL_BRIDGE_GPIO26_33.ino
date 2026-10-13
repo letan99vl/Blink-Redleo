@@ -317,7 +317,7 @@ inline size_t normalizeLive(uint8_t *p,size_t n) {
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.6"
+#define FW_VERSION "2.6.1"
 #endif
 
 static const char *OTA_MANIFEST_URL =
