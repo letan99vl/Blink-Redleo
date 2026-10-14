@@ -4,7 +4,16 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'firmware/2.2.ino'
       - 'firmware/2.5.ino'
+      - 'tools/check-fw25-guard-compat.js'
+      - '.github/workflows/build-esp32-firmware.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'firmware/2.2.ino'
+      - 'firmware/2.5.ino'
+      - 'tools/check-fw25-guard-compat.js'
       - '.github/workflows/build-esp32-firmware.yml'
   workflow_dispatch:
     inputs:
@@ -24,12 +33,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify firmware safety cores and Blink UI before compilation
+      - name: Verify unchanged FW2.2/FW2.5, safety cores and PB3.79.72 before compilation
         run: |
           python3 tools/extract-fw24-cores.py firmware/2.5.ino /tmp/fw24_extracted.h
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-release-tests
           /tmp/fw24-release-tests
-          node tools/test-fw24-ui.js
+          node tools/check-fw25-guard-compat.js
+          node tools/check-afr-target-keypad-backport.js
+          node tools/check-ota-server-pause.js
           node --check redleo_real_protocol.js
 
       - name: Install Arduino CLI
