@@ -2193,7 +2193,7 @@ window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
         <button type="button" data-red-key="1">1</button><button type="button" data-red-key="2">2</button><button type="button" data-red-key="3">3</button><button type="button" class="clear" data-red-key="clear">C</button>
         <button type="button" data-red-key="4">4</button><button type="button" data-red-key="5">5</button><button type="button" data-red-key="6">6</button><button type="button" class="backspace" data-red-key="backspace">⌫</button>
         <button type="button" data-red-key="7">7</button><button type="button" data-red-key="8">8</button><button type="button" data-red-key="9">9</button><button type="button" class="hide" data-red-key="hide">▾</button>
-        <button type="button" class="zeroWide" data-red-key="0">0</button><button type="button" data-red-key=".">.</button>
+        <button type="button" class="zeroWide" data-red-key="0">0</button><button type="button" data-red-key=".">.</button><button type="button" id="redKeyMinus" data-red-key="-" style="display:none" aria-label="Đổi dấu âm dương">±</button>
       </div>
     </div>
     <div class="redEditorFoot"><span id="redSelectionInfo">Chạm một ô để chọn</span><span id="redIoStatus">Dữ liệu cục bộ</span></div>
@@ -5821,6 +5821,8 @@ function openFeature(id){
   if(aon)aon.style.display=afr?'':'none';if(aoff)aoff.style.display=afr?'':'none';
   const camBtn=document.getElementById('injCamCalcBtn');
   if(camBtn)camBtn.style.display=f.id==='inj_degree'?'':'none';
+  const signedKey=document.getElementById('redKeyMinus');
+  if(signedKey)signedKey.style.display=['ign_degree','ect_ign','external_adjust'].includes(f.id)?'':'none';
   redSel={r0:0,c0:0,r1:0,c1:0};redSelectionActive=false;redCornerPending=false;
   renderFeature();showScreen('rededitor');setTimeout(()=>autoReadVisibleEcuPage('open-feature'),0);
 }
@@ -6043,6 +6045,12 @@ function applyRedKeypadLive(){
   requestAnimationFrame(()=>{updateRedSelectionPad();keepRedSelectionVisible()});
 }
 function redKeypadAppend(ch){
+  if(ch==='-'){
+    if(!['ign_degree','ect_ign','external_adjust'].includes(currentFeature?.id))return;
+    if(!redKeypadDirty){redKeypadBuffer=formatRedEntry(selectedRedMeta()?.v);redKeypadDirty=true}
+    redKeypadBuffer=redKeypadBuffer.startsWith('-')?redKeypadBuffer.slice(1):'-'+redKeypadBuffer;
+    applyRedKeypadLive();syncRedKeypadSelection(false);return;
+  }
   if(!redKeypadDirty){redKeypadBuffer='';redKeypadDirty=true}
   if(ch==='.'){
     if(redKeypadBuffer.includes('.'))return;
