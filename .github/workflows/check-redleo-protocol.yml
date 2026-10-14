@@ -3,13 +3,14 @@ name: Check REDLEO Protocol JS
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, fix/blink-ultra-pro1-ign-degree-scale-20261014]
     paths:
       - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-row-orientation.js'
       - 'tools/check-map-selection.js'
       - 'tools/check-air-fuel-ratio.js'
+      - 'tools/check-ultra-pro1-ign-degree.js'
       - 'tools/check-injection-cam-calculator.js'
       - 'tools/check-ecu-feature-surfaces.js'
       - 'tools/check-v8-main.js'
@@ -44,6 +45,8 @@ jobs:
         run: node tools/check-row-orientation.js
       - name: Map selection direction regression
         run: node tools/check-map-selection.js
+      - name: Ultra Pro1 IGN physical degree / legacy family regression
+        run: node tools/check-ultra-pro1-ign-degree.js
       - name: Air fuel ratio cross-family regression
         run: node tools/check-air-fuel-ratio.js
       - name: Injection cam calculator regression
