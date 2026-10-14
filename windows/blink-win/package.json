@@ -1,0 +1,28 @@
+{
+  "name": "blink-tl-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Blink TL ECU Windows fullscreen companion app",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.cjs && node --check picker-preload.cjs",
+    "dist:win": "electron-builder --win portable --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "vn.blinktl.windows",
+    "productName": "Blink TL",
+    "asar": true,
+    "files": ["main.cjs", "picker-preload.cjs", "picker.html", "package.json"],
+    "directories": {"output": "dist"},
+    "win": {
+      "target": [{"target": "portable", "arch": ["x64"]}],
+      "artifactName": "Blink-TL-Fullscreen-Windows.exe",
+      "signAndEditExecutable": false
+    }
+  }
+}
