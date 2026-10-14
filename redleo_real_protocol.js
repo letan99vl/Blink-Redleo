@@ -19,6 +19,7 @@ let liveRunning=false;
 let liveResumeTimer=null;
 let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
+let mainIgnUnitOverride=null; // per-ECU-session PC software B_True display mode
 let sensorCalCache=null;     // populated by lightweight A2 page read
 let sensorCalIdentity=null;   // prevents calibration from a different ECU being reused
 let pageCache=new Map();     // page-specific lazy reads
@@ -750,33 +751,100 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
-// Ultra Pro1 V10.x (not generic V10.2, not ATE/Ultra Pro2 V11):
-// Screenshot-verified against the owner's ORIGINAL REDLEO PC IGN-degree MAP1.
-// Same raw table words have raw=112 -> 16.9 deg and raw=135 -> 25.0 deg;
-// using legacy VER_ANGLE=4 incorrectly displayed 12.0 / 17.8 deg.
-// The original Ultra Pro1 table unit is 360 / 1024 = 0.3515625 deg/raw.
-// Keep read/write symmetrical and preserve the 420B 0x3x page layout.
+// ORIGINAL REDLEO Windows software: ECU Pro V8, 9.1X, 9.2, V10.2 and Ultra Pro1
+// all implement TrueFalse.Ign_EcuToPc / Ign_PcToEcu with the SAME TWO B_True modes:
+//   B_True OFF: (raw - 64) / Ver78_Angle, Ver78_Angle=4.
+//   B_True ON:  ((raw - 64) / 4) * (360 / 256), rounded to one decimal.
+// Their Chk_TrueFalse checkbox changes this display mode, not the ECU's stored bytes.
+// Ultra Pro1 and 9.2 default to the 360-degree view to match owner PC screenshots;
+// V8, 9.1X and generic V10.2 retain their original B_True=OFF startup view.
+// ATE V11 / Ultra Pro2 use their own independently audited V11 serializer.
 const ULTRA_PRO1_MAIN_IGN_SCALE=360/1024;
-// REDLEO 9.20-9.29 original PC MAP1 screenshots independently prove this
-// same 360/1024 main-ignition table unit (including negative degree cells).
-// Require the explicit 9.2 generation byte: 9.1X, unknown 9.3+ and V10.2
-// must NOT inherit this codec based on a broad modern/family heuristic.
 const REDLEO_V92_MAIN_IGN_SCALE=360/1024;
+const REDLEO_PC_IGN_SCALE=360/1024;
 function isV92MainIgnProfile(info=handshakeInfo){
   return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&
     firmwareNumbers(info).major===9&&v9GenerationDigit(info)===2);
 }
+function isOriginalPcIgnFamily(){
+  if(!ecuProfile)return false;
+  if(ecuProfile.key==='LEGACY_V8'||ecuProfile.key==='MODERN_V10')return true;
+  // Only 9.1X and 9.2 were analyzed from original REDLEO PC binaries.
+  // Unknown V9 generations must retain the legacy converter and write lock.
+  if(ecuProfile.key==='MODERN_V9')return isV91Direct()||isV92MainIgnProfile();
+  return false;
+}
+function mainIgnUnitMode(){
+  if(isV11Profile())return 'v11';
+  if(!isOriginalPcIgnFamily())return 'raw4';
+  if(mainIgnUnitOverride==='degrees360'||mainIgnUnitOverride==='raw4')return mainIgnUnitOverride;
+  return (isUltraDirect()||isV92MainIgnProfile())?'degrees360':'raw4';
+}
+// .NET Math.Round(double, digits) uses midpoint-to-even; JS Math.round does not.
+// E.g. raw 96 -> 11.25deg -> 11.2deg (not 11.3); raw 224 -> 56.2deg.
+// Correct rounding matters both for the table display and for its inverse writer.
+function roundOriginalPcIgn(value,places=1){
+  value=Number(value);
+  if(!Number.isFinite(value))return NaN;
+  const factor=Math.pow(10,places);
+  const x=Math.abs(value)*factor;
+  const whole=Math.floor(x),frac=x-whole;
+  const midpoint=Math.abs(frac-0.5)<=1e-11;
+  const up=frac>0.5+1e-11||(midpoint&&(whole%2===1));
+  const out=(whole+(up?1:0))/factor;
+  return value<0?-out:out;
+}
+function decOriginalPcIgn(raw,mode=mainIgnUnitMode()){
+  const unscaled=(Number(raw)-64)/4;
+  if(mode==='degrees360'){
+    // Ign_TrueFalse(TRUE) -> Math.Round(x*360/256, 1).
+    return roundOriginalPcIgn(unscaled*360/256,1);
+  }
+  // The original V8 GUI does not append V9's UartToDgv Round(...,1).
+  // V8: <10 => 2 decimals, >=10 => 1, >=100 => integer.
+  if(ecuProfile&&ecuProfile.family==='v8')
+    return roundOriginalPcIgn(unscaled,unscaled>=100?0:unscaled>=10?1:2);
+  // V9.1X/V9.2/V10.2/Ultra: UartToDgv adds Math.Round(...,1).
+  return roundOriginalPcIgn(unscaled,1);
+}
+function encOriginalPcIgn(value,mode=mainIgnUnitMode()){
+  const v=Number(value);
+  if(!Number.isFinite(v))throw new Error('Góc đánh lửa không hợp lệ.');
+  let units;
+  if(mode==='degrees360'){
+    // Original Ign_PcToEcu: Ign_TrueFalse(FALSE) rounds raw/4 units
+    // to 0.1 BEFORE multiplying by 4 and rounding to integer.
+    const asSingle=Math.fround(Math.fround(Math.fround(v)*256)/360);
+    units=roundOriginalPcIgn(asSingle,1);
+  }else{
+    const decimalPlaces=ecuProfile&&ecuProfile.family==='v8'
+      ?(v>=100?0:v>=10?1:2)
+      :(v>=100?0:2);
+    units=roundOriginalPcIgn(Math.fround(v),decimalPlaces);
+  }
+  return clamp(roundOriginalPcIgn(Math.fround(units*4),0)+64,0,255);
+}
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
-  if(isUltraDirect())return r1((Number(raw)-64)*ULTRA_PRO1_MAIN_IGN_SCALE);
-  if(isV92MainIgnProfile())return r1((Number(raw)-64)*REDLEO_V92_MAIN_IGN_SCALE);
-  return decIgn(raw);
+  if(!isOriginalPcIgnFamily())return decIgn(raw);
+  return decOriginalPcIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
-  if(isUltraDirect())return clamp(Math.round(Number(v)/ULTRA_PRO1_MAIN_IGN_SCALE)+64,0,255);
-  if(isV92MainIgnProfile())return clamp(Math.round(Number(v)/REDLEO_V92_MAIN_IGN_SCALE)+64,0,255);
-  return encIgn(v);
+  if(!isOriginalPcIgnFamily())return encIgn(v);
+  return encOriginalPcIgn(v);
+}
+function setMainIgnUnitMode(mode){
+  if(mode!=='raw4'&&mode!=='degrees360')throw new Error('Sai chế độ hiển thị góc lửa.');
+  if(!isOriginalPcIgnFamily())throw new Error('Chỉ đổi đơn vị góc lửa cho REDLEO V8/V9/V10 đã xác minh EXE gốc.');
+  if(busy||ecuMapIoUiBusy||manualMapIoDepth>0)throw new Error('ECU đang bận, không thể đổi chế độ góc lửa.');
+  if(mode===mainIgnUnitMode())return mode;
+  mainIgnUnitOverride=mode;
+  // Never reuse a cached byte page or a decoded ReadAll in the old display
+  // unit. The caller must delete local ignition grids and read ECU afresh.
+  readCache=null;
+  for(let bank=1;bank<=4;bank++)pageCache.delete(page(3,bank));
+  return mode;
 }
 function decLiveIgn(raw){
   if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
@@ -1307,6 +1375,7 @@ async function initializeRealSession(){
     // This prevents stale values from looking like a successful ECU read.
     try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
     readCache=null;
+    mainIgnUnitOverride=null; // REDLEO original opens B_True OFF; variant defaults below.
     pageCache.clear();
     fuelPagePrimed.clear();
     v8LiveSlot=0;
@@ -1315,6 +1384,7 @@ async function initializeRealSession(){
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
+    try{window.syncBlinkIgnUnitUi?.();}catch(_e){}
     publishProfileAxisFallback(ecuProfile&&ecuProfile.family==='v8'?'V8 · AXIS CỐ ĐỊNH':(ecuProfile&&ecuProfile.key==='MODERN_V9'?'V9 · AXIS CỐ ĐỊNH':'CHỜ A2 AXIS · '+(ecuProfile?.short||'ECU')));
     const newCalIdentity=[
       ecuProfile?.key||'UNKNOWN',info.ident||'',info.firmware||'',info.ecuId||1
@@ -5222,6 +5292,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,setMainIgnUnitMode,get mainIgnUnitMode(){return mainIgnUnitMode()},get mainIgnSelectable(){return isOriginalPcIgnFamily()},get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
