@@ -30,10 +30,6 @@ let transportMapChar=null;
 let sessionInitPromise=null;
 let transportEpoch=0;
 let otaPaused=false;
-// PB3.79.81: exclusive BLE control reservation for Redline Guard. RAW transport
-// keeps its existing chunk pacing/ACK handling. No ECU data is fabricated.
-let bridgeControlReserved=false;
-let bridgeControlToken=0;
 let sensorWarmupTimer=null;
 const SENSOR_CAL_STORE_KEY='BLINK_SENSOR_CAL_V1';
 
@@ -1232,7 +1228,7 @@ async function handshakeReal(){
 let v8LiveSlot=0;
 async function liveOnce(){
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
-  if(!cmdChar()||busy||bridgeControlReserved||document.hidden)return;
+  if(!cmdChar()||busy||document.hidden)return;
   try{
     const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
     let arg=mapNo;
@@ -1245,7 +1241,6 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
-  if(bridgeControlReserved || manualMapIoDepth>0)return;
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
   if(liveRunning)return;
   liveRunning=true;
@@ -1358,8 +1353,6 @@ function abortRawTransport(reason='BLE disconnected'){
   }
   pending.clear();
   busy=false;
-  bridgeControlReserved=false;
-  bridgeControlToken++; // invalidate any guard lease from an old BLE session
   sessionInitPromise=null;
   handshakeInfo=null;
   readCache=null;
@@ -1428,63 +1421,6 @@ async function waitForEcuIdle(maxWait=16000){
   }
 }
 
-// Reserve a whole short Redline Guard control sequence, not just one GATT
-// write. This prevents live 0x69, A2 warmup and UI RAW chunks from racing RG?
-// on Chromium/Bluefy where parallel GATT operations throw "already in progress".
-// Unlike beginManualMapIo(), this waits for an existing multi-page manual
-// operation instead of joining its nested depth and interrupting a write.
-async function beginBridgeGuardControl(maxWaitMs=20000){
-  const epoch=transportEpoch, started=performance.now();
-  let token=0, resumeLive=false;
-  while(true){
-    if(epoch!==transportEpoch || !cmdChar() || !mapChar())
-      throw new Error('Bluetooth đã ngắt hoặc đang kết nối lại.');
-    if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))
-      throw new Error('Đang OTA ESP32; không gửi lệnh Redline Guard.');
-    if(!bridgeControlReserved && manualMapIoDepth===0 && !sessionInitPromise){
-      bridgeControlReserved=true;
-      token=++bridgeControlToken;
-      resumeLive=!!(liveRunning||liveResumeTimer);
-      stopLiveLoop();
-      break;
-    }
-    if(performance.now()-started>maxWaitMs)
-      throw new Error('Đang có giao dịch Bluetooth/ECU khác quá lâu. Hãy hoàn tất thao tác rồi đọc lại.');
-    await new Promise(r=>setTimeout(r,30));
-  }
-  try{
-    while(busy){
-      if(epoch!==transportEpoch || !cmdChar() || !mapChar())
-        throw new Error('Bluetooth đã ngắt khi đang chờ lệnh ECU.');
-      if(performance.now()-started>maxWaitMs)
-        throw new Error('Giao dịch RAW ECU chưa hoàn tất; chưa gửi Redline Guard.');
-      await new Promise(r=>setTimeout(r,30));
-    }
-    if(epoch!==transportEpoch || token!==bridgeControlToken)
-      throw new Error('Bluetooth đã đổi kết nối.');
-    return {epoch,token,resumeLive,closed:false};
-  }catch(e){
-    if(token===bridgeControlToken){
-      bridgeControlReserved=false;
-      if(resumeLive && cmdChar() && mapChar() && !otaPaused)scheduleLiveResume(450);
-    }
-    throw e;
-  }
-}
-function endBridgeGuardControl(lease){
-  if(!lease || lease.closed)return;
-  lease.closed=true;
-  if(lease.epoch!==transportEpoch || lease.token!==bridgeControlToken)return;
-  bridgeControlReserved=false;
-  if(lease.resumeLive && cmdChar() && mapChar() && handshakeInfo &&
-     profileCap('live') && !otaPaused){
-    // A manual map operation may start while guard control held the BLE gate.
-    // Let that operation restart Live when done, instead of losing polling.
-    if(manualMapIoDepth>0)manualMapIoResumeLive=true;
-    else scheduleLiveResume(450);
-  }
-}
-
 let manualMapIoDepth=0;
 let manualMapIoResumeLive=false;
 async function beginManualMapIo(label='MAP'){
@@ -1527,7 +1463,7 @@ async function acquireEcuTransaction(maxWait=16000){
     // Check + set occurs in one JS turn before any await, so only one caller
     // can acquire the transport. This closes the race between Live 0x69 and
     // READ/WRITE buttons that existed in waitForEcuIdle()+busy=true.
-    if(!busy && !bridgeControlReserved){busy=true;return true;}
+    if(!busy){busy=true;return true;}
     if(performance.now()-t0>maxWait)throw new Error('ECU bận quá lâu; transaction trước chưa hoàn tất');
     await new Promise(r=>setTimeout(r,25));
   }
@@ -5228,122 +5164,41 @@ function installUI(){
 function boot(){
   installUI();
   applyProfileUi();
-  let lastCmd=null,lastMap=null,settleTimer=null,retryTimer=null,authAttempts=0;
-  const panel=document.getElementById('ecuAuthNotice');
-  const banner=document.getElementById('ecuAuthNoticeText');
-  const retryButton=document.getElementById('retryEcuAuthBtn');
-  function authPanel(mode,text=''){
-    const visible=!!cmdChar()&&!!mapChar()&&mode!=='ready';
-    if(panel)panel.style.display=visible?'':'none';
-    if(banner&&visible)banner.textContent=text;
-    if(retryButton)retryButton.disabled=!visible||mode==='loading'||!!sessionInitPromise;
-  }
-  function clearAuthTimers(){
-    if(settleTimer){clearTimeout(settleTimer);settleTimer=null;}
-    if(retryTimer){clearTimeout(retryTimer);retryTimer=null;}
-  }
-  async function authenticateBridgeEcu(cc,mc){
-    if(!cc||!mc||cc!==cmdChar()||mc!==mapChar()||otaPaused||
-       (typeof window.blinkOtaTransferActive==='function'&&window.blinkOtaTransferActive()))return;
-    if(sessionInitPromise)return;
-    authAttempts++;
-    authPanel('loading','BLUETOOTH OK · ĐANG XÁC THỰC ECU (0x5A) · LẦN '+authAttempts+'/3');
-    taskUi('loading','BLE ĐÃ KẾT NỐI · ĐANG XÁC THỰC ECU 0x5A · '+authAttempts+'/3');
-    try{
-      await initializeRealSession();
-      if(cc!==cmdChar()||mc!==mapChar())return;
-      if(profileCap('live')){
-        authAttempts=0;
-        window.blinkLastEcuAuthError='';
-        authPanel('ready');
-        log('ECU handshake OK',ecuProfile?.key||'UNKNOWN',handshakeInfo?.firmware||'');
-        notice('success','ECU ĐÃ XÁC THỰC',(ecuProfile?.label||'ECU')+' · MAP được mở khóa theo profile · Live 0x69');
-      }else{
-        // A valid handshake from an unsupported ECU is NOT authorization to
-        // decode or write its unknown map layout. Keep the original safety gate.
-        const label=ecuProfile?.label||'ECU CHƯA XÁC ĐỊNH';
-        window.blinkLastEcuAuthError='ECU phản hồi nhưng profile chưa được hỗ trợ: '+label;
-        authPanel('unsupported','ECU ĐÃ PHẢN HỒI · '+label+' · MAP vẫn khóa an toàn. Xem lại phiên bản ECU.');
-        taskUi('error','BLE OK · ECU SAFE MODE · '+label,8000);
-        notice('error','ECU CHƯA HỖ TRỢ',window.blinkLastEcuAuthError,7000);
-      }
-    }catch(e){
-      if(cc!==cmdChar()||mc!==mapChar())return;
-      const msg=String(e&&e.message||e);
-      window.blinkLastEcuAuthError=msg;
-      if(typeof state!=='undefined')state.ecuPhase='auth-failed';
-      applyProfileUi(); // MAP tiles stay locked, ECU writes NEVER unlocked.
-      const willRetry=authAttempts<3;
-      authPanel('failed','BLUETOOTH ĐÃ KẾT NỐI nhưng ECU CHƯA XÁC THỰC 0x5A. '
-        +(willRetry?'Tự thử lại... ':'Bấm XÁC THỰC LẠI ECU. ')+'Chi tiết: '+msg.slice(0,180));
-      taskUi('error','BLE OK · ECU CHƯA XÁC THỰC 0x5A'+(willRetry?' · THỬ LẠI':' · MAP ĐANG KHÓA'),willRetry?2500:9500);
-      err('0x5A ECU auth failed attempt='+authAttempts,msg);
-      if(willRetry){
-        const delayMs=1300+authAttempts*1350;
-        retryTimer=setTimeout(()=>{
-          retryTimer=null;
-          if(cc===cmdChar()&&mc===mapChar()&&!sessionInitPromise)
-            void authenticateBridgeEcu(cc,mc);
-        },delayMs);
-      }else{
-        notice('error','BLUETOOTH OK · ECU CHƯA XÁC THỰC',
-          'Lệnh ECU 0x5A chưa thành công, không mở khóa MAP. '+msg,8500);
-      }
-    }finally{
-      if(retryButton&&cc===cmdChar()&&mc===mapChar()&&!sessionInitPromise)
-        retryButton.disabled=false;
-    }
-  }
-  retryButton?.addEventListener('click',()=>{
-    const cc=cmdChar(),mc=mapChar();
-    if(!cc||!mc){notice('error','CHƯA CÓ BLUETOOTH','Kết nối với ESP32 trước.');return;}
-    if(sessionInitPromise){taskUi('loading','ECU ĐANG XÁC THỰC · KHÔNG GỬI LỆNH CHỒNG');return;}
-    clearAuthTimers();authAttempts=0;
-    void authenticateBridgeEcu(cc,mc);
-  });
-  window.blinkRetryEcuAuth=()=>{
-    const cc=cmdChar(),mc=mapChar();
-    if(!cc||!mc||sessionInitPromise)return false;
-    clearAuthTimers();authAttempts=0;
-    void authenticateBridgeEcu(cc,mc);return true;
-  };
+  let lastCmd=null,lastMap=null,settleTimer=null;
   setInterval(()=>{
     const cc=cmdChar(),mc=mapChar();
     const changed=(cc!==lastCmd)||(mc!==lastMap);
     if(!changed)return;
     lastCmd=cc;lastMap=mc;
-    clearAuthTimers();
-    authAttempts=0;
+
+    if(settleTimer){clearTimeout(settleTimer);settleTimer=null;}
 
     if(!cc||!mc){
-      authPanel('ready');
-      window.blinkLastEcuAuthError='';
       transportCmdChar=null;transportMapChar=null;installedChar=null;
       abortRawTransport('BLE disconnected');
       return;
     }
 
-    // A fresh BLE session must authenticate ECU anew. Completion of BLE PING,
-    // RXJUMBO and desktop TX probes is now guaranteed before these chars appear.
+    // New BLE characteristic objects = a fresh connection/reconnection.
     abortRawTransport('BLE transport reconnected');
     transportCmdChar=cc;transportMapChar=mc;
     installRawListener();installAfrListener();
-    authPanel('loading','BLUETOOTH OK · CHỜ ECU XÁC THỰC 0x5A');
-    log('transport ready; start ECU identification after bridge probes');
+    log('transport ready / reconnect detected');
     settleTimer=setTimeout(()=>{
-      settleTimer=null;
-      if(cc!==cmdChar()||mc!==mapChar())return;
-      void authenticateBridgeEcu(cc,mc);
-    },380);
+      if(cmdChar()!==cc||mapChar()!==mc)return;
+      initializeRealSession()
+        .then(()=>notice('success','ECU REAL ONLINE',(ecuProfile?.label||'ECU')+(profileCap('live')?' · Handshake + Live 0x69':' · SAFE MODE')+' · không tự Read All'))
+        .catch(e=>{err(e);notice('error','ECU REAL CHƯA ONLINE',e.message||String(e));});
+    },450);
   },150);
 
-  window.addEventListener('pagehide',()=>{clearAuthTimers();abortRawTransport('pagehide')});
+  window.addEventListener('pagehide',()=>abortRawTransport('pagehide'));
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden)stopLiveLoop();
     else if(!otaPaused&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live'))startLiveLoop();
   });
 }
 
-window.BlinkRealProtocol={beginBridgeGuardControl,endBridgeGuardControl,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
