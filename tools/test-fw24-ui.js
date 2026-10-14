@@ -9,7 +9,7 @@ for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBt
   'id="rgDisableBtn"',"guardControlCommand('RGON')","guardControlCommand('RGOFF')",
   'RG:TRIP:M4'])
   assert(html.includes(token),'Blink UI missing '+token);
-for(const token of ['#define FW_VERSION "2.6.1"','namespace BlinkGuard {',
+for(const token of ['#define FW_VERSION "2.6.2"','namespace BlinkGuard {',
   'namespace BlinkAutoPins {','{{22,23},{26,33}}',
   'transactUartAutopin(txBuf, n, rxBuf, RX_MAX);',
   'guardAutonomousTick();','guardObserveHostTransaction(txBuf,n,rxBuf,got);',
@@ -29,6 +29,16 @@ for(const token of ['namespace BlinkGuardArm {','guardTryArm(); // Runs even whi
 for(const token of ["'RG:CHECK':'ĐANG KIỂM TRA ECU", "'RG:NORPM':'CHƯA BẬT", "'RG:NOECU':'CHƯA BẬT",
   "'RG:RUNNING':'TỪ CHỐI"])
   assert(html.includes(token),'FW2.5 Blink UI missing '+token);
+// Ultra Pro1 0x5A failure regression: transport validates checksum only;
+// the autonomous Redline Guard profile parser stays stricter, independently.
+assert(fw.includes("n >= 9U && n <= 512U && p[0] == 0x5A && validReply(p,n)"),
+  'Ultra 0x5A BLE bridge must use checksum, not MAP/version assumptions');
+const uartCore=fw.slice(fw.indexOf('namespace BlinkAutoPins {'),
+                         fw.indexOf('} // namespace BlinkAutoPins'));
+assert(!uartCore.includes('p[33] > 3'),'UART auth may not reject vendor MAP byte');
+assert(!uartCore.includes('standardSizes[]'),'UART auth may not truncate full Ultra reply to 9/37/41');
+assert(fw.includes('if(!BlinkGuard::parseHandshake(rx,n,h)){'),
+  'Strict autonomous safety parser must remain independent from UART auth');
 // Multi-family guard source contract: never arm from a guessed RPM page.
 for(const token of ['parseLimitForFamily(rx,n,page,guardIdentity.family,rpm)',
   'guardLimitMask==0x0FU','guardTryReadLimit(now);',
