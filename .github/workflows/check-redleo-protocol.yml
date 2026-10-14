@@ -18,6 +18,7 @@ on:
       - 'tools/check-v92-page6.js'
       - 'tools/check-v10-page6.js'
       - 'tools/check-v10-a2.js'
+      - 'tools/check-ultra-ign-degree-codec.js'
       - 'tools/check-ultra-page6.js'
       - 'tools/check-ultra-a2.js'
       - 'tools/check-ultra-pro2.js'
@@ -62,6 +63,8 @@ jobs:
         run: node tools/check-v10-page6.js
       - name: REDLEO V10.2 A2 regression
         run: node tools/check-v10-a2.js
+      - name: REDLEO Ultra Pro1 IGN-degree original PC regression
+        run: node tools/check-ultra-ign-degree-codec.js
       - name: REDLEO Ultra Pro1 page6 regression
         run: node tools/check-ultra-page6.js
       - name: REDLEO Ultra Pro1 A2 regression
