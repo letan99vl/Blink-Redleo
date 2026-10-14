@@ -241,17 +241,15 @@ inline bool isLiveRequest(const uint8_t *p, size_t n) {
   return p && n == 5 && p[0] == 0x69 && p[1] >= 1 && p[1] <= 4 &&
          p[4] == 5 && (uint8_t)(p[0]+p[1]+p[2]) == 0xFFU;
 }
-// App supports a short 9B handshake on old ECU and long modern 0x5A frames.
-// Accept only a complete framed response with REDLEO checksum and sane MAP.
+// FW2.6.2: BLE/ECU TRANSPORT is not a Redline Guard profile decoder.
+// Match the proven FW2.2 transparent bridge and Blink's parseHandshake:
+// a 0x5A reply is UART-verified by its framing/checksum, not by how its
+// ECU-specific MAP/version/ID bytes are encoded. Ultra Pro1 can return
+// a different 0x5A layout while still authenticating correctly in Blink.
+// Keep the separate BlinkGuard::parseHandshake() STRICT for autonomous
+// MAP4 safety; unknown ECU formats must NEVER activate Redline Guard.
 inline bool validHandshakeReply(const uint8_t *p, size_t n) {
-  if (!p || p[0] != 0x5A || !validReply(p,n)) return false;
-  if (n == 9) return true;
-  if (n < 35 || n > 96 || p[33] > 3) return false;
-  // The app parses version data as printable ASCII on modern firmware.
-  for (size_t i=17; i<21; ++i) {
-    if (p[i] != 0 && (p[i] < 32 || p[i] > 126)) return false;
-  }
-  return true;
+  return p && n >= 9U && n <= 512U && p[0] == 0x5A && validReply(p,n);
 }
 inline bool validLiveReply(const uint8_t *p, size_t n) {
   if (!p || n != 53 || p[0] != 0xA1 || !validReply(p,n)) return false;
@@ -259,21 +257,21 @@ inline bool validLiveReply(const uint8_t *p, size_t n) {
   return rpm <= 20000;
 }
 
-// Normalize a valid framed reply even when a UART adapter prefixes noise or
-// appends trailing status bytes. This mirrors Blink's findValidCommandFrame().
+// Use Blink's longest checksum-valid 0x5A command frame, never prefer
+// 9/37/41-byte assumptions over a valid full Ultra Pro1 reply. An exact
+// valid frame makes UART slot selection safe; only truly invalid/missing
+// replies may cause a second, read-only probe on the other pin pair.
 inline size_t normalizeHandshake(uint8_t *p,size_t n) {
-  if (!p) return 0;
-  static const size_t standardSizes[] = {41,37,9};
-  for (size_t off=0; off<n && off<512; ++off) {
-    if (p[off]!=0x5A) continue;
-    for (size_t len:standardSizes) {
-      if (off+len>n || !validHandshakeReply(p+off,len)) continue;
-      if (off) memmove(p,p+off,len);
-      return len;
-    }
-    for (size_t len=35; len<=96 && off+len<=n; ++len) {
-      if (!validHandshakeReply(p+off,len)) continue;
-      if (off) memmove(p,p+off,len);
+  if(!p || n<9U)return 0;
+  for(size_t off=0;off<n && off<512U;++off){
+    if(p[off]!=0x5A)continue;
+    const size_t remaining=n-off;
+    const size_t maxLen=remaining<512U?remaining:512U;
+    for(size_t len=maxLen;len>=9U;--len){
+      // Valid REDLEO checksum requires 0x5A + final byte == 0xFF.
+      if(p[off+len-1]!=0xA5)continue;
+      if(!validHandshakeReply(p+off,len))continue;
+      if(off)memmove(p,p+off,len);
       return len;
     }
   }
@@ -317,7 +315,7 @@ inline size_t normalizeLive(uint8_t *p,size_t n) {
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "2.6.1"
+#define FW_VERSION "2.6.2"
 #endif
 
 static const char *OTA_MANIFEST_URL =
