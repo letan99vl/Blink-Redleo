@@ -1,0 +1,38 @@
+name: Build Blink TL Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-blink-windows.yml'
+      - 'windows/blink-win/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install package dependencies
+        working-directory: windows/blink-win
+        run: npm install --no-audit --no-fund
+      - name: Static JavaScript checks
+        working-directory: windows/blink-win
+        run: npm run check
+      - name: Build Windows portable single-file EXE
+        working-directory: windows/blink-win
+        run: npm run dist:win
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blink-TL-Fullscreen-Windows
+          path: windows/blink-win/dist/Blink-TL-Fullscreen-Windows.exe
+          if-no-files-found: error
+          retention-days: 30
