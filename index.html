@@ -5728,7 +5728,7 @@ window.resetEcuMapUiForNewSession=resetEcuMapUiForNewSession;
 function syncBlinkIgnUnitUi(){
   const el=document.getElementById('redIgnUnitMode');if(!el)return;
   const active=currentFeature?.id==='ign_degree';
-  const supported=['LEGACY_V8','MODERN_V9','MODERN_V10'].includes(String(state.ecuProfile||''));
+  const supported=!!window.BlinkRealProtocol?.mainIgnSelectable;
   el.style.display=active&&supported?'':'none';
   const selected=window.BlinkRealProtocol?.mainIgnUnitMode;
   if(active&&supported&&(selected==='degrees360'||selected==='raw4'))el.value=selected;
