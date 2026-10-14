@@ -21,6 +21,8 @@ on:
       - 'tools/check-ultra-page6.js'
       - 'tools/check-ultra-a2.js'
       - 'tools/check-ultra-pro2.js'
+      - 'ota/manifest.json'
+      - 'tools/check-ota-server-pause.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -33,6 +35,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax check
         run: node --check redleo_real_protocol.js
+      - name: Temporary ESP32 server OTA freeze contract
+        run: node tools/check-ota-server-pause.js
       - name: Compensation row orientation regression
         run: node tools/check-row-orientation.js
       - name: Map selection direction regression
