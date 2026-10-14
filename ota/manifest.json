@@ -1,5 +1,8 @@
 {
-  "version": "2.5",
+  "version": "0.0.0",
   "url": "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/ota/blink_esp32.bin",
-  "sha256": "98d86910015085f837158b50b1a2804c3f307eab1bcd5b710c206d0b7f9e01b3"
+  "sha256": "98d86910015085f837158b50b1a2804c3f307eab1bcd5b710c206d0b7f9e01b3",
+  "ota_enabled": false,
+  "maintenance": true,
+  "message": "TAM KHOA OTA ESP32 QUA SERVER - giu nguyen firmware hien tai, thu nghiem FW2.2"
 }
