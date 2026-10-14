@@ -1210,6 +1210,13 @@ window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
   }
   .mapSelectionPad[aria-hidden="true"]{display:none!important}
 
+  /* Auto Tune direct entry: compact AFR recording/mode controls on the map
+     editor itself, never forcing a detour through the legacy tune hub. */
+  #mapEditorScreen .autoTuneQuickBar{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:5px;padding:0 7px 5px}
+  #mapEditorScreen.autoTuneMap .autoTuneQuickBar{display:grid}
+  #mapEditorScreen .autoTuneQuickBar button{min-width:0;min-height:33px;padding:5px 7px;border-radius:9px;font-weight:850;font-size:clamp(9px,1.8vw,12px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #mapEditorScreen .autoTuneQuickBar button:disabled{opacity:.5;cursor:not-allowed}
+  body.mapZoomMode #mapEditorScreen .autoTuneQuickBar{display:none!important}
   /* ===== v16 STANDALONE FUEL EDITOR + SAFE CUSTOM NUMERIC KEYPAD ===== */
   #mapEditorScreen.standaloneFuel{--fuel-keypad-h:304px}
   #mapEditorScreen.standaloneFuel .autoTuneEditorOnly,
@@ -2096,6 +2103,7 @@ window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
@@ -3620,6 +3628,13 @@ function setRecording(on){
   $('recordBtn').className=state.recording?'danger':'good';
   $('recordBadge').textContent='GHI AFR: '+(state.recording?'ON':'OFF');
   $('recordBadge').className='badge '+(state.recording?'ok':'');
+  // Map editor mirrors the real recorder; its button never issues ECU writes.
+  const quick=document.getElementById('autoTuneQuickRecordBtn');
+  if(quick){
+    quick.classList.toggle('danger',state.recording);
+    quick.classList.toggle('good',!state.recording);
+    quick.textContent=state.recording?'■ DỪNG GHI AFR':'● BẮT ĐẦU GHI AFR';
+  }
 }
 function afrRunStats(run){
   if(!run)return {cells:0,samples:0,avg:NaN,min:NaN,max:NaN};
@@ -3723,6 +3738,13 @@ function renderThreeRunUi(){
   if($('writeMapBtn').dataset.ioBusy!=='1')$('writeMapBtn').textContent=state.threeRun.active?'▣ GHI TAY':'▣ LƯU HIỆN TẠI';
   if($('readMapBtn').dataset.ioBusy!=='1')$('readMapBtn').textContent='↓ ĐỌC HIỆN TẠI';
   $('mapSelect').disabled=state.threeRun.active||(state.ecuPhase==='write1'||state.ecuPhase==='write2');
+  const quickRec=document.getElementById('autoTuneQuickRecordBtn');
+  const quickMode=document.getElementById('autoTuneQuickModeBtn');
+  if(quickRec){
+    quickRec.disabled=state.mode==='three'||state.threeRun.active;
+    quickRec.textContent=state.mode==='three'?'3 LƯỢT · ĐIỀU KHIỂN Ở CHẾ ĐỘ':(state.recording?'■ DỪNG GHI AFR':'● BẮT ĐẦU GHI AFR');
+  }
+  if(quickMode)quickMode.textContent=state.mode==='three'?'⚙ ĐIỀU KHIỂN 3 LƯỢT':'⚙ CHẾ ĐỘ / 3 LƯỢT';
   $('threeRunStartBtn').disabled=state.threeRun.active;$('threeRunCancelBtn').disabled=!state.threeRun.active;$('threeRunCancelBtn').textContent=state.threeRun.cancelRequested?'ĐANG HỦY...':'HỦY PHIÊN';$('threeRunStepBtn').disabled=!state.threeRun.active||state.threeRun.phase==='writing'||state.threeRun.phase==='error'||state.threeRun.cancelRequested;
   if(state.threeRun.active){if(state.threeRun.phase==='paused')$('threeRunStepBtn').textContent='TIẾP TỤC GHI LƯỢT '+state.threeRun.pass;else if(state.threeRun.pass<3)$('threeRunStepBtn').textContent='KẾT THÚC LƯỢT '+state.threeRun.pass+' → TÍNH + GHI ECU';else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT 3 → TÍNH + GHI FINAL';}else $('threeRunStepBtn').textContent='KẾT THÚC LƯỢT';
   $('threeRunStatus').innerHTML=threeRunStatusText();
@@ -5735,7 +5757,14 @@ function syncBlinkIgnUnitUi(){
   if(active){const unit=document.getElementById('redUnit');if(unit)unit.textContent=supported?(selected==='degrees360'?'° (REDLEO 360/256)':'đơn vị REDLEO /4'):'°';}
 }
 window.syncBlinkIgnUnitUi=syncBlinkIgnUnitUi;
-function showScreen(name){document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
+function showScreen(name){
+  document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');
+  Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));
+  // Keep the AUTO TUNE bottom-nav state when its main AFR grid is active.
+  const nav=name==='editor'?editorNavContext:name==='rededitor'?'maps':name;
+  document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===nav));
+  if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0);
+}
 function syncBanks(){document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;document.getElementById('redBankSelect').value=String(state.activeMap)}
 
 let lazyPageReadSeq=0;
@@ -5772,12 +5801,13 @@ async function autoReadVisibleEcuPage(reason='open'){
 }
 window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
-let editorReturnScreen='maps';
+let editorReturnScreen='maps',editorNavContext='maps';
 function openOurEditor(tab,fromTune=false,returnScreen=null){
   const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};
   const screen=document.getElementById('mapEditorScreen');
   const standaloneFuel=tab==='inject'&&!fromTune;
   editorReturnScreen=returnScreen||(fromTune?'tune':'maps');
+  editorNavContext=(fromTune||returnScreen==='tune')?'tune':'maps';
   window.hideFuelKeypad?.();
   screen?.classList.toggle('standaloneFuel',standaloneFuel);
   screen?.classList.toggle('autoTuneMap',!standaloneFuel);
@@ -6510,10 +6540,20 @@ function exportBackup(){const blob=new Blob([JSON.stringify({version:7,featureSt
 async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal)Object.assign(state.cal,j.cal);saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
 function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textContent||'0',tps:document.getElementById('tpsLive')?.textContent||'--%',afr:document.getElementById('afrLive')?.textContent||'--',cell:document.getElementById('cellLive')?.textContent||'--',ect:document.getElementById('ectLive')?.textContent||'-- °C'};document.querySelectorAll('[data-mirror]').forEach(e=>{if(m[e.dataset.mirror]!=null)e.textContent=m[e.dataset.mirror]});const ze=document.getElementById('mapZoomEct');if(ze)ze.textContent=m.ect;const rpmMax=Math.max(1,Number(RPMS[C-1])||15000),rpm=Math.max(0,Math.min(rpmMax,Number((m.rpm||'0').replace(/[^0-9.]/g,''))||0));document.getElementById('rpmGauge')?.style.setProperty('--rpm-angle',(rpm/rpmMax*270)+'deg');const on=!!state.ecuConnected;['mapBleStatus','editorBleStatus','idleLimitBleStatus','redEditorBleStatus','tuneBleStatus','ecuBleStatus','settingsBleStatus'].forEach(id=>{const e=document.getElementById(id);if(!e)return;e.classList.toggle('on',on);const s=e.querySelector('span:last-child');if(s)s.textContent=on?'ON':'OFF'});const db=document.getElementById('dashBleState');if(db){db.textContent=on?'● ON':'● OFF';db.style.color=on?'#86ffa7':''};syncBanks();try{const cur=currentCell(),pw=state.inject?.[cur.r]?.[cur.c];if(!Number.isFinite(Number(state.live.pw)))document.getElementById('dashPw').textContent=Number.isFinite(Number(pw))?Number(pw).toFixed(2)+' ms':'0.00 ms'}catch(e){}}
 
-document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()=>showScreen(e.dataset.nav)));
+// Both bottom AUTO TUNE and homepage shortcut enter the AFR map directly.
+document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()=>{
+  if(e.dataset.nav==='tune'){
+    openOurEditor('measured',true,'dashboard');
+    return;
+  }
+  showScreen(e.dataset.nav);
+}));
 document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',()=>{selectMapBank(Number(e.dataset.mapbank),true);syncBanks();if(currentFeature?.banked)renderFeature()}));
 document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>openFeature(e.dataset.feature)));
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
+// The legacy hub remains reachable only for optional 3-run controls.
+document.getElementById('autoTuneQuickRecordBtn')?.addEventListener('click',()=>document.getElementById('recordBtn')?.click());
+document.getElementById('autoTuneQuickModeBtn')?.addEventListener('click',()=>showScreen('tune'));
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
 document.getElementById('redIgnUnitMode')?.addEventListener('change',async e=>{
