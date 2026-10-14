@@ -4,7 +4,7 @@ on:
     branches:
       - feature/blink-fw24-autopin-redline5s-20261013
     paths:
-      - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - 'firmware/2.5.ino'
       - 'index.html'
       - 'tools/extract-fw24-cores.py'
       - 'tools/test-fw24-autopin.cpp'
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test actual INO core for pin detection / redline timing
         run: |
-          python3 tools/extract-fw24-cores.py firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino /tmp/fw24_extracted.h
+          python3 tools/extract-fw24-cores.py firmware/2.5.ino /tmp/fw24_extracted.h
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-tests
           /tmp/fw24-tests
       - name: Validate current Blink UI and FW2.4 source safety
@@ -38,7 +38,7 @@ jobs:
       - name: Compile one-file FW2.4, never publish OTA
         run: |
           mkdir -p build-sketch/BLINK_FW build-out
-          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
+          cp firmware/2.5.ino build-sketch/BLINK_FW/BLINK_FW.ino
           arduino-cli compile \
             --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --output-dir build-out \
