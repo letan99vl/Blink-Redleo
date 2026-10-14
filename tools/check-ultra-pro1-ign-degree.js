@@ -18,7 +18,7 @@ const core=[
   section('function decIgn(raw)','function decLiveIgn(raw)'),
   section('function decEctIgn(raw)','function decPct(raw)'),
   section('function decodeRowsByte(a,off,rows,cols','function decodeRowsByteForward('),
-  section('function isUltraDirect(){','function v10A2UiMatrix('),
+  section('function v10FamilyIdentityText(){','function v10A2UiMatrix('),
   'globalThis.codec={decMainIgn,encMainIgn,decIgn,encIgn,decEctIgn,encEctIgn,decodeRowsByte,encodeRowsByte,isUltraDirect,setIdentity:(key,ident,firmware)=>{ecuProfile={key};handshakeInfo={ident,firmware}}};'
 ].join('\n');
 const context=vm.createContext({});
