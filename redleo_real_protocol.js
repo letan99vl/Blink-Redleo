@@ -750,12 +750,20 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
+// Ultra Pro1 (V10 "ULTRA") original REDLEO PC uses the *physical*
+// ignition-angle unit: ((raw-64)/VER_ANGLE) * 360/256.
+// The old generic V9/V10 code divided by 4 only, displaying 71.11% of the
+// actual Ultra angle (e.g. raw 124 -> Blink 15.0, REDLEO original 21.1).
+// Keep V11 / Ultra Pro2's independently verified 0.28125-degree codec and
+// non-Ultra V9/V10 unchanged. NEVER apply this to INJ degree or LIVE IGN.
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
+  if(isUltraDirect())return decEctIgn(raw);
   return decIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
+  if(isUltraDirect())return encEctIgn(v);
   return encIgn(v);
 }
 function decLiveIgn(raw){
@@ -1762,7 +1770,7 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   for(let bank=1;bank<=4;bank++){
     const b={bank};let z=decodeRowsU16(a,p,14,30,decOilTab);b.inj=z.data;p=z.next;
     z=decodeRowsByte(a,p,14,30,decOilAngle);b.injDegree=z.data;p=z.next;
-    z=decodeRowsByte(a,p,14,30,decIgn);b.ignDegree=z.data;p=z.next;
+    z=decodeRowsByte(a,p,14,30,decMainIgn);b.ignDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,1,30,decOil);b.ignTime=z.data;p=z.next;
     b.afRaw=a.slice(p,p+420);{const A=decodeEcuAfr420(b.afRaw);b.afr=A.matrix;b.afrEnabled=A.enabled;}p+=420;
     const idle=[];for(let i=0;i<9;i++){idle.push(u16be(a,p));p+=2;}b.idle=idle;
@@ -4241,7 +4249,7 @@ async function writeCurrentFuelAndVerify(bank){
 async function writeBankAll(bank){
   if(!readCache)await readAll();const b=readCache.banks[bank-1];await writeFuelBank(bank);
   await writePageChecked(page(2,bank),encodeRowsByte(b.injDegree,encOilAngle));
-  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encIgn));
+  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));
   await writePageChecked(page(4,bank),encodeRowsByte(b.ignTime,encOil));
   // Air fuel ratio is now exposed on all identified families. Preserve exact
   // raw bytes unless the user changed target/ON-OFF state in Blink.
