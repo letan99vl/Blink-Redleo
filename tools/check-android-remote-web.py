@@ -25,6 +25,15 @@ with ZipFile(zpath) as z:
     bridge=read_source("app/src/main/assets/native_bridge.js")
     names=z.namelist()
 
+# Android shell holds only a native BLE shim. The actual app/protocol
+# MUST load live GitHub Pages, otherwise pushing JS alone would not update APK.
+assert 'private static final String START_URL = "https://letan99vl.github.io/Blink-Redleo/?android=1"' in source, (
+    "Android must load the shared hosted Blink page (not a frozen APK snapshot)"
+)
+assert 'webView.loadUrl(START_URL)' in source, "Android WebView remote entrypoint changed"
+assert not any(x.endswith("/index.html") or x.endswith("/redleo_real_protocol.js") for x in names), (
+    "Android now bundles a stale protocol and may need an APK rebuild"
+)
 print("Android Blink wrapper contains main Java activity:", bool(source))
 print("Android wrapper assets:", [x for x in names if x.startswith("app/src/main/assets/")])
 print("Embedded index.html:", any(x.endswith("/index.html") for x in names))
