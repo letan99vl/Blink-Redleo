@@ -147,6 +147,9 @@ assert(src.includes("case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,ban
 assert(src.includes('await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));'),'writeBankAll main IGN writer must use family codec');
 assert(ui.includes("window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN'"),'original-exe revision missing');
 assert(ui.includes('id="redIgnUnitMode"'),'PC ignition mode selector absent');
+assert(ui.includes('id="redKeyMinus" data-red-key="-"'),'signed ignition keypad key missing');
+assert(ui.includes("['ign_degree','ect_ign','external_adjust'].includes(f.id)"),'minus sign must only appear in signed-angle editors');
+assert(ui.includes("redKeypadBuffer.startsWith('-')?redKeypadBuffer.slice(1):'-'+redKeypadBuffer"),'keypad must toggle signed angle');
 assert(ui.includes('const supported=!!window.BlinkRealProtocol?.mainIgnSelectable;'),'unknown profile must not see ignition mode switch');
 assert(src.includes('if(!isOriginalPcIgnFamily())return decIgn(raw);'),'unknown profile decoder must remain legacy');
 assert(src.includes('if(!isOriginalPcIgnFamily())return encIgn(v);'),'unknown profile encoder must remain legacy');
