@@ -757,14 +757,25 @@ function encMainInjAngle(v){
 // The original Ultra Pro1 table unit is 360 / 1024 = 0.3515625 deg/raw.
 // Keep read/write symmetrical and preserve the 420B 0x3x page layout.
 const ULTRA_PRO1_MAIN_IGN_SCALE=360/1024;
+// REDLEO 9.20-9.29 original PC MAP1 screenshots independently prove this
+// same 360/1024 main-ignition table unit (including negative degree cells).
+// Require the explicit 9.2 generation byte: 9.1X, unknown 9.3+ and V10.2
+// must NOT inherit this codec based on a broad modern/family heuristic.
+const REDLEO_V92_MAIN_IGN_SCALE=360/1024;
+function isV92MainIgnProfile(info=handshakeInfo){
+  return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&
+    firmwareNumbers(info).major===9&&v9GenerationDigit(info)===2);
+}
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
   if(isUltraDirect())return r1((Number(raw)-64)*ULTRA_PRO1_MAIN_IGN_SCALE);
+  if(isV92MainIgnProfile())return r1((Number(raw)-64)*REDLEO_V92_MAIN_IGN_SCALE);
   return decIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
   if(isUltraDirect())return clamp(Math.round(Number(v)/ULTRA_PRO1_MAIN_IGN_SCALE)+64,0,255);
+  if(isV92MainIgnProfile())return clamp(Math.round(Number(v)/REDLEO_V92_MAIN_IGN_SCALE)+64,0,255);
   return encIgn(v);
 }
 function decLiveIgn(raw){
@@ -4129,7 +4140,7 @@ async function writeFeatureReal(id){
   let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
-    case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
+    case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
     case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encOil);break;
     case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
     case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encEctIgn):encodeRowsByte(m,encEctIgn);break;
@@ -4253,7 +4264,7 @@ async function writeCurrentFuelAndVerify(bank){
 async function writeBankAll(bank){
   if(!readCache)await readAll();const b=readCache.banks[bank-1];await writeFuelBank(bank);
   await writePageChecked(page(2,bank),encodeRowsByte(b.injDegree,encOilAngle));
-  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encIgn));
+  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));
   await writePageChecked(page(4,bank),encodeRowsByte(b.ignTime,encOil));
   // Air fuel ratio is now exposed on all identified families. Preserve exact
   // raw bytes unless the user changed target/ON-OFF state in Blink.

@@ -3,7 +3,8 @@
 // Targeted regression: REDLEO Ultra Pro1 original PC IGN degree versus Blink.
 // Screenshot comparisons on actual MAP1 (October 14, 2026) prove the original
 // displayed angle is (raw-64) * 360/1024, NOT Blink's old (raw-64)/4.
-// DO NOT generalize this to V9, non-Ultra V10.2, or V11/Ultra Pro2.
+// Do not generalize Ultra to every V9: ONLY firmware 9.2x independently matches
+// the 360/1024 original-PC screenshots. V8/9.1x/9.3+/V10.2/V11 stay distinct.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const src=fs.readFileSync('redleo_real_protocol.js','utf8');
 const ui=fs.readFileSync('index.html','utf8');
@@ -15,6 +16,7 @@ function between(a,b){
 }
 const codec=between('function decIgn(raw)','function decLiveIgn(raw)');
 const identity=between('function v10FamilyIdentityText()','function v10A2UiMatrix(');
+const v9route=between('function firmwareNumbers(info=handshakeInfo)','function currentAuxAxes()');
 const sb=vm.createContext({
   console,VER_ANGLE:4,
   ecuProfile:{key:'MODERN_V10'},
@@ -22,9 +24,10 @@ const sb=vm.createContext({
   r1:v=>Math.round(Number(v)*10)/10,
   clamp:(v,min,max)=>Math.max(min,Math.min(max,v)),
 });
-vm.runInContext(codec+'\n'+identity+'\nthis.codec={decMainIgn,encMainIgn,decIgn,encIgn,isUltraDirect,isV11Profile,ULTRA_PRO1_MAIN_IGN_SCALE};',sb);
+vm.runInContext(codec+'\n'+identity+'\n'+v9route+'\nthis.codec={decMainIgn,encMainIgn,decIgn,encIgn,isUltraDirect,isV11Profile,isV92MainIgnProfile,ULTRA_PRO1_MAIN_IGN_SCALE,REDLEO_V92_MAIN_IGN_SCALE};',sb);
 const C=sb.codec;
 assert.strictEqual(C.ULTRA_PRO1_MAIN_IGN_SCALE,0.3515625);
+assert.strictEqual(C.REDLEO_V92_MAIN_IGN_SCALE,0.3515625);
 assert.strictEqual(C.isUltraDirect(),true,'Ultra identity was not routed');
 const cases=[
  // Original REDLEO PC visible values and the old Blink mismatched figures:
@@ -49,17 +52,29 @@ for(let raw=0;raw<256;raw++){
   const roundTrip=C.encMainIgn(C.decMainIgn(raw));
   assert.strictEqual(roundTrip,raw,'Ultra raw-byte roundtrip failed '+raw);
 }
+// Real REDLEO 9.2 original software screenshots versus Blink 0.25-scale.
+for(const firmware of ['9.20','9.21','9.29']){
+  sb.ecuProfile={key:'MODERN_V9'};
+  sb.handshakeInfo={ident:'REDLEO ECU PRO 9.2',firmware};
+  assert.strictEqual(C.isV92MainIgnProfile(),true,firmware);
+  for(const [raw,pc] of [[56,-2.8],[58,-2.1],[92,9.8],[112,16.9],[130,23.2],[146,28.8],[158,33.0],[169,36.9]]){
+    assert.strictEqual(C.decMainIgn(raw),pc,'V9.2 PC display at raw '+raw);
+    assert.strictEqual(C.encMainIgn(pc),raw,'V9.2 symmetric write raw '+raw);
+  }
+  for(let raw=0;raw<256;raw++)assert.strictEqual(C.encMainIgn(C.decMainIgn(raw)),raw,'V9.2 256-byte roundtrip '+raw);
+}
 for(const [profile,ident] of [
-  ['MODERN_V9','REDLEO 9.13'],['MODERN_V10','REDLEO ECU Pro 10.2'],
+  ['LEGACY_V8','REDLEO 8.0'],['MODERN_V9','REDLEO 9.13'],['MODERN_V9','REDLEO 9.30'],['MODERN_V10','REDLEO ECU Pro 10.2'],
   ['MODERN_V11','REDLEO ULTRA PRO2']
 ]){
   sb.ecuProfile={key:profile};
-  sb.handshakeInfo={ident,firmware:profile==='MODERN_V11'?'11.1':profile==='MODERN_V9'?'9.13':'10.2'};
+  sb.handshakeInfo={ident,firmware:profile==='MODERN_V11'?'11.1':profile==='LEGACY_V8'?'8.0':profile==='MODERN_V9'?(ident.includes('9.30')?'9.30':'9.13'):'10.2'};
   const raw=135,observed=C.decMainIgn(raw),reencoded=C.encMainIgn(observed);
   assert.strictEqual(reencoded,raw,'Other ECU family main angle encoder changed '+ident);
   assert.strictEqual(observed,profile==='MODERN_V11'?20.0:17.8,
     'The pre-existing '+profile+' degree scale must be unchanged');
   assert.strictEqual(C.isUltraDirect(),false);
+  assert.strictEqual(C.isV92MainIgnProfile(),false);
 }
 assert(src.includes("z=decodeRowsByte(a,p,14,30,decMainIgn);b.ignDegree=z.data;p=z.next;"),
   'Canonical Read All must use same generation-correct decoder as 0x9A direct read');
@@ -74,9 +89,13 @@ assert(ui.includes("window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625'")
   'iOS/Android shared app must expose the updated Ultra Pro1 protocol revision');
 assert(ui.includes("'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)"),
   'Shared dynamic JS loader must force a new IGN protocol URL for both platforms');
+assert(ui.includes("window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625'"),'V9.2 updated hosted revision absent');
+assert(ui.includes("'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)"),'V9.2 cache buster absent');
+assert(src.includes("case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);"),'Fallback main IGN writer must use family codec');
+assert(src.includes('await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));'),'writeBankAll main IGN writer must use family codec');
 assert(ui.includes('BLINK_SERVER_OTA_PAUSED=true'), 'Do not reactivate ESP32 OTA update');
 assert(ui.includes('BLINK_AFR_TARGET_KEYPAD_REVISION'), 'Do not lose restored AFR-target keypad');
 assert(!ui.includes("guardControlCommand('RGON')"),'No 5-second guard must be shipped accidentally');
 const manifest=JSON.parse(fs.readFileSync('ota/manifest.json','utf8'));
 assert.strictEqual(manifest.ota_enabled,false,'ESP32 server OTA must remain paused');
-console.log('PASS Ultra Pro1 IGN: 10 original PC screenshot values matched; 256/256 raw bytes roundtrip; V9/V10 normal/V11 unchanged; selected read/write & ReadAll consistent; PB3.79.72+keypad+OTA freeze intact');
+console.log('PASS Ultra Pro1 + V9.2 IGN: original PC samples including negative; 256/256 roundtrip; V8/9.1x/9.3x/V10.2/V11 unchanged; direct/readAll/fallback writes consistent; OTA hold intact');
