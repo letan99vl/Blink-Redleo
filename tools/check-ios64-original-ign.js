@@ -70,6 +70,8 @@ for(const t of cases){
       t.ident+' original REDLEO PC raw '+raw);
   }else if(t.mode==='raw4'&&t.family==='v8'){
     assert.strictEqual(C.decMainIgn(69),1.25,'V8 original precise low angle');
+  }else if(t.mode==='raw4'&&t.unknown){
+    assert.strictEqual(C.decMainIgn(69),1.3,'Unknown V9 must keep legacy JavaScript /4');
   }else if(t.mode==='raw4'){
     assert.strictEqual(C.decMainIgn(69),1.2,'V9/V10 original display rounded one decimal');
   }else{
