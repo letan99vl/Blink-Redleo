@@ -13,6 +13,7 @@ window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
+window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2180,7 +2181,7 @@ window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 
   <section id="redleoEditorScreen" class="screen">
     <div class="screenHeader redEditorHead"><button class="backBtn" id="redEditorBack" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="redEditorTitle">REDLEO MAP</div><div class="screenSub" id="redEditorSub">—</div></div><div class="miniStatus" id="redEditorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="redEditorTools"><button id="redReadBtn" class="good">↓ ĐỌC ECU</button><button id="redWriteBtn" class="danger">▣ GHI ECU</button><select id="redBankSelect"><option value="1">MAP NO.1</option><option value="2">MAP NO.2</option><option value="3">MAP NO.3</option><option value="4">MAP NO.4</option></select><select id="redAxisMode" class="wide" style="display:none"><option value="tps">TRỤC TPS</option><option value="rpm">TRỤC RPM</option></select><button id="redAfrOn" class="good" style="display:none">AFR ON · Ô CHỌN</button><button id="redAfrOff" class="danger" style="display:none">AFR OFF · Ô CHỌN</button><button id="redSmoothBtn" class="ghost wide">≈ LÀM MƯỢT TỰ ĐỘNG</button><button id="injCamCalcBtn" class="ghost wide" style="display:none">◒ TÍNH GÓC PHUN THEO GÓC CAM</button></div>
+    <div class="redEditorTools"><button id="redReadBtn" class="good">↓ ĐỌC ECU</button><button id="redWriteBtn" class="danger">▣ GHI ECU</button><select id="redBankSelect"><option value="1">MAP NO.1</option><option value="2">MAP NO.2</option><option value="3">MAP NO.3</option><option value="4">MAP NO.4</option></select><select id="redAxisMode" class="wide" style="display:none"><option value="tps">TRỤC TPS</option><option value="rpm">TRỤC RPM</option></select><select id="redIgnUnitMode" class="wide" style="display:none" aria-label="Chế độ góc đánh lửa như phần mềm REDLEO gốc"><option value="degrees360">GÓC LỬA · ĐỘ 360° (REDLEO B_TRUE ON)</option><option value="raw4">GÓC LỬA · GIÁ TRỊ /4 (REDLEO B_TRUE OFF)</option></select><button id="redAfrOn" class="good" style="display:none">AFR ON · Ô CHỌN</button><button id="redAfrOff" class="danger" style="display:none">AFR OFF · Ô CHỌN</button><button id="redSmoothBtn" class="ghost wide">≈ LÀM MƯỢT TỰ ĐỘNG</button><button id="injCamCalcBtn" class="ghost wide" style="display:none">◒ TÍNH GÓC PHUN THEO GÓC CAM</button></div>
     <div class="redMeta"><span class="metaChip">Tên REDLEO: <b id="redSourceName">—</b></span><span class="metaChip">Kích thước: <b id="redSize">—</b></span><span class="metaChip">Đơn vị: <b id="redUnit">—</b></span></div>
     <div class="redStep"><div class="redStepGroup"><span>Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button></div><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ TỰ CUỘN LIVE</button></div>
     <div class="redTableWrap"><table class="redTable" id="redFeatureTable"></table></div>
@@ -5724,6 +5725,16 @@ function resetEcuMapUiForNewSession(){
   }catch(_e){}
 }
 window.resetEcuMapUiForNewSession=resetEcuMapUiForNewSession;
+function syncBlinkIgnUnitUi(){
+  const el=document.getElementById('redIgnUnitMode');if(!el)return;
+  const active=currentFeature?.id==='ign_degree';
+  const supported=['LEGACY_V8','MODERN_V9','MODERN_V10'].includes(String(state.ecuProfile||''));
+  el.style.display=active&&supported?'':'none';
+  const selected=window.BlinkRealProtocol?.mainIgnUnitMode;
+  if(active&&supported&&(selected==='degrees360'||selected==='raw4'))el.value=selected;
+  if(active){const unit=document.getElementById('redUnit');if(unit)unit.textContent=supported?(selected==='degrees360'?'° (REDLEO 360/256)':'đơn vị REDLEO /4'):'°';}
+}
+window.syncBlinkIgnUnitUi=syncBlinkIgnUnitUi;
 function showScreen(name){document.body.classList.toggle('mapEditing',name==='editor'||name==='rededitor');Object.entries(screens).forEach(([k,id])=>document.getElementById(id)?.classList.toggle('active',k===name));document.querySelectorAll('.navBtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name||(name==='editor'||name==='rededitor')&&b.dataset.nav==='maps'));if(name==='editor')setTimeout(()=>{try{render();highlightCurrent()}catch(e){}},0)}
 function syncBanks(){document.querySelectorAll('.mapBankBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.mapbank)===state.activeMap));const ms=document.getElementById('dashMapState');if(ms)ms.textContent='MAP NO.'+state.activeMap;document.getElementById('redBankSelect').value=String(state.activeMap)}
 
@@ -5802,6 +5813,7 @@ function openFeature(id){
   document.getElementById('redSourceName').textContent=f.source;
   document.getElementById('redSize').textContent=f.cols+' × '+f.rows;
   document.getElementById('redUnit').textContent=f.unit||'—';
+  syncBlinkIgnUnitUi();
   document.getElementById('redBankSelect').style.display=f.banked?'':'none';
   const ax=document.getElementById('redAxisMode');ax.style.display=f.id==='external_adjust'?'':'none';ax.value=externalAxisMode;
   const afr=f.id==='afr_map';
@@ -6496,6 +6508,26 @@ document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
 document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
+document.getElementById('redIgnUnitMode')?.addEventListener('change',async e=>{
+  const sel=e.currentTarget,api=window.BlinkRealProtocol,oldMode=api?.mainIgnUnitMode,next=sel.value;
+  if(!api||typeof api.setMainIgnUnitMode!=='function'||currentFeature?.id!=='ign_degree')return;
+  if(oldMode===next)return;
+  if(!state.ecuConnected||state.ecuPhase!=='live'||api.isBusy){
+    syncBlinkIgnUnitUi();showEcuNotice('error','CHƯA THỂ ĐỔI ĐƠN VỊ','Kết nối ECU và chờ trạng thái LIVE trước khi đổi chế độ.',0);return;
+  }
+  if(!confirm('REDLEO GỐC · ĐỔI ĐƠN VỊ GÓC LỬA\\n\\nĐổi chế độ chỉ thay cách HIỂN THỊ. Blink sẽ XÓA BẢN ĐỌC CỤC BỘ góc lửa của cả 4 map, bỏ các chỉnh sửa CHƯA GHI và ĐỌC LẠI map đang mở từ ECU.\\n\\nKhông gửi lệnh GHI ECU. Tiếp tục?')){syncBlinkIgnUnitUi();return;}
+  try{
+    api.setMainIgnUnitMode(next);
+    for(let b=1;b<=4;b++)delete featureStore['ign_degree:'+b];
+    saveFeatureStore();redSelectionActive=false;redCornerPending=false;
+    syncBlinkIgnUnitUi();renderFeature();
+    const msg=document.getElementById('redIoStatus');if(msg)msg.textContent='Đang đọc lại góc lửa theo đơn vị REDLEO gốc...';
+    await api.readFeaturePageReal('ign_degree',state.activeMap,true);
+  }catch(err){
+    syncBlinkIgnUnitUi();
+    showEcuNotice('error','ĐỔI ĐƠN VỊ / ĐỌC LẠI',String(err?.message||err)+' · Không ghi ECU.',0);
+  }
+});
 document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{
   if(!redRangeEditorActive()){redScanMode=false;return}
   redScanMode=!redScanMode;redCornerPending=false;
@@ -6980,8 +7012,8 @@ updateMapControls();
   (function(){
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
-    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN';
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&cb='+Date.now();
+    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC';
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
 </script>
