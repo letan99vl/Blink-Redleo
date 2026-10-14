@@ -70,6 +70,10 @@ assert(src.includes("case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,ban
 assert(src.includes("writeWritablePrefixPage(pg,payload,baseline,id.toUpperCase(),'mainWrite',1)"),
   'Direct serializer still requires baseline + ACK + readback, never blind writes');
 assert(ui.includes("window.BLINK_PB_VERSION = '3.79.72'"),'Restore pre-5s Blink app identity');
+assert(ui.includes("window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625'"),
+  'iOS/Android shared app must expose the updated Ultra Pro1 protocol revision');
+assert(ui.includes("'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)"),
+  'Shared dynamic JS loader must force a new IGN protocol URL for both platforms');
 assert(ui.includes('BLINK_SERVER_OTA_PAUSED=true'), 'Do not reactivate ESP32 OTA update');
 assert(ui.includes('BLINK_AFR_TARGET_KEYPAD_REVISION'), 'Do not lose restored AFR-target keypad');
 assert(!ui.includes("guardControlCommand('RGON')"),'No 5-second guard must be shipped accidentally');
