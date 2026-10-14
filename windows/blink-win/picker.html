@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blink TL - Device chooser</title>
+<style>
+*{box-sizing:border-box}body{background:#101e2d;color:#e8f4ff;font:14px Segoe UI,Arial,sans-serif;margin:0;padding:20px}
+h1{font-size:20px;margin:0 0 6px}.hint{color:#a9c4d7;margin:0 0 14px;line-height:1.45}
+#devices{display:flex;flex-direction:column;gap:8px;max-height:310px;overflow-y:auto;margin-bottom:16px}
+.device{background:#213951;border:1px solid #395e7e;color:white;padding:12px;text-align:left;border-radius:8px;cursor:pointer;min-height:54px}
+.device:hover,.device:focus{background:#2b5275;outline:2px solid #75c5ff}.name{display:block;font-weight:700}.info{display:block;font-size:12px;color:#acc6d8;margin-top:4px;word-break:break-all}
+footer{display:flex;justify-content:space-between;align-items:center;gap:10px}.cancel{border:1px solid #4b6276;background:#17293b;color:#e8f4ff;padding:9px 18px;border-radius:6px;cursor:pointer}
+#empty{padding:30px;text-align:center;color:#b5cede;border:1px dashed #49647a;border-radius:8px}
+</style></head><body>
+<h1 id="title">Select a device</h1>
+<p class="hint">Choose your ESP32/ECU adapter. Selection requires a click and is never automatic.</p>
+<div id="devices"><div id="empty">Scanning for devices...</div></div>
+<footer><span class="hint">Turn on Bluetooth and the ESP32 first.</span><button class="cancel" id="cancel">Cancel</button></footer>
+<script>
+const host=document.getElementById('devices');
+const title=document.getElementById('title');
+window.blinkPicker.onDevices(({type,devices})=>{
+  title.textContent=type==='serial'?'Select a serial port':'Select a Bluetooth device';
+  host.replaceChildren();
+  if(!devices || devices.length===0){
+    const p=document.createElement('div');p.id='empty';p.textContent='Scanning... Check that your adapter is turned on.';host.appendChild(p);return;
+  }
+  for(const item of devices){
+    const b=document.createElement('button');b.className='device';b.type='button';
+    const name=document.createElement('span');name.className='name';name.textContent=item.name;
+    const info=document.createElement('span');info.className='info';info.textContent=item.info||item.id;
+    b.append(name,info);b.addEventListener('click',()=>window.blinkPicker.select(item.id));host.appendChild(b);
+  }
+});
+document.getElementById('cancel').addEventListener('click',()=>window.blinkPicker.cancel());
+document.addEventListener('keydown',event=>{if(event.key==='Escape')window.blinkPicker.cancel();});
+</script></body></html>
