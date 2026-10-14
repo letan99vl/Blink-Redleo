@@ -1428,3 +1428,12 @@ PB3.79.78 hotfix changes:
 - Build ESP32 Firmware and firmware safety-test scripts now point to firmware/2.5.ino, retaining the exact same FW2.5 production build/OTA release gate. Experimental FW2.4 workflow points to 2.5.ino on main (its own feature branch is independent).
 - `ota/manifest.json` remains ota_enabled=false, maintenance=true, version=0.0.0; do NOT auto-publish FW2.5 or enable server updates. Blink web PB3.79.72 stays unchanged.
 - To compile manually in Arduino IDE, **copy one desired .ino into its own sketch folder and rename its filename to match that folder**, because Arduino concatenates multiple .ino files in one sketch and version labels containing dots may not be accepted as sketch directory names. These concise names are repository download names, not a combined multi-file sketch.
+
+## 2026-10-14 - AUTO TUNE DIRECT AFR EDITOR ENTRY (AT-DIRECT-1)
+
+- Owner wants AUTO TUNE tab/home shortcut to enter "AFR do cua Blink" 14x30 measured AFR map directly, skipping #tuneScreen. PB3.79.57-PB3.79.77 and the rolled-back PB3.79.72 bound all [data-nav] to showScreen(e.dataset.nav), hence tune opened the intermediate hub. No exact historical direct-entry release was confirmed.
+- Both [data-nav=tune] controls now route to openOurEditor('measured',true,'dashboard'). The direct editor highlights bottom AUTO TUNE rather than MAPS, and toolbar back returns dashboard rather than intermediary.
+- New small #autoTuneQuickBar inside mapEditorScreen, except standalone fuel map. One button starts/stops AFR via the existing original #recordBtn handler and mirrors actual recording state. Another optional MODE / 3 RUN button opens the existing original hub only when deliberately requested for starting, ending or canceling a three-run Auto Tune session.
+- The quick AFR record control is disabled during three-run sessions or three-run mode, and automatic ECU write is never invoked by entering the editor. Existing AFR capture, local target editor, adjusted-map write safety, 3-run state machine, profile guards are unchanged.
+- Web PB3.79.72, OTA pause, firmware/2.2.ino and firmware/2.5.ino are unchanged. Client-visible AT-DIRECT marker identifies hosted UI revision for Android/iOS remote WebView shells.
+- CI tools/check-auto-tune-direct.js checks true navigation event callbacks from homepage/bottom, 3-run opt-in, recorder mirroring, editor back/nav state and OTA hold. No new ESP32 firmware needed.
