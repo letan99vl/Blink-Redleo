@@ -17,6 +17,7 @@ function between(a,b){
 const codec=between('function decIgn(raw)','function decLiveIgn(raw)');
 const identity=between('function v10FamilyIdentityText()','function v10A2UiMatrix(');
 const v9route=between('function firmwareNumbers(info=handshakeInfo)','function currentAuxAxes()');
+const v91route=between('function isV91Direct(info=handshakeInfo)','function requireCachedPageAtLeast(');
 const sb=vm.createContext({
   console,VER_ANGLE:4,
   ecuProfile:{key:'MODERN_V10'},
@@ -27,7 +28,7 @@ const sb=vm.createContext({
   readCache:null,pageCache:new Map(),
   page:(hi,bank)=>(hi<<4)|(bank*2),
 });
-vm.runInContext(codec+'\n'+identity+'\n'+v9route+'\nthis.codec={decMainIgn,encMainIgn,decIgn,encIgn,isUltraDirect,isV11Profile,isV92MainIgnProfile,isOriginalPcIgnFamily,mainIgnUnitMode,setMainIgnUnitMode,roundOriginalPcIgn,ULTRA_PRO1_MAIN_IGN_SCALE,REDLEO_V92_MAIN_IGN_SCALE};',sb);
+vm.runInContext(codec+'\n'+identity+'\n'+v9route+'\n'+v91route+'\nthis.codec={decMainIgn,encMainIgn,decIgn,encIgn,isUltraDirect,isV11Profile,isV92MainIgnProfile,isOriginalPcIgnFamily,mainIgnUnitMode,setMainIgnUnitMode,roundOriginalPcIgn,ULTRA_PRO1_MAIN_IGN_SCALE,REDLEO_V92_MAIN_IGN_SCALE};',sb);
 const C=sb.codec;
 assert.strictEqual(C.ULTRA_PRO1_MAIN_IGN_SCALE,0.3515625);
 assert.strictEqual(C.REDLEO_V92_MAIN_IGN_SCALE,0.3515625);
@@ -86,6 +87,10 @@ for(const [profile,ident] of [
     'The pre-existing '+profile+' degree scale must be unchanged');
   assert.strictEqual(C.isUltraDirect(),false);
   assert.strictEqual(C.isV92MainIgnProfile(),false);
+  if(ident.includes('9.30')){
+    assert.strictEqual(C.isOriginalPcIgnFamily(),false,'unknown 9.30 never masquerades as original audited 9.2');
+    assert.throws(()=>C.setMainIgnUnitMode('degrees360'),/Chỉ đổi đơn vị/,'do not expose switch for unknown V9');
+  }
 }
 // Both original PC modes must roundtrip for every raw byte, on each of five families.
 for(const [profile,fw,ident,kind] of [
@@ -142,6 +147,9 @@ assert(src.includes("case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,ban
 assert(src.includes('await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));'),'writeBankAll main IGN writer must use family codec');
 assert(ui.includes("window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN'"),'original-exe revision missing');
 assert(ui.includes('id="redIgnUnitMode"'),'PC ignition mode selector absent');
+assert(ui.includes('const supported=!!window.BlinkRealProtocol?.mainIgnSelectable;'),'unknown profile must not see ignition mode switch');
+assert(src.includes('if(!isOriginalPcIgnFamily())return decIgn(raw);'),'unknown profile decoder must remain legacy');
+assert(src.includes('if(!isOriginalPcIgnFamily())return encIgn(v);'),'unknown profile encoder must remain legacy');
 assert(ui.includes("for(let b=1;b<=4;b++)delete featureStore['ign_degree:'+b]"),'stale client IGN grids not discarded');
 assert(ui.includes("api.setMainIgnUnitMode(next)"),'selector not connected to codec');
 assert(ui.includes("await api.readFeaturePageReal('ign_degree',state.activeMap,true)"),'switch must READ map again');
