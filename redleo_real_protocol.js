@@ -767,7 +767,12 @@ function isV92MainIgnProfile(info=handshakeInfo){
     firmwareNumbers(info).major===9&&v9GenerationDigit(info)===2);
 }
 function isOriginalPcIgnFamily(){
-  return !!(ecuProfile&&['LEGACY_V8','MODERN_V9','MODERN_V10'].includes(ecuProfile.key));
+  if(!ecuProfile)return false;
+  if(ecuProfile.key==='LEGACY_V8'||ecuProfile.key==='MODERN_V10')return true;
+  // Only 9.1X and 9.2 were analyzed from original REDLEO PC binaries.
+  // Unknown V9 generations must retain the legacy converter and write lock.
+  if(ecuProfile.key==='MODERN_V9')return isV91Direct()||isV92MainIgnProfile();
+  return false;
 }
 function mainIgnUnitMode(){
   if(isV11Profile())return 'v11';
@@ -821,10 +826,12 @@ function encOriginalPcIgn(value,mode=mainIgnUnitMode()){
 }
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
+  if(!isOriginalPcIgnFamily())return decIgn(raw);
   return decOriginalPcIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
+  if(!isOriginalPcIgnFamily())return encIgn(v);
   return encOriginalPcIgn(v);
 }
 function setMainIgnUnitMode(mode){
@@ -5285,6 +5292,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,setMainIgnUnitMode,get mainIgnUnitMode(){return mainIgnUnitMode()},get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,setMainIgnUnitMode,get mainIgnUnitMode(){return mainIgnUnitMode()},get mainIgnSelectable(){return isOriginalPcIgnFamily()},get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
