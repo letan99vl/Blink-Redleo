@@ -14,6 +14,7 @@ window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
+window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -7060,7 +7061,7 @@ updateMapControls();
   (function(){
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
-    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC';
+    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT';
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
