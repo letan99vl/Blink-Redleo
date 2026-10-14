@@ -5,11 +5,13 @@ on:
   pull_request:
     paths:
       - 'ios/**'
+      - 'tools/check-ios64-original-ign.js'
       - '.github/workflows/ios-build-check.yml'
   push:
     branches: [main, ios-testflight, ios-hybrid-fallback]
     paths:
       - 'ios/**'
+      - 'tools/check-ios64-original-ign.js'
       - '.github/workflows/ios-build-check.yml'
 
 jobs:
@@ -17,6 +19,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify iOS 3.79.64 native-loader and original PC IGN read/write codec
+        run: |
+          node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
+          node tools/check-ios64-original-ign.js
       - name: Install XcodeGen
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
@@ -58,6 +64,7 @@ jobs:
           fi
           grep -q "ios-native-remote-first" "$INDEX_PATH"
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
+          grep -q "IOS64-IGN-PC-20261014" "$PROTOCOL_PATH"
           grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
           echo "Hybrid verified: local UI + remote protocol + bundled fallback"
 
