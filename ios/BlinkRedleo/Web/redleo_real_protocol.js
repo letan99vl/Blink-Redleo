@@ -7,6 +7,9 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
+// This is the REMOTE protocol loaded by already-installed iOS hybrid PB3.79.64.
+// Keep WKWebView UI and BLE bridge intact; only synchronize original-PC IGN codecs.
+window.BLINK_IOS64_IGN_REVISION='IOS64-IGN-PC-20261014';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -750,13 +753,75 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
+// REDLEO original Windows EXEs (V8, V9.1X, V9.2, V10.2, Ultra Pro1):
+// B_True OFF: (raw-64)/4. B_True ON: (raw-64)*360/1024.
+// 9.2 and Ultra Pro1 owner screenshots use ON; other audited versions retain
+// the default OFF mode in their shipped iOS PB3.79.64 interface.
+// The standalone iOS64 UI has no ON/OFF selector; this protocol-only backport
+// changes the correct per-family default without changing the native IPA.
+// Unsupported/unknown V9 and V11 are never forced into the PC 360/1024 codec.
+const IOS64_ORIGINAL_IGN_360_SCALE=360/1024;
+function isV92IosIgnProfile(info=handshakeInfo){
+  return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&
+    firmwareNumbers(info).major===9&&v9GenerationDigit(info)===2);
+}
+function isAuditedOriginalPcIgnProfile(){
+  if(!ecuProfile)return false;
+  if(ecuProfile.key==='LEGACY_V8'||ecuProfile.key==='MODERN_V10')return true;
+  if(ecuProfile.key==='MODERN_V9')return isV91Direct()||isV92IosIgnProfile();
+  return false;
+}
+function ios64IgnPcMode(){
+  return (isUltraDirect()||isV92IosIgnProfile())?'degrees360':'raw4';
+}
+// Original .NET Math.Round(Double, digits) uses banker's midpoint-to-even.
+function ios64PcRound(value,places=1){
+  value=Number(value);
+  if(!Number.isFinite(value))return NaN;
+  const factor=Math.pow(10,places);
+  const scaled=Math.abs(value)*factor;
+  const whole=Math.floor(scaled),frac=scaled-whole;
+  const mid=Math.abs(frac-0.5)<=1e-11;
+  const up=frac>0.5+1e-11||(mid&&(whole%2===1));
+  const out=(whole+(up?1:0))/factor;
+  return value<0?-out:out;
+}
+function ios64DecOriginalPcIgn(raw){
+  const unscaled=(Number(raw)-64)/4;
+  if(ios64IgnPcMode()==='degrees360')
+    return ios64PcRound(unscaled*360/256,1);
+  // Original V8 main GUI keeps 2 decimals under 10; V9/V10 main GUI
+  // re-rounds displayed values to one decimal.
+  if(ecuProfile&&ecuProfile.family==='v8')
+    return ios64PcRound(unscaled,unscaled>=100?0:unscaled>=10?1:2);
+  return ios64PcRound(unscaled,1);
+}
+function ios64EncOriginalPcIgn(v){
+  v=Number(v);
+  if(!Number.isFinite(v))throw new Error('Góc đánh lửa không hợp lệ.');
+  let units;
+  if(ios64IgnPcMode()==='degrees360'){
+    // Match original two-stage float32 intermediary:
+    // display degrees -> raw/4 rounded to 0.1 -> multiply by 4 -> raw byte.
+    const asSingle=Math.fround(Math.fround(Math.fround(v)*256)/360);
+    units=ios64PcRound(asSingle,1);
+  }else{
+    const decimals=ecuProfile&&ecuProfile.family==='v8'
+      ?(v>=100?0:v>=10?1:2)
+      :(v>=100?0:2);
+    units=ios64PcRound(Math.fround(v),decimals);
+  }
+  return clamp(ios64PcRound(Math.fround(units*4),0)+64,0,255);
+}
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
-  return decIgn(raw);
+  if(!isAuditedOriginalPcIgnProfile())return decIgn(raw);
+  return ios64DecOriginalPcIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
-  return encIgn(v);
+  if(!isAuditedOriginalPcIgnProfile())return encIgn(v);
+  return ios64EncOriginalPcIgn(v);
 }
 function decLiveIgn(raw){
   if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
@@ -1762,7 +1827,7 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   for(let bank=1;bank<=4;bank++){
     const b={bank};let z=decodeRowsU16(a,p,14,30,decOilTab);b.inj=z.data;p=z.next;
     z=decodeRowsByte(a,p,14,30,decOilAngle);b.injDegree=z.data;p=z.next;
-    z=decodeRowsByte(a,p,14,30,decIgn);b.ignDegree=z.data;p=z.next;
+    z=decodeRowsByte(a,p,14,30,decMainIgn);b.ignDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,1,30,decOil);b.ignTime=z.data;p=z.next;
     b.afRaw=a.slice(p,p+420);{const A=decodeEcuAfr420(b.afRaw);b.afr=A.matrix;b.afrEnabled=A.enabled;}p+=420;
     const idle=[];for(let i=0;i<9;i++){idle.push(u16be(a,p));p+=2;}b.idle=idle;
@@ -4117,7 +4182,7 @@ async function writeFeatureReal(id){
   let m,pg,payload;
   switch(id){
     case 'inj_degree':m=matrixFromRedTable(14,30);pg=page(2,bank);payload=encodeRowsByte(m,encOilAngle);break;
-    case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encIgn);break;
+    case 'ign_degree':m=matrixFromRedTable(14,30);pg=page(3,bank);payload=encodeRowsByte(m,encMainIgn);break;
     case 'ign_time':m=matrixFromRedTable(1,30);pg=page(4,bank);payload=encodeRowsByte(m,encOil);break;
     case 'ect_inj':m=matrixFromRedTable(11,30);pg=0x72;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encPct):encodeRowsByte(m,encPct);break;
     case 'ect_ign':m=matrixFromRedTable(11,30);pg=0x82;payload=compRowsForwardOnWire()?encodeRowsByteForward(m,encEctIgn):encodeRowsByte(m,encEctIgn);break;
@@ -4241,7 +4306,7 @@ async function writeCurrentFuelAndVerify(bank){
 async function writeBankAll(bank){
   if(!readCache)await readAll();const b=readCache.banks[bank-1];await writeFuelBank(bank);
   await writePageChecked(page(2,bank),encodeRowsByte(b.injDegree,encOilAngle));
-  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encIgn));
+  await writePageChecked(page(3,bank),encodeRowsByte(b.ignDegree,encMainIgn));
   await writePageChecked(page(4,bank),encodeRowsByte(b.ignTime,encOil));
   // Air fuel ratio is now exposed on all identified families. Preserve exact
   // raw bytes unless the user changed target/ON-OFF state in Blink.
