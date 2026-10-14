@@ -8,8 +8,21 @@ from zipfile import ZipFile
 
 zpath=Path("android/android-app-source.zip")
 with ZipFile(zpath) as z:
-    source=z.read("app/src/main/java/vn/blinkredleo/app/MainActivity.java").decode("utf-8")
-    bridge=z.read("app/src/main/assets/native_bridge.js").decode("utf-8")
+    def read_source(name):
+        info=z.getinfo(name)
+        try:
+            return z.read(info).decode("utf-8")
+        except Exception as e:
+            if "Bad CRC-32" not in str(e):
+                raise
+            # The historically committed Android SOURCE archive has damaged
+            # CRC metadata on MainActivity.java; inspect decoded text ONLY.
+            # Do NOT treat this as a verified build/signing asset or ship it!
+            print("WARNING: source ZIP CRC mismatch:",name,"(read for inspection only)")
+            info.CRC=None
+            return z.read(info).decode("utf-8")
+    source=read_source("app/src/main/java/vn/blinkredleo/app/MainActivity.java")
+    bridge=read_source("app/src/main/assets/native_bridge.js")
     names=z.namelist()
 
 print("Android Blink wrapper contains main Java activity:", bool(source))
