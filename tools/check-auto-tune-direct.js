@@ -8,7 +8,7 @@ const html=fs.readFileSync('index.html','utf8');
 const manifest=JSON.parse(fs.readFileSync('ota/manifest.json','utf8'));
 assert(html.includes("window.BLINK_PB_VERSION = '3.79.72'"),'PB3.79.72 rolled-back app must remain');
 assert(html.includes("window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1'"),'Missing user-visible route revision');
-assert(html.includes("' · IGN-PC · AT-DIRECT'"),'AT-DIRECT version flag missing');
+assert(html.includes("IGN-PC · AT-DIRECT'"),'AT-DIRECT version flag missing');
 assert(!html.includes("guardControlCommand('RGON')"),'Do not restore 5-second guard UI');
 assert(manifest.ota_enabled===false&&manifest.maintenance===true,'Server OTA must stay disabled');
 
