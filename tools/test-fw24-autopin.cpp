@@ -67,9 +67,14 @@ int main() {
     auto f=handshake("9.23",2,size);
     assert(validHandshakeReply(f.data(),f.size()));
     assert(parseHandshake(f.data(),f.size(),parsed) && parsed.map==2 && parsed.family==V92);
-    f[33]=7;seal(f);assert(!validHandshakeReply(f.data(),f.size()));
+    // Transport must pass REDLEO's checksum-valid 0x5A through to Blink even
+    // if its MAP byte / ASCII version is vendor-specific (Ultra Pro1).
+    f[33]=7;seal(f);
+    assert(validHandshakeReply(f.data(),f.size()));
+    assert(!parseHandshake(f.data(),f.size(),parsed)); // guard remains OFF
     f=handshake("9.23",2,size);f[17]=4;seal(f);
-    assert(!validHandshakeReply(f.data(),f.size()));
+    assert(validHandshakeReply(f.data(),f.size()));
+    assert(!parseHandshake(f.data(),f.size(),parsed)); // guard never guesses
     f=handshake("9.23",2,size);f[20]^=1;
     assert(!validHandshakeReply(f.data(),f.size()));
   }
@@ -89,6 +94,56 @@ int main() {
     auto ultra=handshake("10.3",2,len,"REDLEO ULTRA PRO1");
     assert(parseHandshake(ultra.data(),ultra.size(),parsed));
     assert(parsed.family==ULTRA1 && parsed.map==2);
+  }
+  // Regression: FW2.2 transparently forwards Ultra Pro1's checksum-valid
+  // 0x5A response, while 2.6.1 wrongly required MAP byte <=3, printable
+  // firmware and lengths <=96. Auto UART used to switch away from a working
+  // UART pair, causing Blink/IPA ECU authentication to fail.
+  for(size_t size:{size_t(9),size_t(12),size_t(34),size_t(35),size_t(37),
+                  size_t(41),size_t(63),size_t(97),size_t(142),size_t(240)}){
+    auto ultra=handshake("10.3",2,size,"REDLEO ULTRA PRO1");
+    if(size>=35){
+      ultra[33]=0x87;   // ECU-specific MAP byte; Blink handles this itself.
+      ultra[18]=0x0A;   // non-ASCII version metadata; not a UART fault.
+      seal(ultra);
+    }
+    assert(validHandshakeReply(ultra.data(),ultra.size()));
+    auto expected=ultra;
+    assert(normalizeHandshake(ultra.data(),ultra.size())==size);
+    assert(std::memcmp(ultra.data(),expected.data(),size)==0);
+    if(size>=35)
+      assert(!parseHandshake(ultra.data(),ultra.size(),parsed));
+    expected.back()^=0x01; // corrupt checksum/complement is ALWAYS rejected
+    assert(!validHandshakeReply(expected.data(),expected.size()));
+  }
+  {
+    auto validUltra=handshake("10.3",4,41,"REDLEO ULTRA PRO1");
+    // Construct a checksum-valid accidental 9B prefix INSIDE a valid 41B
+    // full response. FW2.6.1 prioritized short 9B, damaging Ultra identity.
+    uint8_t prefixSum=0;
+    for(size_t i=0;i<7;i++)prefixSum=(uint8_t)(prefixSum+validUltra[i]);
+    validUltra[7]=prefixSum;validUltra[8]=0xA5;seal(validUltra);
+    assert(validHandshakeReply(validUltra.data(),9));
+    assert(validHandshakeReply(validUltra.data(),41));
+    assert(normalizeHandshake(validUltra.data(),validUltra.size())==41);
+  }
+  {
+    auto full=handshake("10.3",2,120,"REDLEO ULTRA PRO1");
+    std::vector<uint8_t> noise={0x5A,0x00,0x01,0x5A,0x99};
+    noise.insert(noise.end(),full.begin(),full.end());
+    noise.insert(noise.end(),{0xAB,0xCD,0xE5});
+    assert(normalizeHandshake(noise.data(),noise.size())==120);
+    assert(std::memcmp(noise.data(),full.data(),120)==0);
+    noise=full;noise.back()^=0x80;
+    assert(normalizeHandshake(noise.data(),noise.size())==0);
+  }
+  {
+    auto ultra=handshake("10.3",2,41,"REDLEO ULTRA PRO1");
+    // A good UART reply may be raw-bridge valid even if the autonomous
+    // guard profile is not. Guard's strict map/family checks stay intact.
+    ultra[33]=0xFF;seal(ultra);
+    assert(validHandshakeReply(ultra.data(),ultra.size()));
+    assert(!parseHandshake(ultra.data(),ultra.size(),parsed));
   }
   // CRC-valid 0x5A must NEVER excuse a corrupt/unprintable ECU identity.
   auto invalidId=handshake("10.3",2);
