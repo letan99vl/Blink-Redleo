@@ -23,7 +23,7 @@ const sb=vm.createContext({
   handshakeInfo:{ident:'REDLEO ULTRA PRO1',firmware:'10.3',classify:0},
   r1:v=>Math.round(Number(v)*10)/10,
   clamp:(v,min,max)=>Math.max(min,Math.min(max,v)),
-  busy:false,ecuMapIoUiBusy:false,manualMapIoDepth:0,
+  busy:false,ecuMapIoUiBusy:false,manualMapIoDepth:0,mainIgnUnitOverride:null,
   readCache:null,pageCache:new Map(),
   page:(hi,bank)=>(hi<<4)|(bank*2),
 });
