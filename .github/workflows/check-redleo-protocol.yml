@@ -29,6 +29,7 @@ on:
       - 'ota/manifest.json'
       - 'tools/check-ota-server-pause.js'
       - 'tools/check-afr-target-keypad-backport.js'
+      - 'tools/check-auto-tune-direct.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -45,6 +46,8 @@ jobs:
         run: node tools/check-afr-target-keypad-backport.js
       - name: Temporary ESP32 server OTA freeze contract
         run: node tools/check-ota-server-pause.js
+      - name: Auto Tune opens measured AFR map directly
+        run: node tools/check-auto-tune-direct.js
       - name: Compensation row orientation regression
         run: node tools/check-row-orientation.js
       - name: Map selection direction regression
