@@ -750,12 +750,21 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
+// Ultra Pro1 V10.x (not generic V10.2, not ATE/Ultra Pro2 V11):
+// Screenshot-verified against the owner's ORIGINAL REDLEO PC IGN-degree MAP1.
+// Same raw table words have raw=112 -> 16.9 deg and raw=135 -> 25.0 deg;
+// using legacy VER_ANGLE=4 incorrectly displayed 12.0 / 17.8 deg.
+// The original Ultra Pro1 table unit is 360 / 1024 = 0.3515625 deg/raw.
+// Keep read/write symmetrical and preserve the 420B 0x3x page layout.
+const ULTRA_PRO1_MAIN_IGN_SCALE=360/1024;
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
+  if(isUltraDirect())return r1((Number(raw)-64)*ULTRA_PRO1_MAIN_IGN_SCALE);
   return decIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
+  if(isUltraDirect())return clamp(Math.round(Number(v)/ULTRA_PRO1_MAIN_IGN_SCALE)+64,0,255);
   return encIgn(v);
 }
 function decLiveIgn(raw){
@@ -1762,7 +1771,10 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   for(let bank=1;bank<=4;bank++){
     const b={bank};let z=decodeRowsU16(a,p,14,30,decOilTab);b.inj=z.data;p=z.next;
     z=decodeRowsByte(a,p,14,30,decOilAngle);b.injDegree=z.data;p=z.next;
-    z=decodeRowsByte(a,p,14,30,decIgn);b.ignDegree=z.data;p=z.next;
+    // Legacy full-image decoder remains identical for V9; if a supported
+    // Ultra Pro1 supplies a canonical 9767B ReadAll reply, keep its main
+    // ignition-angle unit consistent with direct 0x9A and selective writes.
+    z=decodeRowsByte(a,p,14,30,decMainIgn);b.ignDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,1,30,decOil);b.ignTime=z.data;p=z.next;
     b.afRaw=a.slice(p,p+420);{const A=decodeEcuAfr420(b.afRaw);b.afr=A.matrix;b.afrEnabled=A.enabled;}p+=420;
     const idle=[];for(let i=0;i<9;i++){idle.push(u16be(a,p));p+=2;}b.idle=idle;
