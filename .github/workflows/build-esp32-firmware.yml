@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino'
+      - 'firmware/2.5.ino'
       - '.github/workflows/build-esp32-firmware.yml'
   workflow_dispatch:
     inputs:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Verify firmware safety cores and Blink UI before compilation
         run: |
-          python3 tools/extract-fw24-cores.py firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino /tmp/fw24_extracted.h
+          python3 tools/extract-fw24-cores.py firmware/2.5.ino /tmp/fw24_extracted.h
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -I /tmp tools/test-fw24-autopin.cpp -o /tmp/fw24-release-tests
           /tmp/fw24-release-tests
           node tools/test-fw24-ui.js
@@ -44,7 +44,7 @@ jobs:
       - name: Prepare single-file FW2.5 sketch
         run: |
           mkdir -p build-sketch/BLINK_FW
-          cp firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino build-sketch/BLINK_FW/BLINK_FW.ino
+          cp firmware/2.5.ino build-sketch/BLINK_FW/BLINK_FW.ino
 
       - name: Compile FW2.5 firmware
         run: |
@@ -71,7 +71,7 @@ jobs:
 
           bin_path = Path('ota/blink_esp32.bin')
           manifest_path = Path('ota/manifest.json')
-          firmware_source = Path('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino').read_text(encoding='utf-8')
+          firmware_source = Path('firmware/2.5.ino').read_text(encoding='utf-8')
           match = re.search(r'^#define FW_VERSION\s+"([^"]+)"', firmware_source, flags=re.MULTILINE)
           if not match or match.group(1) != '2.5':
               raise SystemExit('Refusing to publish: production release must be FW2.5')

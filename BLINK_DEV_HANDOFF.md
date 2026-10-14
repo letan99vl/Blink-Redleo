@@ -1419,3 +1419,12 @@ PB3.79.78 hotfix changes:
 - Other/unknown V9 generations, other ECUs and V11/Ultra Pro2 are NOT generalized into this converter. Unknown V9 keeps old converter and has no mode switch. V11/Ultra Pro2 keeps independently audited V11 scale 0.28125. Source EXE for V11/Ultra Pro2 not present in accessible originals.
 - PR #11 expands original PC IGN regression to V8/9.1X/9.2/10.2/Ultra1 x2 modes x256 raw values, .NET midpoint-even, cache invalidation, unknown-V9 isolation, iOS/Android hosted loader revision. REDLEO protocol CI passed on PR head; physical hardware read-only comparison is still required before any controlled IGN writes.
 - **Retain PB3.79.72**, AFR Target keypad backport and temporary server OTA hold, with no ESP32 firmware change.
+
+## 2026-10-14 · Firmware source naming: FW2.2 + FW2.5 side by side
+
+- The firmware/ directory now contains exactly **2.2.ino** and **2.5.ino**, replacing the long-name ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino file. Both are byte-for-byte original blobs; no build flags, pins or code were rewritten.
+- **2.2.ino** was restored from original GitHub commit 90c869f116781ef23af8c0963d382d6240d6912e, same blob as backup-release-pb37972-fw22-20261013, Git blob a2c9724b9aff9c8d0b69cdce84b395254bcb717e. FW_VERSION=2.2; ECU RX22 TX23; does NOT implement Redline Guard 5-second logic.
+- **2.5.ino** is the exact previous main production source blob 15be5bb924ae14f024f6477f44e70229ab9565b4, FW_VERSION=2.5, with guarded RGON/5-second engine logic; no changes other than path.
+- Build ESP32 Firmware and firmware safety-test scripts now point to firmware/2.5.ino, retaining the exact same FW2.5 production build/OTA release gate. Experimental FW2.4 workflow points to 2.5.ino on main (its own feature branch is independent).
+- `ota/manifest.json` remains ota_enabled=false, maintenance=true, version=0.0.0; do NOT auto-publish FW2.5 or enable server updates. Blink web PB3.79.72 stays unchanged.
+- To compile manually in Arduino IDE, **copy one desired .ino into its own sketch folder and rename its filename to match that folder**, because Arduino concatenates multiple .ino files in one sketch and version labels containing dots may not be accepted as sketch directory names. These concise names are repository download names, not a combined multi-file sketch.

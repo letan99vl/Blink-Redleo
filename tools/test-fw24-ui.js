@@ -2,7 +2,7 @@
 'use strict';
 const fs=require('fs'),assert=require('assert'),vm=require('vm');
 const html=fs.readFileSync('index.html','utf8');
-const fw=fs.readFileSync('firmware/ESP32_BLINK_TL_REDLEO_REAL_BRIDGE_GPIO26_33.ino','utf8');
+const fw=fs.readFileSync('firmware/2.5.ino','utf8');
 const handoff=fs.readFileSync('BLINK_FW23_REDLINE_GUARD_HANDOFF.md','utf8');
 assert(html.includes("window.BLINK_PB_VERSION = '3.79.82'"));
 for(const token of ['id="redlineGuardSettings"','id="rgReadBtn"','id="rgEnableBtn"',
