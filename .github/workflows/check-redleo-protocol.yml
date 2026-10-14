@@ -23,6 +23,7 @@ on:
       - 'tools/check-ultra-pro2.js'
       - 'ota/manifest.json'
       - 'tools/check-ota-server-pause.js'
+      - 'tools/check-afr-target-keypad-backport.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax check
         run: node --check redleo_real_protocol.js
+      - name: PB3.79.72 AFR Target keypad backport with OTA hold
+        run: node tools/check-afr-target-keypad-backport.js
       - name: Temporary ESP32 server OTA freeze contract
         run: node tools/check-ota-server-pause.js
       - name: Compensation row orientation regression
