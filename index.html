@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.72';
+  window.BLINK_PB_VERSION = '3.79.72.1';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -2192,24 +2192,24 @@
       <div class="settingTile"><div class="menuIcon">⚙</div><h3>Tùy Chọn</h3><p>Thông số hệ thống</p><span class="tiny">SYS_01</span></div>
       <div class="settingTile"><div class="menuIcon">⌁</div><h3>Điện áp</h3><p>TPS / AFR của Blink</p><span class="tiny">SYS_02</span></div>
       <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
-      <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>ESP32 OTA qua Wi-Fi</p><span class="tiny">SYS_05</span></div>
+      <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>OTA SERVER TẠM KHÓA</p><span class="tiny">SYS_05</span></div>
     </div>
     <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%)</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
 
-    <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA</summary>
+    <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA TẠM KHÓA</summary>
       <div class="settingsGrid">
         <div class="field"><label>Mạng Wi-Fi</label><select id="otaSsid"><option value="">Bấm QUÉT WI-FI để chọn mạng</option></select></div>
         <div class="field"><label>Mật khẩu Wi-Fi</label><input id="otaPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Mật khẩu"></div>
         <div class="field"><label>Firmware hiện tại</label><input id="otaCurrentVersion" value="--" readonly></div>
-        <div class="field"><label>Firmware mới</label><input id="otaNewVersion" value="--" readonly></div>
+        <div class="field"><label>Firmware mới</label><input id="otaNewVersion" value="TẠM KHÓA" readonly></div>
       </div>
       <div class="toolrow" style="margin-top:9px">
-        <button id="otaScanBtn">QUÉT WI-FI</button>
-        <button id="otaCheckBtn" class="primary">KIỂM TRA FIRMWARE</button>
+        <button id="otaScanBtn" disabled>QUÉT WI-FI</button>
+        <button id="otaCheckBtn" class="primary" disabled>KIỂM TRA FIRMWARE</button>
         <button id="otaInstallBtn" class="good" disabled>CẬP NHẬT NGAY</button>
       </div>
       <progress id="otaProgress" max="100" value="0" style="width:100%;height:12px;margin-top:9px"></progress>
-      <div class="hint" id="otaInfo">Phiên bản mới và file firmware được tải bằng Internet của điện thoại rồi truyền sang ESP32 qua BLE. ESP32 không cần mở TLS.</div>
+      <div class="hint" id="otaInfo">TẠM KHÓA OTA QUA SERVER: không kiểm tra, không tải hoặc cài firmware mới. ESP32 giữ nguyên phiên bản hiện tại; Bluetooth và đọc/ghi ECU vẫn hoạt động.</div>
     </details>
   </section>
 
@@ -4841,6 +4841,14 @@ window.addEventListener('beforeunload',save);
   window.configureBlinkFastBridgeRx=configureFastBridgeRx;
 
   const OTA_MARKER=0xE3,OTA_WIFI_CHECK=0x01,OTA_INSTALL=0x02,OTA_WIFI_SCAN=0x03,OTA_BLE_BEGIN=0x04,OTA_BLE_END=0x05,OTA_BLE_ABORT=0x06,OTA_SCAN_MARKER=0xE4,OTA_BLE_DATA_MARKER=0xE5,OTA_CHUNK=12;
+  // Temporary server update freeze, independent of BLE/ECU tuning transport.
+  // When restored: set false AND restore ota/manifest.json from the backup branch.
+  const BLINK_SERVER_OTA_PAUSED=true;
+  const OTA_PAUSE_MSG='OTA firmware ESP32 đang tạm khóa trên server. Firmware hiện tại không thay đổi.';
+  window.blinkServerOtaPaused=BLINK_SERVER_OTA_PAUSED;
+  function assertOtaUnlocked(){
+    if(BLINK_SERVER_OTA_PAUSED)throw new Error(OTA_PAUSE_MSG);
+  }
   let otaUpdateReady=false;
   let otaWifiNetworks=[];
   let otaCurrentVersionCache='';
@@ -4852,6 +4860,7 @@ window.addEventListener('beforeunload',save);
   const otaWifiRx=new Map();
 
   async function writeOtaCommand(cmd,payload){
+    if(cmd!==OTA_BLE_ABORT)assertOtaUnlocked(); // only an emergency OTA cancel remains permitted
     if(!commandChar)throw new Error('BLE chưa kết nối.');
     payload=payload||new Uint8Array(0);
     const total=payload.length;
@@ -4905,9 +4914,10 @@ window.addEventListener('beforeunload',save);
   }
 
   function setOtaControlsBusy(busy){
-    const scan=$('otaScanBtn'),check=$('otaCheckBtn');
-    if(scan)scan.disabled=!!busy;
-    if(check)check.disabled=!!busy;
+    const scan=$('otaScanBtn'),check=$('otaCheckBtn'),install=$('otaInstallBtn');
+    if(scan)scan.disabled=!!busy||BLINK_SERVER_OTA_PAUSED;
+    if(check)check.disabled=!!busy||BLINK_SERVER_OTA_PAUSED;
+    if(install&&BLINK_SERVER_OTA_PAUSED)install.disabled=true;
   }
 
   function renderOtaWifiNetworks(){
@@ -4957,6 +4967,7 @@ window.addEventListener('beforeunload',save);
 
   async function otaScanWifi(){
     try{
+      if(BLINK_SERVER_OTA_PAUSED){setOtaInfo(OTA_PAUSE_MSG);return;}
       if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
       otaWifiNetworks=[];otaWifiRx.clear();
       const sel=$('otaSsid');if(sel)sel.innerHTML='<option value="">Đang quét Wi-Fi...</option>';
@@ -4969,6 +4980,16 @@ window.addEventListener('beforeunload',save);
   function handleOtaStatus(text){
     resolveOtaStatusWaiters(text);
     const cur=$('otaCurrentVersion'),next=$('otaNewVersion'),btn=$('otaInstallBtn'),prog=$('otaProgress');
+    // Ignore stale OTA notifications that could re-enable INSTALL after pause.
+    if(BLINK_SERVER_OTA_PAUSED){
+      otaUpdateReady=false;otaManifestCache=null;
+      if(cur&&text.startsWith('OTA:CUR='))cur.value=text.slice(8)||'--';
+      if(next)next.value='TẠM KHÓA';
+      if(btn)btn.disabled=true;
+      setOtaControlsBusy(false);
+      setOtaInfo(OTA_PAUSE_MSG);
+      return;
+    }
     if(text.startsWith('OTA:CUR=')){
       if(cur)cur.value=text.slice(8)||'--';
       setOtaInfo('Đang kiểm tra firmware mới...');
@@ -5084,6 +5105,7 @@ window.addEventListener('beforeunload',save);
   }
 
   async function fetchOtaManifestWeb(){
+    assertOtaUnlocked();
     const stamp=Date.now();
     const sources=[
       './ota/manifest.json?ts='+stamp,
@@ -5096,6 +5118,7 @@ window.addEventListener('beforeunload',save);
         const res=await fetch(src,{cache:'no-store'});
         if(!res.ok)throw new Error('HTTP '+res.status);
         const m=await res.json();
+        if(m.ota_enabled===false)throw new Error(OTA_PAUSE_MSG); // server-maintenance flag
         const version=String(m.version||'').trim();
         const url=String(m.url||'').trim();
         const sha256=String(m.sha256||'').trim().toLowerCase();
@@ -5108,6 +5131,7 @@ window.addEventListener('beforeunload',save);
 
   async function otaCheck(){
     try{
+      if(BLINK_SERVER_OTA_PAUSED){setOtaInfo(OTA_PAUSE_MSG);return;}
       if(!state.ecuConnected)throw new Error('Hãy kết nối BLE với Blink trước.');
       otaUpdateReady=false;otaManifestCache=null;
       $('otaInstallBtn').disabled=true;
@@ -5156,6 +5180,7 @@ window.addEventListener('beforeunload',save);
   }
 
   async function writeBleFirmwareChunk(offset,bytes,reliable=false){
+    assertOtaUnlocked();
     const pkt=new Uint8Array(5+bytes.length);
     pkt[0]=OTA_BLE_DATA_MARKER;
     pkt[1]=offset&255;pkt[2]=(offset>>>8)&255;pkt[3]=(offset>>>16)&255;pkt[4]=(offset>>>24)&255;
@@ -5183,6 +5208,7 @@ window.addEventListener('beforeunload',save);
   }
 
   async function transferFirmwareBle(bin,shaHex){
+    assertOtaUnlocked();
     const begin=new Uint8Array(36);
     const size=bin.byteLength>>>0;
     begin[0]=size&255;begin[1]=(size>>>8)&255;begin[2]=(size>>>16)&255;begin[3]=(size>>>24)&255;
@@ -5240,7 +5266,9 @@ window.addEventListener('beforeunload',save);
   }
 
   async function otaInstall(){
+    if(BLINK_SERVER_OTA_PAUSED){setOtaInfo(OTA_PAUSE_MSG);return;}
     try{
+      assertOtaUnlocked();
       if(!otaUpdateReady||!otaManifestCache)throw new Error('Chưa có firmware mới sẵn sàng.');
       if(!state.ecuConnected)throw new Error('BLE với ESP32 đã ngắt.');
       if(!confirm('Cập nhật ESP32 lên FW '+otaManifestCache.version+' ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
