@@ -19,7 +19,8 @@ function cmpVersion(a,b){
 for(const prior of ['1.8','1.9','2.0','2.1','2.2','2.3','2.4','2.5','2.6.2'])
   assert(cmpVersion(manifest.version,prior)<=0,'Old bridge may see a new OTA update: '+prior);
 
-assert(html.includes("window.BLINK_PB_VERSION = '3.79.72.1'"),'Expected pre-5s app with OTA hold');
+assert(html.includes("window.BLINK_PB_VERSION = '3.79.72'"),'Must preserve historical pre-5s PB3.79.72');
+assert(html.includes("window.BLINK_OTA_HOLD_REVISION = '2026-10-14'"),'OTA-only lock revision marker missing');
 assert(html.includes('const BLINK_SERVER_OTA_PAUSED=true;'),'OTA lock must be enabled in app');
 assert(html.includes('window.blinkServerOtaPaused=BLINK_SERVER_OTA_PAUSED;'));
 assert(html.includes("if(m.ota_enabled===false)throw new Error(OTA_PAUSE_MSG)"),
