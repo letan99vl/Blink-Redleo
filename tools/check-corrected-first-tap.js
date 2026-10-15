@@ -173,6 +173,13 @@ function buildEditor(confirmation,change=true){
     assert.strictEqual(state.pendingAfrClearMapNo,0);
   }
   {
+    const {ctx,state,events}=buildEditor(async(state)=>{state.ecuConnected=false;return true;});
+    const result=await ctx.tryCorrectedWrite({prepareTransport:async()=>events.push('transport-begin')});
+    assert.strictEqual(result,false,'disconnect while confirming must block');
+    assert(!events.includes('transport-begin')&&!events.includes('write'),'offline ECU cannot be written');
+    assert.strictEqual(state.inject[0][0],2,'disconnect must preserve original map');
+  }
+  {
     const {ctx,state,events}=buildEditor(async()=>true);
     await assert.rejects(ctx.tryCorrectedWrite({prepareTransport:async()=>{throw Error('BLE offline')}}),/BLE offline/);
     assert.strictEqual(state.inject[0][0],2,'transport acquisition failure must not stage corrected map');
