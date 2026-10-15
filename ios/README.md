@@ -36,3 +36,12 @@ The manual TestFlight workflow needs `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`,
 `IOS_DISTRIBUTION_CERT_BASE64`, `IOS_DISTRIBUTION_CERT_PASSWORD`,
 `IOS_PROVISION_PROFILE_BASE64`, `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`,
 `APPSTORE_API_KEY_P8_BASE64`.
+
+
+## 2026-10-15 - iOS 3.79.64 bundled AFR map cursor, 90-degree landscape
+
+Original 3.79.64 embedded Web/index.html has the same full 30-column 500..15,000 RPM axis as Blink web, and no 9,000-RPM cursor ceiling. But when the map editor software-rotates using CSS appForceLandscape / rotate(90deg), its autoFollowCurrentCell used screen getBoundingClientRect X/Y to modify the unrotated scrollLeft/scrollTop axes, so automatic following could lose high-RPM cells past the visible ~9,000 range. This source patch matches the Web main branch fix and now scrolls in local layout offset coordinates when rotated while keeping native landscape logic unchanged. A separate direct data-recording cap was NOT found; 700ms TPS freshness, settleMs, AFR sensor delay and throttle-closing lock can independently cause missing AFR sample colors.
+
+tools/check-ios64-afr-cursor-fullrpm.js exercises source code 500..15,000, 9250/9251 cell boundary, AFR recording >9000, dynamic ECU axis max=9000, simulated rotated and native viewport, follow OFF and manual touch pause.
+
+IMPORTANT: distributed PB3.79.64 bundles Web/index.html INSIDE IPA. The remote-first JavaScript from ios-hybrid-fallback only replaces redleo_real_protocol.js. Updating this HTML source on GitHub does NOT update already installed IPA user interfaces. New IPA/TestFlight build required for this view-scroll fix. Keep existing PB3.79.64 version and BLE protocol, no ESP32 firmware changes.
