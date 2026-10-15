@@ -6,12 +6,14 @@ on:
     paths:
       - 'ios/**'
       - 'tools/check-ios64-original-ign.js'
+      - 'tools/check-ios64-afr-cursor-fullrpm.js'
       - '.github/workflows/ios-build-check.yml'
   push:
     branches: [main, ios-testflight, ios-hybrid-fallback]
     paths:
       - 'ios/**'
       - 'tools/check-ios64-original-ign.js'
+      - 'tools/check-ios64-afr-cursor-fullrpm.js'
       - '.github/workflows/ios-build-check.yml'
 
 jobs:
@@ -23,6 +25,7 @@ jobs:
         run: |
           node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
           node tools/check-ios64-original-ign.js
+          node tools/check-ios64-afr-cursor-fullrpm.js
       - name: Install XcodeGen
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
