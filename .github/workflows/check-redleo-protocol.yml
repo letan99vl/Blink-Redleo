@@ -30,6 +30,7 @@ on:
       - 'tools/check-ota-server-pause.js'
       - 'tools/check-afr-target-keypad-backport.js'
       - 'tools/check-auto-tune-direct.js'
+      - 'tools/check-corrected-first-tap.js'
       - '.github/workflows/check-redleo-protocol.yml'
 
 permissions:
@@ -48,6 +49,8 @@ jobs:
         run: node tools/check-ota-server-pause.js
       - name: Auto Tune opens measured AFR map directly
         run: node tools/check-auto-tune-direct.js
+      - name: Corrected AFR fuel MAP first-tap write and readback safety
+        run: node tools/check-corrected-first-tap.js
       - name: Compensation row orientation regression
         run: node tools/check-row-orientation.js
       - name: Map selection direction regression
