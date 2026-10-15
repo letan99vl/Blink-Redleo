@@ -15,6 +15,7 @@ window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
+window.BLINK_AFR_CURSOR_REVISION = 'AFR-CURSOR-ROT90';
 window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
@@ -2952,11 +2953,47 @@ function autoFollowCurrentCell(td,cur){
   if(document.activeElement&&document.activeElement.isContentEditable)return;
   if(performance.now()<mapAutoFollowPauseUntil)return;
   if(cur.key===mapAutoFollowLastKey)return;
-  mapAutoFollowLastKey=cur.key;
+
+  // BUGFIX: software landscape rotates the WHOLE editor by 90deg. Screen
+  // getBoundingClientRect() then swaps the RPM/TPS axes, while scrollLeft and
+  // scrollTop still use the original unrotated layout axes. Using screen X as
+  // scrollLeft caused AUTO FOLLOW to lose the cursor at high RPM (~9k on a
+  // common phone viewport) even though the real selected cell kept moving.
+  // Read untransformed offsetParent coordinates only in this rotated mode.
+  if(document.body.classList.contains('appForceLandscape')){
+    const width=wrap.clientWidth,height=wrap.clientHeight;
+    if(width<40||height<40||td.offsetWidth<1||td.offsetHeight<1)return;
+    let x=0,y=0,node=td,depth=0;
+    while(node&&node!==wrap&&depth++<12){
+      x+=Number(node.offsetLeft)||0;
+      y+=Number(node.offsetTop)||0;
+      node=node.offsetParent;
+    }
+    if(node!==wrap)return; // do not scroll on an unverified geometry tree
+    const sx=wrap.scrollLeft,sy=wrap.scrollTop;
+    const leftSafe=sx+Math.min(120,width*.18);
+    const rightSafe=sx+width-Math.min(190,width*.28);
+    const topSafe=sy+Math.min(72,height*.18);
+    const bottomSafe=sy+height-Math.min(90,height*.24);
+    let targetX=sx,targetY=sy;
+    if(x+td.offsetWidth>rightSafe)targetX=x-width*.58;
+    else if(x<leftSafe)targetX=x-width*.22;
+    if(y+td.offsetHeight>bottomSafe)targetY=y-height*.55;
+    else if(y<topSafe)targetY=y-height*.25;
+    targetX=Math.max(0,Math.min(targetX,Math.max(0,wrap.scrollWidth-width)));
+    targetY=Math.max(0,Math.min(targetY,Math.max(0,wrap.scrollHeight-height)));
+    mapAutoFollowLastKey=cur.key;
+    if(Math.abs(targetX-sx)>2||Math.abs(targetY-sy)>2){
+      try{wrap.scrollTo({left:targetX,top:targetY,behavior:'auto'});}
+      catch(_e){wrap.scrollTo(targetX,targetY);}
+    }
+    return;
+  }
 
   const wr=wrap.getBoundingClientRect();
   const tr=td.getBoundingClientRect();
   if(wr.width<40||wr.height<40)return;
+  mapAutoFollowLastKey=cur.key;
 
   const leftSafe=wr.left+Math.min(120,wr.width*.18);
   const rightSafe=wr.right-Math.min(190,wr.width*.28);
@@ -7092,7 +7129,7 @@ updateMapControls();
   (function(){
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
-    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT · CORR-1T';
+    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT · CORR-1T · AFR-CURSOR';
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
