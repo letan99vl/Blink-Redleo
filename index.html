@@ -15,6 +15,7 @@ window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-DUAL-MIDPOINT-EVEN';
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
+window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   document.title = 'BLINK TL · P.b v' + window.BLINK_PB_VERSION;
 </script>
 <meta name="theme-color" content="#07111d" />
@@ -3582,15 +3583,25 @@ async function writeCurrentFuelMap(){
   await startFuelWrite();
 }
 
-async function applyCorrectedAndWrite(){
+async function applyCorrectedAndWrite(options={}){
   if(state.threeRun.active){
     if(state.threeRun.phase==='recording')return finishThreeRunPass();
     return alert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
   }
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
-  if(fuelMapSyncUnknown(state.activeMap))return showEcuNotice('error','MAP ECU CHƯA XÁC ĐỊNH','Hãy ĐỌC HIỆN TẠI thành công trước khi tính hoặc ghi MAP đã bù.',0);
+  if(!state.ecuConnected){
+    showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi lưu MAP đã bù.',0);
+    return false;
+  }
+  if(fuelMapSyncUnknown(state.activeMap)){
+    showEcuNotice('error','MAP ECU CHƯA XÁC ĐỊNH','Hãy ĐỌC HIỆN TẠI thành công trước khi tính hoặc ghi MAP đã bù.',0);
+    return false;
+  }
   const baseCheck=inspectFuelMap(state.inject);
-  if(!baseCheck.ok)return showEcuNotice('error','MAP GỐC CHƯA AN TOÀN',baseCheck.reason,0);
+  if(!baseCheck.ok){
+    showEcuNotice('error','MAP GỐC CHƯA AN TOÀN',baseCheck.reason,0);
+    return false;
+  }
+  const requestedMapNo=state.activeMap;
   const baseMap=cloneMatrix(state.inject);
   const corrected=correctedMatrix();
   const next=blankMatrix(0);
@@ -3602,7 +3613,10 @@ async function applyCorrectedAndWrite(){
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     if(Math.abs(num(next[r][c],0)-num(state.inject[r][c],0))>.0001)changed.push([r,c]);
   }
-  if(!changed.length)return alert('Chưa có ô AFR đo nào làm thay đổi map.');
+  if(!changed.length){
+    showEcuNotice('info','CHƯA CÓ Ô AFR CẦN BÙ','MAP đã bù giống MAP gốc: chưa có ô AFR đo nào tạo thay đổi. Chưa gửi lệnh GHI ECU.',4200);
+    return false;
+  }
 
   const ok=await blinkConfirm(
     'ĐƯA MAP ĐÃ BÙ → ECU · MAP NO.'+state.activeMap,
@@ -3610,7 +3624,23 @@ async function applyCorrectedAndWrite(){
     'GHI MAP',
     'HỦY'
   );
-  if(!ok)return;
+  if(!ok){
+    showEcuNotice('info','ĐÃ HỦY GHI MAP ĐÃ BÙ','Không gửi lệnh ghi ECU. Dữ liệu MAP và AFR đo vẫn được giữ nguyên.',3000);
+    return false;
+  }
+  if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
+    showEcuNotice('error','KHÔNG THỂ GHI MAP ĐÃ BÙ','Kết nối, phiên Auto Tune hoặc MAP No. đã thay đổi trong lúc xác nhận. Chưa gửi lệnh ghi ECU.',0);
+    return false;
+  }
+  // The button's first tap already obtained approval. Only NOW acquire the
+  // shared live/ECU transaction, and continue straight into write+readback.
+  // Before confirmation, this operation must not show a fake blue loading
+  // status or stop the ongoing live-poll loop.
+  if(typeof options.prepareTransport==='function')await options.prepareTransport();
+  if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
+    showEcuNotice('error','MAP / ECU ĐÃ THAY ĐỔI','ECU hoặc MAP đang chọn đã thay đổi khi chờ giao tiếp. Chưa ghi MAP đã bù.',0);
+    return false;
+  }
 
   state.inject=next;
   state.pendingAfrClearMapNo=state.activeMap;
@@ -3618,6 +3648,7 @@ async function applyCorrectedAndWrite(){
   if(state.tab==='inject'||state.tab==='corrected')render();
   const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap,verifyReadback:true});
   if(!writeStarted)state.pendingAfrClearMapNo=0;
+  return !!writeStarted;
 }
 
 
@@ -7061,7 +7092,7 @@ updateMapControls();
   (function(){
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
-    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT';
+    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT · CORR-1T';
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
