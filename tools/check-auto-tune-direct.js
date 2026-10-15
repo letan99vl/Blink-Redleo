@@ -8,7 +8,7 @@ const html=fs.readFileSync('index.html','utf8');
 const manifest=JSON.parse(fs.readFileSync('ota/manifest.json','utf8'));
 assert(html.includes("window.BLINK_PB_VERSION = '3.79.72'"),'PB3.79.72 rolled-back app must remain');
 assert(html.includes("window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1'"),'Missing user-visible route revision');
-assert(html.includes("IGN-PC · AT-DIRECT'"),'AT-DIRECT version flag missing');
+assert(html.includes('IGN-PC · AT-DIRECT'),'AT-DIRECT version flag missing');
 assert(!html.includes("guardControlCommand('RGON')"),'Do not restore 5-second guard UI');
 assert(manifest.ota_enabled===false&&manifest.maintenance===true,'Server OTA must stay disabled');
 
@@ -77,5 +77,5 @@ assert.strictEqual(ui.autoTuneQuickRecordBtn.classes.get('good'),true);
 assert(html.includes("if(state.threeRun.active)return;"),'Existing three-run record guard must stay');
 assert(html.includes("function startThreeRunSession()"),'Existing 3-run algorithm must remain');
 assert(html.includes("function finishThreeRunPass()"),'Existing 3-run step algorithm must remain');
-assert(html.includes("function applyCorrectedAndWrite()"),'ECU corrected-map write path must stay');
+assert(html.includes('function applyCorrectedAndWrite(options={})'),'ECU corrected-map write path must stay');
 console.log('PASS Auto Tune direct measured AFR grid: two entry points, 3-run access, recording ON/OFF sync, back navigation, PB3.79.72 and OTA hold');
