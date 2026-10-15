@@ -98,7 +98,10 @@ async function testCapture({accepted=true,threeRun=false}={}){
     assert.strictEqual(trace.filter(x=>x==='manual-end').length,0,'cancel must not release an unacquired lock');
     assert(!trace.some(x=>x.startsWith('status:loading')),'cancel must never leave blue spinner');
   }
-  for(const btn of Object.values(elements))assert(!btn.disabled,'lock must release button/select '+btn.id);
+  for(const btn of Object.values(elements)){
+    const shouldRemainDisabled=threeRun&&btn.id==='mapSelect';
+    assert.strictEqual(btn.disabled,shouldRemainDisabled,'lock must release controls but keep 3-run bank interlock '+btn.id);
+  }
 }
 
 function matrix(value){return Array.from({length:14},()=>Array(30).fill(value));}
