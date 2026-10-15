@@ -5027,7 +5027,7 @@ function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);r
 function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
 
 const ECU_MAP_IO_BUTTON_IDS=[
-  'readMapBtn','writeMapBtn','applyCorrectedBtn',
+  'readMapBtn','writeMapBtn','applyCorrectedBtn','tuneApplyCorrectedBtn',
   'redReadBtn','redWriteBtn',
   'idleLimitReadBtn','idleLimitWriteBtn'
 ];
@@ -5060,7 +5060,7 @@ function markEcuMapTransportStarted(cmd,data){
   updateActiveMapIoText(ecuMapIoKind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...');
   taskUi('loading',(ecuMapIoKind==='read'?'ĐANG ĐỌC ECU · ':'ĐANG GHI ECU · ')+what);
 }
-function setEcuMapIoUiBusy(activeId,kind,on,label=''){
+function setEcuMapIoUiBusy(activeId,kind,on,label='',opts={}){
   const buttons=mapIoButtons();
   const selectors=ECU_MAP_IO_SELECT_IDS.map(id=>document.getElementById(id)).filter(Boolean);
 
@@ -5090,7 +5090,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
       // This is only a tap acknowledgement. It deliberately does NOT say
       // "ĐANG GHI" yet. That state is promoted by rawExchange only after the
       // real ECU transport mutex has been acquired.
-      active.textContent=kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...';
+      active.textContent=opts.confirmFirst?'✎ XÁC NHẬN MAP ĐÃ BÙ...':(kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...');
       try{
         active.animate(
           [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.95)',filter:'brightness(1.5)'},{transform:'scale(1)',filter:'brightness(1)'}],
@@ -5100,7 +5100,10 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
     }
 
     const what=String(label||'MAP').toUpperCase();
-    taskUi('loading',(kind==='read'?'ĐÃ NHẤN ĐỌC · ':'ĐÃ NHẤN GHI · ')+what+' · ĐANG CHỜ ECU...');
+    // A corrected-map click must show its explicit confirmation FIRST. Do not
+    // raise a blue 'ĐANG CHỜ ECU' spinner while the user has not approved
+    // sending any bytes: that looked like a first tap that did nothing.
+    if(!opts.confirmFirst)taskUi('loading',(kind==='read'?'ĐÃ NHẤN ĐỌC · ':'ĐÃ NHẤN GHI · ')+what+' · ĐANG CHỜ ECU...');
     return true;
   }
 
@@ -5133,7 +5136,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
   return true;
 }
 
-function captureMapIo(id,kind,handler,labelFn){
+function captureMapIo(id,kind,handler,labelFn,options={}){
   const el=document.getElementById(id);
   if(!el)return;
   // The base page and BLE-test shim both assign legacy onclick handlers to
@@ -5144,17 +5147,33 @@ function captureMapIo(id,kind,handler,labelFn){
   el.addEventListener('click',async e=>{
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
     const label=typeof labelFn==='function'?labelFn():labelFn;
-    if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP'))return;
-    let manualCtx=null;
+    // Auto Tune 3-pass is an existing transport-first flow. Only the manual
+    // "MAP ĐÃ BÙ → ECU" button has the confirmation-first behavior.
+    const confirmFirst=!!options.confirmFirst&&!(typeof state!=='undefined'&&state.threeRun?.active);
+    if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP',{confirmFirst}))return;
+    let manualCtx=null,manualStarted=false,manualPromise=null;
+    const beginTransport=async()=>{
+      if(!manualPromise){
+        manualStarted=true;
+        if(confirmFirst)taskUi('loading','ĐÃ XÁC NHẬN GHI · ĐANG CHỜ ECU · '+String(label||'MAP').toUpperCase());
+        manualPromise=beginManualMapIo(label||'MAP');
+      }
+      manualCtx=await manualPromise;
+      return manualCtx;
+    };
     try{
-      manualCtx=await beginManualMapIo(label||'MAP');
-      await handler(e);
+      if(!confirmFirst)await beginTransport();
+      // For manual MAP ĐÃ BÙ, handler presents the confirmation immediately,
+      // then calls beginTransport *once*, continuing with the same first tap.
+      await handler(e,beginTransport);
     }catch(x){
       err(x);
       taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);
       notice('error','ECU REAL',x&&x.message||String(x));
     }finally{
-      try{endManualMapIo(manualCtx)}catch(_e){}
+      // A cancelled confirmation must NOT end a different action's manual
+      // context or resume Live unnecessarily; it never acquired the ECU.
+      if(manualStarted){try{endManualMapIo(manualCtx)}catch(_e){}}
       setEcuMapIoUiBusy(null,null,false);
     }
   },true);
@@ -5214,10 +5233,12 @@ function installUI(){
     notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · ECU ACK · KHÔNG ĐỌC LẠI');
   },'THỜI GIAN PHUN');
 
-  captureMapIo('applyCorrectedBtn','write',async()=>{
-    if(typeof applyCorrectedAndWrite==='function'){await applyCorrectedAndWrite();return;}
+  captureMapIo('applyCorrectedBtn','write',async(_event,beginTransport)=>{
+    if(typeof applyCorrectedAndWrite==='function'){
+      return await applyCorrectedAndWrite({prepareTransport:beginTransport});
+    }
     throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
-  },'MAP ĐÃ BÙ');
+  },'MAP ĐÃ BÙ',{confirmFirst:true});
   capture('studyTpsBtn',tpsStudyReal);
   capture('restoreEcuBtn',restoreReal);
 
