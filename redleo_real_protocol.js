@@ -3247,6 +3247,8 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
   syncCurrentFuel(bank,R.matrix,R.frame.length);
+  // Let the per-cell Auto Tune learner pair new AFR with an ECU-verified MAP.
+  try{window.onBlinkFuelMapReadback?.(bank,R.matrix)}catch(e){log('Auto Tune learner readback observer',String(e&&e.message||e))}
   log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length,'primed',first?'first':'warm');
   if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
   return R;
