@@ -29,7 +29,8 @@ function restore(){
     const p=s.pending;
     if(p&&good(p.p0)&&good(p.p1)&&good(p.a0)&&good(p.c0)){
       b.pending={p0:p.p0,p1:p.p1,a0:p.a0,c0:p.c0,
-        post:cellMatrix(null),count:cellMatrix(0),status:cellMatrix(0),
+        post:cellMatrix(null),count:cellMatrix(0),
+        status:good(p.status)?p.status:cellMatrix(0),
         verifiedAt:0,needsReadback:true};
     }
     return b;
@@ -88,6 +89,9 @@ function changedMap(base,newMap){
 const originalCorrected=correctedMatrix;
 function propose(){
   const result=cellMatrix(null),b=getBank(),p=b.pending;
+  // Never apply another correction while the persisted reference map is
+  // unverified, or while the current editable table differs from that anchor.
+  if(p&&(p.needsReadback||!equalMap(state.inject,p.p1)))return copy(state.inject);
   const maxMs=typeof fuelProtocolMaxMs==='function'?fuelProtocolMaxMs():131.07;
   const limit=Math.min(0.30,Math.max(0,finite(state.cal.limitPct,100))/100);
   for(let r=0;r<14;r++)for(let c=0;c<30;c++){
@@ -108,10 +112,20 @@ correctedMatrix=function(){
 };
 function commitReadback(mapNo,m){
   const b=getBank(mapNo),p=b.pending;
-  if(!p||!p.needsReadback)return;
+  if(!p)return;
+  // Ordinary READ CURRENT detects out-of-band ECU changes. A different table
+  // is expected while our own next verified correction is being written.
+  if(!p.needsReadback){
+    if(!(writeTicket&&writeTicket.mapNo===mapNo)&&!equalMap(m,p.p1)){
+      b.pending=null;b.k=cellMatrix(null);b.n=cellMatrix(0);
+      persist();showStatus();
+    }
+    return;
+  }
   if(equalMap(m,p.p1)){
     p.needsReadback=false;p.verifiedAt=Date.now();
-    p.post=cellMatrix(null);p.count=cellMatrix(0);p.status=cellMatrix(0);
+    p.post=cellMatrix(null);p.count=cellMatrix(0);
+    // Preserve earlier no-response holds until fresh evidence proves recovery.
   }else{
     b.pending=null;b.k=cellMatrix(null);b.n=cellMatrix(0);
   }
