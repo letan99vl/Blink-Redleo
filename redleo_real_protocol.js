@@ -5090,7 +5090,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label='',opts={}){
       // This is only a tap acknowledgement. It deliberately does NOT say
       // "ĐANG GHI" yet. That state is promoted by rawExchange only after the
       // real ECU transport mutex has been acquired.
-      active.textContent=opts.confirmFirst?'✎ XÁC NHẬN MAP ĐÃ BÙ...':(kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...');
+      active.textContent=opts.confirmFirst?'⏳ CHUẨN BỊ LƯU MAP ĐÃ BÙ...':(kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...');
       try{
         active.animate(
           [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.95)',filter:'brightness(1.5)'},{transform:'scale(1)',filter:'brightness(1)'}],
@@ -5155,7 +5155,7 @@ function captureMapIo(id,kind,handler,labelFn,options={}){
     const beginTransport=async()=>{
       if(!manualPromise){
         manualStarted=true;
-        if(confirmFirst)taskUi('loading','ĐÃ XÁC NHẬN GHI · ĐANG CHỜ ECU · '+String(label||'MAP').toUpperCase());
+        if(confirmFirst)taskUi('loading','ĐANG CHỜ ECU ĐỂ GHI · '+String(label||'MAP').toUpperCase());
         manualPromise=beginManualMapIo(label||'MAP');
       }
       manualCtx=await manualPromise;
