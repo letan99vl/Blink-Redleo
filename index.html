@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.72'; // pre-5s app; only server OTA is paused
+  window.BLINK_PB_VERSION = '3.79.85'; // increment one PB number per hosted release; OTA stays paused
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -2051,6 +2051,105 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     font-size:10px!important;
   }
 
+
+  /* PB 3.79.85: Auto Tune only. Standalone INJ VE / all ECU pages retain their own save. */
+  #mapEditorScreen.autoTuneMap .editToolbar #writeMapBtn{display:none!important}
+  #mapEditorScreen.autoTuneMap.autoTuneReadOnly #mapSelectionPad .plus,
+  #mapEditorScreen.autoTuneMap.autoTuneReadOnly #mapSelectionPad .minus{display:none!important}
+  #mapZoomCorrectedSaveBtn{display:none!important}
+  body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn{
+    display:inline-flex!important;align-items:center!important;justify-content:center!important;
+    background:rgba(159,21,42,.98)!important;border-color:#ff5068!important;
+    color:#fff!important;white-space:nowrap!important;
+  }
+  @media (max-width:760px) and (orientation:portrait){
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .screenHeader{
+      min-height:30px!important;height:30px!important;gap:4px!important;
+      margin-bottom:3px!important;padding:0 8px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .screenTitle{
+      font-size:16px!important;line-height:18px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .screenSub{
+      font-size:8px!important;margin-top:1px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar{
+      display:grid!important;grid-template-columns:34px repeat(4,minmax(0,1fr))!important;
+      grid-template-rows:28px 28px 32px!important;
+      gap:3px!important;padding:0 7px 3px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar button{
+      height:28px!important;min-height:28px!important;border-radius:8px!important;
+      padding:0 3px!important;font-size:9px!important;min-width:0!important;
+      white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{
+      grid-column:1!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{
+      grid-column:2/span 2!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #mapZoomBtn{
+      grid-column:4/span 2!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #afrTargetLocalSaveBtn{
+      display:block!important;grid-column:2/span 2!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{
+      grid-column:1/span 3!important;grid-row:2!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
+      grid-column:4/span 2!important;grid-row:2!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+      grid-column:1/-1!important;grid-row:3!important;
+      height:32px!important;min-height:32px!important;font-size:10px!important;
+      overflow:visible!important;text-overflow:clip!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .autoTuneQuickBar{
+      gap:3px!important;padding:0 7px 3px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .autoTuneQuickBar button{
+      height:27px!important;min-height:27px!important;padding:0 4px!important;
+      border-radius:8px!important;font-size:9px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorInfo{
+      padding:0 7px 3px!important;gap:4px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorInfo .livebox{
+      min-height:29px!important;height:29px!important;padding:2px 6px!important;border-radius:8px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorInfo .livebox .k{
+      font-size:7px!important;line-height:10px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorInfo .livebox .v{
+      font-size:12px!important;line-height:14px!important;margin-top:0!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorTabs{
+      margin:0 7px 3px!important;padding:2px!important;gap:3px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorTabs .tab{
+      height:27px!important;min-height:27px!important;font-size:8px!important;
+      line-height:10px!important;padding:2px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorStepBar{
+      grid-template-rows:26px 26px!important;min-height:0!important;
+      gap:3px!important;padding:0 7px 3px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editorStepBar .stepChip{
+      height:26px!important;min-height:26px!important;line-height:24px!important;
+      padding:0 3px!important;font-size:9px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .mapToolGroup > span{
+      font-size:8px!important;
+    }
+    body.mapEditing:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap #mapTable th,
+    body.mapEditing:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap #mapTable td{
+      height:clamp(20px,calc((100dvh - 356px)/15),38px)!important;
+      min-height:clamp(20px,calc((100dvh - 356px)/15),38px)!important;
+      font-size:clamp(9px,1.18dvh,11px)!important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -2114,6 +2213,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div>
     <div id="mapZoomHud" aria-live="polite">
       <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
+      <button id="mapZoomCorrectedSaveBtn" type="button" aria-label="Lưu MAP đã bù vào ECU" title="Lưu MAP đã bù vào ECU">↓ BÙ → ECU</button>
       <button id="mapZoomExit" type="button">THU NHỎ</button>
     </div>
     <button id="fuelKeypadToggle" class="fuelKeypadToggle" type="button" aria-label="Mở bàn phím số của MAP" title="Bàn phím số">⌨</button>
@@ -3655,24 +3755,15 @@ async function applyCorrectedAndWrite(options={}){
     return false;
   }
 
-  const ok=await blinkConfirm(
-    'ĐƯA MAP ĐÃ BÙ → ECU · MAP NO.'+state.activeMap,
-    'Ô có AFR đo: dùng giá trị đã bù.\nÔ chưa đo: GIỮ NGUYÊN map ECU hiện tại.\nSố ô thay đổi: '+changed.length+' / 420.\n\nBlink sẽ tự đọc lại MAP nếu quá trình ghi gặp lỗi để tránh bù chồng.',
-    'GHI MAP',
-    'HỦY'
-  );
-  if(!ok){
-    showEcuNotice('info','ĐÃ HỦY GHI MAP ĐÃ BÙ','Không gửi lệnh ghi ECU. Dữ liệu MAP và AFR đo vẫn được giữ nguyên.',3000);
-    return false;
-  }
+  // PB 3.79.85: one tap on the explicitly labeled MAP ĐÃ BÙ → ECU action.
+  // All ECU transport, map-change protection, rollback, and 420-cell readback
+  // verification remain mandatory even without a separate confirmation popup.
   if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
-    showEcuNotice('error','KHÔNG THỂ GHI MAP ĐÃ BÙ','Kết nối, phiên Auto Tune hoặc MAP No. đã thay đổi trong lúc xác nhận. Chưa gửi lệnh ghi ECU.',0);
+    showEcuNotice('error','KHÔNG THỂ GHI MAP ĐÃ BÙ','Kết nối, phiên Auto Tune hoặc MAP No. đã thay đổi trước khi ghi. Chưa gửi lệnh ghi ECU.',0);
     return false;
   }
-  // The button's first tap already obtained approval. Only NOW acquire the
-  // shared live/ECU transaction, and continue straight into write+readback.
-  // Before confirmation, this operation must not show a fake blue loading
-  // status or stop the ongoing live-poll loop.
+  // Compute the correction first, then acquire the shared ECU transport.
+  // The same tap continues directly into the verified write/readback path.
   if(typeof options.prepareTransport==='function')await options.prepareTransport();
   if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
     showEcuNotice('error','MAP / ECU ĐÃ THAY ĐỔI','ECU hoặc MAP đang chọn đã thay đổi khi chờ giao tiếp. Chưa ghi MAP đã bù.',0);
@@ -4728,6 +4819,7 @@ function saveTargetAfrLocal(){
 function setTab(tab){
   window.hideFuelKeypad?.();
   resetQuickType();state.tab=tab;
+  document.getElementById('mapEditorScreen')?.classList.toggle('autoTuneReadOnly',tab==='measured'||tab==='corrected');
   document.getElementById('mapEditorScreen')?.classList.toggle('targetAfrEditor',tab==='target');
   const kpBtn=document.getElementById('fuelKeypadToggle');
   if(kpBtn)kpBtn.setAttribute('aria-label',tab==='target'?'Mở bàn phím AFR mục tiêu':'Mở bàn phím thời gian phun');
@@ -6782,7 +6874,13 @@ function updateMapSelectionPad(){
   const screen=document.getElementById('mapEditorScreen');
   // Editor-local positioning remains valid through physical rotation AND the
   // 90deg transform used by Blink when device rotation is locked.
-  if(!screen?.classList.contains('active')||!['inject','target'].includes(state.tab)||!isEditableTab()||!state.selection.active||scanPointer!==null){
+  // Auto Tune: the save arrow remains available on all four tabs.
+  // Standalone INJ VE / AFR target still use the original actions.
+  const inAutoTune=!!screen?.classList.contains('autoTuneMap');
+  const padAllowed=inAutoTune
+    ? ['measured','target','inject','corrected'].includes(state.tab)
+    : (['inject','target'].includes(state.tab)&&isEditableTab());
+  if(!screen?.classList.contains('active')||!padAllowed||!state.selection.active||scanPointer!==null){
     hideMapSelectionPad();
     return;
   }
@@ -7008,8 +7106,17 @@ document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1)
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
 floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
 floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
+function requestAutoTuneCorrectedSave(){
+  const screen=document.getElementById('mapEditorScreen');
+  if(!screen?.classList.contains('autoTuneMap'))return false;
+  const btn=document.getElementById('applyCorrectedBtn');
+  if(btn&&!btn.disabled)btn.click();
+  else showEcuNotice('error','CHƯA THỂ LƯU MAP ĐÃ BÙ','Kiểm tra kết nối ECU, MAP đang chọn và trạng thái Auto Tune/3 lượt.',0);
+  return true;
+}
 floatSaveBtn?.addEventListener('click',e=>{
   stopPadEvent(e);
+  if(requestAutoTuneCorrectedSave())return;
   if(state.tab==='target'){
     if(saveTargetAfrLocal())hideFuelKeypad();
     return; // AFR targets are local only, NEVER invoke writeMapBtn.
@@ -7090,6 +7197,7 @@ function syncMapZoomOrientation(){
 }
 document.getElementById('mapZoomBtn')?.addEventListener('click',enterMapZoom);
 document.getElementById('mapZoomExit')?.addEventListener('click',exitMapZoom);
+document.getElementById('mapZoomCorrectedSaveBtn')?.addEventListener('click',()=>requestAutoTuneCorrectedSave());
 document.addEventListener('keydown',e=>{if(mapZoomActive&&e.key==='Escape'){e.preventDefault();exitMapZoom();}});
 document.addEventListener('fullscreenchange',()=>{if(mapZoomActive&&mapZoomOwnFullscreen&&!document.fullscreenElement)exitMapZoom();});
 async function requestLandscape(){
@@ -7129,7 +7237,7 @@ updateMapControls();
   (function(){
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
-    if(label)label.textContent='P.b v'+v+' · '+window.BLINK_AFR_TARGET_KEYPAD_REVISION+' · UP1-IGN · V92-IGN · IGN-PC · AT-DIRECT · CORR-1T · AFR-CURSOR';
+    if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&cb='+Date.now();
     document.write('<script src="'+src+'"><\/script>');
   })();
