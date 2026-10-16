@@ -1,0 +1,34 @@
+name: BlinkRedleo
+options:
+  bundleIdPrefix: vn.blinkredleo
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  BlinkRedleo:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: BlinkRedleo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app
+        PRODUCT_NAME: BLINK REDLEO
+        INFOPLIST_FILE: BlinkRedleo/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: NO
+schemes:
+  BlinkRedleo:
+    build:
+      targets:
+        BlinkRedleo: all
+    run:
+      config: Debug
+    archive:
+      config: Release
