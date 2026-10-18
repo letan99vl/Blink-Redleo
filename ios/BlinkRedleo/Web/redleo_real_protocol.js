@@ -9,7 +9,7 @@
 const TAG='[BLINK TL REAL]';
 // This is the REMOTE protocol loaded by already-installed iOS hybrid PB3.79.64.
 // Keep WKWebView UI and BLE bridge intact; only synchronize original-PC IGN codecs.
-window.BLINK_IOS64_IGN_REVISION='IOS64-IGN-PC-20261014';
+window.BLINK_IOS64_IGN_REVISION='IOS64-IGN-FIXED360-20261018';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -753,28 +753,15 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
-// REDLEO original Windows EXEs (V8, V9.1X, V9.2, V10.2, Ultra Pro1):
-// B_True OFF: (raw-64)/4. B_True ON: (raw-64)*360/1024.
-// 9.2 and Ultra Pro1 owner screenshots use ON; other audited versions retain
-// the default OFF mode in their shipped iOS PB3.79.64 interface.
-// The standalone iOS64 UI has no ON/OFF selector; this protocol-only backport
-// changes the correct per-family default without changing the native IPA.
-// Unsupported/unknown V9 and V11 are never forced into the PC 360/1024 codec.
+// Fixed REDLEO IGN display policy for installed iOS PB3.79.64.
+// V8 / all identified V9 / V10 / Ultra Pro1: original PC B_True=ON 360°
+// converter, with exactly matching inverse writer. The local IPA UI does not
+// offer a mode selector and its PB number stays unchanged.
+// V11 / Ultra Pro2: separate, previously audited 0.28125°/raw-step codec.
 const IOS64_ORIGINAL_IGN_360_SCALE=360/1024;
-function isV92IosIgnProfile(info=handshakeInfo){
-  return !!(ecuProfile&&ecuProfile.key==='MODERN_V9'&&
-    firmwareNumbers(info).major===9&&v9GenerationDigit(info)===2);
+function isRedleoClassicIgnProfile(){
+  return !!(ecuProfile&&['LEGACY_V8','MODERN_V9','MODERN_V10'].includes(ecuProfile.key));
 }
-function isAuditedOriginalPcIgnProfile(){
-  if(!ecuProfile)return false;
-  if(ecuProfile.key==='LEGACY_V8'||ecuProfile.key==='MODERN_V10')return true;
-  if(ecuProfile.key==='MODERN_V9')return isV91Direct()||isV92IosIgnProfile();
-  return false;
-}
-function ios64IgnPcMode(){
-  return (isUltraDirect()||isV92IosIgnProfile())?'degrees360':'raw4';
-}
-// Original .NET Math.Round(Double, digits) uses banker's midpoint-to-even.
 function ios64PcRound(value,places=1){
   value=Number(value);
   if(!Number.isFinite(value))return NaN;
@@ -787,40 +774,23 @@ function ios64PcRound(value,places=1){
   return value<0?-out:out;
 }
 function ios64DecOriginalPcIgn(raw){
-  const unscaled=(Number(raw)-64)/4;
-  if(ios64IgnPcMode()==='degrees360')
-    return ios64PcRound(unscaled*360/256,1);
-  // Original V8 main GUI keeps 2 decimals under 10; V9/V10 main GUI
-  // re-rounds displayed values to one decimal.
-  if(ecuProfile&&ecuProfile.family==='v8')
-    return ios64PcRound(unscaled,unscaled>=100?0:unscaled>=10?1:2);
-  return ios64PcRound(unscaled,1);
+  return ios64PcRound((Number(raw)-64)*IOS64_ORIGINAL_IGN_360_SCALE,1);
 }
-function ios64EncOriginalPcIgn(v){
-  v=Number(v);
+function ios64EncOriginalPcIgn(value){
+  const v=Number(value);
   if(!Number.isFinite(v))throw new Error('Góc đánh lửa không hợp lệ.');
-  let units;
-  if(ios64IgnPcMode()==='degrees360'){
-    // Match original two-stage float32 intermediary:
-    // display degrees -> raw/4 rounded to 0.1 -> multiply by 4 -> raw byte.
-    const asSingle=Math.fround(Math.fround(Math.fround(v)*256)/360);
-    units=ios64PcRound(asSingle,1);
-  }else{
-    const decimals=ecuProfile&&ecuProfile.family==='v8'
-      ?(v>=100?0:v>=10?1:2)
-      :(v>=100?0:2);
-    units=ios64PcRound(Math.fround(v),decimals);
-  }
+  const asSingle=Math.fround(Math.fround(Math.fround(v)*256)/360);
+  const units=ios64PcRound(asSingle,1);
   return clamp(ios64PcRound(Math.fround(units*4),0)+64,0,255);
 }
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
-  if(!isAuditedOriginalPcIgnProfile())return decIgn(raw);
+  if(!isRedleoClassicIgnProfile())return decIgn(raw);
   return ios64DecOriginalPcIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
-  if(!isAuditedOriginalPcIgnProfile())return encIgn(v);
+  if(!isRedleoClassicIgnProfile())return encIgn(v);
   return ios64EncOriginalPcIgn(v);
 }
 function decLiveIgn(raw){
