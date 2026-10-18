@@ -20,6 +20,7 @@ let liveResumeTimer=null;
 let handshakeInfo=null;
 let readCache=null;          // populated only by explicit READ ALL
 let mainIgnUnitOverride=null; // per-ECU-session PC software B_True display mode
+let mainIgnSwitchInProgress=false; // UI switch owns a read-only MAP transaction
 let sensorCalCache=null;     // populated by lightweight A2 page read
 let sensorCalIdentity=null;   // prevents calibration from a different ECU being reused
 let pageCache=new Map();     // page-specific lazy reads
@@ -834,17 +835,58 @@ function encMainIgn(v){
   if(!isOriginalPcIgnFamily())return encIgn(v);
   return encOriginalPcIgn(v);
 }
-function setMainIgnUnitMode(mode){
-  if(mode!=='raw4'&&mode!=='degrees360')throw new Error('Sai chế độ hiển thị góc lửa.');
-  if(!isOriginalPcIgnFamily())throw new Error('Chỉ đổi đơn vị góc lửa cho REDLEO V8/V9/V10 đã xác minh EXE gốc.');
-  if(busy||ecuMapIoUiBusy||manualMapIoDepth>0)throw new Error('ECU đang bận, không thể đổi chế độ góc lửa.');
+function applyMainIgnUnitMode(mode){
   if(mode===mainIgnUnitMode())return mode;
   mainIgnUnitOverride=mode;
-  // Never reuse a cached byte page or a decoded ReadAll in the old display
-  // unit. The caller must delete local ignition grids and read ECU afresh.
+  // Do not reuse a decoded ReadAll snapshot or previously decoded page 3x.
   readCache=null;
   for(let bank=1;bank<=4;bank++)pageCache.delete(page(3,bank));
   return mode;
+}
+function setMainIgnUnitMode(mode){
+  if(mode!=='raw4'&&mode!=='degrees360')throw new Error('Sai chế độ hiển thị góc lửa.');
+  if(!isOriginalPcIgnFamily())throw new Error('Chỉ đổi đơn vị góc lửa cho REDLEO V8/V9/V10 đã xác minh EXE gốc.');
+  if(busy||ecuMapIoUiBusy||manualMapIoDepth>0||mainIgnSwitchInProgress)throw new Error('ECU đang bận, không thể đổi chế độ góc lửa.');
+  return applyMainIgnUnitMode(mode);
+}
+// A mode switch is DISPLAY-ONLY but its decoder must not change halfway through
+// live 0x69 traffic, an A2 warmup, or an ongoing MAP read/write. Reserve a
+// single-flight read slot, pause the live loop, await the in-flight packet,
+// invalidate all old IGN display grids and READ the chosen bank afresh. Never CD.
+async function switchMainIgnUnitMode(mode,bank=((typeof state!=='undefined'&&state.activeMap)||1),afterCommit=null){
+  if(mode!=='raw4'&&mode!=='degrees360')throw new Error('Sai chế độ hiển thị góc lửa.');
+  if(!isOriginalPcIgnFamily())throw new Error('Chỉ đổi đơn vị góc lửa cho REDLEO V8/V9/V10 đã xác minh EXE gốc.');
+  if(!handshakeInfo||!cmdChar()||!mapChar()||typeof state==='undefined'||!state.ecuConnected||state.ecuPhase!=='live'){
+    throw new Error('ECU chưa ở trạng thái LIVE để đọc lại góc đánh lửa.');
+  }
+  if(mainIgnSwitchInProgress||ecuMapIoUiBusy||manualMapIoDepth>0||otaPaused){
+    throw new Error('ECU đang ĐỌC/GHI hoặc OTA; hãy đợi giao dịch hiện tại kết thúc.');
+  }
+  if(mode===mainIgnUnitMode())return {mode,bank,changed:false};
+  // Lock synchronously before the first await; other manual MAP actions are
+  // rejected until this read-only change finishes.
+  if(!setEcuMapIoUiBusy('', 'read', true, 'ĐỔI ĐƠN VỊ GÓC LỬA',{confirmFirst:true})){
+    throw new Error('Đang có thao tác MAP khác.');
+  }
+  mainIgnSwitchInProgress=true;
+  const epoch=transportEpoch;
+  let context=null,manualStarted=false;
+  try{
+    taskUi('loading','ĐỔI ĐƠN VỊ GÓC LỬA · CHỜ LIVE NHẢ ECU...');
+    manualStarted=true;
+    context=await beginManualMapIo('ĐỔI ĐƠN VỊ GÓC LỬA');
+    if(epoch!==transportEpoch||!handshakeInfo||!cmdChar()||!mapChar()){
+      throw new Error('Kết nối ECU thay đổi trong lúc đổi đơn vị góc lửa.');
+    }
+    applyMainIgnUnitMode(mode);
+    if(typeof afterCommit==='function')await afterCommit(mode);
+    await readFeaturePageReal('ign_degree',bank,true);
+    return {mode,bank,changed:true};
+  }finally{
+    if(manualStarted)endManualMapIo(context);
+    mainIgnSwitchInProgress=false;
+    setEcuMapIoUiBusy(null,null,false);
+  }
 }
 function decLiveIgn(raw){
   if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
@@ -5033,7 +5075,7 @@ const ECU_MAP_IO_BUTTON_IDS=[
   'redReadBtn','redWriteBtn',
   'idleLimitReadBtn','idleLimitWriteBtn'
 ];
-const ECU_MAP_IO_SELECT_IDS=['mapSelect','redBankSelect','idleLimitBankSelect'];
+const ECU_MAP_IO_SELECT_IDS=['mapSelect','redBankSelect','idleLimitBankSelect','redIgnUnitMode'];
 let ecuMapIoUiBusy=false;
 let ecuMapIoUiToken=0;
 let ecuMapIoActiveId='';
@@ -5133,6 +5175,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label='',opts={}){
     if(sel.id==='mapSelect')sel.disabled=!!(typeof state!=='undefined'&&(state.threeRun?.active||state.ecuPhase==='write1'||state.ecuPhase==='write2'));
     else if(sel.id==='idleLimitBankSelect')sel.disabled=false;
     else if(sel.id==='redBankSelect')sel.disabled=false;
+    else if(sel.id==='redIgnUnitMode')sel.disabled=sel.dataset.ignSwitchBusy==='1';
   }
   try{applyProfileUi()}catch(_e){}
   return true;
@@ -5315,6 +5358,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,setMainIgnUnitMode,get mainIgnUnitMode(){return mainIgnUnitMode()},get mainIgnSelectable(){return isOriginalPcIgnFamily()},get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,setMainIgnUnitMode,switchMainIgnUnitMode,get mainIgnUnitMode(){return mainIgnUnitMode()},get mainIgnSelectable(){return isOriginalPcIgnFamily()},get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
