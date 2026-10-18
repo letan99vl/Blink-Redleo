@@ -67,7 +67,7 @@ jobs:
           fi
           grep -q "ios-native-remote-first" "$INDEX_PATH"
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
-          grep -q "IOS64-IGN-PC-20261014" "$PROTOCOL_PATH"
+          grep -q "IOS64-IGN-FIXED360-20261018" "$PROTOCOL_PATH"
           grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
           echo "Hybrid verified: local UI + remote protocol + bundled fallback"
 
