@@ -1547,34 +1547,24 @@ function dataViewText(d){
 }
 
 async function confirmBridgeRawReady(id,p){
+  // FW1.5+ sends RAWREADY via STATUS notify. A separate STATUS.readValue() here
+  // can block or collide with GATT writes on Android/Chromium, leaving the UI
+  // blue forever even after ESP32 accepted the whole ECU write.
+  // Poll the already installed notification instead: NO EXTRA GATT OPERATION.
   if(p&&p.bridgeReadyAt)return true;
-  // If RAW_RX already completed while we were finishing TX, the bridge could
-  // only have reached UART after fully assembling the frame.
-  if(!pending.has(id))return true;
-  const sc=statusChar();
-  if(!sc||typeof sc.readValue!=='function')return null;
-
-  // A final write-with-response barrier has already completed. Read the status
-  // characteristic a few times to make RAWREADY an application-level ACK that
-  // the ESP32 assembler truly has every byte before we wait on the ECU.
-  for(let i=0;i<3;i++){
-    if(i)await new Promise(r=>setTimeout(r,18));
-    try{
-      const d=await sc.readValue();
-      const t=dataViewText(d);
-      if(t===('RAWREADY '+id)){
-        if(p&&!p.bridgeReadyAt)p.bridgeReadyAt=performance.now();
-        return true;
-      }
-    }catch(e){
-      log('RAWREADY status read unavailable',String(e&&e.message||e));
-      return null;
-    }
+  if(!pending.has(id))return true; // The real RAW_RX response already completed.
+  const started=performance.now();
+  while(performance.now()-started<500){
     if(p&&p.bridgeReadyAt)return true;
+    if(!pending.has(id))return true;
+    await new Promise(r=>setTimeout(r,25));
   }
-  return false;
+  // A missing notification is UNKNOWN, not proof that ESP32 lost this write.
+  // Await the real ECU ACK/RAW_RX timeout and use READBACK recovery if it fails.
+  // NEVER blindly send the same page again just because RAWREADY was missed.
+  log('RAWREADY notification not observed for SID',id,'· await ECU ACK/READBACK');
+  return null;
 }
-
 function rejectPending(p,err){
   try{p&&p.reject&&p.reject(err);}catch(_e){}
 }
@@ -1606,8 +1596,12 @@ window.onBlinkStatus=function(text){
     if(p){
       p.bridgeReadyAt=performance.now();
       const dt=p.txDoneAt?Math.max(0,Math.round(p.bridgeReadyAt-p.txDoneAt)):0;
-      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
-        taskUi('loading','BLE ĐÃ RÁP ĐỦ FRAME'+(dt?' · '+dt+' ms':'')+' · ECU ĐANG XỬ LÝ...');
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&p.cmd===0xCD){
+        taskUi('loading','ESP32 ĐÃ NHẬN ĐỦ GÓI GHI'+(dt?' · '+dt+' ms':'')+' · ĐANG CHỜ ECU ACK...');
+      }else if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&p.cmd===0x9A){
+        // This is READBACK, not a new ECU write. Do not leave a stale
+        // "ECU đang xử lý" banner after readback verification completes.
+        taskUi('loading','ĐANG ĐỌC LẠI MAP TỪ ECU · XÁC MINH 420 Ô...');
       }
     }
   }
@@ -3184,7 +3178,9 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   requireProfile('fuelRead','Đọc MAP thời gian phun');
   await ensureEcuAxesReal(false);
   bank=normalizeBankForProfile(bank);
+  const verifyUi=!showUi&&ecuMapIoUiBusy&&ecuMapIoKind==='write'&&ecuMapIoTransportStarted;
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
+  else if(verifyUi)taskUi('loading','ĐANG ĐỌC LẠI ECU · XÁC MINH MAP NO.'+bank+' / 420 Ô...');
   const pg=page(1,bank);
   const first=!fuelPagePrimed.has(bank);
   const isV8=ecuProfile&&ecuProfile.family==='v8';
@@ -3199,7 +3195,7 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
     first ? (isV8?3:4) : 3,
     first ? (isV8?450:900) : 320,
     18000,
-    showUi,
+    showUi||verifyUi,
     fuelValidate
   );
   const R=parseCurrentFuelFrame(rx,bank);
