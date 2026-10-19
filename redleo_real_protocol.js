@@ -1232,8 +1232,9 @@ function installAfrListener(){
 }
 async function handshakeReal(){
   let firstErr=null;
-  try{
-    const rx=await rawExchange(req5(0x5A,0x5A),6000);
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      const rx=await rawExchange(req5(0x5A,0x5A),6000);
     const info=parseHandshake(rx);
     info.profile=profileFromHandshake(info);
     if(info.profile.family==='v8'){
@@ -1244,9 +1245,18 @@ async function handshakeReal(){
     syncHandshakeInfo(info);
     syncCapabilityFlags(info);
     return info;
-  }catch(e){
-    firstErr=e;
-    log('0x5A handshake failed, trying safe legacy 0x69 probe:',String(e&&e.message||e));
+    }catch(e){
+      firstErr=e;
+      const msg=String(e&&e.message||e);
+      if(/GATT operation already in progress|GATT.*operation.*in progress/i.test(msg)){
+        // This is a Windows host BLE contention, not proof that ECU is legacy.
+        if(attempt===2||!cmdChar()||!mapChar())throw new Error('Bluetooth GATT bận khi xác thực ECU 0x5A sau 3 lần: '+msg);
+        await new Promise(r=>setTimeout(r,260*(attempt+1)));
+        continue;
+      }
+      log('0x5A handshake failed, trying safe legacy 0x69 probe:',msg);
+      break;
+    }
   }
 
   // V3 / very old REDLEO builds do not use the modern 0x5A flow.
