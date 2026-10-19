@@ -5121,7 +5121,22 @@ function captureMapIo(id,kind,handler,labelFn,options={}){
       if(!confirmFirst)await beginTransport();
       // For manual MAP ĐÃ BÙ, handler presents the confirmation immediately,
       // then calls beginTransport *once*, continuing with the same first tap.
-      await handler(e,beginTransport);
+      const result=await handler(e,beginTransport);
+      if(id==='applyCorrectedBtn'&&result===true){
+        // startFuelWrite returns true only when 420/420 cells are verified.
+        taskUi('success','MAP ĐÃ BÙ · ECU ĐÃ XÁC MINH 420/420 Ô · OK',3500);
+      }else if(id==='applyCorrectedBtn'&&result===false){
+        // A false return previously left RAWREADY's blue spinner indefinitely,
+        // misleading the operator into tapping SAVE again.
+        if(ecuMapIoTransportStarted){
+          taskUi('error','MAP ĐÃ BÙ CHƯA XÁC MINH · ĐỌC LẠI ECU TRƯỚC KHI GHI LẠI',8000);
+        }else{
+          taskUi('offline','MAP ĐÃ BÙ · CHƯA GỬI ECU',3500);
+        }
+      }else if(id==='writeMapBtn'&&result===false){
+        taskUi(ecuMapIoTransportStarted?'error':'offline',
+          ecuMapIoTransportStarted?'GHI MAP CHƯA XÁC NHẬN · ĐỌC LẠI ECU':'CHƯA GỬI MAP VÀO ECU',6500);
+      }
     }catch(x){
       err(x);
       taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);
@@ -5184,7 +5199,7 @@ function installUI(){
   },'THỜI GIAN PHUN');
 
   captureMapIo('writeMapBtn','write',async()=>{
-    if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
+    if(typeof startFuelWrite==='function')return await startFuelWrite();
     await writeCurrentFuelAndVerify(state.activeMap);
     notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · ECU ACK · KHÔNG ĐỌC LẠI');
   },'THỜI GIAN PHUN');
