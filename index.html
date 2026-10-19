@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.89'; // sequential PB; ESP32 server OTA remains paused
+  window.BLINK_PB_VERSION = '3.79.90'; // sequential PB; ESP32 server OTA remains paused
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -3550,6 +3550,9 @@ async function startFuelWrite(opts={}){
     $('mapSelect').disabled=true;
     try{
       await realApi.writeCurrentFuelAndVerify(mapNo);
+      if(opts.verifyReadback){
+        window.setEcuTaskStatus?.('loading','ECU ĐÃ ACK · ĐANG ĐỌC LẠI 420 Ô ĐỂ XÁC MINH...');
+      }
 
       // Automated correction/3-run writes must be stronger than ACK-only:
       // read the 420 cells back before clearing AFR or advancing the next pass.
@@ -3598,6 +3601,7 @@ async function startFuelWrite(opts={}){
       $('mapSelect').disabled=state.threeRun.active;
       setFuelMapSyncUnknown(mapNo,false);
       onFuelWriteVerified(mapNo);
+      if(opts.verifyReadback)window.setEcuTaskStatus?.('success','MAP NO.'+mapNo+' · ĐỌC LẠI 420/420 Ô KHỚP · OK',3200);
       return true;
     }catch(e){
       const knownBefore=state.ecuWriteSnapshot?cloneMatrix(state.ecuWriteSnapshot):null;
@@ -3605,6 +3609,9 @@ async function startFuelWrite(opts={}){
       state.ecuPhase='live';
       $('mapSelect').disabled=state.threeRun.active;
 
+      // Do not leave a stale blue RAWREADY banner while recovering an ambiguous
+      // write. No automatic second write: READBACK must determine ECU state first.
+      window.setEcuTaskStatus?.('loading','GHI MAP CHƯA XÁC NHẬN · ĐANG ĐỌC LẠI ECU · KHÔNG GHI LẶP...');
       // A V9+ fuel write is two independent half-pages. If half 1 succeeded and
       // half 2 failed, blindly rolling the UI back would lie about ECU state.
       // First try to read the actual 420 cells back. If the attempted map is
@@ -3629,6 +3636,7 @@ async function startFuelWrite(opts={}){
 
       if(verifiedDespiteError){
         onFuelWriteVerified(mapNo);
+        window.setEcuTaskStatus?.('success','MẤT ACK NHƯNG READBACK ĐÚNG 420/420 Ô · ĐÃ XÁC MINH',3500);
         showEcuNotice('success','GHI MAP ĐÃ XÁC MINH','ECU không trả ACK như dự kiến nhưng READ CURRENT xác nhận đủ 420 ô đã đúng với MAP cần ghi.',5000);
         return true;
       }
