@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.88'; // sequential PB; ESP32 server OTA remains paused
+  window.BLINK_PB_VERSION = '3.79.89'; // sequential PB; ESP32 server OTA remains paused
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -4905,6 +4905,7 @@ window.addEventListener('beforeunload',save);
   };
 
   let device=null,server=null,service=null,liveChar=null,commandChar=null,mapChar=null,statusChar=null;
+  let bleConnectInFlight=false;
   let mapRx={active:false,mapNo:1,packets:0,cells:0,temp:null,seen:new Set()};
   const enc=new TextEncoder(),dec=new TextDecoder();
   const originalRender=render;
@@ -4915,7 +4916,8 @@ window.addEventListener('beforeunload',save);
   render();
 
   function setBleUi(on,label){
-    state.ecuConnected=!!on;state.ecuPhase=on?'live':'idle';
+    // Bluetooth GATT link is not yet the checksum-validated ECU 0x5A authorization.
+    state.ecuConnected=!!on;state.ecuPhase=on?'ble-linked':'idle';
     $('ecuBadge').textContent=on?('BLE: '+(label||'CONNECTED')):'BLE: OFF';
     $('ecuBadge').className='badge '+(on?'ok':'bad');
     $('connectEcuBtn').disabled=!!on;
@@ -5677,7 +5679,7 @@ window.addEventListener('beforeunload',save);
     }else if(text.startsWith('PONG')){
       acceptBridgePong(text);
       const fw=text.replace(/^PONG\s*/,'').trim()||'FW cũ';
-      showEcuNotice('success','ECU Blink BLE OK','Kết nối hai chiều hoạt động · Bridge '+fw+'.');
+      showEcuNotice('info','ESP32 BLINK · BLUETOOTH OK','Bridge '+fw+' đã phản hồi. Đang chờ ECU xác thực 0x5A.');
     }else if(text.startsWith('TPS_OK')){
       showEcuNotice('success','TPS STUDY TEST',text);
     }else if(text.startsWith('ERR')){
@@ -5688,7 +5690,10 @@ window.addEventListener('beforeunload',save);
   }
 
   async function connectBle(){
+    if(bleConnectInFlight)return; // Never open two overlapping GATT sessions on double-click.
+    bleConnectInFlight=true;
     const connectBtn=$('connectEcuBtn');
+    if(connectBtn)connectBtn.disabled=true;
     if(connectBtn){
       connectBtn.classList.remove('connectAck');
       void connectBtn.offsetWidth;
@@ -5710,18 +5715,22 @@ window.addEventListener('beforeunload',save);
       device.addEventListener('gattserverdisconnected',onDisconnected);
       server=await device.gatt.connect();
       service=await server.getPrimaryService(BLE.SERVICE);
-      [liveChar,commandChar,mapChar,statusChar]=await Promise.all([
-        service.getCharacteristic(BLE.LIVE),service.getCharacteristic(BLE.COMMAND),service.getCharacteristic(BLE.MAP),service.getCharacteristic(BLE.STATUS)
-      ]);
+      // Windows Chromium permits only one outstanding GATT transaction per device.
+      // The previous Promise.all caused intermittent 'GATT operation already in progress'.
+      liveChar=await service.getCharacteristic(BLE.LIVE);
+      commandChar=await service.getCharacteristic(BLE.COMMAND);
+      mapChar=await service.getCharacteristic(BLE.MAP);
+      statusChar=await service.getCharacteristic(BLE.STATUS);
       await liveChar.startNotifications();liveChar.addEventListener('characteristicvaluechanged',parseLive);
       await mapChar.startNotifications();mapChar.addEventListener('characteristicvaluechanged',parseMap);
       await statusChar.startNotifications();statusChar.addEventListener('characteristicvaluechanged',parseStatus);
-      window.blinkLiveChar=liveChar;window.blinkMapChar=mapChar;window.blinkCommandChar=commandChar;window.blinkStatusChar=statusChar;window.blinkWriteCommand=writeCommand;
+      // Do NOT expose RAW characteristics until ESP32 PING/RX/TX probes finish.
+      // Otherwise real protocol starts 0x5A while bridge control is still using GATT.
       window.blinkBridgeFirmwareStatus='';
       setBleUi(true,device.name||'ECU Blink');
-      setEcuTaskStatus('success','ECU ĐÃ KẾT NỐI · OK');
-      $('ecuDiag').textContent='BLE GATT OK · '+(device.name||'ECU Blink');
-      $('studyTpsInfo').textContent='BLE thật đã kết nối. Firmware test gửi LIVE và MAP demo; ECU thật sẽ nối ở bước sau.';
+      setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG KIỂM TRA ESP32...');
+      $('ecuDiag').textContent='BLE GATT OK · chờ ECU 0x5A · '+(device.name||'ECU Blink');
+      $('studyTpsInfo').textContent='Đã kết nối ESP32 qua Bluetooth. Chỉ mở MAP sau khi ECU xác thực 0x5A.';
       try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
       const bridgeFw=await ensureBridgeFirmwareStatus(3);
       if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
@@ -5729,11 +5738,24 @@ window.addEventListener('beforeunload',save);
         try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
         try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
       }
+      if(!device?.gatt?.connected)throw new Error('ESP32 đã ngắt Bluetooth trong khi khởi tạo');
+      // Only now does the REAL layer see both command and map characteristics.
+      window.blinkLiveChar=liveChar;
+      window.blinkMapChar=mapChar;
+      window.blinkCommandChar=commandChar;
+      window.blinkStatusChar=statusChar;
+      window.blinkWriteCommand=writeCommand;
+      setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG XÁC THỰC ECU 0x5A...');
     }catch(e){
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);
+      window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;
+      try{if(device?.gatt?.connected)device.gatt.disconnect();}catch(_e){}
       setEcuTaskStatus('error','KẾT NỐI ECU · LỖI');
       showEcuNotice('error','KẾT NỐI BLE THẤT BẠI',String(e&&e.message||e),0);
+    }finally{
+      bleConnectInFlight=false;
+      if(connectBtn)connectBtn.disabled=!!state.ecuConnected;
     }
   }
 
