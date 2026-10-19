@@ -1547,7 +1547,7 @@ function dataViewText(d){
 }
 
 async function confirmBridgeRawReady(id,p){
-  // FW1.5+ sends RAWREADY via STATUS notify. A separate STATUS.readValue() here
+  // FW1.5+ sends RAWREADY via STATUS notify. An additional STATUS GATT read here
   // can block or collide with GATT writes on Android/Chromium, leaving the UI
   // blue forever even after ESP32 accepted the whole ECU write.
   // Poll the already installed notification instead: NO EXTRA GATT OPERATION.
