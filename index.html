@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.91'; // sequential PB; ESP32 server OTA remains paused
+  window.BLINK_PB_VERSION = '3.79.92'; // sequential PB; ESP32 server OTA remains paused
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -4932,6 +4932,12 @@ window.addEventListener('beforeunload',save);
     $('disconnectEcuBtn').disabled=!on;
   }
 
+  function appleWebBleClient(){
+    const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
+    return /iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||
+      (platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+  }
+
   async function writeCommand(cmd){
     if(!commandChar)throw new Error('BLE chưa kết nối.');
     if(otaBleTransferActive)throw new Error('OTA ESP32 đang chạy.');
@@ -4940,6 +4946,16 @@ window.addEventListener('beforeunload',save);
     // PING is a safety handshake. Send it reliably; normal high-rate commands
     // keep the previous no-response path.
     if(cmd==='PING'){
+      // Bluefy/iOS can expose write-with-response but leave its Promise pending.
+      // Fire the no-response write without awaiting that shim so startup can never freeze here.
+      if(appleWebBleClient()&&typeof commandChar.writeValueWithoutResponse==='function'){
+        try{
+          const p=commandChar.writeValueWithoutResponse(bytes);
+          if(p&&typeof p.catch==='function')p.catch(()=>{});
+        }catch(_e){}
+        await new Promise(r=>setTimeout(r,35));
+        return;
+      }
       if(typeof commandChar.writeValueWithResponse==='function')await commandChar.writeValueWithResponse(bytes);
       else if(typeof commandChar.writeValue==='function')await commandChar.writeValue(bytes);
       else if(typeof commandChar.writeValueWithoutResponse==='function')await commandChar.writeValueWithoutResponse(bytes);
@@ -4980,7 +4996,7 @@ window.addEventListener('beforeunload',save);
       // STATUS is readable as well as notifiable. Bluefy/iOS can occasionally
       // miss the notification immediately after connect, so read it back.
       try{
-        if(statusChar&&typeof statusChar.readValue==='function'){
+        if(!appleWebBleClient()&&statusChar&&typeof statusChar.readValue==='function'){
           const d=await statusChar.readValue();
           const text=dec.decode(d).replace(/\0/g,'').trim();
           if(acceptBridgePong(text))return window.blinkBridgeFirmwareStatus;
@@ -5739,9 +5755,21 @@ window.addEventListener('beforeunload',save);
       setEcuTaskStatus('loading','BLUETOOTH OK · ĐANG KIỂM TRA ESP32...');
       $('ecuDiag').textContent='BLE GATT OK · chờ ECU 0x5A · '+(device.name||'ECU Blink');
       $('studyTpsInfo').textContent='Đã kết nối ESP32 qua Bluetooth. Chỉ mở MAP sau khi ECU xác thực 0x5A.';
-      try{if(navigator.bluetooth.setScreenDimEnabled)await navigator.bluetooth.setScreenDimEnabled(false);}catch(_e){}
+      try{
+        if(navigator.bluetooth.setScreenDimEnabled){
+          const p=navigator.bluetooth.setScreenDimEnabled(false);
+          if(p&&typeof p.catch==='function')p.catch(()=>{});
+        }
+      }catch(_e){}
       const bridgeFw=await ensureBridgeFirmwareStatus(3);
-      if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
+      if(appleWebBleClient()){
+        // Bluefy safe-start: do not run RX/TX capability probes during connect.
+        // They are optional optimizations; 12B ATT-safe transport is the compatibility baseline.
+        window.blinkBleClientKind='APPLE_WEBBLE';
+        window.blinkBridgeRxPayload=12;
+        window.blinkBridgeTxAdaptive=false;
+        if(!bridgeFw)console.warn('Bluefy safe-start: PONG chưa thấy, tiếp tục 12B để xác thực ECU');
+      }else if(!bridgeFw)console.warn('ESP32 bridge PONG chưa nhận sau khi kết nối');
       else{
         try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
         try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
