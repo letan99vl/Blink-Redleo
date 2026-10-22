@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.90'; // sequential PB; ESP32 server OTA remains paused
+  window.BLINK_PB_VERSION = '3.79.91'; // sequential PB; ESP32 server OTA remains paused
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -5746,7 +5746,7 @@ window.addEventListener('beforeunload',save);
         try{await configureFastBridgeRx(bridgeFw);}catch(e){console.warn('Fast bridge RX fallback 12B',e);}
         try{await configureFastBridgeTx(bridgeFw);}catch(e){console.warn('Adaptive desktop TX fallback',e);}
       }
-      if(!device?.gatt?.connected)throw new Error('ESP32 đã ngắt Bluetooth trong khi khởi tạo');
+      if(typeof device?.gatt?.connected==='boolean' && device.gatt.connected===false)throw new Error('ESP32 đã ngắt Bluetooth trong khi khởi tạo');
       // Only now does the REAL layer see both command and map characteristics.
       window.blinkLiveChar=liveChar;
       window.blinkMapChar=mapChar;
