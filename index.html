@@ -8,8 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.94'; // Signal11 V9.1x ECT INJ orientation; AFR IO4 fixed; ESP32 OTA paused
-window.BLINK_SIGNAL11_ECT_REVISION = 'V91-S11-ECT-INJ-FORWARD-20261023';
+  window.BLINK_PB_VERSION = '3.79.95'; // all REDLEO 9.1x Signal compensation orientation; AFR IO4 fixed; ESP32 OTA paused
+window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
 window.BLINK_AFR_IO4_REVISION = 'AFR-IO4-FIXED-20261023';
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
@@ -7342,7 +7342,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&ects11='+encodeURIComponent(window.BLINK_SIGNAL11_ECT_REVISION)+'&cb='+Date.now();
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&cb='+Date.now();
     const adaptiveSrc='auto_tune_feedback.js?v='+encodeURIComponent(v)+'&cb='+Date.now();
     document.write('<script src="'+adaptiveSrc+'"><\/script>');
     document.write('<script src="'+src+'"><\/script>');
