@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.92'; // sequential PB; ESP32 server OTA remains paused
+  window.BLINK_PB_VERSION = '3.79.93'; // AFR IO4 fixed 0V/10 AFR, Max V 3.135V/20 AFR; ESP32 OTA paused
+window.BLINK_AFR_IO4_REVISION = 'AFR-IO4-FIXED-20261023';
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -2150,6 +2151,28 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
       font-size:clamp(9px,1.18dvh,11px)!important;
     }
   }
+
+  /* PB3.79.93 - settings TPS / AFR IO4 / Auto Tune groups (Android/Web only) */
+  #settingsScreen .tuneSettingsDetails[open]{max-height:82dvh;overflow:auto;}
+  #settingsScreen .tuneSettingsDetails summary{font-size:15px!important;line-height:1.45!important;white-space:normal!important;font-weight:900;color:#fff;}
+  #settingsScreen .tuneSettingsGroup{background:linear-gradient(150deg,#161218,#0b0b0f);border:1px solid #51242b;border-radius:14px;padding:15px;margin-top:13px;min-width:0;}
+  #settingsScreen .tuneSettingsGroupHeading{font-size:16px;line-height:1.35;font-weight:900;color:#fff;margin:0 0 11px;padding:0 0 0 11px;border-left:4px solid #ff3b30;letter-spacing:.15px;}
+  #settingsScreen .tuneSettingsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important;min-width:0!important;margin-top:8px;}
+  #settingsScreen .tuneSettingsGrid .field{min-width:0;}
+  #settingsScreen .tuneSettingsGrid .field label{display:block;font-size:14px!important;color:#e2e2e8!important;font-weight:750;line-height:1.4;white-space:normal!important;margin-bottom:7px;overflow-wrap:anywhere;}
+  #settingsScreen .tuneSettingsGrid .field input{width:100%;height:46px!important;min-height:46px!important;padding:8px 11px;font-size:16px!important;font-weight:700;border-radius:10px;background:#09090d;border:1px solid #5a2932;color:#fff;}
+  #settingsScreen .tuneSettingHelp,#settingsScreen .tuneAfrFixed{font-size:12px;line-height:1.55;color:#b6b6bf;margin-top:11px;}
+  #settingsScreen .tuneAfrFixed{padding:11px 13px;border-radius:10px;border:1px solid #64303a;background:#171015;color:#e9dfe3;font-size:13px;}
+  #settingsScreen .tuneAfrFixed b,#settingsScreen .tuneSettingHelp b{color:#fff;}
+  #settingsScreen .tuneSettingsButtons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;width:100%;overflow:visible;white-space:normal;}
+  #settingsScreen .tuneSettingsButtons button{height:auto!important;min-height:42px!important;padding:9px 8px!important;font-size:12px!important;line-height:1.3;white-space:normal;}
+  #settingsScreen .tuneSettingsButtons #studyTpsBtn{grid-column:1/-1;}
+  #settingsScreen .tuneSettingsDetails #ecuDiag{margin:13px 2px 5px;font-size:12px;}
+  @media(max-width:650px){
+    #settingsScreen .tuneSettingsGroup{padding:12px;margin-top:10px;}
+    #settingsScreen .tuneSettingsGrid{grid-template-columns:1fr!important;gap:10px!important;}
+    #settingsScreen .tuneSettingsGrid .field label{font-size:13px!important;}
+  }
 </style>
 </head>
 <body>
@@ -2360,7 +2383,37 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
       <div class="settingTile"><div class="menuIcon">◉</div><h3>ECU Blink</h3><p>Kết nối cầu ECU</p><span class="tiny">SYS_04</span></div>
       <div class="settingTile"><div class="menuIcon">↻</div><h3>Firmware</h3><p>OTA SERVER TẠM KHÓA</p><span class="tiny">SYS_05</span></div>
     </div>
-    <details class="settings" open><summary>AUTO TUNE / HỌC TPS</summary><div class="settingsGrid"><div class="field"><label>Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div><div class="field"><label>Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div><div class="field"><label>Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Min (V)</label><input id="afrVoltMin" type="number" min="0" max="5" step="0.001" value="0"></div><div class="field"><label>AFR IO4 · Điện áp Max (V)</label><input id="afrVoltMax" type="number" min="0.01" max="5" step="0.001" value="2.66"></div><div class="field"><label>AFR IO4 · AFR Min</label><input id="afrValueMin" type="number" min="5" max="25" step="0.1" value="9.0"></div><div class="field"><label>AFR IO4 · AFR Max</label><input id="afrValueMax" type="number" min="5.1" max="30" step="0.1" value="18.0"></div><div class="field"><label>AFR delay (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div><div class="field"><label>Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div><div class="field"><label>Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div></div><div class="toolrow" style="margin-top:9px"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div><div class="hint">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div><div class="hint" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div><div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div></details>
+    <details class="settings tuneSettingsDetails" open>
+      <summary>HỌC TPS · CẢM BIẾN AFR IO4 · AUTO TUNE</summary>
+      <div class="tuneSettingsGroup tuneTpsSettings">
+        <h3 class="tuneSettingsGroupHeading">01 · HỌC TPS</h3>
+        <div class="settingsGrid tuneSettingsGrid">
+          <div class="field"><label for="tpsMin">Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div>
+          <div class="field"><label for="tpsMax">Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div>
+        </div>
+        <div class="toolrow tuneSettingsButtons"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div>
+        <div class="tuneSettingHelp">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div>
+        <div class="tuneSettingHelp" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div>
+      </div>
+      <div class="tuneSettingsGroup tuneAfrSettings">
+        <h3 class="tuneSettingsGroupHeading">02 · CẢM BIẾN AFR IO4</h3>
+        <div class="tuneAfrFixed">Thang AFR cố định: <b>0 V = AFR 10</b> · <b>Điện áp Max = AFR 20</b>.</div>
+        <div class="settingsGrid tuneSettingsGrid">
+          <div class="field"><label for="afrVoltMax">AFR IO4 · ĐIỆN ÁP MAX (V)</label><input id="afrVoltMax" type="number" inputmode="decimal" min="0.01" max="5" step="0.001" value="3.135"></div>
+        </div>
+        <div class="tuneSettingHelp">Mặc định <b>3,135 V</b> ứng với <b>AFR 20</b>. Có thể chỉnh điện áp Max cho cảm biến đang sử dụng; điện áp Min, AFR Min và AFR Max luôn cố định.</div>
+      </div>
+      <div class="tuneSettingsGroup tuneAutoSettings">
+        <h3 class="tuneSettingsGroupHeading">03 · AUTO TUNE / THÔNG SỐ BÙ</h3>
+        <div class="settingsGrid tuneSettingsGrid">
+          <div class="field"><label for="settleMs">Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div>
+          <div class="field"><label for="afrDelayMs">Độ trễ AFR (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div>
+          <div class="field"><label for="limitPct">Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div>
+          <div class="field"><label for="threeRunLimitPct">Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div>
+        </div>
+      </div>
+      <div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div>
+    </details>
 
     <details class="settings" id="otaSettings"><summary>CẬP NHẬT FIRMWARE ESP32 · OTA TẠM KHÓA</summary>
       <div class="settingsGrid">
@@ -2527,7 +2580,7 @@ const state={
   fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
-  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:2.66,afrValueMin:9,afrValueMax:18,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
+  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
@@ -2631,6 +2684,7 @@ function validMatrix(m){return Array.isArray(m)&&m.length===R&&m.every(row=>Arra
 let saveTimer;
 function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(save,250)}
 function save(){
+  normalizeAfrIo4Calibration();
   localStorage.setItem('afrAutoTuneDirectV5',JSON.stringify({
     cal:state.cal,
     mode:state.mode,
@@ -2641,15 +2695,37 @@ function save(){
   $('saveInfo').textContent='Đã lưu MAP No.'+state.activeMap+' · '+new Date().toLocaleTimeString();
 }
 function saveThreeRunHistory(){localStorage.setItem('afrAutoTune3RunHistoryV1',JSON.stringify(state.threeRunHistory.slice(0,12)));}
+const AFR_IO4_CAL_REVISION='AFR-IO4-FIXED-20261023';
+const AFR_IO4_DEFAULT_MAX_VOLT=3.135;
+// Migrate old Android/Web localStorage only once. Subsequent edits to Max V
+// remain saved; old configurable AFR endpoints never override fixed 0V/10/20.
+function normalizeAfrIo4Calibration(){
+  const cal=state.cal;
+  const oldRevision=cal.afrIo4Revision!==AFR_IO4_CAL_REVISION;
+  cal.afrVoltMin=0;
+  cal.afrValueMin=10;
+  cal.afrValueMax=20;
+  const maxV=Number(cal.afrVoltMax);
+  cal.afrVoltMax=(oldRevision||!Number.isFinite(maxV)||maxV<0.01||maxV>5)?AFR_IO4_DEFAULT_MAX_VOLT:maxV;
+  cal.afrIo4Revision=AFR_IO4_CAL_REVISION;
+  return oldRevision;
+}
 function syncControls(){
-  if(!Number.isFinite(state.cal.afrValueMin))state.cal.afrValueMin=9;
-  if(!Number.isFinite(state.cal.afrValueMax))state.cal.afrValueMax=18;
+  normalizeAfrIo4Calibration();
   $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
-  $('settleMs').value=state.cal.settleMs; $('afrVoltMin').value=state.cal.afrVoltMin; $('afrVoltMax').value=state.cal.afrVoltMax; $('afrValueMin').value=state.cal.afrValueMin; $('afrValueMax').value=state.cal.afrValueMax; $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('tuneMode').value=state.mode;
+  $('settleMs').value=state.cal.settleMs;
+  $('afrVoltMax').value=state.cal.afrVoltMax;
+  $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('tuneMode').value=state.mode;
 }
 function pullControls(){
   state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
-  state.cal.settleMs=Math.max(0,num($('settleMs').value,0)); state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,5); state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,2.66),0.01,5); if(state.cal.afrVoltMax<=state.cal.afrVoltMin+0.001)state.cal.afrVoltMax=Math.min(5,state.cal.afrVoltMin+0.01); state.cal.afrValueMin=clamp(num($('afrValueMin').value,9),5,25); state.cal.afrValueMax=clamp(num($('afrValueMax').value,18),5.1,30); if(state.cal.afrValueMax<=state.cal.afrValueMin+0.1)state.cal.afrValueMax=Math.min(30,state.cal.afrValueMin+0.1); state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0)); state.cal.limitPct=Math.max(0,num($('limitPct').value,100)); state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100); saveSoon();
+  state.cal.settleMs=Math.max(0,num($('settleMs').value,0));
+  state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,AFR_IO4_DEFAULT_MAX_VOLT),0.01,5);
+  normalizeAfrIo4Calibration();
+  state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0));
+  state.cal.limitPct=Math.max(0,num($('limitPct').value,100));
+  state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100);
+  saveSoon();
 }
 
 function matrixFor(tab){
@@ -4645,10 +4721,10 @@ function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    let vMin=Number(state.cal.afrVoltMin),vMax=Number(state.cal.afrVoltMax);
-    if(!Number.isFinite(vMin))vMin=0;if(!Number.isFinite(vMax)||vMax<=vMin+0.001){vMin=0;vMax=2.66;}
-    let afrMin=Number(state.cal.afrValueMin),afrMax=Number(state.cal.afrValueMax);
-    if(!Number.isFinite(afrMin))afrMin=9;if(!Number.isFinite(afrMax)||afrMax<=afrMin+0.1){afrMin=9;afrMax=18;}
+    // AFR IO4 fixed calibration: 0 V -> AFR 10; adjustable Max V -> AFR 20.
+    const vMin=0,afrMin=10,afrMax=20;
+    const userMax=Number(state.cal.afrVoltMax);
+    const vMax=Number.isFinite(userMax)&&userMax>=0.01&&userMax<=5?userMax:AFR_IO4_DEFAULT_MAX_VOLT;
     const x=clamp((state.live.afrV-vMin)/(vMax-vMin),0,1);
     // Preserve Blink's established two-slope sensor curve, but scale both axes
     // from the user's current voltage/AFR endpoints. No median/EMA/floor.
@@ -4842,14 +4918,14 @@ async function toggleRecord(){
   setRecording(!state.recording);
 }
 
-load();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);syncMeasuredClearButton();render();updateLive();renderThreeRunUi();renderThreeRunHistory();
+load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);syncMeasuredClearButton();render();updateLive();renderThreeRunUi();renderThreeRunHistory();
 
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
 $('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
 $('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
-['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrValueMin','afrValueMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
+['tpsMin','tpsMax','settleMs','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 $('afrTargetLocalSaveBtn')?.addEventListener('click',()=>saveTargetAfrLocal());
 
@@ -6745,7 +6821,7 @@ function syncAfrSensorUi(){const t=document.getElementById('afrControlToggle'),s
 function loadOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>e.value=optionStore[e.dataset.ecuopt]??'');document.querySelectorAll('[data-ecutoggle]').forEach(e=>e.checked=!!optionStore[e.dataset.ecutoggle]);if(document.getElementById('o2SourceSelect')&&!optionStore.o2Source)document.getElementById('o2SourceSelect').value='original';syncAfrSensorUi()}
 async function ecuCommand(c){saveOptions();try{await cmd(c);showEcuNotice('info','ĐÃ GỬI LỆNH',c)}catch(e){showEcuNotice('error','BLE',e.message,0)}}
 function exportBackup(){const blob=new Blob([JSON.stringify({version:7,featureStore,optionStore,mapBanks:state.mapBanks,cal:state.cal},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='BLINK_REDLEO_BACKUP_v7.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal)Object.assign(state.cal,j.cal);saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
+async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal){Object.assign(state.cal,j.cal);state.cal.afrIo4Revision=j.cal.afrIo4Revision||null;}normalizeAfrIo4Calibration();saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
 function syncMirrors(){const m={rpm:document.getElementById('rpmLive')?.textContent||'0',tps:document.getElementById('tpsLive')?.textContent||'--%',afr:document.getElementById('afrLive')?.textContent||'--',cell:document.getElementById('cellLive')?.textContent||'--',ect:document.getElementById('ectLive')?.textContent||'-- °C'};document.querySelectorAll('[data-mirror]').forEach(e=>{if(m[e.dataset.mirror]!=null)e.textContent=m[e.dataset.mirror]});const ze=document.getElementById('mapZoomEct');if(ze)ze.textContent=m.ect;const rpmMax=Math.max(1,Number(RPMS[C-1])||15000),rpm=Math.max(0,Math.min(rpmMax,Number((m.rpm||'0').replace(/[^0-9.]/g,''))||0));document.getElementById('rpmGauge')?.style.setProperty('--rpm-angle',(rpm/rpmMax*270)+'deg');const on=!!state.ecuConnected;['mapBleStatus','editorBleStatus','idleLimitBleStatus','redEditorBleStatus','tuneBleStatus','ecuBleStatus','settingsBleStatus'].forEach(id=>{const e=document.getElementById(id);if(!e)return;e.classList.toggle('on',on);const s=e.querySelector('span:last-child');if(s)s.textContent=on?'ON':'OFF'});const db=document.getElementById('dashBleState');if(db){db.textContent=on?'● ON':'● OFF';db.style.color=on?'#86ffa7':''};syncBanks();try{const cur=currentCell(),pw=state.inject?.[cur.r]?.[cur.c];if(!Number.isFinite(Number(state.live.pw)))document.getElementById('dashPw').textContent=Number.isFinite(Number(pw))?Number(pw).toFixed(2)+' ms':'0.00 ms'}catch(e){}}
 
 // Both bottom AUTO TUNE and homepage shortcut enter the AFR map directly.
