@@ -8,8 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.101'; // Opt-in automatic corrected MAP save after 2s closed TPS and safe idle RPM; existing AFR lock unchanged; OTA paused
-window.BLINK_AUTO_IDLE_SAVE_REVISION = 'AUTO-IDLE-2SEC-VERIFY-20261024';
+  window.BLINK_PB_VERSION = '3.79.102'; // Auto save corrected MAP after TPS <1% for 2s without RPM; existing AFR target lock unchanged
+window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-NO-RPM-20261024';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
@@ -2265,7 +2265,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
-    <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI NHẢ GA VỀ IDLE 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần, chỉ ghi lúc tua gần garanti ≤2200 RPM.</span></div>
+    <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
@@ -2376,7 +2376,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
     <div class="recordActions"><button id="clearMeasured" class="danger" style="grid-column:1/-1">XÓA AFR ĐO</button></div><div class="tuneMapLinks"><button class="ghost" data-auto-tab="measured">AFR ĐO CỦA BLINK</button><button class="ghost" data-auto-tab="target">AFR MỤC TIÊU CỦA BLINK</button><button class="ghost" data-auto-tab="corrected">MAP PHUN ĐÃ BÙ</button><button class="ghost" data-auto-tab="inject">THỜI GIAN PHUN</button><button id="tuneApplyCorrectedBtn" class="danger tuneApplyCorrected" type="button">✦ MAP PHUN ĐÃ BÙ → ECU</button></div>
     <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu.</div></div>
-    <div class="tuneNote">Auto Tune chế độ thường: ghi AFR đo, tính MAP đã bù, chỉ ghi ECU khi có ô cần bù và xác minh dữ liệu đọc lại. Tùy chọn tự ghi khi đã mở ga rồi nhả về TPS ≤1% và RPM gần garanti ≤2200 liên tục 2 giây. Ô AFR đạt ±0,3 vẫn khóa cho đến khi có 3 lần xóa bảng xác nhận AFR lệch.</div>
+    <div class="tuneNote">Auto Tune chế độ thường: ghi AFR đo, tính MAP đã bù, chỉ ghi ECU khi có ô cần bù và xác minh dữ liệu đọc lại. Tùy chọn tự lưu khi TPS giảm từ ít nhất 1% xuống dưới 1% liên tục đủ 2 giây; không kiểm tra RPM. Ô AFR đạt ±0,3 vẫn khóa cho đến khi có 3 lần xóa bảng xác nhận AFR lệch.</div>
     <div id="recordBadge" class="badge" style="margin-top:9px;text-align:center">GHI AFR: OFF</div>
   </section>
 
@@ -4197,17 +4197,14 @@ async function applyCorrectedAndWrite(options={}){
 }
 
 
-// PB3.79.101. Auto IDLE save is opt-in PER APP LAUNCH. A closed throttle
-// while riding at high RPM is not an idle/safe-write condition.
-// We only trigger after verified ECU TPS opened >3%, then TPS <=1% AND
-// 650..2200 RPM continuously for 2s, with a fresh AFR measurement this session.
-// This reuses the normal 420-cell verified MAP write; NEVER write twice for
-// the same release event, or retry automatically after an ambiguous write.
+// PB3.79.102: Auto save is opt-in PER APP LAUNCH. Detect TPS rising to
+// >=1%, followed by TPS staying STRICTLY below 1% for 2000ms. Ignore RPM
+// at all stages including preflight. Still require fresh TPS/AFR, verified ECU,
+// same map identity, one-shot per release, and 420-cell verified readback.
+// Writing at high RPM is possible; operator must enable knowingly.
 const AUTO_IDLE_SAVE_MS=2000;
-const AUTO_IDLE_SAVE_TPS_MAX=1;
-const AUTO_IDLE_SAVE_OPEN_TPS=3;
-const AUTO_IDLE_SAVE_RPM_MIN=650;
-const AUTO_IDLE_SAVE_RPM_MAX=2200;
+const AUTO_IDLE_SAVE_TPS_MAX=1; // strictly <1%
+const AUTO_IDLE_SAVE_OPEN_TPS=1; // re-arm at >=1%
 const autoIdleSave={enabled:false,openSeen:false,idleSince:0,freshSamples:0,inFlight:false,mapNo:0,status:''};
 function autoIdleSaveStatus(message){
   const checkbox=document.getElementById('autoIdleSaveToggle');
@@ -4219,19 +4216,19 @@ function autoIdleSaveReset(disable=false){
   autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;autoIdleSave.freshSamples=0;
   autoIdleSave.mapNo=state.activeMap;
   if(disable)autoIdleSave.enabled=false;
-  autoIdleSaveStatus(!autoIdleSave.enabled?'Đang tắt · Bật khi cần và chỉ dùng khi xe dừng an toàn.':'Chờ mở ga >=3% rồi nhả về IDLE; phải đang GHI AFR.');
+  autoIdleSaveStatus(!autoIdleSave.enabled?'Đang tắt · Bật khi cần và chỉ dùng khi xe dừng an toàn.':'Chờ TPS lên ≥1% rồi nhả về dưới 1%; phải đang GHI AFR.');
 }
 function autoIdleSaveSetEnabled(on){
   autoIdleSave.enabled=!!on;
   autoIdleSaveReset(false);
-  if(autoIdleSave.enabled)showEcuNotice('info','TỰ LƯU BÙ IDLE: ON','Sau khi ghi AFR, mở ga rồi nhả TPS <=1% và tua <=2200 RPM liên tục 2 giây. Chỉ sử dụng khi xe đứng yên an toàn; sẽ ghi và xác minh 420 ô.',3500);
+  if(autoIdleSave.enabled)showEcuNotice('info','TỰ LƯU BÙ IDLE: ON','Sau khi ghi AFR, nhả ga từ TPS >=1% về TPS <1% đủ 2 giây: tự lưu và xác minh 420 ô, không phụ thuộc RPM. Chỉ dùng khi xe đứng yên an toàn.',3500);
 }
 function autoIdleSaveBaseReady(now){
   return !!(autoIdleSave.enabled&&!autoIdleSave.inFlight&&state.recording&&state.ecuConnected&&
     state.ecuPhase==='live'&&!state.threeRun.active&&!state.ecuWriteQueued&&
     !state.pendingAfrClearMapNo&&!fuelMapSyncUnknown(state.activeMap)&&
     blinkEcuTpsReady()&&tpsTelemetryFresh(now)&&afrStreamReady(2200)&&
-    Number.isFinite(state.live.tps)&&Number.isFinite(state.live.rpm));
+    Number.isFinite(state.live.tps));
 }
 function autoIdleSavePreflight(mapNo,ecuIdentity){
   const now=performance.now();
@@ -4241,8 +4238,7 @@ function autoIdleSavePreflight(mapNo,ecuIdentity){
     !fuelMapSyncUnknown(mapNo)&&blinkEcuTpsReady()&&
     ecuIdentity===blinkTpsEcuIdentity()&&tpsTelemetryFresh(now)&&
     afrStreamReady(2200)&&Number.isFinite(state.live.tps)&&
-    state.live.tps<=AUTO_IDLE_SAVE_TPS_MAX&&Number.isFinite(state.live.rpm)&&
-    state.live.rpm>=AUTO_IDLE_SAVE_RPM_MIN&&state.live.rpm<=AUTO_IDLE_SAVE_RPM_MAX);
+    state.live.tps<AUTO_IDLE_SAVE_TPS_MAX);
 }
 function autoIdleSaveHasCorrection(){
   const corrected=correctedMatrix(),base=state.inject;
@@ -4257,7 +4253,7 @@ async function autoIdleSaveCommit(mapNo,ecuIdentity){
   let needsWrite=false;
   try{
     if(!autoIdleSavePreflight(mapNo,ecuIdentity)){
-      autoIdleSaveStatus('Đã hủy tự lưu: TPS/RPM, AFR hoặc ECU thay đổi trước khi ghi.');
+      autoIdleSaveStatus('Đã hủy tự lưu: TPS, AFR hoặc ECU thay đổi trước khi ghi.');
       return;
     }
     needsWrite=autoIdleSaveHasCorrection();
@@ -4297,22 +4293,22 @@ function autoIdleSaveTick(now=performance.now()){
   }
   if(!autoIdleSaveBaseReady(now)){
     autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;
-    autoIdleSaveStatus('Chờ ECU xác thực, TPS ECU, dữ liệu AFR/RPM mới và MAP an toàn.');
+    autoIdleSaveStatus('Chờ ECU xác thực, TPS ECU, AFR mới và MAP an toàn.');
     return;
   }
-  const tps=Number(state.live.tps),rpm=Number(state.live.rpm);
+  const tps=Number(state.live.tps);
   if(tps>=AUTO_IDLE_SAVE_OPEN_TPS){
     autoIdleSave.openSeen=true;autoIdleSave.idleSince=0;
-    autoIdleSaveStatus('Đã mở ga; chờ nhả về TPS IDLE (<=1%) và RPM <=2200.');
+    autoIdleSaveStatus('Đã thấy TPS ≥1%; chờ nhả xuống dưới 1%.');
     return;
   }
   if(!autoIdleSave.openSeen){
-    autoIdleSaveStatus('Chờ mở ga >=3% rồi nhả để chống ghi lặp lúc đứng garanti.');
+    autoIdleSaveStatus('Chờ TPS ≥1% để nhận lượt nhả ga mới và tránh ghi lặp.');
     return;
   }
-  if(tps>AUTO_IDLE_SAVE_TPS_MAX || rpm<AUTO_IDLE_SAVE_RPM_MIN || rpm>AUTO_IDLE_SAVE_RPM_MAX){
+  if(tps>=AUTO_IDLE_SAVE_TPS_MAX){
     autoIdleSave.idleSince=0;
-    autoIdleSaveStatus('Chờ TPS <=1% và tua máy 650-2200 RPM liên tục 2 giây.');
+    autoIdleSaveStatus('Chờ TPS dưới 1% liên tục 2 giây.');
     return;
   }
   if(autoIdleSave.freshSamples<1){
@@ -4323,7 +4319,7 @@ function autoIdleSaveTick(now=performance.now()){
   if(!autoIdleSave.idleSince)autoIdleSave.idleSince=now;
   const elapsed=now-autoIdleSave.idleSince;
   if(elapsed<AUTO_IDLE_SAVE_MS){
-    autoIdleSaveStatus('TPS IDLE / RPM an toàn: '+(elapsed/1000).toFixed(1)+' / 2.0 giây');
+    autoIdleSaveStatus('TPS dưới 1%: '+(elapsed/1000).toFixed(1)+' / 2.0 giây');
     return;
   }
   const mapNo=state.activeMap,ecuIdentity=blinkTpsEcuIdentity();
