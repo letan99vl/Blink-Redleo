@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.98'; // all dialogs inside Blink, no launcher/browser dialogs; OTA paused
+  window.BLINK_PB_VERSION = '3.79.99'; // RAM-only AFR target ±0.3 lock with 3 independent clear-round far-value confirmation; OTA paused
+window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
@@ -90,6 +91,8 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   td.mapcell.afr-red{background:#e54855;color:#fff;font-weight:800}
   td.mapcell.afr-green{background:#21a65a;color:#fff;font-weight:800}
   td.mapcell.afr-orange{background:#f39a21;color:#111;font-weight:800}
+  td.mapcell.afr-target-locked{outline:2px solid #00bc79;outline-offset:-3px}
+  td.mapcell.afr-target-locked::after{content:'🔒';position:absolute;top:1px;right:2px;font-size:9px;pointer-events:none}
   td.mapcell.corrected-add{background:#e54855;color:#fff;font-weight:800}
   td.mapcell.corrected-cut{background:#ffd54a;color:#241800;font-weight:800}
   td.mapcell.corrected-add::after,td.mapcell.corrected-cut::after{content:attr(data-fuel-dir);position:absolute;top:1px;right:3px;font-size:10px;line-height:1;font-weight:1000;pointer-events:none}
@@ -2559,6 +2562,7 @@ function applyEcuAxes(info={}){
       b.target=remapTargetToAxes(b.target,oldRows,oldRpms,nextRows,r);
       b.measured=blankMatrix(null);b.counts=blankMatrix(0);
     }
+    afrResetTargetLocks();
     state.lastCellKey='';
   }
   RPMS.splice(0,RPMS.length,...r);
@@ -2776,8 +2780,9 @@ function blinkSetVerifiedEcuTps(minVolt,maxVolt,origin){
       return false;
     }
   }
-  for(const {b} of changed){
+  for(const {b,i} of changed){
     b.measured=blankMatrix(null);b.counts=blankMatrix(0);b.tpsCaptureKey=key;
+    afrResetTargetLocks(i+1); // invalidate locks made with another ECU TPS calibration
   }
   blinkVerifiedEcuTps={id,min:lo,max:hi,key,source:String(origin||'A2 ECU'),verifiedAt:Date.now()};
   state.cal.tpsMin=lo;state.cal.tpsMax=hi;
@@ -2859,10 +2864,133 @@ function isIdleAutoTuneRow(r){
   const pct=Number(label.replace(/%$/,''));
   return label!==''&&Number.isFinite(pct)&&pct===0;
 }
+// PB3.79.99 · all 4 MAP locks are RAM-only (NEVER stored in localStorage).
+// Keep the best observed AFR once it enters target ±0.30. Three DIFFERENT
+// measurement/clear cycles with mutually consistent far AFR (range <=0.30),
+// no near-target reading in any of those cycles, unlock that specific cell.
+// Observations continue in background while the displayed AFR is frozen.
+const AFR_TARGET_LOCK_BAND=0.30;
+const afrTargetLockBanks=Array.from({length:4},()=>blankMatrix(null));
+function afrNearTarget(value,target){
+  const a=Number(value),t=Number(target);
+  return value!=null&&target!=null&&Number.isFinite(a)&&Number.isFinite(t)&&t>0&&Math.abs(a-t)<=AFR_TARGET_LOCK_BAND+1e-9;
+}
+function afrNewLockCycle(){return {near:false,n:0,sum:0,lo:Infinity,hi:-Infinity};}
+function afrTargetLock(mapNo,r,c){
+  const i=Math.round(Number(mapNo))-1;
+  const b=state.mapBanks[i],grid=afrTargetLockBanks[i];
+  if(!b||!grid||r<0||r>=R||c<0||c>=C)return null;
+  const lock=grid[r][c];
+  if(!lock)return null;
+  const goal=Number(b.target?.[r]?.[c]);
+  // A changed AFR target invalidates the former best reading and all
+  // off-target confirmations; a historical lock cannot block new tuning.
+  if(!Number.isFinite(goal)||Math.abs(lock.goal-goal)>1e-9){
+    grid[r][c]=null;
+    b.measured[r][c]=null;
+    b.counts[r][c]=0;
+    return null;
+  }
+  return lock;
+}
+function afrTargetLockActive(r,c,mapNo=state.activeMap){return !!afrTargetLock(mapNo,r,c);}
+function afrTargetLockCount(mapNo=state.activeMap){
+  let n=0;for(let r=0;r<R;r++)for(let c=0;c<C;c++)if(afrTargetLock(mapNo,r,c))n++;
+  return n;
+}
+function afrResetTargetLocks(mapNo=0){
+  const from=mapNo?Math.round(mapNo)-1:0,to=mapNo?from+1:4;
+  for(let i=from;i<to;i++)if(i>=0&&i<4)afrTargetLockBanks[i]=blankMatrix(null);
+}
+function afrDiscardChangedTargets(mapNo=state.activeMap){
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++)afrTargetLock(mapNo,r,c);
+}
+function afrReleaseTargetLock(mapNo,r,c,value){
+  afrTargetLockBanks[mapNo-1][r][c]=null;
+  try{window.BlinkAutoTuneLearner?.resetCellAfterAfrUnlock?.(mapNo,r,c);}catch(_e){}
+  return value;
+}
+function afrObserveMeasuredValue(mapNo,r,c,afr){
+  const bank=state.mapBanks[mapNo-1];
+  const aim=Number(bank?.target?.[r]?.[c]);
+  if(!Number.isFinite(aim)||aim<=0)return afr;
+  let lock=afrTargetLock(mapNo,r,c);
+  if(afrNearTarget(afr,aim)){
+    if(!lock){
+      lock={goal:aim,best:afr,history:[],cycle:afrNewLockCycle()};
+      afrTargetLockBanks[mapNo-1][r][c]=lock;
+    }else if(Math.abs(afr-aim)+1e-9<Math.abs(lock.best-aim)){
+      lock.best=afr;
+    }
+    // ANY near-target observation cancels the far-data streak. We still
+    // display the best stable reading and keep counting physical samples.
+    lock.history=[];lock.cycle=afrNewLockCycle();lock.cycle.near=true;
+    return lock.best;
+  }
+  if(!lock)return afr;
+  const cycle=lock.cycle;
+  if(!cycle.near){
+    // Keep measuring but never release a lock inside an unfinished cycle.
+    // The user's condition requires THREE completed AFR-table clears.
+    cycle.n++;cycle.sum+=afr;
+    cycle.lo=Math.min(cycle.lo,afr);cycle.hi=Math.max(cycle.hi,afr);
+  }
+  return lock.best; // Hide unstable/far live values ONLY in the AFR map.
+}
+function afrFinishMeasurementCycle(mapNo=state.activeMap){
+  const grid=afrTargetLockBanks[mapNo-1],promoted=[];
+  if(!grid)return promoted;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const lock=afrTargetLock(mapNo,r,c);
+    if(!lock)continue;
+    const x=lock.cycle;
+    if(x.near||x.n===0||x.hi-x.lo>AFR_TARGET_LOCK_BAND+1e-9){
+      lock.history=[];
+    }else{
+      const current={lo:x.lo,hi:x.hi,value:x.sum/x.n};
+      const all=[...lock.history,current];
+      const lo=Math.min(...all.map(z=>z.lo)),hi=Math.max(...all.map(z=>z.hi));
+      if(all.length===3&&hi-lo<=AFR_TARGET_LOCK_BAND+1e-9&&!afrNearTarget(current.value,lock.goal)){
+        // Three DIFFERENT completed measurement-and-clear rounds.
+        // No near-target value in any round, full raw AFR range <=0.3.
+        promoted.push({r,c,value:afrReleaseTargetLock(mapNo,r,c,current.value)});
+        continue;
+      }
+      lock.history=(hi-lo<=AFR_TARGET_LOCK_BAND+1e-9?all:[current]).slice(-2);
+    }
+    lock.cycle=afrNewLockCycle();
+  }
+  return promoted;
+}
+function afrRestoreFrozenReadings(mapNo=state.activeMap){
+  const bank=state.mapBanks[mapNo-1];if(!bank)return;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const lock=afrTargetLock(mapNo,r,c);
+    if(lock){bank.measured[r][c]=lock.best;bank.counts[r][c]=0;}
+  }
+}
+function afrApplyReleasedFarReadings(mapNo,items){
+  const bank=state.mapBanks[mapNo-1];if(!bank)return;
+  for(const {r,c,value} of items){
+    bank.measured[r][c]=value;
+    bank.counts[r][c]=Math.max(1,Number(bank.counts[r][c])||0);
+  }
+}
+function afrClearRoundKeepingLocks(mapNo=state.activeMap,complete=true){
+  const released=complete?afrFinishMeasurementCycle(mapNo):[];
+  const b=state.mapBanks[mapNo-1];
+  if(!b)return;
+  b.measured=blankMatrix(null);b.counts=blankMatrix(0);
+  afrRestoreFrozenReadings(mapNo);
+  afrApplyReleasedFarReadings(mapNo,released);
+}
+window.blinkAfrTargetLockActive=afrTargetLockActive;
+window.blinkAfrTargetLockCount=afrTargetLockCount;
+window.blinkResetAfrTargetLocks=afrResetTargetLocks;
 function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
   const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100, maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++) for(let c=0;c<C;c++){
-    if(isIdleAutoTuneRow(r)){out[r][c]=baseMap[r][c];continue;}
+    if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(afrMap[r][c],targetMap[r][c])){out[r][c]=baseMap[r][c];continue;}
     const base=num(baseMap[r][c],0),meas=num(afrMap[r][c],0),tgt=num(targetMap[r][c],0);
     if(base<=0){out[r][c]=null;continue;} if(meas<=0||tgt<=0){out[r][c]=base;continue;}
     let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,maxMs);
@@ -2903,6 +3031,9 @@ function render(){
         cls+=' inj-heat';
         cellStyle=' style="--inj-heat:'+injectionHeatColor(v)+'"';
       }
+      if((state.tab==='measured'||state.tab==='corrected')&&afrTargetLockActive(r,c)){
+        cls+=' afr-target-locked';cellAttr=' title="AFR đạt mục tiêu ±0,3 · đang khóa bù xăng"';
+      }
       if(state.tab==='measured'&&v!=null){
         const afr=Number(v);
         if(Number.isFinite(afr)){
@@ -2935,7 +3066,7 @@ function render(){
 function selectCellText(td){const range=document.createRange();range.selectNodeContents(td);const s=window.getSelection();s.removeAllRanges();s.addRange(range)}
 function commitCell(td){
   const r=+td.dataset.r,c=+td.dataset.c,v=num(String(td.textContent).replace(',','.'),0);
-  if(state.tab==='target') state.target[r][c]=v; else if(state.tab==='inject') state.inject[r][c]=v; saveSoon();
+  if(state.tab==='target'){state.target[r][c]=v;afrTargetLock(state.activeMap,r,c);}else if(state.tab==='inject') state.inject[r][c]=v; saveSoon();
 }
 function isEditableTab(){return !state.threeRun.active&&(state.tab==='target'||state.tab==='inject')}
 function beginEdit(td){
@@ -4007,13 +4138,30 @@ async function applyCorrectedAndWrite(options={}){
   const next=blankMatrix(0);
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const base=num(state.inject[r][c],0);
-    next[r][c]=isIdleAutoTuneRow(r)?baseMap[r][c]:(corrected[r][c]==null?base:num(corrected[r][c],base));
+    next[r][c]=(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(state.measured[r][c],state.target[r][c]))?baseMap[r][c]:(corrected[r][c]==null?base:num(corrected[r][c],base));
   }
   const changed=[];
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     if(Math.abs(num(next[r][c],0)-num(state.inject[r][c],0))>.0001)changed.push([r,c]);
   }
   if(!changed.length){
+    // A completely in-target pass has no ECU write to ACK. Nevertheless it
+    // must be possible to complete a NEW independent AFR measurement cycle
+    // using the normal LƯU MAP ĐÃ BÙ control, even if every sampled cell is locked.
+    let samples=0,allHeld=true;
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      if(Number(state.counts[r][c])<=0)continue;
+      samples++;
+      if(!afrTargetLockActive(r,c)){allHeld=false;break;}
+    }
+    if(samples>0&&allHeld){
+      afrClearRoundKeepingLocks(requestedMapNo,true);
+      state.lastCellKey='';
+      if(state.tab==='measured'||state.tab==='corrected')render();
+      saveSoon();
+      showEcuNotice('info','AFR ĐÃ ĐẠT MỤC TIÊU','Đã hoàn tất một lượt đo, giữ nguyên các ô AFR khóa ±0,3. Không cần gửi MAP phun xuống ECU.',4200);
+      return false;
+    }
     showEcuNotice('info','CHƯA CÓ Ô AFR CẦN BÙ','MAP đã bù giống MAP gốc: chưa có ô AFR đo nào tạo thay đổi. Chưa gửi lệnh GHI ECU.',4200);
     return false;
   }
@@ -4073,7 +4221,7 @@ function afrRunStats(run){
 function matrixToWritable(base,proposal){
   const out=blankMatrix(0),maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
-    if(isIdleAutoTuneRow(r)){out[r][c]=num(base[r][c],0);continue;}
+    if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(state.measured[r][c],state.target[r][c])){out[r][c]=num(base[r][c],0);continue;}
     const b=num(base[r][c],0),v=proposal[r][c];
     out[r][c]=v==null?b:clamp(num(v,b),0,maxMs);
   }
@@ -4083,7 +4231,7 @@ function adaptiveThirdMap(run1,run2,targetMap){
   const out=cloneMatrix(run2.pw),lim=state.cal.threeRunLimitPct/100;
   const stats={response2Point:0,fallbackRun2:0,noData:0,noResponse:0,limited:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
-    if(isIdleAutoTuneRow(r))continue;
+    if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(run2.afr[r][c],targetMap[r][c]))continue;
     const p1=num(run1.pw[r][c],0),p2=num(run2.pw[r][c],0),a1=Number(run1.afr[r][c]),a2=Number(run2.afr[r][c]),t=num(targetMap[r][c],0);
     const n1=num(run1.counts[r][c],0),n2=num(run2.counts[r][c],0);
     if(p2<=0||t<=0||n2<=0||!Number.isFinite(a2)||a2<=0){stats.noData++;continue;}
@@ -4110,8 +4258,8 @@ function adaptiveFinalMap(run2,run3,targetMap){
   const out=cloneMatrix(run3.pw),lim=state.cal.threeRunLimitPct/100;
   const stats={response2Point:0,fallbackRun3:0,noData:0,noResponse:0,limited:0,alreadyOnTarget:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
-    if(isIdleAutoTuneRow(r))continue;
-    const p2=num(run2.pw[r][c],0),p3=num(run3.pw[r][c],0),a2=Number(run2.afr[r][c]),a3=Number(run3.afr[r][c]),t=num(targetMap[r][c],0);
+    if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(run3.afr[r][c],targetMap[r][c]))continue;
+    const p2=num(run2.pw[r][c],0),p3=num(run3.pw[r][c]),a2=Number(run2.afr[r][c]),a3=Number(run3.afr[r][c]),t=num(targetMap[r][c],0);
     const n2=num(run2.counts[r][c],0),n3=num(run3.counts[r][c],0);
     if(p3<=0||t<=0||n3<=0||!Number.isFinite(a3)||a3<=0){stats.noData++;continue;}
     if(Math.abs(a3-t)<=0.03){stats.alreadyOnTarget++;continue;}
@@ -4184,7 +4332,7 @@ function setTuneMode(mode){
 }
 function beginThreeRunPass(pass,keepMeasured=false){
   const tr=state.threeRun;tr.pass=pass;tr.phase='recording';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);
-  if(!keepMeasured){state.measured=blankMatrix(null);state.counts=blankMatrix(0);}setRecording(true);state.selection.active=false;setTab('measured');renderThreeRunUi();saveSoon();
+  if(!keepMeasured)afrClearRoundKeepingLocks(tr.mapNo,pass>1);setRecording(true);state.selection.active=false;setTab('measured');renderThreeRunUi();saveSoon();
 }
 function afrStreamReady(maxAgeMs=2200){
   const last=Number(window.blinkAfrLastPacketAt);
@@ -4255,7 +4403,7 @@ function clearMeasuredAfterCorrectedWrite(mapNo){
   if(mapNo!==pending)return false;
   state.pendingAfrClearMapNo=0;
   const bank=state.mapBanks[mapNo-1];
-  if(bank){bank.measured=blankMatrix(null);bank.counts=blankMatrix(0);}
+  if(bank)afrClearRoundKeepingLocks(mapNo,true);
   state.lastCellKey='';
   if(state.activeMap===mapNo&&state.tab==='measured')render();
   saveSoon();
@@ -4269,6 +4417,8 @@ function onFuelWriteVerified(mapNo){
   if(!tr.pendingNextPass)return;
   const next=tr.pendingNextPass;tr.pendingNextPass=0;
   if(next===4){
+    afrApplyReleasedFarReadings(mapNo,afrFinishMeasurementCycle(mapNo));
+    if(state.tab==='measured'||state.tab==='corrected')render();
     // Automated writes are read-back verified before reaching here. Store the
     // actual ECU-quantized FINAL map (not only the floating proposal), which
     // matters especially on V8's 0.05 ms fuel resolution.
@@ -4276,7 +4426,7 @@ function onFuelWriteVerified(mapNo){
     if(tr.runs&&tr.runs[2])tr.runs[2].nextPw=cloneMatrix(state.inject);
     completeThreeRunSession();return;
   }
-  if(!afrStreamReady()){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · chờ AFR BLE để chạy LƯỢT '+next);return;}
+  if(!afrStreamReady()){tr.pass=next;tr.phase='paused';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);afrClearRoundKeepingLocks(mapNo,true);setRecording(false);setTab('measured');renderThreeRunUi();saveSoon();flashSave('GHI ACK OK · chờ AFR BLE để chạy LƯỢT '+next);return;}
   beginThreeRunPass(next,false);flashSave('GHI ACK OK · tự bắt đầu LƯỢT '+next+'/3');
 }
 function onFuelWriteVerifyFailed(mapNo,cmp){
@@ -5002,13 +5152,14 @@ function recordSample(now){
   if(now-state.cellEnteredAt<state.cal.settleMs)return;
   const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<=0)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0;
-  state.measured[r][c]=afr; state.counts[r][c]=n+1;
+  state.measured[r][c]=afrObserveMeasuredValue(state.activeMap,r,c,afr); state.counts[r][c]=n+1;
   if(blinkEcuTpsReady())state.mapBanks[state.activeMap-1].tpsCaptureKey=blinkVerifiedEcuTps.key;
   if(state.tab==='measured'){
     const td=document.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
     if(td){
       td.textContent=fmt(state.measured[r][c],2);
-      td.classList.remove('afr-red','afr-green','afr-orange');
+      td.classList.remove('afr-red','afr-green','afr-orange','afr-target-locked');
+      if(afrTargetLockActive(r,c))td.classList.add('afr-target-locked');
       const a=Number(state.measured[r][c]);
       if(Number.isFinite(a))td.classList.add(a<12?'afr-red':a<=14?'afr-green':'afr-orange');
     }
@@ -5076,13 +5227,13 @@ async function clearMeasuredMap(){
   const mapNo=state.activeMap;
   if(!await blinkConfirm('XÓA AFR ĐO','Xóa toàn bộ AFR đã đo của MAP No.'+mapNo+'?','XÓA AFR','HỦY'))return;
   if(state.threeRun.active||state.activeMap!==mapNo)return blinkAlert('MAP hoặc phiên Auto Tune đã thay đổi. Chưa xóa AFR.');
-  state.measured=blankMatrix(null);
-  state.counts=blankMatrix(0);
+  afrClearRoundKeepingLocks(mapNo,true);
   if(state.tab==='measured')render();
   saveSoon();
-  flashSave('Đã xóa bảng AFR đo · MAP No.'+state.activeMap);
+  flashSave('Đã xóa lượt AFR đo · giữ AFR đạt mục tiêu ±0,3 · MAP No.'+state.activeMap);
 }
 function saveTargetAfrLocal(){
+  afrDiscardChangedTargets(); // changed target must never retain the old lock
   if(state.threeRun.active){
     showEcuNotice('info','AFR MỤC TIÊU ĐANG KHÓA','Kết thúc hoặc hủy MODE 3 LƯỢT trước khi chỉnh AFR mục tiêu.',3500);
     return false;
@@ -6116,13 +6267,13 @@ window.addEventListener('beforeunload',save);
   function uiStart3(){
     if(state.threeRun.active)return;
     state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:new Date().toISOString(),runPw:cloneMatrix(state.inject),target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};
-    state.measured=blankMatrix(null);state.counts=blankMatrix(0);setRecording(true);setTab('measured');renderThreeRunUi();
+    afrClearRoundKeepingLocks(state.activeMap,false);setRecording(true);setTab('measured');renderThreeRunUi();
     showEcuNotice('info','3 LƯỢT · UI TEST','Luồng ghi AFR chạy từ dữ liệu BLE thật. Firmware test chưa ghi ECU thật.');
   }
   function uiNext3(){
     if(!state.threeRun.active)return;
     const p=state.threeRun.pass;
-    if(p<3){state.threeRun.pass=p+1;state.measured=blankMatrix(null);state.counts=blankMatrix(0);state.threeRun.phase='recording';setRecording(true);renderThreeRunUi();}
+    if(p<3){state.threeRun.pass=p+1;afrClearRoundKeepingLocks(state.activeMap,true);state.threeRun.phase='recording';setRecording(true);renderThreeRunUi();}
     else{setRecording(false);state.threeRun.active=false;state.threeRun.phase='complete';renderThreeRunUi();showEcuNotice('success','3 LƯỢT UI TEST XONG','BLE live hoạt động; bước sau mới gắn đọc/ghi ECU thật.',5000);}
   }
   function uiCancel3(){setRecording(false);state.threeRun.active=false;state.threeRun.phase='idle';renderThreeRunUi();}
