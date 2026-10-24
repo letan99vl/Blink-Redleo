@@ -8,8 +8,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.102'; // Auto save corrected MAP after TPS <1% for 2s without RPM; existing AFR target lock unchanged
-window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-NO-RPM-20261024';
+  window.BLINK_PB_VERSION = '3.79.103'; // Fix Live 0x69/TPS cursor resume after verified automatic MAP write; no RPM gate
+window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
+window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
@@ -3910,7 +3911,7 @@ async function startFuelWrite(opts={}){
   }
 
   if(!await ensureActiveEcuAxes(true))return rollbackBeforeTransport();
-  // Fail closed if TPS/RPM, ECU identity or idle changed while the write waited for axes.
+  // Fail closed if TPS, ECU identity or idle changed while the write waited for axes. RPM is not gated.
   if(opts.autoIdle&&!autoIdleSavePreflight(mapNo,opts.autoIdleEcuIdentity))return rollbackBeforeTransport();
 
   const mapCheck=inspectFuelMap(state.inject);
@@ -3927,6 +3928,33 @@ async function startFuelWrite(opts={}){
   // This is essential for V8, whose fuel map is one U8 page rather than the
   // two U16 half-pages used by V9+.
   if(realApi&&typeof realApi.writeCurrentFuelAndVerify==='function'){
+    // PB3.79.103: Manual button is already wrapped by captureMapIo(),
+    // but automatic TPS<1% save calls this function without that wrapper.
+    // Without one continuous manual I/O scope, the writer schedules Live
+    // resume and the 0x9A verification immediately cancels it: cursor/TPS
+    // freeze forever even after a successful 420-cell readback.
+    // Reserve the ECU exclusively for WRITE + full READBACK, then restore
+    // 0x69 in finally on success, readback mismatch, timeout or disconnect.
+    let autoIoCtx=null,autoIoEntered=false;
+    if(opts.autoIdle){
+      if(typeof realApi.beginManualMapIo!=='function'||typeof realApi.endManualMapIo!=='function'||realApi.manualIoActive){
+        showEcuNotice('error','ECU ĐANG THAO TÁC MAP','Không tự lưu khi lệnh MAP khác chưa hoàn thành.',4500);
+        return rollbackBeforeTransport();
+      }
+      autoIoEntered=true;
+      try{
+        autoIoCtx=await realApi.beginManualMapIo('AUTO TUNE · GHI VÀ ĐỌC LẠI MAP');
+      }catch(e){
+        try{realApi.endManualMapIo(autoIoCtx);}catch(_e){}
+        showEcuNotice('error','ECU CHƯA SẴN SÀNG','Đã hủy tự lưu vì không giành được luồng ECU: '+String(e&&e.message||e),5500);
+        return rollbackBeforeTransport();
+      }
+      if(autoIoCtx?.nested){
+        try{realApi.endManualMapIo(autoIoCtx);}catch(_e){}
+        showEcuNotice('error','ECU ĐANG BẬN','Đã hủy tự lưu để không ghi đè phiên MAP khác.',4500);
+        return rollbackBeforeTransport();
+      }
+    }
     const attemptedMap=cloneMatrix(state.inject);
     state.ecuWriteMapNo=mapNo;
     // Snapshot is the known pre-correction/pre-pass map when supplied. Manual
@@ -4052,6 +4080,12 @@ async function startFuelWrite(opts={}){
         :' Không đọc lại được ECU'+(resyncError?' ('+String(resyncError&&resyncError.message||resyncError)+')':'')+'. MAP này đã bị KHÓA GHI cho đến khi ĐỌC HIỆN TẠI thành công.';
       showEcuNotice('error','GHI MAP THẤT BẠI',baseMsg+safetyMsg,0);
       return false;
+    }finally{
+      // Keep Live paused through the LAST verification/recovery read.
+      // Always release, including early returns in success/error branches.
+      if(autoIoEntered){
+        try{realApi.endManualMapIo(autoIoCtx);}catch(e){console.warn('Auto Tune Live resume',e);}
+      }
     }
   }
 
