@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.97'; // ECU TPS source of truth for supported REDLEO V9/V10/Ultra/V11; OTA paused
+  window.BLINK_PB_VERSION = '3.79.98'; // all dialogs inside Blink, no launcher/browser dialogs; OTA paused
+window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
 window.BLINK_AFR_IO4_REVISION = 'AFR-IO4-FIXED-20261023';
@@ -135,6 +136,22 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   .dot{width:8px;height:8px;border-radius:50%;background:#647484;display:inline-block;margin-right:5px}.dot.on{background:#23d36b}
   dialog{border:1px solid #34526c;border-radius:10px;background:#102030;color:#fff;min-width:min(640px,92vw);max-width:92vw;box-shadow:0 30px 80px #0008}
   dialog::backdrop{background:#0009}
+
+/* App-only dialogs. Responsive to WKWebView safe-area and landscape keyboard. */
+#blinkAppDialogOverlay{position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:auto;padding:max(16px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom));overscroll-behavior:contain}
+#blinkAppDialogOverlay .blinkAppDialogPanel{width:min(520px,100%);max-height:86vh;max-height:86dvh;overflow:auto;box-sizing:border-box;padding:18px;background:#121217;color:#fff;border:1px solid #963143;border-radius:18px;box-shadow:0 24px 75px #000b;font:inherit;overscroll-behavior:contain}
+#blinkAppDialogOverlay .blinkAppDialogTitle{font-size:18px;font-weight:900;line-height:1.3;margin-bottom:12px}
+#blinkAppDialogOverlay .blinkAppDialogMessage{font-size:14px;line-height:1.55;white-space:pre-line;color:#e3e2e7;overflow-wrap:anywhere;margin-bottom:18px}
+#blinkAppDialogOverlay .blinkAppDialogInput{width:100%;height:48px;font-size:19px;border:1px solid #955061;border-radius:10px;background:#07070c;color:#fff;padding:8px 12px;margin-bottom:12px;box-sizing:border-box}
+#blinkAppDialogOverlay .blinkAppDialogKeys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 12px}
+#blinkAppDialogOverlay .blinkAppDialogKeys button{min-height:43px;border:1px solid #56323c;border-radius:10px;background:#25232a;color:#fff;font-size:17px;font-weight:800;touch-action:manipulation}
+#blinkAppDialogOverlay .blinkAppDialogActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#blinkAppDialogOverlay .blinkAppDialogActions button{min-height:50px;border-radius:12px;padding:8px;font-size:14px;font-weight:900;touch-action:manipulation}
+#blinkAppDialogOverlay .blinkAppDialogCancel{background:#23232c;border:1px solid #60606c;color:#fff}
+#blinkAppDialogOverlay .blinkAppDialogOkay{background:#bc1932;border:1px solid #ff536c;color:#fff}
+#blinkAppDialogOverlay button:focus-visible{outline:3px solid #ffe0e0;outline-offset:2px}
+@media(max-width:440px){#blinkAppDialogOverlay .blinkAppDialogPanel{padding:15px}#blinkAppDialogOverlay .blinkAppDialogMessage{font-size:13px}}
+
   #injCamDialog{width:min(720px,94vw)}
   .injCamGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
   .injCamField{display:grid;gap:5px;padding:10px;border:1px solid #3a2529;border-radius:10px;background:#111115}
@@ -2614,9 +2631,9 @@ function selectMapBank(n,autoRead=true){
     const api=window.BlinkRealProtocol;
     if(api&&typeof api.normalizeBank==='function')n=api.normalizeBank(n);
   }catch(_e){}
-  if(state.threeRun.active && n!==state.threeRun.mapNo){alert('MODE CHẠY 3 LƯỢT đang khóa MAP No.'+state.threeRun.mapNo+'. Hãy kết thúc hoặc hủy phiên trước.');$('mapSelect').value=String(state.activeMap);return;}
+  if(state.threeRun.active && n!==state.threeRun.mapNo){blinkAlert('MODE CHẠY 3 LƯỢT đang khóa MAP No.'+state.threeRun.mapNo+'. Hãy kết thúc hoặc hủy phiên trước.');$('mapSelect').value=String(state.activeMap);return;}
   if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){
-    alert('Đang ghi ECU, chưa thể chuyển MAP.');
+    blinkAlert('Đang ghi ECU, chưa thể chuyển MAP.');
     $('mapSelect').value=String(state.activeMap);
     return;
   }
@@ -3104,21 +3121,16 @@ function hideEcuNotice(){
 }
 function showEcuNotice(kind,title,detail='',holdMs){
   const n=$('ecuNotice');if(!n)return;clearTimeout(ecuNoticeTimer);
-
-  // ECU notice policy: only show RED error notices.
-  // Successful/info operations stay silent so the user can focus on real faults.
-  if(kind!=='error'){
-    hideEcuNotice();
-    return;
-  }
-
-  const k='error';
-  $('ecuNoticeIcon').textContent='✕';
-  $('ecuNoticeTitle').textContent=title;
-  $('ecuNoticeDetail').textContent=detail||'';
-  n.className='ecuNotice show error';
+  // PB3.79.98: info, success and error all use Blink's branded in-app notice.
+  // Routine status stays compact and automatically dismisses; safety errors
+  // with holdMs=0 remain visible until manually closed.
+  const k=kind==='error'?'error':kind==='success'?'success':'info';
+  $('ecuNoticeIcon').textContent=k==='error'?'✕':k==='success'?'✓':'i';
+  $('ecuNoticeTitle').textContent=String(title||'THÔNG BÁO');
+  $('ecuNoticeDetail').textContent=String(detail||'');
+  n.className='ecuNotice show '+k;
   requestAnimationFrame(()=>requestAnimationFrame(placeEcuTaskStatus));
-  const ms=holdMs==null?7000:holdMs;
+  const ms=holdMs==null?(k==='error'?7000:k==='success'?2600:3500):holdMs;
   if(ms>0)ecuNoticeTimer=setTimeout(hideEcuNotice,ms);
 }
 $('ecuNoticeIcon').onclick=hideEcuNotice;
@@ -3487,10 +3499,10 @@ function parseReadCurrentFuelMap(f,mapNo=state.ecuReadCurrentMapNo){
 }
 
 async function queueReadCurrentMap(mapNo=state.activeMap){
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  if(!state.ecuConnected)return blinkAlert('Hãy kết nối ECU trước.');
   mapNo=clamp(Math.round(mapNo),1,4);
   if(state.ecuPhase!=='live'){
-    return alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
+    return blinkAlert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
   }
   if(!await ensureActiveEcuAxes(true))return;
   state.ecuReadCurrentQueued=true;
@@ -3579,45 +3591,129 @@ function prepareFuelWriteFrames(mapNo=state.activeMap){
 
 function cloneMatrix(m){return m.map(row=>row.map(v=>v==null?null:Number(v)));}
 
-// In-app confirmation dialog used for safety-critical ECU writes.
-// Do not depend on window.confirm(): Android WebView launchers may suppress
-// JavaScript dialogs when their WebChromeClient does not implement them.
-function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
+// App-owned queued dialog: never use browser/launcher JavaScript dialogs.
+// In particular, a WKWebView with no JS-UI delegate must still work safely.
+const blinkDialogQueue=[];
+let blinkDialogActive=false;
+function blinkAppDialog(config={}){
   return new Promise(resolve=>{
-    try{document.getElementById('blinkConfirmOverlay')?.remove()}catch(_e){}
-    const ov=document.createElement('div');
-    ov.id='blinkConfirmOverlay';
-    ov.setAttribute('role','dialog');
-    ov.setAttribute('aria-modal','true');
-    ov.style.cssText='position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));box-sizing:border-box;';
-    const box=document.createElement('div');
-    box.style.cssText='width:min(520px,100%);background:#11151d;border:2px solid #ff4059;border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.65);padding:18px;box-sizing:border-box;color:#fff;font-family:inherit;';
-    const h=document.createElement('div');
-    h.textContent=String(title||'XÁC NHẬN');
-    h.style.cssText='font-size:18px;font-weight:900;letter-spacing:.2px;margin:0 0 12px;';
-    const p=document.createElement('div');
-    p.textContent=String(message||'');
-    p.style.cssText='font-size:14px;line-height:1.5;white-space:pre-line;color:#e7e9ee;margin-bottom:18px;';
-    const row=document.createElement('div');
-    row.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;';
-    const cancel=document.createElement('button');
-    cancel.type='button';
-    cancel.textContent=cancelText;
-    cancel.style.cssText='min-height:48px;border-radius:12px;border:1px solid #555;background:#20242d;color:#fff;font-weight:800;font-size:14px;';
-    const ok=document.createElement('button');
-    ok.type='button';
-    ok.textContent=okText;
-    ok.style.cssText='min-height:48px;border-radius:12px;border:1px solid #ff5168;background:#b71931;color:#fff;font-weight:900;font-size:14px;';
-    let done=false;
-    const finish=v=>{if(done)return;done=true;try{ov.remove()}catch(_e){}resolve(!!v)};
-    cancel.addEventListener('click',()=>finish(false),{once:true});
-    ok.addEventListener('click',()=>finish(true),{once:true});
-    ov.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();finish(false)}});
-    row.append(cancel,ok);box.append(h,p,row);ov.append(box);document.body.append(ov);
-    setTimeout(()=>{try{ok.focus()}catch(_e){}},0);
+    blinkDialogQueue.push({config,resolve});
+    blinkRunNextDialog();
   });
 }
+function blinkRunNextDialog(){
+  if(blinkDialogActive||!blinkDialogQueue.length)return;
+  if(!document.body){
+    const item=blinkDialogQueue.shift();
+    item.resolve(item.config.kind==='confirm'?false:null);
+    return;
+  }
+  blinkDialogActive=true;
+  const task=blinkDialogQueue.shift(),spec=task.config;
+  const kind=spec.kind==='confirm'?'confirm':spec.kind==='prompt'?'prompt':'alert';
+  const ov=document.createElement('div');
+  ov.id='blinkAppDialogOverlay';
+  ov.setAttribute('role','dialog');
+  ov.setAttribute('aria-modal','true');
+  const box=document.createElement('section');box.className='blinkAppDialogPanel';
+  const h=document.createElement('div');h.id='blinkAppDialogTitle';h.className='blinkAppDialogTitle';
+  h.textContent=String(spec.title||(kind==='confirm'?'XÁC NHẬN':kind==='prompt'?'NHẬP GIÁ TRỊ':'THÔNG BÁO'));
+  ov.setAttribute('aria-labelledby',h.id);
+  const p=document.createElement('div');p.className='blinkAppDialogMessage';p.textContent=String(spec.message||'');
+  box.append(h,p);
+  const actions=document.createElement('div');actions.className='blinkAppDialogActions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.className='blinkAppDialogCancel';
+  cancel.textContent=String(spec.cancelText||'HỦY');
+  const ok=document.createElement('button');ok.type='button';ok.className='blinkAppDialogOkay';
+  ok.textContent=String(spec.okText||(kind==='alert'?'ĐÓNG':'XÁC NHẬN'));
+  let input=null,value='';
+  const label=String(spec.message||'');
+  const pin=/PIN|MẬT KHẨU/i.test(label);
+  const hex=/HEX|MẬT KHẨU/i.test(label)&&!/PIN/i.test(label);
+  const max=pin?4:18;
+  const refresh=()=>{if(input)input.value=value;};
+  function tapKey(key){
+    if(key==='BACK')value=value.slice(0,-1);
+    else if(key==='CLEAR')value='';
+    else if(value.length<max){
+      if(/^[0-9]$/.test(key)||hex&&/^[A-F]$/.test(key))value+=key;
+      else if(!pin&&key==='.'&&!value.includes('.'))value+=key;
+      else if(!pin&&key==='-'&&!value)value=key;
+    }
+    refresh();
+  }
+  if(kind==='prompt'){
+    input=document.createElement('input');input.className='blinkAppDialogInput';
+    input.type=pin?'password':'text';input.readOnly=true;input.inputMode='none';
+    input.autocomplete='off';input.spellcheck=false;
+    input.setAttribute('aria-label',label||'Giá trị');
+    value=String(spec.defaultValue??'').slice(0,max);
+    refresh();box.append(input);
+    const keys=document.createElement('div');keys.className='blinkAppDialogKeys';
+    const chars=hex?['1','2','3','A','4','5','6','B','7','8','9','C','0','D','E','F','BACK','CLEAR']:
+      pin?['1','2','3','BACK','4','5','6','CLEAR','7','8','9','0']:
+      ['1','2','3','BACK','4','5','6','CLEAR','7','8','9','-','0','.'];
+    for(const char of chars){
+      const btn=document.createElement('button');btn.type='button';
+      btn.textContent=char==='BACK'?'⌫':char==='CLEAR'?'XÓA':char;
+      btn.setAttribute('aria-label',char==='BACK'?'Xóa một ký tự':char==='CLEAR'?'Xóa hết':char);
+      btn.addEventListener('click',()=>tapKey(char));keys.append(btn);
+    }
+    box.append(keys);
+  }
+  const previous=document.activeElement;
+  let done=false;
+  function finish(result){
+    if(done)return;done=true;
+    ov.remove();blinkDialogActive=false;task.resolve(result);
+    try{if(previous?.isConnected)previous.focus({preventScroll:true});}catch(_e){}
+    setTimeout(blinkRunNextDialog,0);
+  }
+  if(kind==='alert'){
+    actions.style.gridTemplateColumns='1fr';
+    ok.addEventListener('click',()=>finish(undefined));
+    actions.append(ok);
+  }else{
+    cancel.addEventListener('click',()=>finish(kind==='confirm'?false:null));
+    ok.addEventListener('click',()=>finish(kind==='confirm'?true:value));
+    actions.append(cancel,ok);
+  }
+  ov.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){e.preventDefault();finish(kind==='confirm'?false:kind==='prompt'?null:undefined);return;}
+    if(e.key==='Tab'){
+      const tabbable=[...ov.querySelectorAll('button,input')];
+      const first=tabbable[0],last=tabbable[tabbable.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+      return;
+    }
+    if(e.key==='Enter'){
+      if(kind!=='confirm'){e.preventDefault();finish(kind==='prompt'?value:undefined);}
+      return;
+    }
+    if(kind==='prompt'){
+      if(e.key==='Backspace'){e.preventDefault();tapKey('BACK');}
+      else if(/^[0-9]$/.test(e.key)||hex&&/^[A-Fa-f]$/.test(e.key)||!pin&&(e.key==='.'||e.key==='-')){
+        e.preventDefault();tapKey(e.key.toUpperCase());
+      }
+    }
+  });
+  box.append(actions);ov.append(box);document.body.append(ov);
+  setTimeout(()=>{try{(kind==='alert'?ok:cancel).focus({preventScroll:true});}catch(_e){}},0);
+}
+function blinkConfirm(title,message,okText='XÁC NHẬN',cancelText='HỦY'){
+  return blinkAppDialog({kind:'confirm',title,message,okText,cancelText});
+}
+function blinkPrompt(message,defaultValue='',title='NHẬP GIÁ TRỊ'){
+  return blinkAppDialog({kind:'prompt',title,message,defaultValue,okText:'LƯU',cancelText:'HỦY'});
+}
+function blinkAlert(message,title='THÔNG BÁO'){
+  // Return void just like the old synchronous alert sites.
+  void blinkAppDialog({kind:'alert',title,message,okText:'ĐÓNG'});
+}
 window.blinkConfirm=blinkConfirm;
+window.blinkPrompt=blinkPrompt;
+window.blinkAlert=blinkAlert;
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
@@ -3882,15 +3978,15 @@ function compareFuelMaps(a,b,tol=null){
 }
 
 async function writeCurrentFuelMap(){
-  if(state.threeRun.active)return alert('MODE CHẠY 3 LƯỢT đang hoạt động. Hãy dùng nút KẾT THÚC LƯỢT.');
+  if(state.threeRun.active)return blinkAlert('MODE CHẠY 3 LƯỢT đang hoạt động. Hãy dùng nút KẾT THÚC LƯỢT.');
   await startFuelWrite();
 }
 
 async function applyCorrectedAndWrite(options={}){
-  if(!blinkAutoTuneTpsSafe()){alert('TPS ECU chưa đọc Options mới. Auto Tune chưa được ghi MAP vì nguy cơ nhầm hàng TPS.');return false;}
+  if(!blinkAutoTuneTpsSafe()){blinkAlert('TPS ECU chưa đọc Options mới. Auto Tune chưa được ghi MAP vì nguy cơ nhầm hàng TPS.');return false;}
   if(state.threeRun.active){
     if(state.threeRun.phase==='recording')return finishThreeRunPass();
-    return alert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
+    return blinkAlert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
   }
   if(!state.ecuConnected){
     showEcuNotice('error','CHƯA KẾT NỐI ECU','Hãy kết nối ECU trước khi lưu MAP đã bù.',0);
@@ -4045,7 +4141,7 @@ function completeThreeRunSession(){
   tr.active=false;tr.phase='complete';tr.runPw=null;tr.pendingNextPass=0;tr.cancelRequested=false;
   $('mapSelect').disabled=false;renderThreeRunUi();renderThreeRunHistory();save();
   showEcuNotice('success','HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo,'Đã chỉnh MAP đủ 3 lần. FINAL MAP đã ghi và ECU ACK và lưu PW + AFR + số mẫu của cả 3 lượt.',6500);
-  alert('HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo+'\n\nĐã chỉnh MAP đủ 3 lần.\nLần cuối sau LƯỢT 3 đã được ghi và ECU ACK.\nĐã lưu PW + AFR + số mẫu của cả 3 lượt vào lịch sử.');
+  blinkAlert('HOÀN TẤT 3 LƯỢT · MAP No.'+session.mapNo+'\n\nĐã chỉnh MAP đủ 3 lần.\nLần cuối sau LƯỢT 3 đã được ghi và ECU ACK.\nĐã lưu PW + AFR + số mẫu của cả 3 lượt vào lịch sử.');
 }
 function threeRunStatusText(){
   const tr=state.threeRun;
@@ -4083,7 +4179,7 @@ function renderThreeRunUi(){
 }
 function setTuneMode(mode){
   if(mode!=='normal'&&mode!=='three')mode='normal';
-  if(state.threeRun.active&&mode!=='three'){alert('Phiên 3 lượt đang chạy. Hãy kết thúc hoặc hủy phiên trước.');$('tuneMode').value='three';return;}
+  if(state.threeRun.active&&mode!=='three'){blinkAlert('Phiên 3 lượt đang chạy. Hãy kết thúc hoặc hủy phiên trước.');$('tuneMode').value='three';return;}
   if(state.recording)setRecording(false);state.mode=mode;$('tuneMode').value=mode;renderThreeRunUi();saveSoon();
 }
 function beginThreeRunPass(pass,keepMeasured=false){
@@ -4095,13 +4191,13 @@ function afrStreamReady(maxAgeMs=2200){
   return Number.isFinite(last)&&Number.isFinite(state.live.afr)&&(performance.now()-last)<=maxAgeMs;
 }
 async function startThreeRunSession(){
-  if(!blinkAutoTuneTpsSafe())return alert('TPS ECU chưa xác minh; không thể bắt đầu Auto Tune 3 lượt.');
+  if(!blinkAutoTuneTpsSafe())return blinkAlert('TPS ECU chưa xác minh; không thể bắt đầu Auto Tune 3 lượt.');
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return alert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
-  if(fuelMapSyncUnknown(state.activeMap))return alert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
+  if(!state.ecuConnected)return blinkAlert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return blinkAlert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return blinkAlert('ECU đang bận. Hãy chờ Live ổn định.');
+  if(fuelMapSyncUnknown(state.activeMap))return blinkAlert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
   if(!await ensureActiveEcuAxes(true))return;
-  if(!tpsTelemetryFresh())return alert('Chưa có dữ liệu TPS/RPM live mới từ ECU. Hãy chờ Live hoạt động rồi bắt đầu 3 lượt.');
-  const baseCheck=inspectFuelMap(state.inject);if(!baseCheck.ok)return alert(baseCheck.reason);
+  if(!tpsTelemetryFresh())return blinkAlert('Chưa có dữ liệu TPS/RPM live mới từ ECU. Hãy chờ Live hoạt động rồi bắt đầu 3 lượt.');
+  const baseCheck=inspectFuelMap(state.inject);if(!baseCheck.ok)return blinkAlert(baseCheck.reason);
   const ok=await blinkConfirm(
     'BẮT ĐẦU MODE CHẠY 3 LƯỢT · MAP No.'+state.activeMap,
     'Lượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi ECU lần 3.\n\nSau mỗi lượt, MAP phun chính trong Blink được cập nhật trước rồi mới gửi ECU. Chỉ sau khi ECU ACK thành công mới chuyển sang lượt tiếp theo.',
@@ -4115,15 +4211,15 @@ function captureThreeRun(pass){
 }
 async function finishThreeRunPass(){
   const tr=state.threeRun;if(!tr.active)return;
-  if(!blinkAutoTuneTpsSafe()){setRecording(false);return alert('TPS ECU mất đồng bộ; không tính/ghi 3 lượt. Hãy hủy phiên rồi đồng bộ lại.');}
+  if(!blinkAutoTuneTpsSafe()){setRecording(false);return blinkAlert('TPS ECU mất đồng bộ; không tính/ghi 3 lượt. Hãy hủy phiên rồi đồng bộ lại.');}
   if(tr.phase==='paused'){
-    if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');
-    if(!tpsTelemetryFresh())return alert('Chưa có TPS/RPM live mới từ ECU. Hãy chờ Live ổn định trước khi tiếp tục.');
-    if(fuelMapSyncUnknown(tr.mapNo)||!inspectFuelMap(state.inject).ok)return alert('Không thể tiếp tục phiên 3 lượt vì MAP ECU chưa được xác nhận sau gián đoạn/lỗi ghi. Hãy HỦY PHIÊN, ĐỌC HIỆN TẠI rồi bắt đầu lại.');
+    if(!state.ecuConnected||!afrStreamReady())return blinkAlert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');
+    if(!tpsTelemetryFresh())return blinkAlert('Chưa có TPS/RPM live mới từ ECU. Hãy chờ Live ổn định trước khi tiếp tục.');
+    if(fuelMapSyncUnknown(tr.mapNo)||!inspectFuelMap(state.inject).ok)return blinkAlert('Không thể tiếp tục phiên 3 lượt vì MAP ECU chưa được xác nhận sau gián đoạn/lỗi ghi. Hãy HỦY PHIÊN, ĐỌC HIỆN TẠI rồi bắt đầu lại.');
     tr.phase='recording';setRecording(true);renderThreeRunUi();saveSoon();return;
   }
   if(tr.phase!=='recording')return;setRecording(false);const pass=tr.pass,run=captureThreeRun(pass);
-  if(run.summary.cells<1){setRecording(true);tr.phase='recording';return alert('Lượt '+pass+' chưa có ô AFR hợp lệ nào. Hãy chạy xe và ghi dữ liệu trước.');}
+  if(run.summary.cells<1){setRecording(true);tr.phase='recording';return blinkAlert('Lượt '+pass+' chưa có ô AFR hợp lệ nào. Hãy chạy xe và ghi dữ liệu trước.');}
   if(pass===3){
     const finalAdaptive=adaptiveFinalMap(tr.runs[1],run,tr.target);
     const finalMap=finalAdaptive.map;
@@ -4189,7 +4285,7 @@ function onFuelWriteVerifyFailed(mapNo,cmp){
   if(tr.cancelRequested){resetThreeRunCancelled('GHI ECU LỖI · PHIÊN 3 LƯỢT ĐÃ HỦY');return;}
   tr.phase='error';tr.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();
 }
-function cancelThreeRun(){
+async function cancelThreeRun(){
   const tr=state.threeRun;if(!tr.active)return;
 
   // Chỉ không được cắt ngang khi một trong hai frame CD đang thực sự truyền.
@@ -4198,11 +4294,15 @@ function cancelThreeRun(){
 
   if(writeInProgress){
     if(tr.cancelRequested)return;
-    if(!confirm('ECU đang GHI MAP. Hủy phiên ngay sau khi ghi hiện tại hoàn tất?\n\nApp sẽ không cắt ngang frame đang ghi để tránh MAP bị ghi dở. Sau đó sẽ dừng, KHÔNG chạy lượt tiếp theo.'))return;
+    if(!await blinkConfirm('HỦY PHIÊN KHI ECU ĐANG GHI','ECU đang GHI MAP. Hủy phiên ngay sau khi ghi hiện tại hoàn tất?\n\nApp sẽ không cắt ngang frame đang ghi để tránh MAP bị ghi dở. Sau đó sẽ dừng, KHÔNG chạy lượt tiếp theo.','YÊU CẦU HỦY','GIỮ PHIÊN'))return;
+    if(!tr.active)return;
+    if(state.ecuPhase!=='write1'&&state.ecuPhase!=='write2'){setRecording(false);resetThreeRunCancelled('ĐÃ HỦY PHIÊN SAU KHI LỆNH GHI HOÀN TẤT');return;}
     setRecording(false);tr.cancelRequested=true;renderThreeRunUi();saveSoon();flashSave('ĐÃ YÊU CẦU HỦY · chờ ghi ECU xong...');return;
   }
 
-  if(!confirm('Hủy phiên MODE CHẠY 3 LƯỢT hiện tại? Dữ liệu phiên chưa hoàn tất sẽ không đưa vào lịch sử.'))return;
+  if(!await blinkConfirm('HỦY MODE 3 LƯỢT','Hủy phiên MODE CHẠY 3 LƯỢT hiện tại? Dữ liệu phiên chưa hoàn tất sẽ không đưa vào lịch sử.','HỦY PHIÊN','QUAY LẠI'))return;
+  if(!tr.active)return;
+  if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){tr.cancelRequested=true;setRecording(false);renderThreeRunUi();saveSoon();return;}
   setRecording(false);
 
   // Nếu mới xếp hàng ghi mà chưa truyền frame CD nào: hủy luôn lệnh ghi.
@@ -4221,7 +4321,7 @@ function renderThreeRunHistory(){
   box.innerHTML=state.threeRunHistory.map((x,i)=>{const rs=(x.runs||[]).map(r=>afrRunStats(r)),fs=z=>z&&z.cells?`${z.cells} ô · AFR TB ${fmt(z.avg,2)} · ${z.samples} mẫu`:'không dữ liệu',a=x.lastAdaptiveStats||{},f=x.finalAdaptiveStats||{};return `<div class="historyRow"><b>#${i+1} · MAP No.${x.mapNo}</b> · ${new Date(x.completedAt).toLocaleString()}<br>L1: ${fs(rs[0])}<br>L2: ${fs(rs[1])}<br>L3: ${fs(rs[2])}<br><span class="muted">L2→L3: 2 điểm ${a.response2Point||0} ô · fallback L2 ${a.fallbackRun2||0}<br>FINAL sau L3: 2 điểm ${f.response2Point||0} ô · fallback L3 ${f.fallbackRun3||0} · giới hạn bước ${f.limited||0}</span></div>`;}).join('');
 }
 function openThreeRunHistory(){renderThreeRunHistory();$('threeHistoryDialog').showModal();}
-function downloadLatestThreeRun(){const x=state.threeRunHistory[0];if(!x)return alert('Chưa có phiên 3 lượt hoàn tất.');const blob=new Blob([JSON.stringify(x,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='AFR_3RUN_MAP'+x.mapNo+'_'+String(x.completedAt).replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function downloadLatestThreeRun(){const x=state.threeRunHistory[0];if(!x)return blinkAlert('Chưa có phiên 3 lượt hoàn tất.');const blob=new Blob([JSON.stringify(x,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='AFR_3RUN_MAP'+x.mapNo+'_'+String(x.completedAt).replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 
 
 const REQ_TPS_STUDY=req5(0x77,0x77); // 77 77 11 EE 05
@@ -4317,15 +4417,16 @@ function parseTpsStudyFrame(f){
 }
 
 async function queueTpsStudy(){
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
-  if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
+  if(!state.ecuConnected)return blinkAlert('Hãy kết nối ECU trước.');
+  if(state.ecuPhase!=='live')return blinkAlert('ECU đang bận. Hãy chờ Live ổn định rồi thử lại.');
 
-  const ok=confirm(
+  const ok=await blinkConfirm('HỌC TPS ECU',
     'CHẠY TPS STUDY GIỐNG REDLEO?\\n\\n'+
     'Tool sẽ gửi lệnh 0x77 và đọc calibration TPS Min/Max từ ECU.\\n'+
     'Sau khi hoàn tất sẽ tự quay lại Live.'
   );
   if(!ok)return;
+  if(!state.ecuConnected||state.ecuPhase!=='live')return blinkAlert('ECU đã ngắt hoặc đang bận khi xác nhận Học TPS. Chưa gửi lệnh.');
 
   state.ecuTpsStudyQueued=true;
   $('studyTpsInfo').textContent='Đã xếp hàng TPS Study · chờ frame Live hiện tại kết thúc...';
@@ -4671,7 +4772,7 @@ async function connectEcu(){
   try{
     if(!$('ecuNativePort').value)await refreshNativePorts();
     const selected=$('ecuNativePort').value;
-    if(!selected)return alert('Chọn COM của cáp ECU trước.');
+    if(!selected)return blinkAlert('Chọn COM của cáp ECU trước.');
 
     await bridgeJson('/open',{port:selected});
 
@@ -4694,7 +4795,7 @@ async function connectEcu(){
     $('connectEcuBtn').disabled=false;
     $('ecuNativePort').disabled=false;
     $('refreshNativePortsBtn').disabled=false;
-    alert(
+    blinkAlert(
       'Không kết nối Native ECU: '+e.message+
       '\n\n1. Chạy START_BRIDGE.cmd trước.'+
       '\n2. Đóng REDLEO và tool DIAG.'+
@@ -4730,7 +4831,7 @@ async function beginRealEcuHandshake(){
       $('ecuBadge').textContent='ECU: KHÔNG TRẢ LỜI 5A';
       $('ecuBadge').className='badge bad';
       showEcuNotice('error','KẾT NỐI ECU THẤT BẠI','ECU không trả lời handshake 0x5A sau 5 lần.',0);
-      alert(
+      blinkAlert(
         'ECU thật không trả lời handshake sau 5 lần.\n\n'+
         'Auto Tune đang dùng đúng 38400 8E2 và đã bật RTS như REDLEO.\n'+
         'Hãy kiểm tra:\n'+
@@ -4798,7 +4899,7 @@ async function disconnectEcu(){
   $('connectEcuBtn').disabled=false;
 }
 async function queueReadAll(){
-  if(!state.ecuConnected)return alert('Hãy kết nối ECU trước.');
+  if(!state.ecuConnected)return blinkAlert('Hãy kết nối ECU trước.');
   if(state.ecuPhase==='live'){
     state.ecuReadAllQueued=true;
     $('ecuBadge').textContent='ECU: CHỜ ĐỌC MAP';
@@ -4925,7 +5026,7 @@ function updateLive(){
 }
 
 async function connectAfr(){
-  if(!('serial' in navigator)){alert('Web Serial không được hỗ trợ. Dùng Chrome hoặc Edge trên PC.');return;}
+  if(!('serial' in navigator)){blinkAlert('Web Serial không được hỗ trợ. Dùng Chrome hoặc Edge trên PC.');return;}
   try{
     const port=await navigator.serial.requestPort();
     await port.open({baudRate:115200,dataBits:8,stopBits:1,parity:'none',flowControl:'none'});
@@ -4933,7 +5034,7 @@ async function connectAfr(){
     $('afrBadge').textContent='AFR: ON'; $('afrBadge').className='badge ok';
     $('connectAfrBtn').disabled=true;
     afrReadLoop();
-  }catch(e){if(e.name!=='NotFoundError')alert('Không mở được AFR COM: '+e.message)}
+  }catch(e){if(e.name!=='NotFoundError')blinkAlert('Không mở được AFR COM: '+e.message)}
 }
 async function afrReadLoop(){
   const decoder=new TextDecoder();
@@ -4970,9 +5071,11 @@ async function disconnectAfr(){
 }
 
 function syncMeasuredClearButton(){const b=$('clearMeasuredEditorBtn');if(!b)return;b.style.display=state.tab==='measured'?'':'none';b.disabled=state.threeRun.active;}
-function clearMeasuredMap(){
-  if(state.threeRun.active)return alert('Không thể xóa AFR khi MODE 3 LƯỢT đang chạy.');
-  if(!confirm('Xóa toàn bộ AFR đã đo của MAP No.'+state.activeMap+'?'))return;
+async function clearMeasuredMap(){
+  if(state.threeRun.active)return blinkAlert('Không thể xóa AFR khi MODE 3 LƯỢT đang chạy.');
+  const mapNo=state.activeMap;
+  if(!await blinkConfirm('XÓA AFR ĐO','Xóa toàn bộ AFR đã đo của MAP No.'+mapNo+'?','XÓA AFR','HỦY'))return;
+  if(state.threeRun.active||state.activeMap!==mapNo)return blinkAlert('MAP hoặc phiên Auto Tune đã thay đổi. Chưa xóa AFR.');
   state.measured=blankMatrix(null);
   state.counts=blankMatrix(0);
   if(state.tab==='measured')render();
@@ -5005,7 +5108,7 @@ function setTab(tab){
 }
 async function toggleRecord(){
   if(state.threeRun.active)return;
-  if(!state.recording&&!blinkAutoTuneTpsSafe())return alert('Hãy ĐỌC TPS MIN/MAX TỪ ECU trước khi ghi AFR vào MAP.');
+  if(!state.recording&&!blinkAutoTuneTpsSafe())return blinkAlert('Hãy ĐỌC TPS MIN/MAX TỪ ECU trước khi ghi AFR vào MAP.');
   if(!state.recording){
     if(!await ensureActiveEcuAxes(true))return;
   }
@@ -5017,8 +5120,8 @@ load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap)
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
-$('learnMin').onclick=()=>{if(blinkTpsEcuGuardRequired())return alert('TPS Min do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
-$('learnMax').onclick=()=>{if(blinkTpsEcuGuardRequired())return alert('TPS Max do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+$('learnMin').onclick=()=>{if(blinkTpsEcuGuardRequired())return blinkAlert('TPS Min do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return blinkAlert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+$('learnMax').onclick=()=>{if(blinkTpsEcuGuardRequired())return blinkAlert('TPS Max do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return blinkAlert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
 ['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='afrVoltMin'||id==='afrVoltMax')syncControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 $('afrTargetLocalSaveBtn')?.addEventListener('click',()=>saveTargetAfrLocal());
@@ -5728,7 +5831,10 @@ window.addEventListener('beforeunload',save);
       assertOtaUnlocked();
       if(!otaUpdateReady||!otaManifestCache)throw new Error('Chưa có firmware mới sẵn sàng.');
       if(!state.ecuConnected)throw new Error('BLE với ESP32 đã ngắt.');
-      if(!confirm('Cập nhật ESP32 lên FW '+otaManifestCache.version+' ngay? Không tắt nguồn cho tới khi hoàn tất.'))return;
+      const confirmedVersion=otaManifestCache.version;
+      if(!await blinkConfirm('CẬP NHẬT FIRMWARE ESP32','Cập nhật ESP32 lên FW '+confirmedVersion+' ngay? Không tắt nguồn cho tới khi hoàn tất.','CẬP NHẬT','HỦY'))return;
+      assertOtaUnlocked();
+      if(!state.ecuConnected||!otaUpdateReady||!otaManifestCache||otaManifestCache.version!==confirmedVersion)throw new Error('BLE hoặc phiên bản OTA thay đổi khi chờ xác nhận; đã hủy cập nhật.');
 
       otaUpdateReady=false;
       otaBleFatalError='';
@@ -6311,7 +6417,7 @@ function renderIdleEct(){
   s+='</tr></tbody>';t.innerHTML=s;
   t.querySelectorAll('[data-idlect]').forEach(td=>{
     td.onclick=()=>selectIdleEctCell(+td.dataset.idlect);
-    td.ondblclick=()=>{const i=+td.dataset.idlect;selectIdleEctCell(i);const val=prompt('Nhập giá trị STEPPER',d[0][i]);if(val!==null&&Number.isFinite(Number(val))){d[0][i]=Number(val);saveFeatureStore();renderIdleEct();syncIdleEctKeypad(true)}};
+    td.ondblclick=async()=>{const i=+td.dataset.idlect,bankBefore=state.activeMap,featureBefore=currentFeature;selectIdleEctCell(i);const val=await blinkPrompt('Nhập giá trị STEPPER',d[0][i]);if(bankBefore!==state.activeMap||featureBefore!==currentFeature)return;if(val!==null&&Number.isFinite(Number(val))){d[0][i]=Number(val);saveFeatureStore();renderIdleEct();syncIdleEctKeypad(true)}};
   });
   requestAnimationFrame(updateIdleEctSelectionPad);
 }
@@ -6898,7 +7004,7 @@ function renderFeature(){
   const t=document.getElementById('redFeatureTable');t.innerHTML=s;t.classList.toggle('scanMode',redScanMode);
   t.querySelectorAll('.redCell').forEach(td=>{
     td.onclick=()=>{if(redScanMode)return;handleRedCornerTap(+td.dataset.rr,+td.dataset.rc)};
-    td.ondblclick=()=>{if(redScanMode)return;const r=+td.dataset.rr,c=+td.dataset.rc;redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=false;const val=prompt('Nhập giá trị ('+(currentFeature.unit||'unit')+')',d[r][c]);if(val!==null&&Number.isFinite(Number(val))){d[r][c]=Number(val);saveFeatureStore();renderFeature()}else updateRedSelectionVisual()};
+    td.ondblclick=async()=>{if(redScanMode)return;const r=+td.dataset.rr,c=+td.dataset.rc;redSel={r0:r,c0:c,r1:r,c1:c};redSelectionActive=true;redCornerPending=false;const featureBefore=currentFeature,bankBefore=state.activeMap;const val=await blinkPrompt('Nhập giá trị ('+(currentFeature.unit||'unit')+')',d[r][c]);if(featureBefore!==currentFeature||bankBefore!==state.activeMap)return;if(val!==null&&Number.isFinite(Number(val))){d[r][c]=Number(val);saveFeatureStore();renderFeature()}else updateRedSelectionVisual()};
   });
   updateRedSelectionVisual();
   highlightRedLiveCell();

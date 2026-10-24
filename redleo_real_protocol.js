@@ -4577,6 +4577,29 @@ function verifyV11FullWrite(C,E){
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
   for(let b=1;b<=4;b++)assertV11MainAndAfrMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
 }
+// UI contract: all ECU confirmations, warnings, PIN and numeric input use
+// Blink's own DOM dialogs. If UI isn't mounted yet, actions fail closed.
+async function blinkProtocolConfirm(title,message,ok='XÁC NHẬN',cancel='HỦY'){
+  if(typeof window.blinkConfirm!=='function'){
+    taskUi('error','HỘP THOẠI XÁC NHẬN TRONG APP CHƯA SẴN SÀNG',6000);
+    return false;
+  }
+  return !!(await window.blinkConfirm(title,message,ok,cancel));
+}
+function ensureSameEcuAfterDialog(epoch,identity,label){
+  // Async in-app dialogs do not freeze BLE or background navigation.
+  // Recheck the authenticated ECU immediately before any destructive TX.
+  if(epoch!==transportEpoch||identity!==handshakeInfo||!identity||!cmdChar()||!mapChar()){
+    throw new Error(label+' · ECU hoặc BLE thay đổi khi chờ thao tác trên giao diện. Không gửi lệnh.');
+  }
+}
+async function blinkProtocolPrompt(message,defaultValue='',title='NHẬP THÔNG SỐ ECU'){
+  if(typeof window.blinkPrompt!=='function'){
+    taskUi('error','BÀN PHÍM NHẬP TRONG APP CHƯA SẴN SÀNG',6000);
+    return null;
+  }
+  return await window.blinkPrompt(message,defaultValue,title);
+}
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
@@ -4586,7 +4609,10 @@ async function sendAllV11Real(){
     if(!p6||p6.length<43)await readIdlePageReal(b,false);
   }
   const currentA2Layout=v11A2LayoutOf(pageCache.get(0xA2));
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + '+currentA2Layout.NAME+' trực tiếp '+currentA2Layout.LEN+'B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm('ATE V11 · GỬI TOÀN BỘ ECU','App dùng Read All 9958B + '+currentA2Layout.NAME+' trực tiếp '+currentA2Layout.LEN+'B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'GỬI TOÀN BỘ ECU');
+  if(!v11FullImageReady())throw new Error('ECU đã thay đổi trong khi xác nhận Full Write. Đọc lại ECU.');
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -4687,8 +4713,11 @@ async function copyBankV11Real(dest){
     const p6=page(6,d);
     if(!pageCache.get(p6)||pageCache.get(p6).length<43)await readIdlePageReal(d,false);
   }
-  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 8 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + AFR/O2 target + Idle/Limit + AutoShift + ECT Motor.'))return;
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm('ATE V11 · COPY MAP','COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 8 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + AFR/O2 target + Idle/Limit + AutoShift + ECT Motor.'))return;
 
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'COPY MAP ECU');
+  if(state.activeMap!==src||!v11FullImageReady())throw new Error('MAP nguồn hoặc ECU đã thay đổi khi xác nhận Copy MAP. Không gửi lệnh.');
   const resume=liveRunning;stopLiveLoop();
   try{
     for(const d of dests){
@@ -4731,10 +4760,7 @@ let restoreInFlight=false;
 async function confirmRestoreReal(){
   const title='KHÔI PHỤC DỮ LIỆU GỐC ECU';
   const message='ATE gốc dùng lệnh 0x8B.\n\nThao tác này thay đổi dữ liệu ECU. Giữ nguồn ECU ổn định, không tắt khóa điện và không ngắt BLE cho tới khi Blink báo hoàn tất.';
-  if(typeof window.blinkConfirm==='function'){
-    return !!(await window.blinkConfirm(title,message,'KHÔI PHỤC','HỦY'));
-  }
-  try{return !!window.confirm(title+'?\n\n'+message)}catch(_e){return false}
+  return await blinkProtocolConfirm(title,message,'KHÔI PHỤC','HỦY');
 }
 async function restoreReal(){
   requireProfile('restore','Khôi phục dữ liệu gốc');
@@ -4862,7 +4888,10 @@ async function tpsStudyReal(){
   if(!blinkTpsEcuReadSafe())throw new Error('Dừng ghi AFR và hủy phiên 3 lượt trước khi học TPS.');
   if(!handshakeInfo||!state.ecuConnected)throw new Error('Chưa xác thực ECU qua BLE.');
   const label=profileKey==='MODERN_V11'?(isUltraPro2Direct()?'ULTRA PRO2':'ATE V11'):(profileKey==='MODERN_V10'?(isUltraDirect()?'ULTRA PRO1':'V10'):'REDLEO 9.x');
-  if(!confirm(label+' · HỌC TPS ECU\n\nTẮT ĐỘNG CƠ, BẬT KHÓA ĐIỆN, GIỮ NGUỒN ECU ỔN ĐỊNH.\nSau khi xác nhận, xoay ga MIN → MAX → MIN ít nhất BA LẦN để ECU học.\nBlink chỉ xác minh sau khi đọc lại Options A2 độc lập.'))return false;
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm(label+' · HỌC TPS ECU','TẮT ĐỘNG CƠ, BẬT KHÓA ĐIỆN, GIỮ NGUỒN ECU ỔN ĐỊNH.\nSau khi xác nhận, xoay ga MIN → MAX → MIN ít nhất BA LẦN để ECU học.\nBlink chỉ xác minh sau khi đọc lại Options A2 độc lập.','BẮT ĐẦU HỌC','HỦY'))return false;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TPS STUDY');
+  if(!blinkTpsEcuReadSafe())throw new Error('Auto Tune bắt đầu trong khi xác nhận TPS Study; hủy học TPS.');
   const epoch=transportEpoch,originalHandshake=handshakeInfo;
   try{window.blinkResetEcuTpsCalibration?.('Đang học TPS từ ECU');}catch(_e){}
   taskUi('loading',label+' · TPS STUDY 0x77 · MIN → MAX → MIN × 3...');
@@ -4899,11 +4928,16 @@ async function tpsStudyReal(){
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
-  const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  const reply=await blinkProtocolPrompt('Thời gian test kim phun (giây, >1):','3','TEST KIM PHUN');
+  if(reply===null)return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
+  const s=Number(reply);
   if(!Number.isFinite(s)||s<=1)return;
   const sec=clamp(Math.round(s),2,30);
   if(isV11Profile()){
-    if(!confirm('ATE V11 · TEST KIM PHUN '+sec+' GIÂY\n\nĐộng cơ phải tắt. Đảm bảo khu vực an toàn trước khi kích kim phun.'))return;
+    if(!await blinkProtocolConfirm('ATE V11 · TEST KIM PHUN','Thời gian '+sec+' GIÂY\n\nĐộng cơ phải tắt. Đảm bảo khu vực an toàn trước khi kích kim phun.','KÍCH KIM PHUN','HỦY'))return;
+    ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
     const resume=liveRunning;stopLiveLoop();
     const until=Date.now()+sec*1000;
     try{
@@ -4922,6 +4956,7 @@ async function testInjectorReal(){
     notice('success','TEST INJECTOR ATE V11 XONG',sec+' giây · đã gửi DC 00 stop');
     return;
   }
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
   await rawExchange(req5(0xDC,sec+1),6000);
   notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');
   setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200);
@@ -4963,11 +4998,13 @@ async function ensureV11PasswordCache(){
 }
 async function loginReal(){
   requireProfile('password','Đăng nhập ECU');
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
   let cur=currentPasswordBytes();
   if(isV11Profile()&&!cur)cur=await ensureV11PasswordCache();
   if(!cur)return notice('error','LOGIN','Chưa đọc được PIN ECU.');
-  const p=prompt(isV11Profile()?'Nhập PIN ECU hiện tại (1–4 số):':'Nhập mật khẩu ECU:','');
+  const p=await blinkProtocolPrompt(isV11Profile()?'Nhập PIN ECU hiện tại (1–4 số):':'Nhập mật khẩu ECU:','','ĐĂNG NHẬP ECU');
   if(p==null)return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐĂNG NHẬP ECU');
   const inBytes=isV11Profile()?v11PasswordDigitsToBytes(p):passwordDigitsToBytes(p);
   const ok=passwordBytesToString(inBytes)===passwordBytesToString(cur);
   loginState=ok;
@@ -4976,20 +5013,22 @@ async function loginReal(){
 function logoutReal(){loginState=false;notice('info','LOGOUT','Đã đăng xuất')}
 async function changePasswordReal(){
   requireProfile('password','Đổi mật khẩu ECU');
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
 
   if(isV11Profile()){
     let cur=await ensureV11PasswordCache();
     if(!cur)throw new Error('Không đọc được PIN hiện tại từ ATE V11.');
-    const old=prompt('PIN ATE hiện tại (1–4 số):','');
+    const old=await blinkProtocolPrompt('PIN ATE hiện tại (1–4 số):','','PIN ECU HIỆN TẠI');
     if(old==null)return;
     if(passwordBytesToString(v11PasswordDigitsToBytes(old))!==passwordBytesToString(cur))throw new Error('PIN cũ sai.');
-    const p=prompt('PIN ATE mới (1–4 số, chỉ 0–9):','');
+    const p=await blinkProtocolPrompt('PIN ATE mới (1–4 số, chỉ 0–9):','','PIN ECU MỚI');
     if(p==null)return;
     const bytes=v11PasswordDigitsToBytes(p);
 
     // Original ATE V11 Change Password calls proDgvEnter(..., 0xB0).
     // The B0 serializer emits: CD B0 + 4 password nibbles + 00 00 + checksum.
     const payload=[...bytes,0,0];
+    ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐỔI PIN ECU');
     taskUi('loading','ATE V11 · ĐANG ĐỔI PIN PAGE B0...');
     await writePageChecked(0xB0,payload,false,1,'password');
     await new Promise(r=>setTimeout(r,260));
@@ -5005,10 +5044,11 @@ async function changePasswordReal(){
   }
 
   await ensureV9FullWriteReady('Đổi mật khẩu ECU');
-  const old=prompt('Mật khẩu cũ:','');if(old==null)return;
+  const old=await blinkProtocolPrompt('Mật khẩu cũ:','','MẬT KHẨU ECU');if(old==null)return;
   if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');
-  const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;
+  const p=await blinkProtocolPrompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','','MẬT KHẨU ECU MỚI');if(p==null)return;
   const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐỔI MẬT KHẨU ECU');
   await writePageChecked(0xB2,payload);
   readCache.password=bytes;loginState=true;
   notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK');
@@ -5191,7 +5231,9 @@ function captureMapIo(id,kind,handler,labelFn,options={}){
 function notice(type,title,detail){
   if(type==='success')taskUi('success',title+' · OK');
   else if(type==='error')taskUi('error',title+' · LỖI',6500);
-  if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);else alert(title+'\n'+detail)
+  if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);
+  else if(typeof window.blinkAlert==='function')window.blinkAlert(title+'\n'+detail,'ECU');
+  else console.warn('ECU NOTICE (UI not initialized):',title,detail);
 }
 function protect(fn){return async e=>{if(e){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}try{await fn(e)}catch(x){err(x);taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);notice('error','ECU REAL',x.message||String(x))}}}
 function capture(id,handler){const e=document.getElementById(id);if(e)e.addEventListener('click',protect(handler),true)}
