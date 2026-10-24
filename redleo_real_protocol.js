@@ -2655,7 +2655,11 @@ function parseA2Data(data){
 }
 async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000,showUi=true,validateRx=null){
   pg&=255;
-  const resumeLive=liveRunning;
+  // PB3.79.103: A preceding WRITE may have scheduled Live 0x69 to resume
+  // shortly. A verification 0x9A starts before that timer fires, then
+  // stopLiveLoop() cancels it. Snapshot BOTH running and pending resume,
+  // otherwise the successful 420-cell readback permanently freezes TPS/RPM.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
   stopLiveLoop();
 
   let lastErr=null;
@@ -2759,7 +2763,8 @@ async function readA2SensorPageReal(showUi=true){
   const minData=v11?(ultra2?V11_A2_286.LEN:V11_A2.LEN):(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
   const label=v11?(ultra2?'REDLEO ULTRA PRO2 · A2 286B':'ATE / REDLEO V11 · A2 / OPTIONS'):(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
   const appleSafe=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
-  const resumeAppleLive=appleSafe&&liveRunning;
+  // iOS A2 can also preempt a pending (not yet running) Live resume.
+  const resumeAppleLive=appleSafe&&!!(liveRunning||liveResumeTimer);
   let R;
   if(appleSafe){
     stopLiveLoop();
@@ -4302,7 +4307,8 @@ async function writeCurrentFuelAndVerify(bank){
     await ensureEcuAxesReal(false);
   }
 
-  const resumeLive=liveRunning;
+  // Preserve a queued Live restart as well as an already-running loop.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
   const previousPhase=typeof state!=='undefined'?state.ecuPhase:'live';
   const mapSelect=document.getElementById('mapSelect');
   stopLiveLoop();
