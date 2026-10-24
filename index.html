@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.99'; // RAM-only AFR target ±0.3 lock with 3 independent clear-round far-value confirmation; OTA paused
+  window.BLINK_PB_VERSION = '3.80.00'; // Show ECT on mobile/Bluefy; normal Auto Tune only; preserve RAM AFR ±0.3 lock and 3 independent clear rounds; OTA paused
+window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -540,10 +541,11 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   #mapEditorScreen .screenHeader{padding:0 14px;margin-bottom:8px}
   .editToolbar{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:0 0 auto}.editToolbar button{height:38px;border-radius:11px;font-size:10px}.editToolbar #applyCorrectedBtn{grid-column:1/-1;height:40px}
   .editorInfo{padding:0 12px 8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto}.editorInfo .livebox{min-height:52px;background:#0d0d11;border:1px solid #31171c;border-radius:12px}
-  .editorEctBox{display:none}
+  /* ECT is a live ECU value on phones too: previously display:none below 900px hid it on Android and Bluefy. */
+  #mapEditorScreen .editorEctBox{display:block!important;grid-column:1/-1}
   @media (min-width:900px){
     #mapEditorScreen .editorInfo{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-    #mapEditorScreen .editorEctBox{display:block!important}
+    #mapEditorScreen .editorEctBox{grid-column:auto}
   }
   .editorTabs{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:4px!important;margin:0 12px 8px!important;padding:4px!important;background:#0d0d11!important;border:1px solid #33171c!important;border-radius:13px!important;overflow:visible!important}.editorTabs .tab{font-size:9px!important;min-height:37px!important;white-space:normal!important;padding:4px!important}
   .editorStepBar{display:flex;align-items:center;gap:6px;padding:0 12px 8px;color:#8d929b;font-size:10px;flex:0 0 auto}.stepChip{padding:7px 11px;border:1px solid #332027;background:#101014;border-radius:10px;font-weight:800}.stepChip.on{border-color:#a51c28;color:#fff;background:#2a0b10}
@@ -555,6 +557,10 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   .tuneHero{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.tuneLive{background:#0d0d11;border:1px solid #381820;border-radius:16px;padding:12px}.tuneLive .k{font-size:9px;letter-spacing:1.2px;color:#858a93}.tuneLive .v{font-size:30px;font-weight:950;margin-top:6px}.tuneModeRow{display:grid;grid-template-columns:1fr auto;gap:7px;margin-bottom:9px}.tuneModeRow select{height:42px;border-radius:12px;background:#0d0d11!important;border:1px solid #381820!important;color:#fff!important;padding:0 11px}.tuneModeRow button{height:42px;border-radius:12px}
   #threeRunPanel{display:grid;grid-template-columns:1fr 1fr!important;gap:8px!important;background:linear-gradient(155deg,#141014,#09090c)!important;border:1px solid #4c171f!important;border-radius:18px!important;padding:12px!important}.threePanel[hidden]{display:none!important}#threeRunPanel button{height:46px!important;border-radius:13px!important}.threeStatus{grid-column:1/-1!important;font-size:11px!important;line-height:1.45!important;background:#0a0a0d;border:1px solid #281318;border-radius:12px;padding:10px;color:#c5c8cf!important}.threeStatus b{color:#fff!important}
   .recordActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0}.recordActions button{height:44px;border-radius:13px}.tuneNote{font-size:10px;color:#7c828b;line-height:1.5;background:#0d0d11;border:1px solid #2d151a;border-radius:13px;padding:11px;margin-top:8px}
+  /* Retire the old automatic three-PW-run feature, not the independent 3-clear AFR verification. Keep legacy nodes inert for compatibility with shared handlers. */
+  #threeHistoryBtn,#autoTuneQuickModeBtn,#tuneMode,#threeRunPanel,#threeHistoryDialog,.legacyThreeRunSetting{display:none!important}
+  #mapEditorScreen .autoTuneQuickBar{grid-template-columns:minmax(0,1fr)!important}
+  .tuneModeRow{grid-template-columns:minmax(0,1fr)!important}
 
   /* settings */
   .settingsTiles{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:16px}.settingTile{min-height:142px;border:1px solid #541820;border-radius:19px;background:linear-gradient(155deg,#171116,#0c0c10);padding:16px;position:relative}.settingTile .menuIcon{width:48px;height:48px}.settingTile h3{margin:18px 0 3px;font-size:17px}.settingTile p{margin:0;font-size:11px;color:#858a94}.settingTile .tiny{position:absolute;bottom:10px;left:16px;font-size:8px;color:#57373b;letter-spacing:1px}
@@ -2359,10 +2365,10 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   <section id="tuneScreen" class="screen scrollScreen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Auto Tune</div><div class="screenSub">Ghi AFR · học phản ứng · bù MAP</div></div><div id="tuneBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="tuneHero"><div class="tuneLive"><div class="k">AFR</div><div class="v" data-mirror="afr">--</div></div><div class="tuneLive"><div class="k">RPM</div><div class="v" data-mirror="rpm">0</div></div><div class="tuneLive"><div class="k">TPS</div><div class="v" data-mirror="tps">--%</div></div><div class="tuneLive"><div class="k">Ô HIỆN TẠI</div><div class="v" data-mirror="cell">--</div></div></div>
-    <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option><option value="three">MODE CHẠY 3 LƯỢT</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
+    <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
     <div class="recordActions"><button id="clearMeasured" class="danger" style="grid-column:1/-1">XÓA AFR ĐO</button></div><div class="tuneMapLinks"><button class="ghost" data-auto-tab="measured">AFR ĐO CỦA BLINK</button><button class="ghost" data-auto-tab="target">AFR MỤC TIÊU CỦA BLINK</button><button class="ghost" data-auto-tab="corrected">MAP PHUN ĐÃ BÙ</button><button class="ghost" data-auto-tab="inject">THỜI GIAN PHUN</button><button id="tuneApplyCorrectedBtn" class="danger tuneApplyCorrected" type="button">✦ MAP PHUN ĐÃ BÙ → ECU</button></div>
     <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu.</div></div>
-    <div class="tuneNote">Lượt 1 đo AFR và tạo MAP kế tiếp. Lượt 2 học phản ứng PW/AFR. Lượt 3 tạo FINAL MAP. Auto Tune Blink giữ nguyên thuật toán; giao tiếp ECU dùng protocol REDLEO REAL qua cầu BLE/UART.</div>
+    <div class="tuneNote">Auto Tune chế độ thường: ghi AFR đo, tính MAP đã bù, chỉ ghi ECU khi có ô cần bù và xác minh dữ liệu đọc lại. Ô AFR đạt mục tiêu ±0,3 được giữ khóa; chỉ mở khóa nếu AFR lệch được xác nhận qua 3 lần xóa bảng đo độc lập.</div>
     <div id="recordBadge" class="badge" style="margin-top:9px;text-align:center">GHI AFR: OFF</div>
   </section>
 
@@ -2433,7 +2439,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
           <div class="field"><label for="settleMs">Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div>
           <div class="field"><label for="afrDelayMs">Độ trễ AFR (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div>
           <div class="field"><label for="limitPct">Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div>
-          <div class="field"><label for="threeRunLimitPct">Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div>
+          <div class="field legacyThreeRunSetting"><label for="threeRunLimitPct">Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div>
         </div>
         <div class="tuneSettingHelp">TPS 0% (IDLE): vẫn đo và lưu AFR vào đúng ô theo RPM. Auto Tune không tự bù hoặc thay đổi thời gian phun ở hàng này.</div>
       </div>
@@ -2666,25 +2672,9 @@ function load(){
     const s=JSON.parse(localStorage.getItem('afrAutoTuneDirectV5')||'null');
     if(s){
       if(s.cal){Object.assign(state.cal,s.cal);if(Number(state.cal.settleMs)===350||Number(state.cal.settleMs)===30)state.cal.settleMs=0;}
-      if(s.mode==='normal'||s.mode==='three')state.mode=s.mode;
-      if(Array.isArray(s.threeRunHistory))state.threeRunHistory=s.threeRunHistory.slice(0,12);
-      try{const h=JSON.parse(localStorage.getItem('afrAutoTune3RunHistoryV1')||'null');if(Array.isArray(h))state.threeRunHistory=h.slice(0,12);}catch(_e){}
-      if(s.threeRun&&typeof s.threeRun==='object'){
-        Object.assign(state.threeRun,s.threeRun);
-        if(!Array.isArray(state.threeRun.runs)||state.threeRun.runs.length!==3)state.threeRun.runs=[null,null,null];
-
-        // Never resume an unfinished 3-run session across a page/app restart.
-        // Android WebView keeps localStorage between launches, so restoring
-        // active=true made READ CURRENT look broken on the next app start.
-        // A fresh launch must require the operator to deliberately start 3-run again.
-        if(state.threeRun.active){
-          state.threeRun={active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};
-          state.mode='normal';
-          try{localStorage.setItem('blinkThreeRunRecovered','1')}catch(_e){}
-        }else{
-          state.threeRun.cancelRequested=false;
-        }
-      }
+      // PB3.80.00: old persisted three-run state/history must never reactivate a removed ECU-write mode.
+      // Preserve user AFR/target/fuel maps; only the obsolete running mode is discarded.
+      state.mode='normal';
       if(Array.isArray(s.mapBanks)&&s.mapBanks.length===4){
         for(let i=0;i<4;i++){
           const b=s.mapBanks[i]||{};
@@ -2715,10 +2705,9 @@ function save(){
   normalizeAfrIo4Calibration();
   localStorage.setItem('afrAutoTuneDirectV5',JSON.stringify({
     cal:state.cal,
-    mode:state.mode,
+    mode:'normal',
     activeMap:state.activeMap,
-    mapBanks:state.mapBanks,
-    threeRun:state.threeRun
+    mapBanks:state.mapBanks
   }));
   $('saveInfo').textContent='Đã lưu MAP No.'+state.activeMap+' · '+new Date().toLocaleTimeString();
 }
@@ -4325,10 +4314,11 @@ function renderThreeRunUi(){
   $('threeRunStatus').innerHTML=threeRunStatusText();
   setTimeout(()=>{try{window.BlinkRealProtocol?.refreshProfileUi?.()}catch(_e){}},0);
 }
-function setTuneMode(mode){
-  if(mode!=='normal'&&mode!=='three')mode='normal';
-  if(state.threeRun.active&&mode!=='three'){blinkAlert('Phiên 3 lượt đang chạy. Hãy kết thúc hoặc hủy phiên trước.');$('tuneMode').value='three';return;}
-  if(state.recording)setRecording(false);state.mode=mode;$('tuneMode').value=mode;renderThreeRunUi();saveSoon();
+function setTuneMode(_mode){
+  // Compatibility entrypoint; legacy THREE is permanently disabled.
+  state.mode='normal';
+  $('tuneMode').value='normal';
+  renderThreeRunUi();saveSoon();
 }
 function beginThreeRunPass(pass,keepMeasured=false){
   const tr=state.threeRun;tr.pass=pass;tr.phase='recording';tr.runStartedAt=new Date().toISOString();tr.runPw=cloneMatrix(state.inject);
@@ -4339,20 +4329,9 @@ function afrStreamReady(maxAgeMs=2200){
   return Number.isFinite(last)&&Number.isFinite(state.live.afr)&&(performance.now()-last)<=maxAgeMs;
 }
 async function startThreeRunSession(){
-  if(!blinkAutoTuneTpsSafe())return blinkAlert('TPS ECU chưa xác minh; không thể bắt đầu Auto Tune 3 lượt.');
-  if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
-  if(!state.ecuConnected)return blinkAlert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return blinkAlert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return blinkAlert('ECU đang bận. Hãy chờ Live ổn định.');
-  if(fuelMapSyncUnknown(state.activeMap))return blinkAlert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
-  if(!await ensureActiveEcuAxes(true))return;
-  if(!tpsTelemetryFresh())return blinkAlert('Chưa có dữ liệu TPS/RPM live mới từ ECU. Hãy chờ Live hoạt động rồi bắt đầu 3 lượt.');
-  const baseCheck=inspectFuelMap(state.inject);if(!baseCheck.ok)return blinkAlert(baseCheck.reason);
-  const ok=await blinkConfirm(
-    'BẮT ĐẦU MODE CHẠY 3 LƯỢT · MAP No.'+state.activeMap,
-    'Lượt 1: đo AFR → tính + ghi MAP cho lượt 2.\nLượt 2: đo phản ứng → tính + ghi MAP cho lượt 3.\nLượt 3: đo phản ứng cuối → tính FINAL → ghi ECU lần 3.\n\nSau mỗi lượt, MAP phun chính trong Blink được cập nhật trước rồi mới gửi ECU. Chỉ sau khi ECU ACK thành công mới chuyển sang lượt tiếp theo.',
-    'BẮT ĐẦU',
-    'HỦY'
-  );if(!ok)return;
-  state.threeRun={active:true,mapNo:state.activeMap,pass:1,phase:'recording',startedAt:new Date().toISOString(),runStartedAt:null,runPw:null,target:cloneMatrix(state.target),runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false};beginThreeRunPass(1,false);
+  // Safety: no retired 3-run ECU writes, even from a stale DOM handler.
+  showEcuNotice('info','ĐÃ BỎ MODE 3 LƯỢT','Auto Tune chỉ còn chế độ thường. Xác nhận AFR lệch sau 3 lần xóa bảng vẫn hoạt động.',3500);
+  return false;
 }
 function captureThreeRun(pass){
   const tr=state.threeRun,run={pass,startedAt:tr.runStartedAt,endedAt:new Date().toISOString(),pw:cloneMatrix(tr.runPw||state.inject),afr:cloneMatrix(state.measured),counts:cloneMatrix(state.counts)};run.summary=afrRunStats(run);tr.runs[pass-1]=run;return run;
@@ -7186,10 +7165,10 @@ document.querySelectorAll('[data-nav]').forEach(e=>e.addEventListener('click',()
 document.querySelectorAll('.mapBankBtn').forEach(e=>e.addEventListener('click',()=>{selectMapBank(Number(e.dataset.mapbank),true);syncBanks();if(currentFeature?.banked)renderFeature()}));
 document.querySelectorAll('[data-feature]').forEach(e=>e.addEventListener('click',()=>openFeature(e.dataset.feature)));
 document.getElementById('editorBackBtn')?.addEventListener('click',()=>{window.hideFuelKeypad?.();showScreen(editorReturnScreen||'maps')});document.getElementById('redEditorBack')?.addEventListener('click',()=>{window.hideRedKeypad?.();showScreen('maps')});
-// The legacy hub remains reachable only for optional 3-run controls.
+// The legacy hub is retained for normal AF-record fallback only; old 3-run controls are hidden and inert.
 document.getElementById('autoTuneQuickRecordBtn')?.addEventListener('click',()=>document.getElementById('recordBtn')?.click());
 document.getElementById('autoTuneQuickModeBtn')?.addEventListener('click',()=>showScreen('tune'));
-document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune/3 lượt.',0)});
+document.getElementById('openMapFromTune')?.addEventListener('click',()=>openOurEditor('measured',true,'tune'));document.querySelectorAll('[data-auto-tab]').forEach(e=>e.addEventListener('click',()=>{const tab=e.dataset.autoTab;openOurEditor(tab,tab!=='inject','tune')}));document.getElementById('tuneApplyCorrectedBtn')?.addEventListener('click',()=>{const source=document.getElementById('applyCorrectedBtn');if(source&&!source.disabled){source.click();return;}showEcuNotice('error','CHƯA THỂ GHI MAP ĐÃ BÙ','Kiểm tra kết nối ECU, profile và trạng thái Auto Tune.',0)});
 document.getElementById('redBankSelect')?.addEventListener('change',e=>{selectMapBank(Number(e.target.value),false);syncBanks();renderFeature();setTimeout(()=>autoReadVisibleEcuPage('feature-bank'),0)});document.getElementById('redAxisMode')?.addEventListener('change',e=>{externalAxisMode=e.target.value;renderFeature()});
 document.querySelectorAll('[data-redstep]').forEach(e=>e.addEventListener('click',()=>{redStep=Number(e.dataset.redstep);document.querySelectorAll('[data-redstep]').forEach(x=>x.classList.toggle('primary',x===e))}));document.getElementById('redAfrOn')?.addEventListener('click',()=>setSelectedAfrEnabled(true));document.getElementById('redAfrOff')?.addEventListener('click',()=>setSelectedAfrEnabled(false));document.getElementById('redLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));document.getElementById('redScanToggle')?.addEventListener('click',e=>{
   if(!redRangeEditorActive()){redScanMode=false;return}
@@ -7565,7 +7544,7 @@ function requestAutoTuneCorrectedSave(){
   if(!screen?.classList.contains('autoTuneMap'))return false;
   const btn=document.getElementById('applyCorrectedBtn');
   if(btn&&!btn.disabled)btn.click();
-  else showEcuNotice('error','CHƯA THỂ LƯU MAP ĐÃ BÙ','Kiểm tra kết nối ECU, MAP đang chọn và trạng thái Auto Tune/3 lượt.',0);
+  else showEcuNotice('error','CHƯA THỂ LƯU MAP ĐÃ BÙ','Kiểm tra kết nối ECU, MAP đang chọn và trạng thái Auto Tune.',0);
   return true;
 }
 floatSaveBtn?.addEventListener('click',e=>{
