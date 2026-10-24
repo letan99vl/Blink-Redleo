@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.100'; // Show ECT on mobile/Bluefy; normal Auto Tune only; preserve RAM AFR ±0.3 lock and 3 independent clear rounds; OTA paused
+  window.BLINK_PB_VERSION = '3.79.101'; // Opt-in automatic corrected MAP save after 2s closed TPS and safe idle RPM; existing AFR lock unchanged; OTA paused
+window.BLINK_AUTO_IDLE_SAVE_REVISION = 'AUTO-IDLE-2SEC-VERIFY-20261024';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
@@ -1249,6 +1250,12 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   #mapEditorScreen.autoTuneMap .autoTuneQuickBar{display:grid}
   #mapEditorScreen .autoTuneQuickBar button{min-width:0;min-height:33px;padding:5px 7px;border-radius:9px;font-weight:850;font-size:clamp(9px,1.8vw,12px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #mapEditorScreen .autoTuneQuickBar button:disabled{opacity:.5;cursor:not-allowed}
+  #mapEditorScreen .autoIdleSaveControl{display:none;gap:6px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:0 7px 5px;padding:5px 8px;border:1px solid #5a333a;border-radius:8px;background:#170e12;color:#ffced5;font-size:10px;font-weight:800}
+  #mapEditorScreen.autoTuneMap:not(.standaloneFuel) .autoIdleSaveControl{display:flex}
+  #mapEditorScreen .autoIdleSaveControl label{display:flex;align-items:center;gap:7px;cursor:pointer;min-width:0}
+  #autoIdleSaveToggle{width:17px;height:17px;accent-color:#ff4444;flex:none}
+  #autoIdleSaveStatus{flex:1 1 100%;color:#a9a4aa;font-size:9px;line-height:1.3}
+  body.mapZoomMode #mapEditorScreen .autoIdleSaveControl{display:none!important}
   body.mapZoomMode #mapEditorScreen .autoTuneQuickBar{display:none!important}
   /* ===== v16 STANDALONE FUEL EDITOR + SAFE CUSTOM NUMERIC KEYPAD ===== */
   #mapEditorScreen.standaloneFuel{--fuel-keypad-h:304px}
@@ -2258,6 +2265,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
+    <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI NHẢ GA VỀ IDLE 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần, chỉ ghi lúc tua gần garanti ≤2200 RPM.</span></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
@@ -2368,7 +2376,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
     <div class="recordActions"><button id="clearMeasured" class="danger" style="grid-column:1/-1">XÓA AFR ĐO</button></div><div class="tuneMapLinks"><button class="ghost" data-auto-tab="measured">AFR ĐO CỦA BLINK</button><button class="ghost" data-auto-tab="target">AFR MỤC TIÊU CỦA BLINK</button><button class="ghost" data-auto-tab="corrected">MAP PHUN ĐÃ BÙ</button><button class="ghost" data-auto-tab="inject">THỜI GIAN PHUN</button><button id="tuneApplyCorrectedBtn" class="danger tuneApplyCorrected" type="button">✦ MAP PHUN ĐÃ BÙ → ECU</button></div>
     <div id="threeRunPanel" class="threePanel" hidden><button id="threeRunStartBtn" class="good">BẮT ĐẦU 3 LƯỢT</button><button id="threeRunStepBtn" class="primary" disabled>KẾT THÚC LƯỢT</button><button id="threeRunCancelBtn" class="danger" disabled>HỦY PHIÊN</button><div id="threeRunStatus" class="threeStatus"><b>Mode chạy 3 lượt:</b> chưa bắt đầu.</div></div>
-    <div class="tuneNote">Auto Tune chế độ thường: ghi AFR đo, tính MAP đã bù, chỉ ghi ECU khi có ô cần bù và xác minh dữ liệu đọc lại. Ô AFR đạt mục tiêu ±0,3 được giữ khóa; chỉ mở khóa nếu AFR lệch được xác nhận qua 3 lần xóa bảng đo độc lập.</div>
+    <div class="tuneNote">Auto Tune chế độ thường: ghi AFR đo, tính MAP đã bù, chỉ ghi ECU khi có ô cần bù và xác minh dữ liệu đọc lại. Tùy chọn tự ghi khi đã mở ga rồi nhả về TPS ≤1% và RPM gần garanti ≤2200 liên tục 2 giây. Ô AFR đạt ±0,3 vẫn khóa cho đến khi có 3 lần xóa bảng xác nhận AFR lệch.</div>
     <div id="recordBadge" class="badge" style="margin-top:9px;text-align:center">GHI AFR: OFF</div>
   </section>
 
@@ -2641,7 +2649,9 @@ function selectMapBank(n,autoRead=true){
     const api=window.BlinkRealProtocol;
     if(api&&typeof api.normalizeBank==='function')n=api.normalizeBank(n);
   }catch(_e){}
+  if(autoIdleSave.inFlight && n!==state.activeMap){showEcuNotice('info','ĐANG TỰ LƯU MAP','Chưa chuyển MAP khi ECU đang ghi và đọc lại để xác minh.',2300);$('mapSelect').value=String(state.activeMap);return;}
   if(state.threeRun.active && n!==state.threeRun.mapNo){blinkAlert('MODE CHẠY 3 LƯỢT đang khóa MAP No.'+state.threeRun.mapNo+'. Hãy kết thúc hoặc hủy phiên trước.');$('mapSelect').value=String(state.activeMap);return;}
+  if(n!==state.activeMap)autoIdleSaveReset(false);
   if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){
     blinkAlert('Đang ghi ECU, chưa thể chuyển MAP.');
     $('mapSelect').value=String(state.activeMap);
@@ -3837,6 +3847,7 @@ window.blinkAlert=blinkAlert;
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
+  if(autoIdleSave.inFlight&&!opts.autoIdle)return false; // Never overlap a manual MAP write with an automatic write.
   const rollbackMap=validMatrix(opts.rollbackMap)?cloneMatrix(opts.rollbackMap):null;
   let rollbackBank=clamp(Math.round(Number(state.activeMap)||1),1,4);
   const rollbackBeforeTransport=()=>{
@@ -3899,6 +3910,8 @@ async function startFuelWrite(opts={}){
   }
 
   if(!await ensureActiveEcuAxes(true))return rollbackBeforeTransport();
+  // Fail closed if TPS/RPM, ECU identity or idle changed while the write waited for axes.
+  if(opts.autoIdle&&!autoIdleSavePreflight(mapNo,opts.autoIdleEcuIdentity))return rollbackBeforeTransport();
 
   const mapCheck=inspectFuelMap(state.inject);
   if(!mapCheck.ok){
@@ -4103,6 +4116,8 @@ async function writeCurrentFuelMap(){
 }
 
 async function applyCorrectedAndWrite(options={}){
+  if(autoIdleSave.inFlight&&!options.autoIdle)return false;
+  if(options.autoIdle&&!autoIdleSavePreflight(state.activeMap,options.autoIdleEcuIdentity))return false;
   if(!blinkAutoTuneTpsSafe()){blinkAlert('TPS ECU chưa đọc Options mới. Auto Tune chưa được ghi MAP vì nguy cơ nhầm hàng TPS.');return false;}
   if(state.threeRun.active){
     if(state.threeRun.phase==='recording')return finishThreeRunPass();
@@ -4166,6 +4181,7 @@ async function applyCorrectedAndWrite(options={}){
   // The same tap continues directly into the verified write/readback path.
   if(typeof options.prepareTransport==='function')await options.prepareTransport();
   if(!blinkAutoTuneTpsSafe()){showEcuNotice('error','TPS ECU MẤT ĐỒNG BỘ','ECU hoặc chuẩn TPS đã đổi khi chờ giao tiếp.',0);return false;}
+  if(options.autoIdle&&!autoIdleSavePreflight(requestedMapNo,options.autoIdleEcuIdentity))return false;
   if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
     showEcuNotice('error','MAP / ECU ĐÃ THAY ĐỔI','ECU hoặc MAP đang chọn đã thay đổi khi chờ giao tiếp. Chưa ghi MAP đã bù.',0);
     return false;
@@ -4175,14 +4191,151 @@ async function applyCorrectedAndWrite(options={}){
   state.pendingAfrClearMapNo=state.activeMap;
   saveSoon();
   if(state.tab==='inject'||state.tab==='corrected')render();
-  const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap,verifyReadback:true});
+  const writeStarted=await startFuelWrite({skipConfirm:true,rollbackMap:baseMap,verifyReadback:true,autoIdle:!!options.autoIdle,autoIdleEcuIdentity:options.autoIdleEcuIdentity});
   if(!writeStarted)state.pendingAfrClearMapNo=0;
   return !!writeStarted;
 }
 
 
+// PB3.79.101. Auto IDLE save is opt-in PER APP LAUNCH. A closed throttle
+// while riding at high RPM is not an idle/safe-write condition.
+// We only trigger after verified ECU TPS opened >3%, then TPS <=1% AND
+// 650..2200 RPM continuously for 2s, with a fresh AFR measurement this session.
+// This reuses the normal 420-cell verified MAP write; NEVER write twice for
+// the same release event, or retry automatically after an ambiguous write.
+const AUTO_IDLE_SAVE_MS=2000;
+const AUTO_IDLE_SAVE_TPS_MAX=1;
+const AUTO_IDLE_SAVE_OPEN_TPS=3;
+const AUTO_IDLE_SAVE_RPM_MIN=650;
+const AUTO_IDLE_SAVE_RPM_MAX=2200;
+const autoIdleSave={enabled:false,openSeen:false,idleSince:0,freshSamples:0,inFlight:false,mapNo:0,status:''};
+function autoIdleSaveStatus(message){
+  const checkbox=document.getElementById('autoIdleSaveToggle');
+  const status=document.getElementById('autoIdleSaveStatus');
+  if(checkbox)checkbox.checked=autoIdleSave.enabled;
+  if(status&&autoIdleSave.status!==message){status.textContent=message;autoIdleSave.status=message;}
+}
+function autoIdleSaveReset(disable=false){
+  autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;autoIdleSave.freshSamples=0;
+  autoIdleSave.mapNo=state.activeMap;
+  if(disable)autoIdleSave.enabled=false;
+  autoIdleSaveStatus(!autoIdleSave.enabled?'Đang tắt · Bật khi cần và chỉ dùng khi xe dừng an toàn.':'Chờ mở ga >=3% rồi nhả về IDLE; phải đang GHI AFR.');
+}
+function autoIdleSaveSetEnabled(on){
+  autoIdleSave.enabled=!!on;
+  autoIdleSaveReset(false);
+  if(autoIdleSave.enabled)showEcuNotice('info','TỰ LƯU BÙ IDLE: ON','Sau khi ghi AFR, mở ga rồi nhả TPS <=1% và tua <=2200 RPM liên tục 2 giây. Chỉ sử dụng khi xe đứng yên an toàn; sẽ ghi và xác minh 420 ô.',3500);
+}
+function autoIdleSaveBaseReady(now){
+  return !!(autoIdleSave.enabled&&!autoIdleSave.inFlight&&state.recording&&state.ecuConnected&&
+    state.ecuPhase==='live'&&!state.threeRun.active&&!state.ecuWriteQueued&&
+    !state.pendingAfrClearMapNo&&!fuelMapSyncUnknown(state.activeMap)&&
+    blinkEcuTpsReady()&&tpsTelemetryFresh(now)&&afrStreamReady(2200)&&
+    Number.isFinite(state.live.tps)&&Number.isFinite(state.live.rpm));
+}
+function autoIdleSavePreflight(mapNo,ecuIdentity){
+  const now=performance.now();
+  return !!(autoIdleSave.enabled&&autoIdleSave.inFlight&&state.recording&&
+    state.ecuConnected&&state.ecuPhase==='live'&&!state.threeRun.active&&
+    state.activeMap===mapNo&&autoIdleSave.mapNo===mapNo&&
+    !fuelMapSyncUnknown(mapNo)&&blinkEcuTpsReady()&&
+    ecuIdentity===blinkTpsEcuIdentity()&&tpsTelemetryFresh(now)&&
+    afrStreamReady(2200)&&Number.isFinite(state.live.tps)&&
+    state.live.tps<=AUTO_IDLE_SAVE_TPS_MAX&&Number.isFinite(state.live.rpm)&&
+    state.live.rpm>=AUTO_IDLE_SAVE_RPM_MIN&&state.live.rpm<=AUTO_IDLE_SAVE_RPM_MAX);
+}
+function autoIdleSaveHasCorrection(){
+  const corrected=correctedMatrix(),base=state.inject;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(state.measured[r][c],state.target[r][c]))continue;
+    const orig=Number(base[r][c]),next=Number(corrected[r][c]);
+    if(Number.isFinite(orig)&&Number.isFinite(next)&&Math.abs(next-orig)>0.0001)return true;
+  }
+  return false;
+}
+async function autoIdleSaveCommit(mapNo,ecuIdentity){
+  let needsWrite=false;
+  try{
+    if(!autoIdleSavePreflight(mapNo,ecuIdentity)){
+      autoIdleSaveStatus('Đã hủy tự lưu: TPS/RPM, AFR hoặc ECU thay đổi trước khi ghi.');
+      return;
+    }
+    needsWrite=autoIdleSaveHasCorrection();
+    const result=await applyCorrectedAndWrite({autoIdle:true,autoIdleEcuIdentity:ecuIdentity});
+    if(!autoIdleSave.enabled)return;
+    if(result){
+      autoIdleSave.freshSamples=0;
+      autoIdleSaveStatus('ĐÃ LƯU: ECU ACK + READBACK 420/420 ô OK. Chờ mở ga mới.');
+      showEcuNotice('success','TỰ LƯU MAP ĐÃ BÙ OK','Đã giữ TPS IDLE 2 giây, ghi MAP No.'+mapNo+' và đọc lại 420 ô khớp.',4000);
+    }else if(!needsWrite&&!fuelMapSyncUnknown(mapNo)&&state.ecuConnected){
+      // All cells may already be locked. applyCorrectedAndWrite completes
+      // this one independent AFR/clear round without an unnecessary ECU write.
+      autoIdleSave.freshSamples=0;
+      autoIdleSaveStatus('AFR đã đạt / chưa cần bù: không ghi ECU. Chờ mở ga mới.');
+    }else{
+      autoIdleSaveReset(true);
+      autoIdleSaveStatus('TỰ LƯU ĐÃ TẮT: thao tác ghi/xác minh không hoàn thành. Hãy kiểm tra MAP ECU.');
+    }
+  }catch(e){
+    autoIdleSaveReset(true);
+    autoIdleSaveStatus('TỰ LƯU ĐÃ TẮT: '+String(e&&e.message||e).slice(0,140));
+    showEcuNotice('error','TỰ LƯU MAP THẤT BẠI','Dừng tự lưu để tránh bù lặp. '+String(e&&e.message||e),0);
+  }finally{
+    autoIdleSave.inFlight=false;
+    autoIdleSave.openSeen=false;
+    autoIdleSave.idleSince=0;
+    autoIdleSave.mapNo=state.activeMap;
+  }
+}
+function autoIdleSaveTick(now=performance.now()){
+  if(!autoIdleSave.enabled||autoIdleSave.inFlight)return;
+  if(autoIdleSave.mapNo!==state.activeMap)autoIdleSaveReset(false);
+  if(!state.recording){
+    autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;
+    autoIdleSaveStatus('Chờ bật GHI AFR để kích hoạt tự lưu.');
+    return;
+  }
+  if(!autoIdleSaveBaseReady(now)){
+    autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;
+    autoIdleSaveStatus('Chờ ECU xác thực, TPS ECU, dữ liệu AFR/RPM mới và MAP an toàn.');
+    return;
+  }
+  const tps=Number(state.live.tps),rpm=Number(state.live.rpm);
+  if(tps>=AUTO_IDLE_SAVE_OPEN_TPS){
+    autoIdleSave.openSeen=true;autoIdleSave.idleSince=0;
+    autoIdleSaveStatus('Đã mở ga; chờ nhả về TPS IDLE (<=1%) và RPM <=2200.');
+    return;
+  }
+  if(!autoIdleSave.openSeen){
+    autoIdleSaveStatus('Chờ mở ga >=3% rồi nhả để chống ghi lặp lúc đứng garanti.');
+    return;
+  }
+  if(tps>AUTO_IDLE_SAVE_TPS_MAX || rpm<AUTO_IDLE_SAVE_RPM_MIN || rpm>AUTO_IDLE_SAVE_RPM_MAX){
+    autoIdleSave.idleSince=0;
+    autoIdleSaveStatus('Chờ TPS <=1% và tua máy 650-2200 RPM liên tục 2 giây.');
+    return;
+  }
+  if(autoIdleSave.freshSamples<1){
+    autoIdleSave.idleSince=0;
+    autoIdleSaveStatus('Chưa có mẫu AFR mới ở TPS >0; chưa tự ghi ECU.');
+    return;
+  }
+  if(!autoIdleSave.idleSince)autoIdleSave.idleSince=now;
+  const elapsed=now-autoIdleSave.idleSince;
+  if(elapsed<AUTO_IDLE_SAVE_MS){
+    autoIdleSaveStatus('TPS IDLE / RPM an toàn: '+(elapsed/1000).toFixed(1)+' / 2.0 giây');
+    return;
+  }
+  const mapNo=state.activeMap,ecuIdentity=blinkTpsEcuIdentity();
+  autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;
+  autoIdleSave.inFlight=true;
+  autoIdleSaveStatus('ĐANG TỰ LƯU MAP No.'+mapNo+' và xác minh dữ liệu ECU...');
+  void autoIdleSaveCommit(mapNo,ecuIdentity);
+}
+
 function setRecording(on){
   state.recording=!!on;
+  if(!state.recording)autoIdleSaveReset(false);
   state.lastCellKey='';
   state.cellEnteredAt=performance.now();
   $('recordBtn').textContent=state.recording?'Dừng ghi AFR':'Bắt đầu ghi AFR';
@@ -5001,6 +5154,7 @@ async function ecuReadLoop(){
   }
 }
 async function disconnectEcu(){
+  autoIdleSaveReset(true); // Reconnection never resumes automatic ECU writes without fresh opt-in.
   if(state.threeRun.active&&state.threeRun.phase==='recording'){state.threeRun.phase='paused';setRecording(false);renderThreeRunUi();saveSoon();}
   else if(state.threeRun.active&&state.threeRun.phase==='writing'){state.threeRun.phase='error';state.threeRun.pendingNextPass=0;setRecording(false);renderThreeRunUi();saveSoon();}
   state.ecuKeepReading=false;
@@ -5114,6 +5268,7 @@ window.blinkThrottleClosingLock=throttleClosingLock;
 window.blinkTpsTelemetryFresh=tpsTelemetryFresh;
 window.resetBlinkTpsTrend=resetTpsTrendState;
 function recordSample(now){
+  if(autoIdleSave.inFlight)return; // Do not mix pre/post-write AFR samples during the automatic ECU transaction.
   if(!blinkAutoTuneTpsSafe())return; // AFR Live unaffected; never record against unverified TPS.
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
   // AFR can keep arriving from the ESP32 even if ECU live polling stalls.
@@ -5132,6 +5287,7 @@ function recordSample(now){
   const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<=0)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0;
   state.measured[r][c]=afrObserveMeasuredValue(state.activeMap,r,c,afr); state.counts[r][c]=n+1;
+  if(autoIdleSave.enabled&&!isIdleAutoTuneRow(r))autoIdleSave.freshSamples++;
   if(blinkEcuTpsReady())state.mapBanks[state.activeMap-1].tpsCaptureKey=blinkVerifiedEcuTps.key;
   if(state.tab==='measured'){
     const td=document.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
@@ -5245,7 +5401,7 @@ async function toggleRecord(){
   setRecording(!state.recording);
 }
 
-load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);syncMeasuredClearButton();render();updateLive();renderThreeRunUi();renderThreeRunHistory();
+load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap);syncControls();setRecording(false);autoIdleSaveReset(false);syncMeasuredClearButton();render();updateLive();renderThreeRunUi();renderThreeRunHistory();
 
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
@@ -5254,6 +5410,7 @@ $('learnMin').onclick=()=>{if(blinkTpsEcuGuardRequired())return blinkAlert('TPS 
 $('learnMax').onclick=()=>{if(blinkTpsEcuGuardRequired())return blinkAlert('TPS Max do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return blinkAlert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
 ['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='afrVoltMin'||id==='afrVoltMax')syncControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
+$('autoIdleSaveToggle')?.addEventListener('change',e=>autoIdleSaveSetEnabled(!!e.target.checked));
 $('afrTargetLocalSaveBtn')?.addEventListener('click',()=>saveTargetAfrLocal());
 
 function formHasFocus(){const el=document.activeElement;return !!el&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(el.tagName)||el.isContentEditable);}
@@ -6202,6 +6359,7 @@ window.addEventListener('beforeunload',save);
   }
 
   function onDisconnected(){
+    autoIdleSaveReset(true);
     otaUpdateReady=false;if($('otaInstallBtn'))$('otaInstallBtn').disabled=true;
     liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
     setBleUi(false);
@@ -7241,7 +7399,7 @@ try{window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(u
 
 document.getElementById('mapLiveCursorToggle')?.addEventListener('click',()=>window.setLiveAutoFollowEnabled?.(!(window.isLiveAutoFollowEnabled?.())));
 syncLiveCursorButtons();
-loadOptions();syncBanks();setInterval(syncMirrors,120);syncMirrors();showScreen('dashboard');
+loadOptions();syncBanks();setInterval(()=>{syncMirrors();autoIdleSaveTick(performance.now());},120);syncMirrors();showScreen('dashboard');
 })();
 </script>
 
