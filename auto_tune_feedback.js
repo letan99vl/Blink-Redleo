@@ -64,6 +64,7 @@ function pairStats(p){
   const result={learn:0,hold:0,wait:0};
   if(!p)return result;
   for(let r=0;r<14;r++)for(let c=0;c<30;c++){
+    if(isIdleAutoTuneRow(r))continue;
     const p0=finite(p.p0[r][c]),p1=finite(p.p1[r][c]);
     if(p0<=0||p1<=0||Math.abs(Math.log(p1/p0))<MIN_PW_LOG||finite(p.c0[r][c])<MIN_BEFORE_SAMPLES)continue;
     const st=finite(p.status[r][c]);
@@ -75,7 +76,7 @@ let strip=null;
 function showStatus(){
   if(!strip)return;
   const b=getBank(),p=pairStats(b.pending);
-  let learned=0;for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(finite(b.n[r][c])>0)learned++;
+  let learned=0;for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(!isIdleAutoTuneRow(r)&&finite(b.n[r][c])>0)learned++;
   strip.textContent='MAP No.'+state.activeMap+' · LƯU BÙ '+b.writes+' LẦN · HỌC '+learned+' Ô'+
     (p.hold?' · TẠM KHÓA '+p.hold+' Ô':'')+
     (b.pending?(b.pending.needsReadback?' · CHỜ ĐỌC MAP ECU':p.wait?' · CHỜ AFR '+p.wait+' Ô':' · ĐÃ CÓ PHẢN HỒI'):'');
@@ -95,6 +96,7 @@ function propose(){
   const maxMs=typeof fuelProtocolMaxMs==='function'?fuelProtocolMaxMs():131.07;
   const limit=Math.min(0.30,Math.max(0,finite(state.cal.limitPct,100))/100);
   for(let r=0;r<14;r++)for(let c=0;c<30;c++){
+    if(isIdleAutoTuneRow(r)){result[r][c]=state.inject[r][c];continue;}
     const pw=finite(state.inject[r][c]),afr=finite(state.measured[r][c]),target=finite(state.target[r][c]);
     if(pw<=0){result[r][c]=null;continue;}
     if(afr<=0||target<=0){result[r][c]=pw;continue;}
@@ -170,6 +172,7 @@ onFuelWriteVerified=function(bank){
 };
 const oldSample=recordSample;
 function onSample(now,r,c,afr){
+  if(isIdleAutoTuneRow(r))return; // AFR sample/count already recorded by oldSample.
   if(state.mode==='three'||state.threeRun.active)return;
   const b=getBank(),p=b.pending;
   if(!p||p.needsReadback||!p.verifiedAt||Date.now()-p.verifiedAt<MIN_DELAY_MS)return;
@@ -219,9 +222,10 @@ if(parent){
 showStatus();
 window.BlinkAutoTuneLearner={getSummary:function(mapNo){
   const b=getBank(mapNo);let learned=0;
-  for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(finite(b.n[r][c])>0)learned++;
+  for(let r=0;r<14;r++)for(let c=0;c<30;c++)if(!isIdleAutoTuneRow(r)&&finite(b.n[r][c])>0)learned++;
   return {mapNo:mapNo||state.activeMap,writes:b.writes,learnedCells:learned,pending:pairStats(b.pending)};
 },getCell:function(mapNo,r,c){
+  if(isIdleAutoTuneRow(r))return {k:null,learnedWrites:0,status:0};
   const b=getBank(mapNo);return {k:b.k[r][c],learnedWrites:b.n[r][c],status:b.pending&&!b.pending.needsReadback?b.pending.status[r][c]:0};
 }};
 })();

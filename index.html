@@ -8,9 +8,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.95'; // all REDLEO 9.1x Signal compensation orientation; AFR IO4 fixed; ESP32 OTA paused
+  window.BLINK_PB_VERSION = '3.79.96'; // AFR IO4 editable Min V, TPS0 AFR samples preserved without fuel correction; OTA paused
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
 window.BLINK_AFR_IO4_REVISION = 'AFR-IO4-FIXED-20261023';
+window.BLINK_IDLE_AUTOTUNE_REVISION = 'TPS0-MEASURED-AFR-YES-FUEL-CORRECTION-NO-20261024';
 window.BLINK_OTA_HOLD_REVISION = '2026-10-14';
 window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
@@ -2398,11 +2399,12 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
       </div>
       <div class="tuneSettingsGroup tuneAfrSettings">
         <h3 class="tuneSettingsGroupHeading">02 · CẢM BIẾN AFR IO4</h3>
-        <div class="tuneAfrFixed">Thang AFR cố định: <b>0 V = AFR 10</b> · <b>Điện áp Max = AFR 20</b>.</div>
+        <div class="tuneAfrFixed">Thang AFR cố định: <b>Điện áp Min = AFR 10</b> · <b>Điện áp Max = AFR 20</b>.</div>
         <div class="settingsGrid tuneSettingsGrid">
+          <div class="field"><label for="afrVoltMin">AFR IO4 · ĐIỆN ÁP MIN (V)</label><input id="afrVoltMin" type="number" inputmode="decimal" min="0" max="4.99" step="0.001" value="0"></div>
           <div class="field"><label for="afrVoltMax">AFR IO4 · ĐIỆN ÁP MAX (V)</label><input id="afrVoltMax" type="number" inputmode="decimal" min="0.01" max="5" step="0.001" value="3.135"></div>
         </div>
-        <div class="tuneSettingHelp">Mặc định <b>3,135 V</b> ứng với <b>AFR 20</b>. Có thể chỉnh điện áp Max cho cảm biến đang sử dụng; điện áp Min, AFR Min và AFR Max luôn cố định.</div>
+        <div class="tuneSettingHelp">Mặc định <b>0 V = AFR 10</b> và <b>3,135 V = AFR 20</b>. Chỉnh được điện áp Min và Max; <b>AFR 10–20</b> luôn cố định. Điện áp Min phải thấp hơn Max ít nhất 0,01 V.</div>
       </div>
       <div class="tuneSettingsGroup tuneAutoSettings">
         <h3 class="tuneSettingsGroupHeading">03 · AUTO TUNE / THÔNG SỐ BÙ</h3>
@@ -2412,6 +2414,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
           <div class="field"><label for="limitPct">Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div>
           <div class="field"><label for="threeRunLimitPct">Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div>
         </div>
+        <div class="tuneSettingHelp">TPS 0% (IDLE): vẫn đo và lưu AFR vào đúng ô theo RPM. Auto Tune không tự bù hoặc thay đổi thời gian phun ở hàng này.</div>
       </div>
       <div class="hint" id="ecuDiag">BLE: chờ kết nối ECU Blink · protocol REDLEO REAL.</div>
     </details>
@@ -2698,16 +2701,17 @@ function save(){
 function saveThreeRunHistory(){localStorage.setItem('afrAutoTune3RunHistoryV1',JSON.stringify(state.threeRunHistory.slice(0,12)));}
 const AFR_IO4_CAL_REVISION='AFR-IO4-FIXED-20261023';
 const AFR_IO4_DEFAULT_MAX_VOLT=3.135;
-// Migrate old Android/Web localStorage only once. Subsequent edits to Max V
-// remain saved; old configurable AFR endpoints never override fixed 0V/10/20.
+// Migrate pre-PB3.79.93 endpoint settings once. Keep both edited Min/Max V
+// in localStorage while AFR Min=10 and Max=20 stay fixed.
 function normalizeAfrIo4Calibration(){
   const cal=state.cal;
   const oldRevision=cal.afrIo4Revision!==AFR_IO4_CAL_REVISION;
-  cal.afrVoltMin=0;
+  const requestedMin=Number(cal.afrVoltMin);
   cal.afrValueMin=10;
   cal.afrValueMax=20;
   const maxV=Number(cal.afrVoltMax);
   cal.afrVoltMax=(oldRevision||!Number.isFinite(maxV)||maxV<0.01||maxV>5)?AFR_IO4_DEFAULT_MAX_VOLT:maxV;
+  cal.afrVoltMin=(oldRevision||!Number.isFinite(requestedMin))?0:clamp(requestedMin,0,Math.max(0,cal.afrVoltMax-0.01));
   cal.afrIo4Revision=AFR_IO4_CAL_REVISION;
   return oldRevision;
 }
@@ -2715,6 +2719,7 @@ function syncControls(){
   normalizeAfrIo4Calibration();
   $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
   $('settleMs').value=state.cal.settleMs;
+  $('afrVoltMin').value=state.cal.afrVoltMin;
   $('afrVoltMax').value=state.cal.afrVoltMax;
   $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('tuneMode').value=state.mode;
 }
@@ -2722,6 +2727,7 @@ function pullControls(){
   state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
   state.cal.settleMs=Math.max(0,num($('settleMs').value,0));
   state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,AFR_IO4_DEFAULT_MAX_VOLT),0.01,5);
+  state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,Math.max(0,state.cal.afrVoltMax-0.01));
   normalizeAfrIo4Calibration();
   state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0));
   state.cal.limitPct=Math.max(0,num($('limitPct').value,100));
@@ -2762,9 +2768,20 @@ function setFuelMapSyncUnknown(bank,on=true){
   if(!Array.isArray(state.fuelSyncUnknown)||state.fuelSyncUnknown.length!==4)state.fuelSyncUnknown=[false,false,false,false];
   state.fuelSyncUnknown[bank-1]=!!on;
 }
+// PB3.79.96: Identify IDLE by the active ECU's TPS row label, not a fixed row
+// index. AFR measured/counts continue to record normally at IDLE/TPS 0%.
+function isIdleAutoTuneRow(r){
+  const row=TPS_ROWS[r];
+  if(row==null)return false;
+  const label=String(row).trim().toUpperCase();
+  if(label==='IDLE')return true;
+  const pct=Number(label.replace(/%$/,''));
+  return label!==''&&Number.isFinite(pct)&&pct===0;
+}
 function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
   const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100, maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++) for(let c=0;c<C;c++){
+    if(isIdleAutoTuneRow(r)){out[r][c]=baseMap[r][c];continue;}
     const base=num(baseMap[r][c],0),meas=num(afrMap[r][c],0),tgt=num(targetMap[r][c],0);
     if(base<=0){out[r][c]=null;continue;} if(meas<=0||tgt<=0){out[r][c]=base;continue;}
     let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,maxMs);
@@ -3829,7 +3846,7 @@ async function applyCorrectedAndWrite(options={}){
   const next=blankMatrix(0);
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const base=num(state.inject[r][c],0);
-    next[r][c]=corrected[r][c]==null?base:num(corrected[r][c],base);
+    next[r][c]=isIdleAutoTuneRow(r)?baseMap[r][c]:(corrected[r][c]==null?base:num(corrected[r][c],base));
   }
   const changed=[];
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
@@ -3894,6 +3911,7 @@ function afrRunStats(run){
 function matrixToWritable(base,proposal){
   const out=blankMatrix(0),maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    if(isIdleAutoTuneRow(r)){out[r][c]=num(base[r][c],0);continue;}
     const b=num(base[r][c],0),v=proposal[r][c];
     out[r][c]=v==null?b:clamp(num(v,b),0,maxMs);
   }
@@ -3903,6 +3921,7 @@ function adaptiveThirdMap(run1,run2,targetMap){
   const out=cloneMatrix(run2.pw),lim=state.cal.threeRunLimitPct/100;
   const stats={response2Point:0,fallbackRun2:0,noData:0,noResponse:0,limited:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    if(isIdleAutoTuneRow(r))continue;
     const p1=num(run1.pw[r][c],0),p2=num(run2.pw[r][c],0),a1=Number(run1.afr[r][c]),a2=Number(run2.afr[r][c]),t=num(targetMap[r][c],0);
     const n1=num(run1.counts[r][c],0),n2=num(run2.counts[r][c],0);
     if(p2<=0||t<=0||n2<=0||!Number.isFinite(a2)||a2<=0){stats.noData++;continue;}
@@ -3929,6 +3948,7 @@ function adaptiveFinalMap(run2,run3,targetMap){
   const out=cloneMatrix(run3.pw),lim=state.cal.threeRunLimitPct/100;
   const stats={response2Point:0,fallbackRun3:0,noData:0,noResponse:0,limited:0,alreadyOnTarget:0};
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    if(isIdleAutoTuneRow(r))continue;
     const p2=num(run2.pw[r][c],0),p3=num(run3.pw[r][c],0),a2=Number(run2.afr[r][c]),a3=Number(run3.afr[r][c]),t=num(targetMap[r][c],0);
     const n2=num(run2.counts[r][c],0),n3=num(run3.counts[r][c],0);
     if(p3<=0||t<=0||n3<=0||!Number.isFinite(a3)||a3<=0){stats.noData++;continue;}
@@ -4722,10 +4742,12 @@ function processAfrPacket(p){
   let ok=false;
   if(Number.isFinite(+p.afrV)){
     state.live.afrV=+p.afrV;
-    // AFR IO4 fixed calibration: 0 V -> AFR 10; adjustable Max V -> AFR 20.
-    const vMin=0,afrMin=10,afrMax=20;
+    // AFR IO4: adjustable Min/Max voltage with fixed AFR endpoints 10 and 20.
+    const afrMin=10,afrMax=20;
     const userMax=Number(state.cal.afrVoltMax);
     const vMax=Number.isFinite(userMax)&&userMax>=0.01&&userMax<=5?userMax:AFR_IO4_DEFAULT_MAX_VOLT;
+    const userMin=Number(state.cal.afrVoltMin);
+    const vMin=Number.isFinite(userMin)?clamp(userMin,0,Math.max(0,vMax-0.01)):0;
     const x=clamp((state.live.afrV-vMin)/(vMax-vMin),0,1);
     // Preserve Blink's established two-slope sensor curve, but scale both axes
     // from the user's current voltage/AFR endpoints. No median/EMA/floor.
@@ -4926,7 +4948,7 @@ $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEc
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
 $('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
 $('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
-['tpsMin','tpsMax','settleMs','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
+['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='afrVoltMin'||id==='afrVoltMax')syncControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 $('afrTargetLocalSaveBtn')?.addEventListener('click',()=>saveTargetAfrLocal());
 
