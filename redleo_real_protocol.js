@@ -585,6 +585,8 @@ function applyProfileUi(){
   // belongs to another ECU family.
   const studyTpsBtn=document.getElementById('studyTpsBtn');
   if(studyTpsBtn){
+    const syncBtn=document.getElementById('tpsSyncReadBtn');
+    if(syncBtn)setProfileDisabled(syncBtn,!profileCap('optionsRead'),'ECU Profile không hỗ trợ Options A2');
     if(p.key==='MODERN_V11')studyTpsBtn.textContent=isUltraPro2Direct()?'HỌC TPS ECU · ULTRA PRO2':'HỌC TPS ECU · ATE V11';
     else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
     else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
@@ -1338,6 +1340,7 @@ async function initializeRealSession(){
 
     // Every new connection starts with a visibly empty ECU map UI.
     // This prevents stale values from looking like a successful ECU read.
+    try{window.blinkResetEcuTpsCalibration?.('Đang xác thực kết nối ECU mới');}catch(_e){}
     try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
     readCache=null;
     pageCache.clear();
@@ -1378,7 +1381,8 @@ async function initializeRealSession(){
       // ECT/IAT/MAP need the ECU voltage-relation tables. Restore the calibration
       // cache immediately when available; otherwise read A2 once after live settles.
       // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
-      if(!sensorCalCache)scheduleSensorCalWarmup(epoch,newCalIdentity,0);
+      // Fresh ECU A2 is required for TPS calibration EVEN when sensor curves were cached.
+      scheduleSensorCalWarmup(epoch,newCalIdentity,0);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1408,6 +1412,7 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  try{window.blinkResetEcuTpsCalibration?.('Mất kết nối ECU');}catch(_e){}
   readCache=null;
   pageCache.clear();
   fuelPagePrimed.clear();
@@ -2725,7 +2730,24 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   try{applyProfileUi();}catch(_e){}
   return {page:pg,frame:f,data,rxLength:rx.length,frameFormat};
 }
+// PB3.79.97: exact Options voltage fields, NOT TPS axis/breakpoint values.
+// Only known, identity-selected layouts may unlock TPS-based Auto Tune.
+function ecuTpsPairFromA2(C){
+  if(!C||!ecuProfile)return null;
+  let lo=NaN,hi=NaN;
+  if(ecuProfile.key==='MODERN_V9'&&(isV91Direct()||isV92Direct())&&C.options){
+    lo=Number(C.options.tpsMinEcu);hi=Number(C.options.tpsMaxEcu);
+  }else if(ecuProfile.key==='MODERN_V10'&&isV10Direct()&&C.v10Options?.[0]){
+    lo=Number(C.v10Options[0][0]);hi=Number(C.v10Options[0][1]);
+  }else if(ecuProfile.key==='MODERN_V10'&&isUltraDirect()){
+    lo=Number(C.optionTpsMin);hi=Number(C.optionTpsMax);
+  }else if(ecuProfile.key==='MODERN_V11'&&C.v11A2Layout&&C.ateOptions?.[0]){
+    lo=Number(C.ateOptions[0][0]);hi=Number(C.ateOptions[0][1]);
+  }else return null;
+  return Number.isFinite(lo)&&Number.isFinite(hi)&&lo>=0&&hi<=5&&hi-lo>0.1?{min:lo,max:hi}:null;
+}
 async function readA2SensorPageReal(showUi=true){
+  const tpsReadEpoch=transportEpoch,tpsReadHandshake=handshakeInfo;
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const v11=isV11Profile();
@@ -2753,6 +2775,13 @@ async function readA2SensorPageReal(showUi=true){
     }
   }
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
+  if(tpsReadEpoch!==transportEpoch||tpsReadHandshake!==handshakeInfo)throw new Error('A2 thuộc phiên ECU cũ, không xác nhận TPS');
+  const freshTps=ecuTpsPairFromA2(C);
+  if(freshTps&&typeof window.blinkSetVerifiedEcuTps==='function'){
+    if(!window.blinkSetVerifiedEcuTps(freshTps.min,freshTps.max,'READ A2 · ECU Options'))throw new Error('TPS ECU đã đọc nhưng không lưu được hiệu chuẩn đã xác minh');
+  }else if(ecuProfile?.key==='MODERN_V9'||ecuProfile?.key==='MODERN_V10'||ecuProfile?.key==='MODERN_V11'){
+    try{window.blinkTpsEcuStatus?.('TPS ECU chưa xác minh: phiên bản A2 này không có Options TPS Min/Max được chứng minh.');}catch(_e){}
+  }
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
@@ -3266,6 +3295,9 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
       syncV11ReadAll(C);
     }else{
       syncAll(C);
+      if(ecuProfile?.key==='MODERN_V9'&&C.options&&(isV91Direct()||isV92Direct())){
+        try{window.blinkSetVerifiedEcuTps?.(C.options.tpsMinEcu,C.options.tpsMaxEcu,'READ ALL · ECU Options');}catch(_e){}
+      }
     }
     try{applyProfileUi();}catch(_e){}
     taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
@@ -4822,47 +4854,48 @@ async function restoreReal(){
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),350);
   }
 }
+function blinkTpsEcuReadSafe(){return typeof state!=='undefined'&&!state.recording&&!state.threeRun?.active;}
 async function tpsStudyReal(){
   requireProfile('tpsStudy','Học TPS');
   const profileKey=ecuProfile?.key||'UNKNOWN';
-
-  // ATE V11 returns the extended 0x77 payload whose TPS-voltage calibration
-  // is part of the V11 A2-style layout. It must not be decoded like V9/V10.
-  if(profileKey==='MODERN_V11'){
-    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
-    taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
-    const rx=await rawExchange(req5(0x77,0x77),38000);
-    const f=findValidCommandFrame(rx,0x77,168);
-    if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
-    const C=parseV11A2Data(f.slice(1,-2));
-    sensorCalCache=C;
-    sensorCalIdentity=handshakeInfo?[profileKey,handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
-    const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
-    if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
-      state.cal.tpsMin=min;state.cal.tpsMax=max;
-      try{window.resetBlinkTpsTrend?.();}catch(_e){}
-      try{syncControls();saveSoon();}catch(_e){}
-    }
-    notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
-    return C;
-  }
-
-  // Verified REDLEO V9 and V10/Ultra families use the standard 0x77 study
-  // response with TPS Min/Max in bytes 92/93. Keep the branches explicit so
-  // future ECU families cannot silently fall through to the wrong decoder.
-  if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
-    throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
-  }
-  const label=profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9';
-  taskUi('loading',label+' · ĐANG HỌC TPS · CHỜ ECU...');
+  if(!['MODERN_V9','MODERN_V10','MODERN_V11'].includes(profileKey))throw new Error('ECU này chưa hỗ trợ HỌC TPS.');
+  if(!blinkTpsEcuReadSafe())throw new Error('Dừng ghi AFR và hủy phiên 3 lượt trước khi học TPS.');
+  if(!handshakeInfo||!state.ecuConnected)throw new Error('Chưa xác thực ECU qua BLE.');
+  const label=profileKey==='MODERN_V11'?(isUltraPro2Direct()?'ULTRA PRO2':'ATE V11'):(profileKey==='MODERN_V10'?(isUltraDirect()?'ULTRA PRO1':'V10'):'REDLEO 9.x');
+  if(!confirm(label+' · HỌC TPS ECU\n\nTẮT ĐỘNG CƠ, BẬT KHÓA ĐIỆN, GIỮ NGUỒN ECU ỔN ĐỊNH.\nSau khi xác nhận, xoay ga MIN → MAX → MIN ít nhất BA LẦN để ECU học.\nBlink chỉ xác minh sau khi đọc lại Options A2 độc lập.'))return false;
+  const epoch=transportEpoch,originalHandshake=handshakeInfo;
+  try{window.blinkResetEcuTpsCalibration?.('Đang học TPS từ ECU');}catch(_e){}
+  taskUi('loading',label+' · TPS STUDY 0x77 · MIN → MAX → MIN × 3...');
   const rx=await rawExchange(req5(0x77,0x77),38000);
-  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ');
-  const min=rx[92]*20/1024,max=rx[93]*20/1024;
-  if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
-  state.cal.tpsMin=min;state.cal.tpsMax=max;
-  try{window.resetBlinkTpsTrend?.();}catch(_e){}
-  try{syncControls();saveSoon();}catch(_e){}
-  notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+  if(epoch!==transportEpoch||originalHandshake!==handshakeInfo)throw new Error('ECU thay đổi trong khi Học TPS.');
+  let expected=null;
+  if(profileKey==='MODERN_V11'){
+    const frame=findValidCommandFrame(rx,0x77,168);
+    if(!frame)throw new Error(label+' · TPS Study 0x77 không có frame hợp lệ.');
+    const result=parseV11A2Data(frame.slice(1,-2));
+    expected=ecuTpsPairFromA2(result);
+    // Short 0x77 frames may lack full Options. Do not treat TPS axis
+    // voltage samples as if they were stored ECU TPS Min/Max.
+  }else{
+    if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ.');
+    const min=rx[92]*20/1024,max=rx[93]*20/1024;
+    if(!(max>min+0.1))throw new Error(label+' · TPS Study trả Min/Max không hợp lệ.');
+    expected={min,max};
+  }
+  taskUi('loading',label+' · ĐANG ĐỌC OPTIONS A2 ĐỘC LẬP...');
+  const A=await readA2SensorPageReal(false),actual=ecuTpsPairFromA2(A.cache);
+  if(epoch!==transportEpoch||originalHandshake!==handshakeInfo)throw new Error('ECU thay đổi khi đọc lại TPS.');
+  if(!actual||!window.blinkEcuTpsInfo?.()){
+    try{window.blinkResetEcuTpsCalibration?.('Chưa xác minh được Options A2 sau học');}catch(_e){}
+    throw new Error(label+' · đã nhận 0x77 nhưng chưa đọc lại được TPS Min/Max thật từ ECU.');
+  }
+  if(expected&&(Math.abs(actual.min-expected.min)>0.055||Math.abs(actual.max-expected.max)>0.055)){
+    try{window.blinkResetEcuTpsCalibration?.('Phản hồi 0x77 khác Options A2');}catch(_e){}
+    throw new Error(label+' · TPS 0x77 KHÁC A2. Phản hồi '+expected.min.toFixed(3)+'/'+expected.max.toFixed(3)+' V; A2 '+actual.min.toFixed(3)+'/'+actual.max.toFixed(3)+' V. Chưa xác minh.');
+  }
+  const detail='Min '+actual.min.toFixed(3)+' V → Max '+actual.max.toFixed(3)+' V; đã đọc mới A2'+(expected?' và khớp phản hồi 0x77':' (0x77 thiếu Options đối chiếu)');
+  notice('success',expected?'TPS STUDY ĐÃ XÁC MINH A2':'TPS ECU ĐÃ ĐỌC A2 · KIỂM TRA LẠI SAU BẬT KHÓA',detail);
+  return {min:actual.min,max:actual.max,replyCompared:!!expected};
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
@@ -5215,6 +5248,14 @@ function installUI(){
     }
     throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
   },'MAP ĐÃ BÙ',{confirmFirst:true});
+  capture('tpsSyncReadBtn',async()=>{
+    requireProfile('optionsRead','Đọc TPS Min/Max ECU');
+    if(!blinkTpsEcuReadSafe())throw new Error('Dừng Auto Tune trước khi đọc lại TPS ECU.');
+    taskUi('loading','ĐANG ĐỌC TPS OPTIONS A2...');
+    const R=await readA2SensorPageReal(false),pair=ecuTpsPairFromA2(R.cache);
+    if(!pair||!window.blinkEcuTpsInfo?.())throw new Error('Chưa đọc được TPS Min/Max từ Options A2 ECU. Auto Tune vẫn khóa.');
+    notice('success','TPS ECU ĐỒNG BỘ OK',pair.min.toFixed(3)+' V → '+pair.max.toFixed(3)+' V; không gửi lệnh học/ghi ECU');
+  });
   capture('studyTpsBtn',tpsStudyReal);
   capture('restoreEcuBtn',restoreReal);
 

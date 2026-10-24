@@ -8,7 +8,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.96'; // AFR IO4 editable Min V, TPS0 AFR samples preserved without fuel correction; OTA paused
+  window.BLINK_PB_VERSION = '3.79.97'; // ECU TPS source of truth for supported REDLEO V9/V10/Ultra/V11; OTA paused
+window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
 window.BLINK_AFR_IO4_REVISION = 'AFR-IO4-FIXED-20261023';
 window.BLINK_IDLE_AUTOTUNE_REVISION = 'TPS0-MEASURED-AFR-YES-FUEL-CORRECTION-NO-20261024';
@@ -2168,7 +2169,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   #settingsScreen .tuneAfrFixed b,#settingsScreen .tuneSettingHelp b{color:#fff;}
   #settingsScreen .tuneSettingsButtons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;width:100%;overflow:visible;white-space:normal;}
   #settingsScreen .tuneSettingsButtons button{height:auto!important;min-height:42px!important;padding:9px 8px!important;font-size:12px!important;line-height:1.3;white-space:normal;}
-  #settingsScreen .tuneSettingsButtons #studyTpsBtn{grid-column:1/-1;}
+  #settingsScreen .tuneSettingsButtons #studyTpsBtn,#settingsScreen .tuneSettingsButtons #tpsSyncReadBtn{grid-column:1/-1;}
   #settingsScreen .tuneSettingsDetails #ecuDiag{margin:13px 2px 5px;font-size:12px;}
   @media(max-width:650px){
     #settingsScreen .tuneSettingsGroup{padding:12px;margin-top:10px;}
@@ -2393,8 +2394,8 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
           <div class="field"><label for="tpsMin">Học TPS thủ công · Min (V)</label><input id="tpsMin" type="number" step="0.001"></div>
           <div class="field"><label for="tpsMax">Học TPS thủ công · Max (V)</label><input id="tpsMax" type="number" step="0.001"></div>
         </div>
-        <div class="toolrow tuneSettingsButtons"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button></div>
-        <div class="tuneSettingHelp">Học TPS thủ công chỉ lấy điện áp Min/Max hiện tại cho Auto Tune Blink, không gửi lệnh học TPS vào ECU.</div>
+        <div class="toolrow tuneSettingsButtons"><button id="learnMin">HỌC TPS THỦ CÔNG · MIN</button><button id="learnMax">HỌC TPS THỦ CÔNG · MAX</button><button id="studyTpsBtn" class="primary">HỌC TPS ECU · TỰ NHẬN DIỆN</button><button id="tpsSyncReadBtn" type="button">ĐỌC & ĐỒNG BỘ TPS TỪ ECU</button></div>
+        <div class="tuneSettingHelp">Học TPS thủ công <b>chỉ chỉnh cục bộ khi chưa kết nối</b>, không gửi ECU. Khi kết nối REDLEO có hỗ trợ, Blink dùng TPS Min/Max <b>đọc mới từ ECU</b> cho Live và Auto Tune.</div><div class="tuneSettingHelp" id="tpsEcuSyncState" role="status">TPS ECU: chờ kết nối và đọc Options mới.</div>
         <div class="tuneSettingHelp" id="studyTpsInfo">Học TPS ECU sẽ tự chọn quy trình theo mẫu ECU sau khi nhận diện.</div>
       </div>
       <div class="tuneSettingsGroup tuneAfrSettings">
@@ -2568,6 +2569,7 @@ const state={
   mapBanks:Array.from({length:4},()=>({
     measured:blankMatrix(null),
     counts:blankMatrix(0),
+    tpsCaptureKey:'',
     target:blankMatrix(13.2),
     inject:blankMatrix(0)
   })),
@@ -2668,6 +2670,7 @@ function load(){
           for(const k of ['measured','counts','target','inject']){
             if(validMatrix(b[k]))state.mapBanks[i][k]=b[k];
           }
+          if(typeof b.tpsCaptureKey==='string')state.mapBanks[i].tpsCaptureKey=b.tpsCaptureKey.slice(0,300);
         }
       }
       state.activeMap=clamp(Math.round(Number(s.activeMap)||1),1,4);
@@ -2715,16 +2718,77 @@ function normalizeAfrIo4Calibration(){
   cal.afrIo4Revision=AFR_IO4_CAL_REVISION;
   return oldRevision;
 }
+// PB3.79.97: ECU Options TPS Min/Max is the sole connected-session truth.
+// Never unlock Auto Tune from cached sensor curves or local manual learning.
+let blinkVerifiedEcuTps=null;
+function blinkTpsEcuProfileSupported(){
+  const p=window.BlinkRealProtocol?.profile?.key;
+  return p==='MODERN_V9'||p==='MODERN_V10'||p==='MODERN_V11';
+}
+function blinkTpsEcuGuardRequired(){return !!(state.ecuConnected&&blinkTpsEcuProfileSupported());}
+function blinkTpsEcuIdentity(){
+  const api=window.BlinkRealProtocol,h=api?.handshake,p=api?.profile;
+  return h&&p?[String(p.key||''),String(h.ident||''),String(h.firmware||''),String(h.ecuId??''),String(h.sumSignal??'')].join('|'):'';
+}
+function blinkEcuTpsReady(){return !!(blinkTpsEcuGuardRequired()&&blinkVerifiedEcuTps&&blinkVerifiedEcuTps.id===blinkTpsEcuIdentity());}
+function blinkAutoTuneTpsSafe(){return !blinkTpsEcuGuardRequired()||blinkEcuTpsReady();}
+function blinkTpsEcuStatus(message){const el=$('tpsEcuSyncState');if(el)el.textContent=String(message||'TPS ECU: chưa đồng bộ.');}
+function blinkResetEcuTpsCalibration(reason='Chưa đọc Options TPS từ ECU'){
+  blinkVerifiedEcuTps=null;
+  if(state.recording&&blinkTpsEcuGuardRequired())setRecording(false);
+  blinkTpsEcuStatus('TPS ECU: '+reason+'. Auto Tune chờ đọc TPS Min/Max thực tế từ ECU.');
+  try{syncControls();updateLive();}catch(_e){}
+}
+function blinkSetVerifiedEcuTps(minVolt,maxVolt,origin){
+  const lo=Number(minVolt),hi=Number(maxVolt),id=blinkTpsEcuIdentity();
+  if(!blinkTpsEcuGuardRequired()||!id||!Number.isFinite(lo)||!Number.isFinite(hi)||lo<0||hi>5||hi-lo<=0.10)return false;
+  const key=id+'|'+lo.toFixed(4)+'|'+hi.toFixed(4);
+  const changed=(state.mapBanks||[]).map((b,i)=>({b,i})).filter(({b})=>b.tpsCaptureKey!==key);
+  const oldAfr=changed.filter(({b})=>Array.isArray(b.counts)&&b.counts.some(row=>Array.isArray(row)&&row.some(n=>Number(n)>0)));
+  if(oldAfr.length){
+    // Retain old samples separately: earlier local-only TPS learning may
+    // have placed their AFR values at a different ECU TPS row.
+    try{
+      const store='blinkTPSLegacyAfrBackupsV1',data=JSON.parse(localStorage.getItem(store)||'[]');
+      const previous=Array.isArray(data)?data:[];
+      previous.push({date:new Date().toISOString(),identity:id,newTpsMin:lo,newTpsMax:hi,
+        maps:oldAfr.map(({b,i})=>({mapNo:i+1,oldCaptureKey:b.tpsCaptureKey||'legacy-unverified',measured:b.measured,counts:b.counts}))});
+      localStorage.setItem(store,JSON.stringify(previous.slice(-4)));
+    }catch(e){
+      blinkTpsEcuStatus('Đã đọc TPS ECU nhưng chưa lưu được backup AFR cũ; Auto Tune vẫn khóa: '+String(e?.message||e));
+      return false;
+    }
+  }
+  for(const {b} of changed){
+    b.measured=blankMatrix(null);b.counts=blankMatrix(0);b.tpsCaptureKey=key;
+  }
+  blinkVerifiedEcuTps={id,min:lo,max:hi,key,source:String(origin||'A2 ECU'),verifiedAt:Date.now()};
+  state.cal.tpsMin=lo;state.cal.tpsMax=hi;
+  if(Number.isFinite(state.live.tpsV))state.live.tps=clamp((state.live.tpsV-lo)/(hi-lo)*100,0,100);
+  state.lastCellKey='';
+  try{window.resetBlinkTpsTrend?.();}catch(_e){}
+  try{syncControls();updateLive();render();saveSoon();}catch(_e){}
+  blinkTpsEcuStatus('TPS ECU ĐÃ ĐỌC MỚI: '+lo.toFixed(3)+' V → '+hi.toFixed(3)+' V · '+blinkVerifiedEcuTps.source+
+    (oldAfr.length?' · AFR cũ đã sao lưu; dữ liệu đo mới được tách riêng.':''));
+  return true;
+}
+window.blinkResetEcuTpsCalibration=blinkResetEcuTpsCalibration;
+window.blinkTpsEcuStatus=blinkTpsEcuStatus;
+window.blinkSetVerifiedEcuTps=blinkSetVerifiedEcuTps;
+window.blinkEcuTpsInfo=()=>blinkEcuTpsReady()?{...blinkVerifiedEcuTps}:null;
+window.blinkAutoTuneTpsSafe=blinkAutoTuneTpsSafe;
 function syncControls(){
   normalizeAfrIo4Calibration();
   $('tpsMin').value=state.cal.tpsMin; $('tpsMax').value=state.cal.tpsMax;
+  const lockLocalTps=blinkTpsEcuGuardRequired();
+  for(const id of ['tpsMin','tpsMax','learnMin','learnMax']){const el=$(id);if(el){el.disabled=lockLocalTps;el.title=lockLocalTps?'TPS Min/Max do ECU quản lý; dùng HỌC TPS ECU hoặc ĐỌC TPS ECU.':'';}}
   $('settleMs').value=state.cal.settleMs;
   $('afrVoltMin').value=state.cal.afrVoltMin;
   $('afrVoltMax').value=state.cal.afrVoltMax;
   $('afrDelayMs').value=state.cal.afrDelayMs; $('limitPct').value=state.cal.limitPct; $('threeRunLimitPct').value=state.cal.threeRunLimitPct; $('tuneMode').value=state.mode;
 }
 function pullControls(){
-  state.cal.tpsMin=num($('tpsMin').value,.45); state.cal.tpsMax=num($('tpsMax').value,4.5);
+  if(!blinkTpsEcuGuardRequired()){state.cal.tpsMin=num($('tpsMin').value,.45);state.cal.tpsMax=num($('tpsMax').value,4.5);}
   state.cal.settleMs=Math.max(0,num($('settleMs').value,0));
   state.cal.afrVoltMax=clamp(num($('afrVoltMax').value,AFR_IO4_DEFAULT_MAX_VOLT),0.01,5);
   state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,Math.max(0,state.cal.afrVoltMax-0.01));
@@ -3823,6 +3887,7 @@ async function writeCurrentFuelMap(){
 }
 
 async function applyCorrectedAndWrite(options={}){
+  if(!blinkAutoTuneTpsSafe()){alert('TPS ECU chưa đọc Options mới. Auto Tune chưa được ghi MAP vì nguy cơ nhầm hàng TPS.');return false;}
   if(state.threeRun.active){
     if(state.threeRun.phase==='recording')return finishThreeRunPass();
     return alert('MODE CHẠY 3 LƯỢT đang '+state.threeRun.phase+'. Hãy chờ thao tác hiện tại hoàn tất.');
@@ -3867,6 +3932,7 @@ async function applyCorrectedAndWrite(options={}){
   // Compute the correction first, then acquire the shared ECU transport.
   // The same tap continues directly into the verified write/readback path.
   if(typeof options.prepareTransport==='function')await options.prepareTransport();
+  if(!blinkAutoTuneTpsSafe()){showEcuNotice('error','TPS ECU MẤT ĐỒNG BỘ','ECU hoặc chuẩn TPS đã đổi khi chờ giao tiếp.',0);return false;}
   if(!state.ecuConnected||state.threeRun.active||state.activeMap!==requestedMapNo){
     showEcuNotice('error','MAP / ECU ĐÃ THAY ĐỔI','ECU hoặc MAP đang chọn đã thay đổi khi chờ giao tiếp. Chưa ghi MAP đã bù.',0);
     return false;
@@ -4029,6 +4095,7 @@ function afrStreamReady(maxAgeMs=2200){
   return Number.isFinite(last)&&Number.isFinite(state.live.afr)&&(performance.now()-last)<=maxAgeMs;
 }
 async function startThreeRunSession(){
+  if(!blinkAutoTuneTpsSafe())return alert('TPS ECU chưa xác minh; không thể bắt đầu Auto Tune 3 lượt.');
   if(state.mode!=='three')setTuneMode('three');if(state.threeRun.active)return;
   if(!state.ecuConnected)return alert('Hãy kết nối ECU trước khi bắt đầu 3 lượt.');if(!afrStreamReady())return alert('Chưa nhận được AFR BLE gần đây. Hãy kiểm tra AFR ECU Blink trước khi bắt đầu 3 lượt.');if(state.ecuPhase!=='live')return alert('ECU đang bận. Hãy chờ Live ổn định.');
   if(fuelMapSyncUnknown(state.activeMap))return alert('MAP ECU chưa xác định sau một lần ghi lỗi. Hãy ĐỌC HIỆN TẠI thành công trước khi bắt đầu 3 lượt.');
@@ -4048,6 +4115,7 @@ function captureThreeRun(pass){
 }
 async function finishThreeRunPass(){
   const tr=state.threeRun;if(!tr.active)return;
+  if(!blinkAutoTuneTpsSafe()){setRecording(false);return alert('TPS ECU mất đồng bộ; không tính/ghi 3 lượt. Hãy hủy phiên rồi đồng bộ lại.');}
   if(tr.phase==='paused'){
     if(!state.ecuConnected||!afrStreamReady())return alert('Kết nối lại ECU và chờ AFR BLE hoạt động trước khi tiếp tục.');
     if(!tpsTelemetryFresh())return alert('Chưa có TPS/RPM live mới từ ECU. Hãy chờ Live ổn định trước khi tiếp tục.');
@@ -4816,6 +4884,7 @@ window.blinkThrottleClosingLock=throttleClosingLock;
 window.blinkTpsTelemetryFresh=tpsTelemetryFresh;
 window.resetBlinkTpsTrend=resetTpsTrendState;
 function recordSample(now){
+  if(!blinkAutoTuneTpsSafe())return; // AFR Live unaffected; never record against unverified TPS.
   if(state.live.rpm<250 || !Number.isFinite(state.live.afr))return;
   // AFR can keep arriving from the ESP32 even if ECU live polling stalls.
   // Never write into a stale TPS/RPM cell.
@@ -4833,6 +4902,7 @@ function recordSample(now){
   const afr=delayedAfr(now); if(!Number.isFinite(afr)||afr<=0)return;
   const r=cur.r,c=cur.c,n=state.counts[r][c]||0;
   state.measured[r][c]=afr; state.counts[r][c]=n+1;
+  if(blinkEcuTpsReady())state.mapBanks[state.activeMap-1].tpsCaptureKey=blinkVerifiedEcuTps.key;
   if(state.tab==='measured'){
     const td=document.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
     if(td){
@@ -4846,7 +4916,7 @@ function recordSample(now){
 }
 function updateLive(){
   $('afrLive').textContent=fmt(state.live.afr,2);
-  $('tpsLive').textContent=fmt(state.live.tps,1)+'%';
+  $('tpsLive').textContent=blinkTpsEcuGuardRequired()&&!blinkEcuTpsReady()?'-- (CHỜ TPS ECU)':fmt(state.live.tps,1)+'%';
   $('rpmLive').textContent=Math.round(state.live.rpm);
   $('tpsVLive').textContent=fmt(state.live.tpsV,3)+' V';
   $('afrVLive').textContent=fmt(state.live.afrV,3)+' V';
@@ -4935,6 +5005,7 @@ function setTab(tab){
 }
 async function toggleRecord(){
   if(state.threeRun.active)return;
+  if(!state.recording&&!blinkAutoTuneTpsSafe())return alert('Hãy ĐỌC TPS MIN/MAX TỪ ECU trước khi ghi AFR vào MAP.');
   if(!state.recording){
     if(!await ensureActiveEcuAxes(true))return;
   }
@@ -4946,8 +5017,8 @@ load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap)
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
-$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
-$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+$('learnMin').onclick=()=>{if(blinkTpsEcuGuardRequired())return alert('TPS Min do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMin=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
+$('learnMax').onclick=()=>{if(blinkTpsEcuGuardRequired())return alert('TPS Max do ECU quản lý. Dùng HỌC TPS ECU.');if(!Number.isFinite(state.live.tpsV))return alert('Chưa có dữ liệu TPS từ ECU.');state.cal.tpsMax=state.live.tpsV;resetTpsTrendState();syncControls();saveSoon();};
 ['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls();if(id==='afrVoltMin'||id==='afrVoltMax')syncControls();if(id==='tpsMin'||id==='tpsMax')resetTpsTrendState();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 $('afrTargetLocalSaveBtn')?.addEventListener('click',()=>saveTargetAfrLocal());
@@ -7364,7 +7435,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&cb='+Date.now();
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     const adaptiveSrc='auto_tune_feedback.js?v='+encodeURIComponent(v)+'&cb='+Date.now();
     document.write('<script src="'+adaptiveSrc+'"><\/script>');
     document.write('<script src="'+src+'"><\/script>');

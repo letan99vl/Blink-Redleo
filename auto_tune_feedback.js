@@ -16,7 +16,7 @@ function identity(){
   const api=window.BlinkRealProtocol,h=api&&api.handshake,p=api&&api.profile;
   return h&&p?[String(p.key||p.family||''),String(h.ident||''),String(h.firmware||''),String(h.ecuId??'')].join('|'):'';
 }
-function axisKey(){return JSON.stringify([TPS_ROWS,RPMS]);}
+function axisKey(){const cal=window.blinkEcuTpsInfo?.();return JSON.stringify([TPS_ROWS,RPMS,cal?[cal.id,cal.min,cal.max]:'UNVERIFIED-ECU-TPS']);}
 function restore(){
   let saved=null;try{saved=JSON.parse(localStorage.getItem(STORAGE)||'null')}catch(_e){}
   return Array.from({length:4},(_,i)=>{
