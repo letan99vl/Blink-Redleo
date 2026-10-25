@@ -4319,9 +4319,10 @@ async function writeCurrentFuelAndVerify(bank){
     await writeFuelBank(bank);
     fuelPagePrimed.delete(bank);
     const wholeMs=Math.round(performance.now()-wholeWriteStarted);
-    // Only the 0x9A 420/420 readback at the caller may mark a fuel SAVE
-    // successful. An ACK can accompany unchanged ECU fuel data.
-    taskUi('loading','ECU ACK ĐỦ TRANG MAP NO.'+bank+' · CHỜ ĐỌC LẠI 420 Ô ĐỂ XÁC MINH...');
+    // Manual LƯU HIỆN TẠI uses fast ACK-only mode; Auto Tune still performs
+    // independent 420-cell readback at its caller before final verified status.
+    // ACK does not prove flash persistence. Never imply 420-cell verification.
+    taskUi('success','MAP NO.'+bank+' · ECU ACK ĐỦ TRANG · KHÔNG ĐỌC LẠI · '+(wholeMs/1000).toFixed(1)+'s');
     log('fuel write ACK-only total',wholeMs+'ms','MAP',bank);
     return {ack:true,bank,elapsedMs:wholeMs};
   }finally{
