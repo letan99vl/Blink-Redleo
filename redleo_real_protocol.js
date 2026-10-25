@@ -5105,6 +5105,14 @@ function setEcuMapIoUiBusy(activeId,kind,on,label='',opts={}){
   const selectors=ECU_MAP_IO_SELECT_IDS.map(id=>document.getElementById(id)).filter(Boolean);
 
   if(on){
+    // PB3.79.104: automatic TPS<1% save is NOT invoked through captureMapIo.
+    // Treat it as a real occupied transaction: refuse all manual map
+    // read/write clicks before any state is changed, and show WHY.
+    if(typeof window.blinkAutoIdleSaveBusy==='function'&&window.blinkAutoIdleSaveBusy()){
+      taskUi('info','AUTO TUNER ĐANG LƯU VÀ ĐỌC LẠI MAP · CHƯA GỬI LỆNH GHI TAY',4000);
+      notice('info','CHỜ AUTO TUNER LƯU XONG','Đang ghi MAP đã bù và xác minh lại 420 ô. Chưa gửi lệnh lưu phun xăng bằng tay; hãy chờ hoàn tất.');
+      return false;
+    }
     // SINGLE-FLIGHT: never enqueue a second user MAP read/write behind the
     // current one. The protocol mutex is the last safety net, not a click queue.
     if(ecuMapIoUiBusy)return false;
