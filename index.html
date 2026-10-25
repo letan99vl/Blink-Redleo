@@ -8,8 +8,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.103'; // Fix Live 0x69/TPS cursor resume after verified automatic MAP write; no RPM gate
+  window.BLINK_PB_VERSION = '3.79.104'; // Isolate manual INJ VE saves from Auto Tune auto write; preserve 0x69 live recovery
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
+window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
@@ -3848,7 +3849,10 @@ window.blinkAlert=blinkAlert;
 
 async function startFuelWrite(opts={}){
   const skipConfirm=!!opts.skipConfirm;
-  if(autoIdleSave.inFlight&&!opts.autoIdle)return false; // Never overlap a manual MAP write with an automatic write.
+  if(autoIdleSave.inFlight&&!opts.autoIdle){
+    showEcuNotice('info','ĐANG TỰ LƯU AUTO TUNER','Chưa thể lưu bảng phun xăng bằng tay khi Auto Tuner đang ghi/đọc lại ECU. Hãy chờ xác minh xong.',4000);
+    return false;
+  } // Never overlap a manual MAP write with an automatic write.
   const rollbackMap=validMatrix(opts.rollbackMap)?cloneMatrix(opts.rollbackMap):null;
   let rollbackBank=clamp(Math.round(Number(state.activeMap)||1),1,4);
   const rollbackBeforeTransport=()=>{
@@ -4150,7 +4154,10 @@ async function writeCurrentFuelMap(){
 }
 
 async function applyCorrectedAndWrite(options={}){
-  if(autoIdleSave.inFlight&&!options.autoIdle)return false;
+  if(autoIdleSave.inFlight&&!options.autoIdle){
+    showEcuNotice('info','AUTO TUNER ĐANG LƯU','Đợi ghi ECU và đọc lại 420 ô hoàn tất trước khi bấm LƯU MAP ĐÃ BÙ bằng tay.',4000);
+    return false;
+  }
   if(options.autoIdle&&!autoIdleSavePreflight(state.activeMap,options.autoIdleEcuIdentity))return false;
   if(!blinkAutoTuneTpsSafe()){blinkAlert('TPS ECU chưa đọc Options mới. Auto Tune chưa được ghi MAP vì nguy cơ nhầm hàng TPS.');return false;}
   if(state.threeRun.active){
@@ -4240,6 +4247,12 @@ const AUTO_IDLE_SAVE_MS=2000;
 const AUTO_IDLE_SAVE_TPS_MAX=1; // strictly <1%
 const AUTO_IDLE_SAVE_OPEN_TPS=1; // re-arm at >=1%
 const autoIdleSave={enabled:false,openSeen:false,idleSince:0,freshSamples:0,inFlight:false,mapNo:0,status:''};
+// Shared with the REAL protocol UI so clicking manual SAVE/READ cannot seize
+// the ECU while Auto Tune's two-part write and 420-cell readback is active.
+window.blinkAutoIdleSaveBusy=()=>!!autoIdleSave.inFlight;
+function autoIdleSaveManualIoBusy(){
+  try{return !!window.BlinkRealProtocol?.manualIoActive;}catch(_e){return false;}
+}
 function autoIdleSaveStatus(message){
   const checkbox=document.getElementById('autoIdleSaveToggle');
   const status=document.getElementById('autoIdleSaveStatus');
@@ -4260,7 +4273,7 @@ function autoIdleSaveSetEnabled(on){
 function autoIdleSaveBaseReady(now){
   return !!(autoIdleSave.enabled&&!autoIdleSave.inFlight&&state.recording&&state.ecuConnected&&
     state.ecuPhase==='live'&&!state.threeRun.active&&!state.ecuWriteQueued&&
-    !state.pendingAfrClearMapNo&&!fuelMapSyncUnknown(state.activeMap)&&
+    !autoIdleSaveManualIoBusy()&&!state.pendingAfrClearMapNo&&!fuelMapSyncUnknown(state.activeMap)&&
     blinkEcuTpsReady()&&tpsTelemetryFresh(now)&&afrStreamReady(2200)&&
     Number.isFinite(state.live.tps));
 }
@@ -4268,7 +4281,7 @@ function autoIdleSavePreflight(mapNo,ecuIdentity){
   const now=performance.now();
   return !!(autoIdleSave.enabled&&autoIdleSave.inFlight&&state.recording&&
     state.ecuConnected&&state.ecuPhase==='live'&&!state.threeRun.active&&
-    state.activeMap===mapNo&&autoIdleSave.mapNo===mapNo&&
+    !autoIdleSaveManualIoBusy()&&state.activeMap===mapNo&&autoIdleSave.mapNo===mapNo&&
     !fuelMapSyncUnknown(mapNo)&&blinkEcuTpsReady()&&
     ecuIdentity===blinkTpsEcuIdentity()&&tpsTelemetryFresh(now)&&
     afrStreamReady(2200)&&Number.isFinite(state.live.tps)&&
@@ -4319,6 +4332,13 @@ async function autoIdleSaveCommit(mapNo,ecuIdentity){
 }
 function autoIdleSaveTick(now=performance.now()){
   if(!autoIdleSave.enabled||autoIdleSave.inFlight)return;
+  // The standalone INJ VE editor is MANUAL, not an Auto Tune context.
+  // An old Auto Tune toggle must not write over a map while it is being edited.
+  if(document.getElementById('mapEditorScreen')?.classList.contains('standaloneFuel')){
+    autoIdleSaveReset(true);
+    autoIdleSaveStatus('Tự lưu đã tắt khi mở bảng phun xăng chỉnh tay.');
+    return;
+  }
   if(autoIdleSave.mapNo!==state.activeMap)autoIdleSaveReset(false);
   if(!state.recording){
     autoIdleSave.openSeen=false;autoIdleSave.idleSince=0;
@@ -6609,6 +6629,16 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
   const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};
   const screen=document.getElementById('mapEditorScreen');
   const standaloneFuel=tab==='inject'&&!fromTune;
+  if(standaloneFuel&&autoIdleSave.inFlight){
+    showEcuNotice('info','AUTO TUNER ĐANG GHI ECU','Không mở bảng phun xăng chỉnh tay giữa lúc ghi và xác minh 420 ô. Hãy chờ lưu xong.',4500);
+    return;
+  }
+  if(standaloneFuel&&autoIdleSave.enabled){
+    // Manual INJ VE must never inherit an armed automatic write trigger.
+    autoIdleSaveReset(true);
+    if(state.recording)setRecording(false);
+    showEcuNotice('info','TỰ LƯU AUTO TUNER ĐÃ TẮT','Đã tách bảng phun xăng chỉnh tay khỏi chế độ tự lưu bù. Muốn tự lưu lại, vào Auto Tuner bật công tắc.',3500);
+  }
   editorReturnScreen=returnScreen||(fromTune?'tune':'maps');
   editorNavContext=(fromTune||returnScreen==='tune')?'tune':'maps';
   window.hideFuelKeypad?.();
