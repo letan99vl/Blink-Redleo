@@ -8,10 +8,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.106'; // Restore fast manual INJ VE ACK-only save; Auto Tune keeps full 420-cell verified readback
+  window.BLINK_PB_VERSION = '3.79.107'; // Add selected INJ VE 4-corner interpolation (REDLEO I) locally; preserve fast manual ACK-only save
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
+window.BLINK_FUEL_SMOOTH_REVISION = 'INJ-VE-SELECTED-BILINEAR-4-CORNERS-20261025';
 window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
@@ -1247,6 +1248,22 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   }
   .mapSelectionPad[aria-hidden="true"]{display:none!important}
 
+  /* PB3.79.107: selected INJ VE interpolation. The toolbar action is visible
+     only in the manual fuel editor; the floating I remains usable in MAP ZOOM.
+     Never show it on measured AFR, AFR target or auto-corrected-map tabs. */
+  #mapEditorScreen .editToolbar #fuelSmoothBtn{display:none!important}
+  #mapEditorScreen.standaloneFuel .editToolbar #fuelSmoothBtn{
+    display:block!important;min-width:0;grid-column:auto;
+    background:#14283b!important;border-color:#4389c8!important;color:#e5f6ff!important;
+    font-weight:900!important;letter-spacing:.1px
+  }
+  #mapEditorScreen .mapSelectionPad #mapFloatSmoothBtn{display:none!important}
+  #mapEditorScreen.standaloneFuel .mapSelectionPad #mapFloatSmoothBtn{
+    display:grid!important;background:rgba(18,52,78,.97)!important;
+    border-color:#61b5f5!important;color:#e1f5ff!important;
+    font-family:serif;font-style:italic;font-weight:950
+  }
+
   /* Auto Tune direct entry: compact AFR recording/mode controls on the map
      editor itself, never forcing a detour through the legacy tune hub. */
   #mapEditorScreen .autoTuneQuickBar{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:5px;padding:0 7px 5px}
@@ -2266,14 +2283,14 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="fuelSmoothBtn" class="ghost" type="button" title="I · Nội suy 4 góc vùng đã tô, chỉ đổi bảng trong Blink, chưa ghi ECU" aria-label="Làm mượt vùng thời gian phun theo 4 góc">I · LÀM MƯỢT VÙNG</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
     <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
-    <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button></div>
+    <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button><button id="mapFloatSmoothBtn" class="smooth" type="button" aria-label="I · Làm mượt vùng phun đã chọn" title="I · Nội suy bốn góc vùng TPS/RPM đã tô, chưa ghi ECU">I</button></div>
     <div id="mapZoomHud" aria-live="polite">
       <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
       <button id="mapZoomCorrectedSaveBtn" type="button" aria-label="Lưu MAP đã bù vào ECU" title="Lưu MAP đã bù vào ECU">↓ BÙ → ECU</button>
@@ -3133,6 +3150,85 @@ function setSelection(r,c,extend=false){
 function selectionBounds(){
   const s=state.selection;
   return {r0:Math.min(s.anchorR,s.focusR),r1:Math.max(s.anchorR,s.focusR),c0:Math.min(s.anchorC,s.focusC),c1:Math.max(s.anchorC,s.focusC)};
+}
+
+// REDLEO I in INJ VE: 4-corner bilinear interpolation across the SELECTED
+// TPS-row/RPM-column rectangle. Uses grid indices like the original editor,
+// not non-uniform numeric TPS/RPM axis distances. For a 1D selection, the
+// same equation reduces to linear interpolation between its two endpoints.
+// Work from an immutable snapshot and never alter values outside the region.
+function interpolateFuelSelectedRegion(source,bounds,maxMs=fuelProtocolMaxMs()){
+  if(!validMatrix(source))throw new Error('Bảng thời gian phun chưa có đủ 14 × 30 ô.');
+  const {r0,r1,c0,c1}=bounds||{};
+  if(![r0,r1,c0,c1].every(Number.isInteger)||
+      r0<0||r1>=R||c0<0||c1>=C||r0>r1||c0>c1)
+    throw new Error('Vùng chọn thời gian phun không hợp lệ.');
+  const dy=r1-r0,dx=c1-c0;
+  const out=source.map(row=>row.slice());
+  // A 2×2 selection contains four anchors but no point to interpolate.
+  if(dx<2&&dy<2)return {matrix:out,changed:0,selected:(dy+1)*(dx+1)};
+  const raw=[source[r0][c0],source[r0][c1],source[r1][c0],source[r1][c1]];
+  if(raw.some(v=>v==null||!Number.isFinite(Number(v))||Number(v)<0||Number(v)>maxMs))
+    throw new Error('Bốn ô góc phải có thời gian phun hợp lệ (ms) trước khi làm mượt.');
+  const [a,b,c,d]=raw.map(Number);
+  let changed=0;
+  for(let r=r0;r<=r1;r++){
+    const y=dy?(r-r0)/dy:0;
+    for(let col=c0;col<=c1;col++){
+      if((r===r0||r===r1)&&(col===c0||col===c1))continue; // anchors unchanged
+      const x=dx?(col-c0)/dx:0;
+      const value=(1-y)*(1-x)*a+(1-y)*x*b+y*(1-x)*c+y*x*d;
+      const rounded=Number(Math.min(maxMs,Math.max(0,value)).toFixed(3));
+      const prev=source[r][col];
+      if(prev==null||!Number.isFinite(Number(prev))||Math.abs(Number(prev)-rounded)>0.0005){
+        out[r][col]=rounded;
+        changed++;
+      }
+    }
+  }
+  return {matrix:out,changed,selected:(dy+1)*(dx+1)};
+}
+
+function smoothSelectedFuelMap(){
+  const editor=document.getElementById('mapEditorScreen');
+  if(!editor?.classList.contains('standaloneFuel')||state.tab!=='inject'||
+     !editor.classList.contains('active')){
+    showEcuNotice('info','CHỈ DÀNH CHO THỜI GIAN PHUN',
+      'Mở bảng INJ VE từ DỮ LIỆU, chọn vùng rồi bấm I.',3200);
+    return false;
+  }
+  if(state.threeRun.active||state.recording||autoIdleSave.enabled||autoIdleSave.inFlight||
+     state.ecuWriteQueued||state.ecuPhase==='write1'||state.ecuPhase==='write2'||
+     window.BlinkRealProtocol?.manualIoActive){
+    showEcuNotice('error','MAP ĐANG BẬN',
+      'Dừng ghi AFR và chờ mọi lệnh đọc/ghi ECU hoàn tất trước khi làm mượt.',4500);
+    return false;
+  }
+  if(!state.selection.active){
+    showEcuNotice('info','CHƯA TÔ VÙNG',
+      'Chạm hai góc hoặc bật QUÉT CHỌN để tô vùng cần nội suy.',3500);
+    return false;
+  }
+  try{
+    const area=selectionBounds();
+    const result=interpolateFuelSelectedRegion(state.inject,area);
+    if(!result.changed){
+      showEcuNotice('info','KHÔNG CẦN LÀM MƯỢT',
+        'Vùng quá nhỏ hoặc các ô đã nằm trên đường nội suy 4 góc. Chọn vùng có ít nhất 3 ô theo một hướng.',3500);
+      return false;
+    }
+    window.hideFuelKeypad?.();
+    state.inject=result.matrix; // local MAP bank; does not transmit any ECU command
+    render();
+    saveSoon(); // localStorage only, NEVER ECU
+    showEcuNotice('success','ĐÃ NỘI SUY VÙNG THỜI GIAN PHUN',
+      'MAP No.'+state.activeMap+' · đã chỉnh '+result.changed+'/'+result.selected+
+      ' ô giữa theo 4 góc. GIỮ NGUYÊN 4 GÓC và vùng ngoài. CHƯA GHI ECU; bấm LƯU HIỆN TẠI khi muốn ghi.',4500);
+    return true;
+  }catch(e){
+    showEcuNotice('error','KHÔNG LÀM MƯỢT ĐƯỢC',String(e?.message||e),4500);
+    return false;
+  }
 }
 function selectionContainsCell(r,c){
   if(!state.selection.active)return false;
@@ -5478,6 +5574,12 @@ document.addEventListener('keydown',e=>{
   // PC shortcuts for the main ECU map editor. Enter deliberately mirrors the
   // visible "LƯU HIỆN TẠI" button; +/- mirror the visible nudge buttons.
   if(pcMapKeyboardEnabled()&&activeScreenIs('mapEditorScreen')&&!e.ctrlKey&&!e.altKey&&!e.metaKey){
+    if((e.key==='i'||e.key==='I')&&
+       document.getElementById('mapEditorScreen')?.classList.contains('standaloneFuel')){
+      resetQuickType();e.preventDefault();
+      if(!e.repeat)smoothSelectedFuelMap();
+      return;
+    }
     if(e.key==='Enter'){
       resetQuickType();e.preventDefault();
       if(e.repeat)return;
@@ -7758,6 +7860,12 @@ document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1)
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
 floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
 floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
+document.getElementById('fuelSmoothBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);smoothSelectedFuelMap();
+});
+document.getElementById('mapFloatSmoothBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);smoothSelectedFuelMap();
+});
 function requestAutoTuneCorrectedSave(){
   const screen=document.getElementById('mapEditorScreen');
   if(!screen?.classList.contains('autoTuneMap'))return false;
