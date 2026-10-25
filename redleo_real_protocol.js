@@ -4319,7 +4319,9 @@ async function writeCurrentFuelAndVerify(bank){
     await writeFuelBank(bank);
     fuelPagePrimed.delete(bank);
     const wholeMs=Math.round(performance.now()-wholeWriteStarted);
-    taskUi('success','GHI MAP NO.'+bank+' OK · ECU ACK · '+(wholeMs/1000).toFixed(1)+'s');
+    // Only the 0x9A 420/420 readback at the caller may mark a fuel SAVE
+    // successful. An ACK can accompany unchanged ECU fuel data.
+    taskUi('loading','ECU ACK ĐỦ TRANG MAP NO.'+bank+' · CHỜ ĐỌC LẠI 420 Ô ĐỂ XÁC MINH...');
     log('fuel write ACK-only total',wholeMs+'ms','MAP',bank);
     return {ack:true,bank,elapsedMs:wholeMs};
   }finally{
