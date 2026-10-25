@@ -8,10 +8,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.105'; // Manual fuel save only succeeds after verified ECU 420/420 readback, not ACK alone
+  window.BLINK_PB_VERSION = '3.79.106'; // Restore fast manual INJ VE ACK-only save; Auto Tune keeps full 420-cell verified readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
-window.BLINK_MANUAL_FUEL_READBACK_FIX = 'INJ-VE-WRITE-420-READBACK-20261025';
+window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
 window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
@@ -3849,12 +3849,7 @@ window.blinkPrompt=blinkPrompt;
 window.blinkAlert=blinkAlert;
 
 async function startFuelWrite(opts={}){
-  // ACK only says the ECU answered 0xCD. It does not mean the changed MAP
-  // persisted. Normal LƯU HIỆN TẠI must now match a fresh 0x9A 420-cell readback
-  // just like Auto Tune; otherwise NEVER show success or silently retry 0xCD.
-  opts={...opts,verifyReadback:true};
   const skipConfirm=!!opts.skipConfirm;
-  const isAutomaticCorrection=!!(opts.autoIdle||opts.rollbackMap);
   if(autoIdleSave.inFlight&&!opts.autoIdle){
     showEcuNotice('info','ĐANG TỰ LƯU AUTO TUNER','Chưa thể lưu bảng phun xăng bằng tay khi Auto Tuner đang ghi/đọc lại ECU. Hãy chờ xác minh xong.',4000);
     return false;
@@ -3979,53 +3974,36 @@ async function startFuelWrite(opts={}){
         window.setEcuTaskStatus?.('loading','ECU ĐÃ ACK · ĐANG ĐỌC LẠI 420 Ô ĐỂ XÁC MINH...');
       }
 
-      // All fuel writes require independent 420-cell readback, including
-      // manual SAVE. No cached/echo-only ACK may be called a successful save.
+      // Automated correction/3-run writes must be stronger than ACK-only:
+      // read the 420 cells back before clearing AFR or advancing the next pass.
+      // Manual SAVE stays on the fast ACK path unless explicitly requested.
       if(opts.verifyReadback){
         let verifyR;
         try{
-          await new Promise(r=>setTimeout(r,350));
+          await new Promise(r=>setTimeout(r,120));
           verifyR=await realApi.readCurrentFuelBank(mapNo,false);
         }catch(verifyErr){
           state.ecuWriteSnapshot=null;
           state.ecuPhase='live';
           $('mapSelect').disabled=state.threeRun.active;
           setFuelMapSyncUnknown(mapNo,true);
-          if(isAutomaticCorrection&&state.mapBanks&&state.mapBanks[mapNo-1]){
+          if(state.mapBanks&&state.mapBanks[mapNo-1]){
             state.mapBanks[mapNo-1].measured=blankMatrix(null);
             state.mapBanks[mapNo-1].counts=blankMatrix(0);
             state.lastCellKey='';
           }
           try{if(state.activeMap===mapNo)render();saveSoon();}catch(_e){}
           onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
-          showEcuNotice('error','ECU ACK NHƯNG CHƯA XÁC MINH','ECU ACK nhưng MAP No.'+mapNo+' chưa được chứng minh đã lưu. ĐỌC LẠI 420 ô thất bại: '+String(verifyErr&&verifyErr.message||verifyErr)+'. Đã KHÓA GHI cho đến khi ĐỌC HIỆN TẠI thành công.',0);
+          showEcuNotice('error','ECU ACK NHƯNG CHƯA XÁC MINH','ECU đã ACK lệnh ghi nhưng READ CURRENT kiểm tra thất bại: '+String(verifyErr&&verifyErr.message||verifyErr)+'. MAP bị khóa ghi cho đến khi ĐỌC HIỆN TẠI thành công.',0);
           return false;
         }
-        let verifyCmp=compareFuelMaps(verifyR.matrix,attemptedMap);
-        if(verifyCmp.bad>0){
-          // Some ECUs commit the second fuel half after their short 0xCD ACK.
-          // Check once more after settling WITHOUT sending another write.
-          window.setEcuTaskStatus?.('loading','ECU ACK NHƯNG '+verifyCmp.bad+'/420 Ô CHƯA KHỚP · ĐANG ĐỌC LẠI LẦN 2...');
-          try{
-            await new Promise(r=>setTimeout(r,650));
-            verifyR=await realApi.readCurrentFuelBank(mapNo,false);
-            verifyCmp=compareFuelMaps(verifyR.matrix,attemptedMap);
-          }catch(reReadErr){
-            state.ecuWriteSnapshot=null;
-            state.ecuPhase='live';
-            $('mapSelect').disabled=state.threeRun.active;
-            setFuelMapSyncUnknown(mapNo,true);
-            onFuelWriteVerifyFailed(mapNo,{bad:420,first:null});
-            showEcuNotice('error','GHI MAP CHƯA XÁC ĐỊNH','ECU trả ACK nhưng lần đọc đầu chưa khớp, lần 2 báo: '+String(reReadErr&&reReadErr.message||reReadErr)+'. Đã khóa ghi MAP No.'+mapNo+' để tránh ghi chồng.',0);
-            return false;
-          }
-        }
+        const verifyCmp=compareFuelMaps(verifyR.matrix,attemptedMap);
         if(verifyCmp.bad>0){
           state.ecuWriteSnapshot=null;
           state.ecuPhase='live';
           $('mapSelect').disabled=state.threeRun.active;
           setFuelMapSyncUnknown(mapNo,false); // actual ECU map is known from readback
-          if(isAutomaticCorrection&&state.mapBanks&&state.mapBanks[mapNo-1]){
+          if(state.mapBanks&&state.mapBanks[mapNo-1]){
             state.mapBanks[mapNo-1].measured=blankMatrix(null);
             state.mapBanks[mapNo-1].counts=blankMatrix(0);
             state.lastCellKey='';
@@ -4033,11 +4011,7 @@ async function startFuelWrite(opts={}){
           try{if(state.activeMap===mapNo)render();saveSoon();}catch(_e){}
           onFuelWriteVerifyFailed(mapNo,verifyCmp);
           const p=verifyCmp.first;
-          const half=p?(p.r>=7?'PHẦN 1/2 (TPS THẤP)':'PHẦN 2/2 (TPS CAO)'):'';
-          showEcuNotice('error','ECU ACK NHƯNG MAP KHÔNG ĐƯỢC LƯU',
-            'MAP No.'+mapNo+': '+verifyCmp.bad+'/420 ô KHÔNG KHỚP sau hai lần đọc thật'
-            +(p?' · '+half+' · hàng '+(p.r+1)+', cột '+(p.c+1)+' · gửi '+p.y.toFixed(3)+' ms, ECU '+p.x.toFixed(3)+' ms':'')
-            +(isAutomaticCorrection?'. Auto Tune đã dừng và cần đo AFR lại.':'. Bảng hiển thị bây giờ là giá trị thực vừa đọc từ ECU, không báo lưu thành công.'),0);
+          showEcuNotice('error','GHI MAP KHÔNG KHỚP READBACK','ECU đã ACK nhưng '+verifyCmp.bad+'/420 ô đọc lại không khớp'+(p?' · ô '+(p.r+1)+','+(p.c+1)+' gửi '+p.y.toFixed(3)+' / ECU '+p.x.toFixed(3)+' ms':'')+'. Auto Tune đã dừng và AFR cũ đã xóa.',0);
           return false;
         }
       }
@@ -4047,9 +4021,7 @@ async function startFuelWrite(opts={}){
       $('mapSelect').disabled=state.threeRun.active;
       setFuelMapSyncUnknown(mapNo,false);
       onFuelWriteVerified(mapNo);
-      window.setEcuTaskStatus?.('success','MAP NO.'+mapNo+' · ĐỌC LẠI 420/420 Ô KHỚP · ĐÃ LƯU',4200);
-      if(!skipConfirm)showEcuNotice('success','LƯU MAP PHUN XĂNG THÀNH CÔNG',
-        'ECU ACK và Blink đã đọc lại 420/420 ô của MAP No.'+mapNo+' khớp với dữ liệu vừa ghi.',3500);
+      if(opts.verifyReadback)window.setEcuTaskStatus?.('success','MAP NO.'+mapNo+' · ĐỌC LẠI 420/420 Ô KHỚP · OK',3200);
       return true;
     }catch(e){
       const knownBefore=state.ecuWriteSnapshot?cloneMatrix(state.ecuWriteSnapshot):null;
@@ -4099,7 +4071,7 @@ async function startFuelWrite(opts={}){
       // before any correction can be calculated again, otherwise the same AFR
       // could be applied twice to cells that already changed.
       const afrStillValid=!!(resynced&&cmpBefore&&cmpBefore.bad===0);
-      if(isAutomaticCorrection&&!afrStillValid&&state.mapBanks&&state.mapBanks[mapNo-1]){
+      if(!afrStillValid&&state.mapBanks&&state.mapBanks[mapNo-1]){
         state.mapBanks[mapNo-1].measured=blankMatrix(null);
         state.mapBanks[mapNo-1].counts=blankMatrix(0);
         state.lastCellKey='';
@@ -4109,7 +4081,7 @@ async function startFuelWrite(opts={}){
       onFuelWriteVerifyFailed(mapNo,cmp||{bad:420,first:null});
       const baseMsg=String(e&&e.message||e);
       const safetyMsg=resynced
-        ?' Đã đọc lại MAP thật từ ECU; '+(isAutomaticCorrection?'Auto Tune đã dừng.':'dữ liệu cũ vẫn còn trên ECU, không báo lưu thành công.')
+        ?' Đã đọc lại MAP thật từ ECU; Auto Tune dừng để tránh bù chồng.'
         :' Không đọc lại được ECU'+(resyncError?' ('+String(resyncError&&resyncError.message||resyncError)+')':'')+'. MAP này đã bị KHÓA GHI cho đến khi ĐỌC HIỆN TẠI thành công.';
       showEcuNotice('error','GHI MAP THẤT BẠI',baseMsg+safetyMsg,0);
       return false;
