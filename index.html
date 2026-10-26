@@ -8,11 +8,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.109'; // Remove per-cell AFR response learner; restore simple ratio correction with 30% safety cap
+  window.BLINK_PB_VERSION = '3.79.110'; // INJ VE selected-anchor interpolation preview; manual apply only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
 window.BLINK_FUEL_SMOOTH_REVISION = 'INJ-VE-SELECTED-BILINEAR-4-CORNERS-20261025';
+window.BLINK_FUEL_ANCHOR_REVISION = 'INJ-VE-MULTI-ANCHOR-PREVIEW-20261027';
 window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
@@ -1266,6 +1267,67 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     font-family:serif;font-style:italic;font-weight:950
   }
 
+
+  /* PB3.79.110: multi-anchor interpolation, manual INJ VE ONLY. Distinct
+     from the existing rectangular four-corner I smoothing tool. */
+  #fuelAnchorBar{display:none}
+  #mapEditorScreen.standaloneFuel #fuelAnchorBar{
+    display:grid;gap:3px;padding:3px 7px 5px;flex:0 0 auto;
+    background:#101f2a;border-bottom:1px solid #315169;
+  }
+  #fuelAnchorBar .fuelAnchorActions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+  #fuelAnchorBar button{height:30px;min-width:0;padding:3px 5px;border-radius:8px;
+    border:1px solid #52758d;background:#192f42;color:#eff7ff;
+    font-weight:850;font-size:clamp(9px,1.8vw,11px);line-height:1.05;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:manipulation}
+  #fuelAnchorBar button[hidden]{display:none!important}
+  #fuelAnchorBar #fuelAnchorPinModeBtn.on{background:#105644;border-color:#40dcb6;color:#e4fff5}
+  #fuelAnchorBar #fuelAnchorPreviewBtn{background:#123e65;border-color:#308bcc}
+  #fuelAnchorBar #fuelAnchorApplyBtn{background:#145b32;border-color:#44e08d}
+  #fuelAnchorBar #fuelAnchorCancelBtn{background:#50252a;border-color:#ee7581}
+  #fuelAnchorStatus{min-height:13px;font-size:10px;color:#b9d4e7;line-height:1.25;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #mapEditorScreen.standaloneFuel #mapTable td.fuelAnchorPinned{
+    position:relative!important;box-shadow:inset 0 0 0 2px #00d99d!important;
+    outline:1px solid #005337;outline-offset:-3px
+  }
+  #mapEditorScreen.standaloneFuel #mapTable td.fuelAnchorPinned::after{
+    content:'◆';position:absolute;right:1px;top:0px;font-size:9px;
+    color:#00583e;text-shadow:0 0 2px #ffffffa8;pointer-events:none
+  }
+  #mapEditorScreen.standaloneFuel #mapTable td.fuelAnchorCandidate{
+    box-shadow:inset 0 0 0 2px #238dff!important;
+    outline:1px dashed #1b63ab;outline-offset:-3px
+  }
+  #mapEditorScreen.standaloneFuel.fuelAnchorPinning #mapWrap{
+    cursor:crosshair;touch-action:pan-x pan-y
+  }
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #fuelAnchorBar{
+    display:grid!important;position:fixed!important;top:42px!important;
+    left:0!important;right:0!important;z-index:250030!important;
+    height:39px!important;padding:3px 6px!important;
+    background:rgba(10,25,35,.97)!important
+  }
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #fuelAnchorBar button{
+    height:31px!important;min-height:31px!important;font-size:10px!important
+  }
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #fuelAnchorStatus{display:none!important}
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #mapWrap{
+    top:81px!important;height:calc(100dvh - 81px)!important;
+    min-height:calc(100dvh - 81px)!important;max-height:calc(100dvh - 81px)!important
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel #mapWrap{
+    top:81px!important;height:calc(100% - 81px)!important;
+    min-height:calc(100% - 81px)!important;max-height:calc(100% - 81px)!important
+  }
+  @media(max-width:600px){
+    body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #fuelAnchorBar{top:72px!important}
+    body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #mapWrap{
+      top:111px!important;height:calc(100dvh - 111px)!important;
+      min-height:calc(100dvh - 111px)!important;max-height:calc(100dvh - 111px)!important
+    }
+  }
+
   /* Auto Tune direct entry: compact AFR recording/mode controls on the map
      editor itself, never forcing a detour through the legacy tune hub. */
   #mapEditorScreen .autoTuneQuickBar{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:5px;padding:0 7px 5px}
@@ -2231,6 +2293,25 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     #settingsScreen .tuneSettingsGrid{grid-template-columns:1fr!important;gap:10px!important;}
     #settingsScreen .tuneSettingsGrid .field label{font-size:13px!important;}
   }
+
+  /* PB3.79.110: FINAL zoom precedence, after older fullscreen-specific rules. */
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #fuelAnchorBar{top:42px!important}
+  body.mapZoomMode #mapEditorScreen.standaloneFuel #mapWrap{
+    top:81px!important;height:calc(100dvh - 81px)!important;
+    min-height:calc(100dvh - 81px)!important;max-height:calc(100dvh - 81px)!important
+  }
+  body.appForceLandscape.mapZoomMode #mapEditorScreen.standaloneFuel #mapWrap{
+    top:81px!important;height:calc(100% - 81px)!important;
+    min-height:calc(100% - 81px)!important;max-height:calc(100% - 81px)!important
+  }
+  @media(max-width:600px){
+    body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #fuelAnchorBar{top:72px!important}
+    body.mapZoomMode:not(.appForceLandscape) #mapEditorScreen.standaloneFuel #mapWrap{
+      top:111px!important;height:calc(100dvh - 111px)!important;
+      min-height:calc(100dvh - 111px)!important;max-height:calc(100dvh - 111px)!important
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -2291,6 +2372,16 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>
+    <div id="fuelAnchorBar">
+      <div class="fuelAnchorActions">
+        <button id="fuelAnchorPinModeBtn" type="button" aria-pressed="false" title="Bật chọn ô neo: chạm từng ô đã canh chuẩn để ghim hoặc bỏ ghim">◆ CHỌN Ô NEO</button>
+        <button id="fuelAnchorPreviewBtn" type="button" title="Tính từ các ô neo, chỉ xem trước; không sửa dữ liệu và không ghi ECU">◈ XEM TRƯỚC</button>
+        <button id="fuelAnchorClearBtn" type="button" title="Xóa toàn bộ các điểm neo của MAP này, không xóa dữ liệu phun">⌫ XÓA NEO</button>
+        <button id="fuelAnchorApplyBtn" type="button" hidden title="Chỉ lưu MAP nội suy trong Blink, chưa gửi ECU">✓ ÁP DỤNG</button>
+        <button id="fuelAnchorCancelBtn" type="button" hidden title="Hủy bản xem trước, giữ nguyên MAP cũ">✕ HỦY XEM</button>
+      </div>
+      <div id="fuelAnchorStatus" role="status" aria-live="polite">Chọn ô neo từ các ô đã canh xăng chuẩn · chưa thay đổi MAP ECU.</div>
+    </div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
     <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button><button id="mapFloatSmoothBtn" class="smooth" type="button" aria-label="I · Làm mượt vùng phun đã chọn" title="I · Nội suy bốn góc vùng TPS/RPM đã tô, chưa ghi ECU">I</button></div>
     <div id="mapZoomHud" aria-live="polite">
@@ -3069,15 +3160,360 @@ function injectionHeatColor(value){
   return 'hsl('+hue+' 100% '+light+'%)';
 }
 
+
+// PB3.79.110: piecewise selected-anchor interpolation.
+// Its ONLY source values are the explicitly pinned INJ VE cells. Unpinned
+// values are never consulted when determining any new value; they are read
+// only to identify whether the proposed local map actually changed.
+function interpolateFuelAnchorPoints(source,pins,tpsAxis,rpmAxis,maxMs){
+  const rows=source.length,cols=source[0]?.length;
+  if(!rows||!cols||source.some(row=>!Array.isArray(row)||row.length!==cols))
+    throw new Error('MAP phun chưa có cấu trúc hàng/cột hợp lệ.');
+  if(!Array.isArray(tpsAxis)||tpsAxis.length!==rows||
+     !Array.isArray(rpmAxis)||rpmAxis.length!==cols)
+    throw new Error('Trục TPS hoặc RPM ECU chưa phù hợp với MAP.');
+  if(!Number.isFinite(maxMs)||maxMs<=0)throw new Error('Chưa xác định được giới hạn kim phun ECU.');
+  if(!Array.isArray(pins)||pins.length<2)throw new Error('Cần chọn tối thiểu 2 ô neo đã canh chuẩn.');
+  if(pins.length>200)throw new Error('Tối đa 200 ô neo; hãy bỏ bớt ô trước khi nội suy.');
+  const validAxis=(v)=>v!==''&&v!=null&&Number.isFinite(Number(v));
+  const isIdleAxis=(r)=>String(tpsAxis[r]).trim().toUpperCase()==='IDLE'||(validAxis(tpsAxis[r])&&Number(tpsAxis[r])===0);
+  const rowsOk=tpsAxis.map(validAxis),rpmOk=rpmAxis.map(validAxis);
+  if(rpmOk.some(x=>!x))throw new Error('Trục RPM có giá trị không hợp lệ.');
+  const tpsNums=tpsAxis.map(Number),rpmNums=rpmAxis.map(Number);
+  const validTPS=tpsNums.filter((v,i)=>rowsOk[i]&&!isIdleAxis(i));
+  if(validTPS.length<1)throw new Error('Trục TPS chưa có giá trị số.');
+  const tMin=Math.min(...validTPS),tMax=Math.max(...validTPS),
+        rMin=Math.min(...rpmNums),rMax=Math.max(...rpmNums);
+  const tSpan=tMax-tMin||1,rSpan=rMax-rMin||1;
+  const key=(r,c)=>r+':'+c;
+  const seen=new Set(),anchors=[];
+  for(const pin of pins){
+    const r=Number(pin?.r),c=Number(pin?.c);
+    if(!Number.isInteger(r)||!Number.isInteger(c)||r<0||r>=rows||c<0||c>=cols||
+       !rowsOk[r]||isIdleAxis(r))
+      throw new Error('Ô neo phải nằm trong các hàng TPS (%) hợp lệ, không dùng hàng IDLE.');
+    if(!rpmOk[c]||seen.has(key(r,c)))throw new Error('Điểm neo bị trùng hoặc RPM không hợp lệ.');
+    const raw=source[r][c],v=Number(raw);
+    if(raw==null||!Number.isFinite(v)||v<=0||v>maxMs)
+      throw new Error('Ô neo TPS '+tpsAxis[r]+' / '+rpmAxis[c]+' cần giá trị phun >0 và ≤ '+maxMs.toFixed(2)+' ms.');
+    seen.add(key(r,c));
+    anchors.push({r,c,x:(rpmNums[c]-rMin)/rSpan,y:(tpsNums[r]-tMin)/tSpan,z:v});
+  }
+  const out=source.map(row=>row.slice()),modified=[];
+  const place=(r,c,z)=>{
+    if(seen.has(key(r,c))||!Number.isFinite(z))return;
+    if(isIdleAxis(r)||!rowsOk[r])return;
+    const value=Number(Math.max(0,Math.min(maxMs,z)).toFixed(3));
+    const before=source[r][c];
+    if(before==null||!Number.isFinite(Number(before))||Math.abs(Number(before)-value)>0.0005){
+      out[r][c]=value;modified.push({r,c,before,after:value});
+    }
+  };
+  const xy=(r,c)=>({x:(rpmNums[c]-rMin)/rSpan,y:(tpsNums[r]-tMin)/tSpan});
+  const cross=(a,b,p)=>(b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x);
+  const eps=1e-10;
+
+  // A single TPS row or single RPM column is a proper one-dimensional case.
+  // Also handle arbitrary collinear anchors but only on the same straight
+  // line; leave other cells untouched rather than extrapolating a 2D plane.
+  const a0=anchors[0],a1=anchors.reduce((best,p)=>
+    (p.x-a0.x)**2+(p.y-a0.y)**2>(best.x-a0.x)**2+(best.y-a0.y)**2? p:best,anchors[1]);
+  const dx=a1.x-a0.x,dy=a1.y-a0.y,norm=dx*dx+dy*dy;
+  if(norm<eps)throw new Error('Các trục hoặc ô neo trùng vị trí hình học.');
+  if(anchors.every(p=>Math.abs(cross(a0,a1,p))<=eps)){
+    const sorted=anchors.map(p=>({...p,t:((p.x-a0.x)*dx+(p.y-a0.y)*dy)/norm})).sort((a,b)=>a.t-b.t);
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      if(seen.has(key(r,c))||!rowsOk[r]||isIdleAxis(r))continue;
+      const p=xy(r,c),t=((p.x-a0.x)*dx+(p.y-a0.y)*dy)/norm;
+      if(Math.abs(cross(a0,a1,p))>eps||t<sorted[0].t-eps||t>sorted[sorted.length-1].t+eps)continue;
+      for(let i=0;i<sorted.length-1;i++){
+        const left=sorted[i],right=sorted[i+1];
+        if(t>=left.t-eps&&t<=right.t+eps&&right.t-left.t>eps){
+          const f=Math.max(0,Math.min(1,(t-left.t)/(right.t-left.t)));
+          place(r,c,left.z+(right.z-left.z)*f);
+          break;
+        }
+      }
+    }
+    return {matrix:out,changed:modified.length,cells:modified,anchors:anchors.length,method:'linear',covered:modified.length};
+  }
+
+  // Exactly four corners of one rectangle: actual TPS/RPM-weighted bilinear
+  // interpolation, including the non-uniform ECU axis spacing.
+  if(anchors.length===4){
+    const rs=[...new Set(anchors.map(p=>p.r))].sort((a,b)=>a-b);
+    const cs=[...new Set(anchors.map(p=>p.c))].sort((a,b)=>a-b);
+    if(rs.length===2&&cs.length===2&&anchors.every(p=>rs.includes(p.r)&&cs.includes(p.c))){
+      const get=(r,c)=>anchors.find(p=>p.r===r&&p.c===c);
+      const aa=get(rs[0],cs[0]),bb=get(rs[0],cs[1]),
+            cc=get(rs[1],cs[0]),dd=get(rs[1],cs[1]);
+      if(aa&&bb&&cc&&dd){
+        for(let r=rs[0];r<=rs[1];r++)for(let c=cs[0];c<=cs[1];c++){
+          if(seen.has(key(r,c)))continue;
+          const u=(rpmNums[c]-rpmNums[cs[0]])/(rpmNums[cs[1]]-rpmNums[cs[0]]);
+          const v=(tpsNums[r]-tpsNums[rs[0]])/(tpsNums[rs[1]]-tpsNums[rs[0]]);
+          if(Number.isFinite(u)&&Number.isFinite(v)&&u>=-eps&&u<=1+eps&&v>=-eps&&v<=1+eps){
+            place(r,c,aa.z*(1-u)*(1-v)+bb.z*u*(1-v)+cc.z*(1-u)*v+dd.z*u*v);
+          }
+        }
+        return {matrix:out,changed:modified.length,cells:modified,anchors:4,method:'bilinear',covered:modified.length};
+      }
+    }
+  }
+
+  // Bowyer-Watson Delaunay triangulation. Weights are barycentric within
+  // each triangle. If a cell is outside the selected-anchor convex hull,
+  // there is no containing triangle and its original value is untouched.
+  const points=anchors.map(p=>({x:p.x,y:p.y,z:p.z}));
+  const n=points.length;
+  points.push({x:-15,y:-15},{x:15,y:-15},{x:0,y:20});
+  const orient=(a,b,c)=>cross(points[a],points[b],points[c]);
+  const bary=(p,a,b,c)=>{
+    const den=cross(a,b,c);if(Math.abs(den)<1e-14)return null;
+    const w1=cross(p,b,c)/den,w2=cross(a,p,c)/den,w3=1-w1-w2;
+    return [w1,w2,w3];
+  };
+  const circleContains=(ids,p)=>{
+    const a=points[ids[0]],b=points[ids[1]],c=points[ids[2]],
+      ax=a.x-p.x,ay=a.y-p.y,bx=b.x-p.x,by=b.y-p.y,cx=c.x-p.x,cy=c.y-p.y;
+    const det=(ax*ax+ay*ay)*(bx*cy-by*cx)-
+              (bx*bx+by*by)*(ax*cy-ay*cx)+
+              (cx*cx+cy*cy)*(ax*by-ay*bx);
+    return orient(ids[0],ids[1],ids[2])>0?det>1e-14:det< -1e-14;
+  };
+  let triangles=[[n,n+1,n+2]];
+  for(let i=0;i<n;i++){
+    const bad=[];
+    for(let k=0;k<triangles.length;k++)
+      if(circleContains(triangles[k],points[i]))bad.push(k);
+    if(!bad.length){
+      for(let k=0;k<triangles.length;k++){
+        const ids=triangles[k],v=bary(points[i],...ids.map(j=>points[j]));
+        if(v&&v.every(w=>w>=-1e-9&&w<=1+1e-9)){bad.push(k);break;}
+      }
+    }
+    if(!bad.length)throw new Error('Không tạo được tam giác nội suy cho các ô neo.');
+    const removed=new Set(bad),edges=new Map();
+    for(const k of bad){
+      const [a,b,c]=triangles[k];
+      for(const [u,v] of [[a,b],[b,c],[c,a]]){
+        const edgeKey=Math.min(u,v)+':'+Math.max(u,v);
+        if(edges.has(edgeKey))edges.delete(edgeKey);else edges.set(edgeKey,[u,v]);
+      }
+    }
+    triangles=triangles.filter((_,k)=>!removed.has(k));
+    for(const [u,v] of edges.values())
+      if(Math.abs(orient(u,v,i))>1e-14)triangles.push(orient(u,v,i)>0?[u,v,i]:[v,u,i]);
+  }
+  triangles=triangles.filter(ids=>ids.every(i=>i<n));
+  if(!triangles.length)throw new Error('Các ô neo chưa bao được vùng TPS × RPM hai chiều.');
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    if(seen.has(key(r,c))||!rowsOk[r]||isIdleAxis(r))continue;
+    const p=xy(r,c);
+    for(const ids of triangles){
+      const w=bary(p,...ids.map(i=>points[i]));
+      if(!w||w.some(q=>q< -1e-9||q>1+1e-9))continue;
+      const z=w.reduce((sum,q,k)=>sum+Math.max(0,q)*points[ids[k]].z,0);
+      place(r,c,z);break;
+    }
+  }
+  return {matrix:out,changed:modified.length,cells:modified,anchors:n,method:'triangles',covered:modified.length};
+}
+// End of PB3.79.110 selected-anchor math.
+
+
+// PB3.79.110: selected anchor pins are session-scoped and bank-separated.
+// Their coordinates expire on ECU/axes change. Values are read fresh from
+// the real MAP only when creating a preview; no hidden EEPROM/ECU writes.
+const fuelAnchorUI={
+  mode:false,preview:null,axisSignature:null,
+  pins:Array.from({length:4},()=>new Set())
+};
+function fuelAnchorKey(r,c){return r+':'+c;}
+function fuelAnchorAxisSignature(){
+  const api=window.BlinkRealProtocol||{},h=api.handshake||{},p=api.profile||{};
+  return JSON.stringify([TPS_ROWS,RPMS,p.key||p.family||'',h.ident||'',h.ecuId??'']);
+}
+function fuelAnchorEnsureAxes(){
+  const sig=fuelAnchorAxisSignature();
+  if(fuelAnchorUI.axisSignature!==null&&fuelAnchorUI.axisSignature!==sig){
+    fuelAnchorUI.pins.forEach(set=>set.clear());
+    fuelAnchorUI.mode=false;fuelAnchorUI.preview=null;
+  }
+  fuelAnchorUI.axisSignature=sig;
+}
+function fuelAnchorCurrentPins(){
+  fuelAnchorEnsureAxes();
+  return fuelAnchorUI.pins[state.activeMap-1]||fuelAnchorUI.pins[0];
+}
+function fuelAnchorEditorActive(){
+  const el=$('mapEditorScreen');
+  return !!el&&el.classList.contains('active')&&el.classList.contains('standaloneFuel')&&state.tab==='inject';
+}
+function fuelAnchorBusy(){
+  return state.threeRun.active||state.recording||autoIdleSave.enabled||autoIdleSave.inFlight||
+    state.ecuWriteQueued||state.ecuPhase==='write1'||state.ecuPhase==='write2'||
+    window.BlinkRealProtocol?.manualIoActive;
+}
+function fuelAnchorSafe(){
+  if(!fuelAnchorEditorActive()){
+    showEcuNotice('info','CHỈ DÀNH CHO MAP THỜI GIAN PHUN','Vào DỮ LIỆU → THỜI GIAN PHUN (INJ VE) để sử dụng.',3500);return false;
+  }
+  if(fuelAnchorBusy()){
+    showEcuNotice('error','MAP ĐANG BẬN','Dừng ghi AFR / tự lưu và hoàn tất lệnh ECU trước khi nội suy.',4500);return false;
+  }
+  return true;
+}
+function fuelAnchorSyncUi(){
+  if(!$('fuelAnchorBar'))return;
+  fuelAnchorEnsureAxes();
+  const pins=fuelAnchorCurrentPins(),preview=fuelAnchorUI.preview;
+  const active=preview&&preview.mapNo===state.activeMap&&
+    preview.axisSignature===fuelAnchorUI.axisSignature;
+  $('mapEditorScreen')?.classList.toggle('fuelAnchorPinning',fuelAnchorUI.mode);
+  const pinBtn=$('fuelAnchorPinModeBtn');
+  pinBtn.classList.toggle('on',fuelAnchorUI.mode);
+  pinBtn.textContent=fuelAnchorUI.mode?'◆ ĐANG GHIM Ô':'◆ CHỌN Ô NEO';
+  pinBtn.setAttribute('aria-pressed',String(fuelAnchorUI.mode));
+  $('fuelAnchorPreviewBtn').hidden=!!active;
+  $('fuelAnchorClearBtn').hidden=!!active;
+  $('fuelAnchorApplyBtn').hidden=!active;
+  $('fuelAnchorCancelBtn').hidden=!active;
+  $('fuelAnchorPinModeBtn').disabled=!!active;
+  if(active){
+    const x=preview.result;
+    $('fuelAnchorStatus').textContent='XEM TRƯỚC · '+pins.size+' ô neo · '+x.changed+' ô thay đổi · '+x.method+' · chỉ trong Blink, chưa ghi ECU';
+  }else{
+    $('fuelAnchorStatus').textContent='MAP No.'+state.activeMap+' · '+pins.size+
+      ' ô neo'+(fuelAnchorUI.mode?' · chạm ô đã canh để GHIM / BỎ GHIM':' · bấm CHỌN Ô NEO rồi chạm từng ô; sau đó XEM TRƯỚC')+
+      ' · không ngoại suy, không đụng IDLE';
+  }
+}
+function fuelAnchorSetMode(on){
+  if(on&&!fuelAnchorSafe())return false;
+  fuelAnchorUI.mode=!!on;
+  if(fuelAnchorUI.mode){
+    window.blinkFuelAnchorDisableScan?.();
+    window.hideFuelKeypad?.();
+    clearMapSelection(null);
+    pauseMapAutoFollow(20000);
+  }
+  fuelAnchorSyncUi();
+  return true;
+}
+function fuelAnchorTogglePin(r,c){
+  if(!fuelAnchorUI.mode||fuelAnchorUI.preview||!fuelAnchorSafe())return false;
+  if(!Number.isInteger(r)||!Number.isInteger(c)||r<0||r>=R||c<0||c>=C||isIdleAutoTuneRow(r)){
+    showEcuNotice('info','KHÔNG GHIM HÀNG IDLE','Chỉ chọn các hàng TPS có giá trị phần trăm để nội suy.',2600);return false;
+  }
+  const pins=fuelAnchorCurrentPins(),key=fuelAnchorKey(r,c);
+  if(pins.has(key))pins.delete(key);
+  else{
+    const value=state.inject[r]?.[c],n=Number(value);
+    if(value==null||!Number.isFinite(n)||n<=0||n>fuelProtocolMaxMs()){
+      showEcuNotice('error','Ô PHUN CHƯA HỢP LỆ','Hãy nhập thời gian phun hợp lệ (>0 ms) cho ô này trước khi ghim.',3800);
+      return false;
+    }
+    if(pins.size>=200){showEcuNotice('info','GIỚI HẠN Ô NEO','Tối đa 200 ô neo.',3000);return false;}
+    pins.add(key);
+  }
+  render();return true;
+}
+function fuelAnchorGetPins(){return [...fuelAnchorCurrentPins()].map(key=>{const [r,c]=key.split(':').map(Number);return {r,c};});}
+function fuelAnchorPreview(){
+  if(!fuelAnchorSafe())return false;
+  const pins=fuelAnchorGetPins();
+  if(pins.length<2){showEcuNotice('info','CHƯA ĐỦ Ô NEO','Chọn ít nhất 2 ô đã canh trước khi xem nội suy.',3600);return false;}
+  try{
+    const base=state.inject.map(row=>row.slice());
+    const result=interpolateFuelAnchorPoints(base,pins,TPS_ROWS,RPMS,fuelProtocolMaxMs());
+    if(!result.changed){
+      showEcuNotice('info','CHƯA CÓ Ô ĐỂ NỘI SUY','Không có ô nằm giữa các điểm neo hoặc kết quả đã trùng giá trị hiện tại. Thêm ô neo ở các vùng khác.',4000);return false;
+    }
+    fuelAnchorUI.mode=false;
+    window.blinkFuelAnchorDisableScan?.();
+    window.hideFuelKeypad?.();
+    clearMapSelection(null);
+    fuelAnchorUI.preview={
+      mapNo:state.activeMap,axisSignature:fuelAnchorUI.axisSignature,
+      base,result,keys:new Set(result.cells.map(p=>fuelAnchorKey(p.r,p.c))),
+      pinKeys:[...fuelAnchorCurrentPins()].sort()
+    };
+    render();
+    showEcuNotice('info','XEM TRƯỚC NỘI SUY Ô NEO',
+      'Đã tính '+result.changed+' ô màu xanh từ '+pins.length+
+      ' ô neo màu xanh lá. MAP ECU chưa thay đổi. Bấm ÁP DỤNG để lưu tạm trong Blink.',5500);
+    return true;
+  }catch(e){showEcuNotice('error','KHÔNG NỘI SUY ĐƯỢC',String(e?.message||e),5000);return false;}
+}
+function fuelAnchorCancel(){
+  fuelAnchorUI.preview=null;fuelAnchorUI.mode=false;render();
+}
+function fuelAnchorApply(){
+  if(!fuelAnchorSafe())return false;
+  const p=fuelAnchorUI.preview;
+  if(!p||p.mapNo!==state.activeMap||p.axisSignature!==fuelAnchorAxisSignature())return false;
+  const pins=[...fuelAnchorCurrentPins()].sort();
+  const samePins=pins.length===p.pinKeys.length&&pins.every((v,i)=>v===p.pinKeys[i]);
+  const sameBase=state.inject.length===p.base.length&&state.inject.every((row,r)=>
+    row.length===p.base[r].length&&row.every((v,c)=>Object.is(v,p.base[r][c])));
+  if(!samePins||!sameBase){
+    fuelAnchorUI.preview=null;render();
+    showEcuNotice('error','MAP ĐÃ THAY ĐỔI','Dữ liệu ECU hoặc ô neo thay đổi lúc đang xem trước. Hãy XEM TRƯỚC lại, chưa áp dụng.',5000);
+    return false;
+  }
+  state.inject=p.result.matrix.map(row=>row.slice());
+  const changed=p.result.changed;
+  fuelAnchorUI.preview=null;fuelAnchorUI.mode=false;
+  render();saveSoon();
+  showEcuNotice('success','ĐÃ ÁP DỤNG NỘI SUY TRONG BLINK',
+    'Đã cập nhật '+changed+' ô, giữ nguyên ô neo và ngoài vùng. CHƯA GHI ECU; chỉ khi bấm LƯU HIỆN TẠI mới gửi MAP xuống ECU.',5500);
+  return true;
+}
+async function fuelAnchorClear(){
+  if(!fuelAnchorSafe())return false;
+  const set=fuelAnchorCurrentPins();
+  if(!set.size)return false;
+  const mapNo=state.activeMap;
+  if(!await blinkConfirm('XÓA CÁC Ô NEO','Bỏ đánh dấu '+set.size+' ô neo của MAP No.'+mapNo+'? Dữ liệu phun vẫn giữ nguyên.','XÓA NEO','HỦY'))return false;
+  if(state.activeMap!==mapNo||!fuelAnchorSafe())return false;
+  set.clear();fuelAnchorUI.mode=false;fuelAnchorUI.preview=null;render();return true;
+}
+window.BlinkFuelAnchorUI={
+  pinMode:()=>fuelAnchorUI.mode,
+  isPreview:()=>!!fuelAnchorUI.preview,
+  togglePin:fuelAnchorTogglePin,
+  setMode:fuelAnchorSetMode,
+  preview:fuelAnchorPreview,apply:fuelAnchorApply,cancel:fuelAnchorCancel,clear:fuelAnchorClear
+};
+// End of PB3.79.110 selected-anchor UI.
+
 function render(){
-  const table=$('mapTable'), data=matrixFor(state.tab);
+  fuelAnchorEnsureAxes();
+  let view=fuelAnchorUI.preview;
+  if(view&&view.mapNo!==state.activeMap){fuelAnchorUI.preview=null;view=null;}
+  if(view&&view.mapNo===state.activeMap&&view.axisSignature===fuelAnchorUI.axisSignature){
+    // A concurrent ECU read, edit, MAP swap or live sync must invalidate an
+    // outdated preview rather than display values derived from stale fuel.
+    if(state.inject.some((row,r)=>!Array.isArray(view.base[r])||row.length!==view.base[r].length||
+       row.some((v,c)=>!Object.is(v,view.base[r][c])))){
+      fuelAnchorUI.preview=null;view=null;
+    }
+  }
+  const showPreview=state.tab==='inject'&&fuelAnchorEditorActive()&&view&&view.mapNo===state.activeMap&&view.axisSignature===fuelAnchorUI.axisSignature;
+  const pinSet=state.tab==='inject'&&fuelAnchorEditorActive()?fuelAnchorCurrentPins():null;
+  const table=$('mapTable'), data=showPreview?view.result.matrix:matrixFor(state.tab);
   let html='<thead><tr><th class="corner">TPS</th>'+RPMS.map(x=>`<th>${x}</th>`).join('')+'</tr></thead><tbody>';
   for(let r=0;r<R;r++){
     const rh=TPS_ROWS[r], idle=r===R-1?' idle':'';
     html+=`<tr><td class="rowhead${idle}">${rh==='IDLE'?'IDLE':rh+'%'}</td>`;
     for(let c=0;c<C;c++){
-      const v=data[r][c],txt=displayValue(state.tab,r,c);
+      const v=data[r][c],txt=showPreview?(v==null?'--':fmt(Number(v),2)):displayValue(state.tab,r,c);
       let cls='mapcell',cellStyle='',cellAttr='';
+      if(state.tab==='inject'&&fuelAnchorEditorActive()){
+        if(pinSet?.has(fuelAnchorKey(r,c)))cls+=' fuelAnchorPinned';
+        else if(showPreview&&view.keys.has(fuelAnchorKey(r,c)))cls+=' fuelAnchorCandidate';
+      }
       if(state.tab==='inject'&&v!=null&&Number.isFinite(Number(v))){
         cls+=' inj-heat';
         cellStyle=' style="--inj-heat:'+injectionHeatColor(v)+'"';
@@ -3113,6 +3549,7 @@ function render(){
   });
   highlightCurrent();
   highlightSelection();
+  fuelAnchorSyncUi();
 }
 function selectCellText(td){const range=document.createRange();range.selectNodeContents(td);const s=window.getSelection();s.removeAllRanges();s.addRange(range)}
 function commitCell(td){
@@ -3121,6 +3558,7 @@ function commitCell(td){
 }
 function isEditableTab(){return !state.threeRun.active&&(state.tab==='target'||state.tab==='inject')}
 function beginEdit(td){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview)return;
   if(!isEditableTab())return;
   if((state.tab==='inject'||state.tab==='target')&&window.BlinkFuelKeypad?.preferCustom?.()){
     setSelection(+td.dataset.r,+td.dataset.c,false);
@@ -3146,6 +3584,7 @@ function beginEdit(td){
   };
 }
 function startCellSelection(e,td){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview)return;
   if(e.button!==0||td.isContentEditable)return;
   e.preventDefault();
   const nativeSel=window.getSelection();if(nativeSel)nativeSel.removeAllRanges();
@@ -3222,6 +3661,7 @@ function interpolateFuelSelectedRegion(source,bounds,maxMs=fuelProtocolMaxMs()){
 }
 
 function smoothSelectedFuelMap(){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview){showEcuNotice('info','ĐANG CHỌN/XEM NỘI SUY','Hãy thoát chọn ô neo hoặc hủy xem trước để dùng nút I làm mượt vùng.',3500);return false;}
   const editor=document.getElementById('mapEditorScreen');
   if(!editor?.classList.contains('standaloneFuel')||state.tab!=='inject'||
      !editor.classList.contains('active')){
@@ -3334,6 +3774,7 @@ function moveSelection(dr,dc,extend=false){
   if(td)td.scrollIntoView({block:'nearest',inline:'nearest'});
 }
 function clearSelectedCells(){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview)return;
   if(!isEditableTab()||!state.selection.active)return;
   const dst=state.tab==='target'?state.target:state.inject,b=selectionBounds();
   for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++)dst[r][c]=0;
@@ -3343,6 +3784,7 @@ function clearSelectedCells(){
 let quickTypeBuffer='', quickTypeTimer=null;
 function resetQuickType(){quickTypeBuffer='';if(quickTypeTimer){clearTimeout(quickTypeTimer);quickTypeTimer=null;}}
 function applyQuickTypeKey(key){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview)return false;
   if(!isEditableTab()||!state.selection.active)return false;
   const decimal=(key==='.'||key===',');
   if(!/^\d$/.test(key)&&!decimal)return false;
@@ -3477,6 +3919,7 @@ window.isLiveCursorEnabled=()=>true;
 function pauseMapAutoFollow(ms=3000){mapAutoFollowPauseUntil=performance.now()+ms;mapAutoFollowLastKey='';}
 function pauseRedAutoFollow(ms=3000){redAutoFollowPauseUntil=performance.now()+ms;redAutoFollowLastKey='';}
 function autoFollowCurrentCell(td,cur){
+  if(fuelAnchorUI.mode||fuelAnchorUI.preview)return; // user pinning/preview stays in place
   const wrap=document.getElementById('mapWrap');
   const screenEl=document.getElementById('mapEditorScreen');
   if(!td||!wrap||!screenEl||!screenEl.classList.contains('active'))return;
@@ -3977,6 +4420,10 @@ window.blinkPrompt=blinkPrompt;
 window.blinkAlert=blinkAlert;
 
 async function startFuelWrite(opts={}){
+  if(window.BlinkFuelAnchorUI?.isPreview?.()){
+    showEcuNotice('info','ĐANG XEM TRƯỚC NỘI SUY','Bấm ÁP DỤNG hoặc HỦY XEM trước khi LƯU MAP vào ECU. Xem trước chưa thay đổi thời gian phun.',4000);
+    return false;
+  }
   const skipConfirm=!!opts.skipConfirm;
   if(autoIdleSave.inFlight&&!opts.autoIdle){
     showEcuNotice('info','ĐANG TỰ LƯU AUTO TUNER','Chưa thể lưu bảng phun xăng bằng tay khi Auto Tuner đang ghi/đọc lại ECU. Hãy chờ xác minh xong.',4000);
@@ -6761,6 +7208,7 @@ window.autoReadVisibleEcuPage=autoReadVisibleEcuPage;
 
 let editorReturnScreen='maps',editorNavContext='maps';
 function openOurEditor(tab,fromTune=false,returnScreen=null){
+  fuelAnchorUI.mode=false;fuelAnchorUI.preview=null;
   const names={measured:'AFR đo của Blink',target:'AFR mục tiêu của Blink',inject:'Thời gian phun (INJ VE)',corrected:'MAP phun đã bù của Blink'};
   const screen=document.getElementById('mapEditorScreen');
   const standaloneFuel=tab==='inject'&&!fromTune;
@@ -6783,7 +7231,7 @@ function openOurEditor(tab,fromTune=false,returnScreen=null){
   document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · '+(tab==='inject'?'TPS/RPM ECU · '+(ecuAxisMeta.source||'AXIS'):'AUTO TUNE CỦA BLINK');
   setTab(tab);document.querySelector('.editorTabs').style.display=standaloneFuel?'none':'grid';
   document.getElementById('applyCorrectedBtn').style.display=fromTune?'':'none';
-  syncBanks();showScreen('editor');
+  syncBanks();showScreen('editor');render();
   if(state.ecuConnected)setTimeout(async()=>{
     const ok=await ensureActiveEcuAxes(false);
     if(ok){render();updateLive();document.getElementById('editorSub').textContent='MAP NO.'+state.activeMap+' · TPS/RPM ECU · '+ecuAxisMeta.source;}
@@ -7622,6 +8070,7 @@ function updateMapControls(){
 function editableMap(){return state.tab==='target'||state.tab==='inject'}
 function ensureSelection(){if(state.selection.active)return;const cur=currentCell();setSelection(cur.r,cur.c,false)}
 function adjustMap(sign){
+  if(window.BlinkFuelAnchorUI?.pinMode?.()||window.BlinkFuelAnchorUI?.isPreview?.())return;
   if(!editableMap()){showEcuNotice('info','BẢNG CHỈ XEM','Chỉ AFR MỤC TIÊU và THỜI GIAN PHUN cho phép tăng/giảm trực tiếp.',3500);return}
   ensureSelection();const b=selectionBounds(),dst=state.tab==='target'?state.target:state.inject;
   for(let r=b.r0;r<=b.r1;r++)for(let c=b.c0;c<=b.c1;c++){
@@ -7748,6 +8197,7 @@ function keepFuelSelectionVisible(){
   if(nx!==left||ny!==top)wrap.scrollTo({left:nx,top:ny,behavior:'auto'});
 }
 function openFuelKeypad(){
+  if(window.BlinkFuelAnchorUI?.pinMode?.()||window.BlinkFuelAnchorUI?.isPreview?.())return;
   if(!standaloneFuelEditorActive()||!isEditableTab())return;
   ensureSelection();
   document.getElementById('mapEditorScreen')?.classList.add('mapKeypadOpen');
@@ -7764,6 +8214,7 @@ function hideFuelKeypad(){
   requestAnimationFrame(updateMapSelectionPad);
 }
 function applyFuelKeypadLive(){
+  if(window.BlinkFuelAnchorUI?.pinMode?.()||window.BlinkFuelAnchorUI?.isPreview?.())return;
   if(!standaloneFuelEditorActive()||!isEditableTab()||!state.selection.active)return;
   const typed=fuelKeypadBuffer;
   const parsed=typed===''?0:Number(typed);
@@ -7817,6 +8268,7 @@ fuelKeypad?.querySelectorAll('[data-fuel-key]').forEach(btn=>btn.addEventListene
 window.BlinkFuelKeypad={preferCustom:preferCustomFuelKeypad,open:openFuelKeypad,hide:hideFuelKeypad,sync:syncFuelKeypadSelection};
 window.hideFuelKeypad=hideFuelKeypad;
 function startScan(e){
+  if(window.BlinkFuelAnchorUI?.pinMode?.()||window.BlinkFuelAnchorUI?.isPreview?.())return;
   if(!scanMode)return;
   const td=e.target.closest('td.mapcell');if(!td)return;
   e.preventDefault();
@@ -7851,7 +8303,8 @@ function endScan(e){
   requestAnimationFrame(updateMapSelectionPad);
 }
 function startCornerTap(e){
-  if(scanMode)return;
+  if(scanMode&&!window.BlinkFuelAnchorUI?.pinMode?.())return;
+  if(window.BlinkFuelAnchorUI?.isPreview?.())return;
   const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;
   tapPointer=e.pointerId;tapStartX=e.clientX;tapStartY=e.clientY;
   tapStartR=+td.dataset.r;tapStartC=+td.dataset.c;tapMoved=false;
@@ -7867,7 +8320,8 @@ function endCornerTap(e){
   if(moved){state.selection.dragMoved=false;return}
   const td=cellAt(e.clientX,e.clientY);
   if(!td||+td.dataset.r!==tapStartR||+td.dataset.c!==tapStartC)return;
-  handleMapCornerTap(tapStartR,tapStartC);
+  if(window.BlinkFuelAnchorUI?.pinMode?.())window.BlinkFuelAnchorUI.togglePin(tapStartR,tapStartC);
+  else handleMapCornerTap(tapStartR,tapStartC);
   lastPointerTapAt=performance.now();
 }
 wrap?.addEventListener('pointerdown',startScan,{passive:false});
@@ -7881,13 +8335,16 @@ wrap?.addEventListener('pointercancel',e=>{if(tapPointer===e.pointerId){tapPoint
 // Click fallback covers keyboard/older browsers. Pointer-generated clicks are
 // suppressed because pointerup already handled the two-corner gesture.
 table?.addEventListener('click',e=>{
-  if(scanMode||performance.now()-lastPointerTapAt<450)return;
+  if(window.BlinkFuelAnchorUI?.isPreview?.()||performance.now()-lastPointerTapAt<450)return;
+  if(scanMode&&!window.BlinkFuelAnchorUI?.pinMode?.())return;
   const td=e.target.closest('td.mapcell');if(!td||td.isContentEditable)return;
-  handleMapCornerTap(+td.dataset.r,+td.dataset.c);
+  if(window.BlinkFuelAnchorUI?.pinMode?.())window.BlinkFuelAnchorUI.togglePin(+td.dataset.r,+td.dataset.c);
+  else handleMapCornerTap(+td.dataset.r,+td.dataset.c);
 });
 document.querySelectorAll('[data-mapstep]').forEach(b=>b.addEventListener('click',()=>{mapStep=Number(b.dataset.mapstep);updateMapControls()}));
 document.querySelectorAll('[data-mapmode]').forEach(b=>b.addEventListener('click',()=>{mapMode=b.dataset.mapmode;updateMapControls()}));
-scanBtn?.addEventListener('click',()=>{scanMode=!scanMode;state.selection.cornerPending=false;updateMapControls();highlightSelection();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF · chạm 2 góc để chọn vùng'});
+scanBtn?.addEventListener('click',()=>{if(window.BlinkFuelAnchorUI?.isPreview?.())return;if(window.BlinkFuelAnchorUI?.pinMode?.())window.BlinkFuelAnchorUI.setMode(false);scanMode=!scanMode;state.selection.cornerPending=false;updateMapControls();highlightSelection();$('selectionInfo').textContent=scanMode?'QUÉT CHỌN: kéo ngón tay qua vùng cần chọn':'QUÉT CHỌN: OFF · chạm 2 góc để chọn vùng'});
+window.blinkFuelAnchorDisableScan=()=>{scanMode=false;scanPointer=null;updateMapControls();};
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
 
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
@@ -7895,6 +8352,22 @@ floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
 floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
 document.getElementById('fuelSmoothBtn')?.addEventListener('click',e=>{
   stopPadEvent(e);smoothSelectedFuelMap();
+});
+document.getElementById('fuelAnchorPinModeBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);
+  window.BlinkFuelAnchorUI?.setMode(!window.BlinkFuelAnchorUI.pinMode());
+});
+document.getElementById('fuelAnchorPreviewBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);window.BlinkFuelAnchorUI?.preview();
+});
+document.getElementById('fuelAnchorApplyBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);window.BlinkFuelAnchorUI?.apply();
+});
+document.getElementById('fuelAnchorCancelBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);window.BlinkFuelAnchorUI?.cancel();
+});
+document.getElementById('fuelAnchorClearBtn')?.addEventListener('click',e=>{
+  stopPadEvent(e);void window.BlinkFuelAnchorUI?.clear();
 });
 document.getElementById('mapFloatSmoothBtn')?.addEventListener('click',e=>{
   stopPadEvent(e);smoothSelectedFuelMap();
