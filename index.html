@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.108'; // AFR measured target-lock ON/OFF button; no changes to BLE, ECU maps or firmware
+  window.BLINK_PB_VERSION = '3.79.109'; // Remove per-cell AFR response learner; restore simple ratio correction with 30% safety cap
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -17,6 +17,7 @@ window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
+window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
@@ -2392,7 +2393,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   </section>
 
   <section id="tuneScreen" class="screen scrollScreen">
-    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Auto Tune</div><div class="screenSub">Ghi AFR · học phản ứng · bù MAP</div></div><div id="tuneBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Auto Tune</div><div class="screenSub">Ghi AFR · bù MAP trực tiếp</div></div><div id="tuneBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="tuneHero"><div class="tuneLive"><div class="k">AFR</div><div class="v" data-mirror="afr">--</div></div><div class="tuneLive"><div class="k">RPM</div><div class="v" data-mirror="rpm">0</div></div><div class="tuneLive"><div class="k">TPS</div><div class="v" data-mirror="tps">--%</div></div><div class="tuneLive"><div class="k">Ô HIỆN TẠI</div><div class="v" data-mirror="cell">--</div></div></div>
     <div class="tuneModeRow"><select id="tuneMode"><option value="normal">MODE THƯỜNG</option></select><button id="recordBtn" class="good">GHI AFR</button></div>
     <div class="recordActions"><button id="clearMeasured" class="danger" style="grid-column:1/-1">XÓA AFR ĐO</button></div><div class="tuneMapLinks"><button class="ghost" data-auto-tab="measured">AFR ĐO CỦA BLINK</button><button class="ghost" data-auto-tab="target">AFR MỤC TIÊU CỦA BLINK</button><button class="ghost" data-auto-tab="corrected">MAP PHUN ĐÃ BÙ</button><button class="ghost" data-auto-tab="inject">THỜI GIAN PHUN</button><button id="tuneApplyCorrectedBtn" class="danger tuneApplyCorrected" type="button">✦ MAP PHUN ĐÃ BÙ → ECU</button></div>
@@ -2467,7 +2468,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
         <div class="settingsGrid tuneSettingsGrid">
           <div class="field"><label for="settleMs">Ổn định ô (ms)</label><input id="settleMs" type="number" min="0" step="1" value="0"></div>
           <div class="field"><label for="afrDelayMs">Độ trễ AFR (ms)</label><input id="afrDelayMs" type="number" min="0" step="50" value="0"></div>
-          <div class="field"><label for="limitPct">Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="500" step="1" value="100"></div>
+          <div class="field"><label for="limitPct">Giới hạn bù thường (%) · tối đa 30%/lần</label><input id="limitPct" type="number" min="0" max="30" step="1" value="30"></div>
           <div class="field legacyThreeRunSetting"><label for="threeRunLimitPct">Giới hạn bước thích nghi (%)</label><input id="threeRunLimitPct" type="number" min="1" max="100" step="1" value="30"></div>
         </div>
         <div class="tuneSettingHelp">TPS 0% (IDLE): vẫn đo và lưu AFR vào đúng ô theo RPM. Auto Tune không tự bù hoặc thay đổi thời gian phun ở hàng này.</div>
@@ -2643,7 +2644,7 @@ const state={
   fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
   live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
-  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:100,threeRunLimitPct:30},
+  cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:30,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
   threeRunHistory:[],
@@ -2700,10 +2701,13 @@ function mapBasePage(mapNo=state.activeMap){
 
 
 function load(){
+  // Retired PB3.79.109 per-cell learner: do not retain its old k/n/feedback cache.
+  try{localStorage.removeItem('blink-auto-tune-cell-learning-v1');}catch(_e){}
   try{
     const s=JSON.parse(localStorage.getItem('afrAutoTuneDirectV5')||'null');
     if(s){
       if(s.cal){Object.assign(state.cal,s.cal);if(Number(state.cal.settleMs)===350||Number(state.cal.settleMs)===30)state.cal.settleMs=0;}
+      state.cal.limitPct=clamp(num(state.cal.limitPct,30),0,30); // migrate prior 100% setting to effective legacy max 30%
       if(typeof s.afrTargetLockEnabled==='boolean')state.afrTargetLockEnabled=s.afrTargetLockEnabled;
       // PB3.80.00: old persisted three-run state/history must never reactivate a removed ECU-write mode.
       // Preserve user AFR/target/fuel maps; only the obsolete running mode is discarded.
@@ -2839,7 +2843,7 @@ function pullControls(){
   state.cal.afrVoltMin=clamp(num($('afrVoltMin').value,0),0,Math.max(0,state.cal.afrVoltMax-0.01));
   normalizeAfrIo4Calibration();
   state.cal.afrDelayMs=Math.max(0,num($('afrDelayMs').value,0));
-  state.cal.limitPct=Math.max(0,num($('limitPct').value,100));
+  state.cal.limitPct=clamp(num($('limitPct').value,30),0,30);
   state.cal.threeRunLimitPct=clamp(num($('threeRunLimitPct').value,30),1,100);
   saveSoon();
 }
@@ -2952,7 +2956,6 @@ function afrDiscardChangedTargets(mapNo=state.activeMap){
 }
 function afrReleaseTargetLock(mapNo,r,c,value){
   afrTargetLockBanks[mapNo-1][r][c]=null;
-  try{window.BlinkAutoTuneLearner?.resetCellAfterAfrUnlock?.(mapNo,r,c);}catch(_e){}
   return value;
 }
 function afrObserveMeasuredValue(mapNo,r,c,afr){
@@ -3035,12 +3038,13 @@ window.blinkAfrTargetLockCount=afrTargetLockCount;
 window.blinkAfrTargetLockEnabled=()=>state.afrTargetLockEnabled;
 window.blinkResetAfrTargetLocks=afrResetTargetLocks;
 function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
-  const out=blankMatrix(null), lim=Math.max(0,num(limitPct,100))/100, maxMs=fuelProtocolMaxMs();
+  // Former learner capped each pass at 30%; retain the same bound without k/response history.
+  const out=blankMatrix(null), lim=clamp(num(limitPct,30),0,30)/100, maxMs=fuelProtocolMaxMs();
   for(let r=0;r<R;r++) for(let c=0;c<C;c++){
     if(isIdleAutoTuneRow(r)||afrTargetLockActive(r,c)||afrNearTarget(afrMap[r][c],targetMap[r][c])){out[r][c]=baseMap[r][c];continue;}
     const base=num(baseMap[r][c],0),meas=num(afrMap[r][c],0),tgt=num(targetMap[r][c],0);
     if(base<=0){out[r][c]=null;continue;} if(meas<=0||tgt<=0){out[r][c]=base;continue;}
-    let factor=clamp(meas/tgt,Math.max(0,1-lim),1+lim); out[r][c]=clamp(base*factor,0,maxMs);
+    const factor=clamp(meas/tgt,1-lim,1+lim); out[r][c]=clamp(base*factor,0,maxMs);
   }
   return out;
 }
@@ -8028,8 +8032,7 @@ updateMapControls();
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
-    const adaptiveSrc='auto_tune_feedback.js?v='+encodeURIComponent(v)+'&cb='+Date.now();
-    document.write('<script src="'+adaptiveSrc+'"><\/script>');
+    // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
   })();
 </script>
