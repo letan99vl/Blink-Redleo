@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.116'; // INJ VE selected-anchor interpolation preview; manual apply only
+  window.BLINK_PB_VERSION = '3.79.117'; // INJ VE selected-anchor interpolation preview; manual apply only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2397,6 +2397,124 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     font-size:7px!important;line-height:8px!important;padding:0 1px!important;
   }
 
+
+  /* PB 3.79.117 - ANDROID WEB ONLY. No modifications to the signed iOS IPA. */
+  /* Standalone INJ VE: 5 LIVE values in a single horizontal row, no labels. */
+  body #mapEditorScreen.standaloneFuel .editorInfo,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo{
+    grid-template-columns:1.45fr .83fr .9fr .8fr 1.02fr!important;
+    grid-template-rows:26px!important;
+    min-height:26px!important;height:26px!important;
+    gap:3px!important;padding:0 5px 2px!important;
+  }
+  body #mapEditorScreen.standaloneFuel .editorInfo .livebox,
+  body #mapEditorScreen.standaloneFuel .editorInfo .livebox:nth-child(-n+2),
+  body #mapEditorScreen.standaloneFuel .editorInfo .editorEctBox,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo .livebox{
+    grid-column:span 1!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    width:auto!important;min-width:0!important;
+    min-height:24px!important;height:24px!important;
+    padding:0 2px!important;box-sizing:border-box!important;border-radius:6px!important;
+  }
+  body #mapEditorScreen.standaloneFuel .editorInfo .livebox .k{display:none!important}
+  body #mapEditorScreen.standaloneFuel .editorInfo .livebox .v,
+  body.appForceLandscape #mapEditorScreen.standaloneFuel .editorInfo .livebox .v{
+    margin:0!important;display:block!important;
+    font-size:clamp(9px,2.4vw,14px)!important;
+    line-height:16px!important;
+    text-align:center!important;white-space:nowrap!important;
+    font-weight:900!important;overflow:hidden!important;text-overflow:clip!important;
+  }
+  body #mapEditorScreen.standaloneFuel .editorInfo .livebox:first-child .v{
+    font-size:clamp(8px,2.15vw,13px)!important;
+  }
+  /* The actual scroll viewport is used to size all 15 table rows, including 100% TPS. */
+  body.mapEditing:not(.mapZoomMode) #mapEditorScreen.standaloneFuel #mapWrap{
+    min-height:0!important;padding-bottom:0!important;
+  }
+  body.mapEditing:not(.mapZoomMode) #mapEditorScreen.standaloneFuel #mapTable{
+    margin-bottom:0!important;
+  }
+  body.mapEditing:not(.mapZoomMode) #mapEditorScreen.standaloneFuel #mapWrap #mapTable th,
+  body.mapEditing:not(.mapZoomMode) #mapEditorScreen.standaloneFuel #mapWrap #mapTable td{
+    height:var(--fuel-fit-row-height,15px)!important;
+    min-height:var(--fuel-fit-row-height,15px)!important;
+    padding-top:0!important;padding-bottom:0!important;line-height:1!important;
+  }
+
+  /* Auto Tune: zoom beside title, no duplicate toolbar slot. */
+  #autoTuneHeaderZoomBtn{display:none!important}
+  #mapEditorScreen.autoTuneMap #autoTuneHeaderZoomBtn{
+    display:inline-flex!important;align-items:center!important;justify-content:center!important;
+    flex:0 0 auto!important;min-width:68px!important;
+    height:27px!important;min-height:27px!important;
+    padding:0 5px!important;border-radius:8px!important;
+    font-size:9px!important;white-space:nowrap!important;font-weight:900!important;
+  }
+  #mapEditorScreen.autoTuneMap .screenTitleWrap{flex:1 1 auto!important;min-width:0!important}
+  #mapEditorScreen.autoTuneMap #editorTitle{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  #mapEditorScreen.autoTuneMap .editToolbar #mapZoomBtn{display:none!important}
+  /* Read Current and Clear AFR next to each other; corrected-map > ECU
+     stays its own full-width button in the second toolbar row. */
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar,
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar{
+    grid-template-columns:34px minmax(0,1.1fr) minmax(0,1.35fr) 34px!important;
+    grid-template-rows:29px 32px!important;
+    display:grid!important;gap:3px!important;padding:0 7px 3px!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{grid-column:1!important;grid-row:1!important}
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{grid-column:2!important;grid-row:1!important}
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{grid-column:3!important;grid-row:1!important}
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
+    grid-column:4!important;grid-row:1!important;
+    font-size:0!important;overflow:hidden!important;padding:0!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn::before{
+    content:'▦'!important;font-size:18px!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #afrTargetLocalSaveBtn{
+    display:block!important;grid-column:3!important;grid-row:1!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+    grid-column:1/-1!important;grid-row:2!important;
+    height:32px!important;min-height:32px!important;font-size:10px!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar button{
+    min-width:0!important;height:29px!important;min-height:29px!important;
+    border-radius:8px!important;padding:0 3px!important;
+    font-size:9px!important;white-space:nowrap!important;
+  }
+  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+    height:32px!important;min-height:32px!important;
+  }
+
+  /* PW at the top of each Auto Tune INJ VE cell, measured AFR below.
+     Text node stays only PW to preserve editing and ECU serializer semantics. */
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-corner]::before{
+    content:attr(data-afr-corner)!important; /* no prefix "A" */
+  }
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-band="red"]::before{
+    color:#ff6676!important;border-color:#ff5268!important;
+  }
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-band="green"]::before{
+    color:#3eef84!important;border-color:#29d65b!important;
+  }
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-band="yellow"]::before{
+    color:#ffd13b!important;border-color:#ffb82b!important;
+  }
+  #mapEditorScreen.autoTuneMap:not(.autoTuneReadOnly):not(.targetAfrEditor) #mapTable td.mapcell[data-afr-corner]{
+    position:relative!important;vertical-align:top!important;
+    padding:1px 1px 10px!important;line-height:11px!important;
+    font-size:clamp(8px,1.9vw,11px)!important;
+  }
+  #mapEditorScreen.autoTuneMap:not(.autoTuneReadOnly):not(.targetAfrEditor) #mapTable td.mapcell[data-afr-corner]::before{
+    left:50%!important;right:auto!important;bottom:0!important;
+    transform:translateX(-50%)!important;
+    font-size:clamp(7px,1.65vw,9px)!important;
+    line-height:9px!important;padding:0 2px!important;
+    max-width:95%!important;
+  }
 </style>
 </head>
 <body>
@@ -2450,8 +2568,8 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   </section>
 
   <section id="mapEditorScreen" class="screen">
-    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><button id="autoTuneHeaderZoomBtn" type="button" class="ghost" title="Phóng to MAP Auto Tune" aria-label="Phóng to MAP Auto Tune">⛶ PHÓNG TO</button><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
+    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly" aria-label="Lịch sử Auto Tune" title="Lịch sử Auto Tune">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneAfrLockToggle" class="primary" type="button" aria-pressed="true" title="Bật/tắt khóa ô AFR đã đo khi đạt mục tiêu ±0,3">🔒 KHÓA AFR ĐO: BẬT</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
     <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span></div>
     <div class="editorInfo" aria-label="Thông số ECU LIVE"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">ECT</div><div class="v" data-mirror="ect">-- °C</div></div><div class="livebox editorIgnBox"><div class="k">GÓC LỬA LIVE</div><div class="v" data-mirror="ign">--°</div></div><div class="livebox editorPwBox"><div class="k">PHUN LIVE</div><div class="v" data-mirror="pw">-- ms</div></div></div>
@@ -3656,6 +3774,11 @@ function autoTuneAfrCornerText(r,c){
   const afr=raw==null||raw===''?NaN:Number(raw);
   return samples>0&&Number.isFinite(samples)&&Number.isFinite(afr)&&afr>0?afr.toFixed(2):'';
 }
+function autoTuneAfrColorBand(value){
+  const afr=Number(value);
+  if(!Number.isFinite(afr)||afr<=0)return '';
+  return afr<12?'red':afr<=14?'green':'yellow';
+}
 function autoTuneAfrCornerVisible(){
   return (state.tab==='inject'||state.tab==='corrected')&&
     !!document.getElementById('mapEditorScreen')?.classList.contains('autoTuneMap');
@@ -3665,8 +3788,13 @@ function refreshAutoTuneAfrCorner(r,c){
   const td=$('mapTable')?.querySelector('td.mapcell[data-r="'+r+'"][data-c="'+c+'"]');
   if(!td)return;
   const afr=autoTuneAfrCornerText(r,c);
-  if(afr)td.setAttribute('data-afr-corner',afr);
-  else td.removeAttribute('data-afr-corner');
+  if(afr){
+    td.setAttribute('data-afr-corner',afr);
+    td.setAttribute('data-afr-band',autoTuneAfrColorBand(afr));
+  }else{
+    td.removeAttribute('data-afr-corner');
+    td.removeAttribute('data-afr-band');
+  }
 }
 
 function render(){
@@ -3721,7 +3849,7 @@ function render(){
       }
       if(showAfrCorners){
         const badge=autoTuneAfrCornerText(r,c);
-        if(badge)cellAttr+=' data-afr-corner="'+badge+'"';
+        if(badge)cellAttr+=' data-afr-corner="'+badge+'" data-afr-band="'+autoTuneAfrColorBand(badge)+'"';
       }
       html+=`<td class="${cls}"${cellStyle}${cellAttr} data-r="${r}" data-c="${c}">${txt}</td>`;
     }
@@ -8712,6 +8840,7 @@ function syncMapZoomOrientation(){
   syncAppOrientation();
 }
 document.getElementById('mapZoomBtn')?.addEventListener('click',enterMapZoom);
+document.getElementById('autoTuneHeaderZoomBtn')?.addEventListener('click',enterMapZoom);
 document.getElementById('mapZoomExit')?.addEventListener('click',exitMapZoom);
 document.getElementById('mapZoomCorrectedSaveBtn')?.addEventListener('click',()=>requestMapSaveArrow());
 document.addEventListener('keydown',e=>{if(mapZoomActive&&e.key==='Escape'){e.preventDefault();exitMapZoom();}});
