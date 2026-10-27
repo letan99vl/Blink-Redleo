@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.113'; // INJ VE selected-anchor interpolation preview; manual apply only
+  window.BLINK_PB_VERSION = '3.79.114'; // INJ VE selected-anchor interpolation preview; manual apply only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2360,6 +2360,16 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   body.appForceLandscape #mapEditorScreen .editorInfo .livebox .v{
     font-size:11px!important;line-height:13px!important;
   }
+
+/* PB3.79.114: corrected-map arrow blue with orange outline, current-map arrow unchanged. */
+#mapEditorScreen .mapSelectionPad #mapFloatSaveBtn.saveCorrected{background:#1555ad!important;border-color:#ff9c24!important;color:#fff!important;box-shadow:0 7px 18px rgba(0,0,0,.42),0 0 0 1px #ffd38a inset!important}
+body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn.saveCorrected{background:#1555ad!important;border-color:#ff9c24!important;color:#fff!important}
+body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn:not(.saveCorrected){background:rgba(18,18,22,.97)!important;border-color:#ff3b30!important;color:#fff!important}
+body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{display:none!important}
+/* Read-only visual heat shades: same darker/lighter palette on injection and ignition angle maps. */
+#redleoEditorScreen #redFeatureTable .redCell.angle-heat:not(.sel):not(.afrOff),
+#redleoEditorScreen #redFeatureTable .redCell.angle-heat.current:not(.sel):not(.afrOff){background:var(--red-angle-bg)!important;color:var(--red-angle-text)!important}
+#redleoEditorScreen #redFeatureTable .redCell.angle-heat.current:not(.sel){box-shadow:inset 0 0 0 3px #ff2d2d!important}
 </style>
 </head>
 <body>
@@ -6064,7 +6074,9 @@ function setTab(tab){
   const kpBtn=document.getElementById('fuelKeypadToggle');
   if(kpBtn)kpBtn.setAttribute('aria-label',tab==='target'?'Mở bàn phím AFR mục tiêu':'Mở bàn phím thời gian phun');
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-  syncMeasuredClearButton();render();
+  syncMeasuredClearButton();
+  try{window.blinkSyncFloatingSaveMode?.()}catch(_e){}
+  render();
 }
 async function toggleRecord(){
   if(state.threeRun.active)return;
@@ -7967,6 +7979,11 @@ function renderFeature(){
   const xAxis=f.id==='external_adjust'
     ?(externalAxisMode==='rpm'?Array.from({length:15},(_,i)=>(i+1)*1000):externalTpsAxis())
     :f.x;
+  // Same heat palette for INJ degree and IGN degree, display-only.
+  const angleHeat=(f.id==='inj_degree'||f.id==='ign_degree');
+  const angleValues=angleHeat?d.flat().filter(v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))).map(Number):[];
+  const angleMin=angleValues.length?Math.min(...angleValues):0;
+  const angleMax=angleValues.length?Math.max(...angleValues):0;
   let s='<thead><tr><th class="rhead">'+(f.rows>1?'Y / X':'X')+'</th>'+xAxis.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>';
   for(let r=0;r<f.rows;r++){
     s+='<tr><td class="rhead">'+(f.y[r]??('R'+(r+1)))+'</td>';
@@ -7976,7 +7993,11 @@ function renderFeature(){
       const afrOff=f.id==='afr_map'&&afrMeta?.enabled?.[r]?.[c]===false;
       const numeric=Number(d[r][c]),stored=Number.isFinite(numeric)?String(numeric):'';
       const display=afrOff?'-':fmtV(d[r][c]);
-      s+='<td class="redCell '+(selected?'sel ':'')+(afrOff?'afrOff':'')+'" data-rr="'+r+'" data-rc="'+c+'" data-value="'+stored+'">'+display+'</td>';
+      const angleVisible=angleHeat&&d[r][c]!==null&&d[r][c]!==undefined&&d[r][c]!==''&&Number.isFinite(numeric);
+      const heatRatio=!angleVisible?0:(angleMax>angleMin?(numeric-angleMin)/(angleMax-angleMin):0.5);
+      const heatLight=Math.round(92-43*Math.max(0,Math.min(1,heatRatio)));
+      const heatColor=angleVisible?' style="--red-angle-bg:hsl(347,92%,'+heatLight+'%);--red-angle-text:'+(heatLight<62?'#ffffff':'#2b1017')+'"':'';
+      s+='<td class="redCell '+(selected?'sel ':'')+(afrOff?'afrOff':'')+(angleVisible?' angle-heat':'')+'" data-rr="'+r+'" data-rc="'+c+'" data-value="'+stored+'"'+heatColor+'>'+display+'</td>';
     }
     s+='</tr>';
   }
@@ -8163,7 +8184,35 @@ function mapCellBoxInWrap(td){
   }
   return {left,top,right:left+td.offsetWidth,bottom:top+td.offsetHeight};
 }
+function mapSaveArrowMode(){
+  const screen=document.getElementById('mapEditorScreen');
+  if(state.tab==='target')return 'target';
+  if(state.tab==='inject')return 'current';
+  if(screen?.classList.contains('autoTuneMap') &&
+     (state.tab==='measured'||state.tab==='corrected'))return 'corrected';
+  return 'current';
+}
+function syncMapSaveArrowMode(){
+  const mode=mapSaveArrowMode();
+  const label=mode==='corrected'?'Lưu MAP đã bù vào ECU':
+              mode==='target'?'Lưu AFR mục tiêu trong Blink':'Lưu MAP phun hiện tại vào ECU';
+  if(floatSaveBtn){
+    floatSaveBtn.classList.toggle('saveCorrected',mode==='corrected');
+    floatSaveBtn.setAttribute('aria-label',label);
+    floatSaveBtn.title=label;
+  }
+  const zoomSave=document.getElementById('mapZoomCorrectedSaveBtn');
+  if(zoomSave){
+    zoomSave.classList.toggle('saveCorrected',mode==='corrected');
+    zoomSave.hidden=mode==='target';
+    zoomSave.textContent=mode==='corrected'?'↓ BÙ → ECU':'↓ PHUN → ECU';
+    zoomSave.setAttribute('aria-label',label);
+    zoomSave.title=label;
+  }
+}
+window.blinkSyncFloatingSaveMode=syncMapSaveArrowMode;
 function updateMapSelectionPad(){
+  syncMapSaveArrowMode();
   if(!selectionPad||!wrap||!table)return;
   const screen=document.getElementById('mapEditorScreen');
   // Editor-local positioning remains valid through physical rotation AND the
@@ -8429,22 +8478,37 @@ document.getElementById('mapFloatSmoothBtn')?.addEventListener('click',e=>{
 });
 function requestAutoTuneCorrectedSave(){
   const screen=document.getElementById('mapEditorScreen');
-  if(!screen?.classList.contains('autoTuneMap'))return false;
+  // Never send corrected fuel when viewing INJ VE or AFR target.
+  if(!screen?.classList.contains('autoTuneMap') ||
+     !['measured','corrected'].includes(state.tab))return false;
   const btn=document.getElementById('applyCorrectedBtn');
   if(btn&&!btn.disabled)btn.click();
   else showEcuNotice('error','CHƯA THỂ LƯU MAP ĐÃ BÙ','Kiểm tra kết nối ECU, MAP đang chọn và trạng thái Auto Tune.',0);
   return true;
 }
+function requestMapSaveArrow(){
+  syncMapSaveArrowMode();
+  const mode=mapSaveArrowMode();
+  if(mode==='target'){
+    if(saveTargetAfrLocal())hideFuelKeypad();
+    return; // AFR target saves locally and NEVER writes to ECU.
+  }
+  if(mode==='corrected'){
+    requestAutoTuneCorrectedSave();
+    return;
+  }
+  if(state.tab==='inject'){
+    // INJ VE within Auto Tune and standalone fuel editor both save current map.
+    const btn=document.getElementById('writeMapBtn');
+    if(btn&&!btn.disabled)btn.click();
+    else showEcuNotice('error','CHƯA THỂ LƯU MAP PHUN HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
+    return;
+  }
+  showEcuNotice('error','TAB MAP KHÔNG HỢP LỆ','Không gửi lệnh ghi ECU vì tab hiện tại không xác định.',0);
+}
 floatSaveBtn?.addEventListener('click',e=>{
   stopPadEvent(e);
-  if(requestAutoTuneCorrectedSave())return;
-  if(state.tab==='target'){
-    if(saveTargetAfrLocal())hideFuelKeypad();
-    return; // AFR targets are local only, NEVER invoke writeMapBtn.
-  }
-  const btn=document.getElementById('writeMapBtn');
-  if(btn&&!btn.disabled)btn.click();
-  else showEcuNotice('error','CHƯA THỂ LƯU HIỆN TẠI','Nút LƯU HIỆN TẠI đang bị khóa. Kiểm tra kết nối ECU/trạng thái ghi.',0);
+  requestMapSaveArrow();
 });
 function refreshFuelEditorGeometry(){
   requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
@@ -8518,7 +8582,7 @@ function syncMapZoomOrientation(){
 }
 document.getElementById('mapZoomBtn')?.addEventListener('click',enterMapZoom);
 document.getElementById('mapZoomExit')?.addEventListener('click',exitMapZoom);
-document.getElementById('mapZoomCorrectedSaveBtn')?.addEventListener('click',()=>requestAutoTuneCorrectedSave());
+document.getElementById('mapZoomCorrectedSaveBtn')?.addEventListener('click',()=>requestMapSaveArrow());
 document.addEventListener('keydown',e=>{if(mapZoomActive&&e.key==='Escape'){e.preventDefault();exitMapZoom();}});
 document.addEventListener('fullscreenchange',()=>{if(mapZoomActive&&mapZoomOwnFullscreen&&!document.fullscreenElement)exitMapZoom();});
 async function requestLandscape(){
