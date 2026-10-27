@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.117'; // INJ VE selected-anchor interpolation preview; manual apply only
+  window.BLINK_PB_VERSION = '3.79.118'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2952,7 +2952,7 @@ const state={
   // launches; a fresh BLE session clears ECU-derived maps anyway.
   fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
-  live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0},
+  live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0,ign:NaN,pw:NaN,auxAt:NaN},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:30,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
@@ -3846,7 +3846,9 @@ function render(){
       if((state.tab==='measured'||state.tab==='corrected')&&afrTargetLockActive(r,c)){
         cls+=' afr-target-locked';cellAttr=' title="AFR đạt mục tiêu ±0,3 · đang khóa bù xăng"';
       }
-      if(state.tab==='measured'&&v!=null){
+      // Use the exact same red/green/yellow band for measured AFR and target
+      // AFR. This is visual-only; values, target locks and ECU writes unchanged.
+      if((state.tab==='measured'||state.tab==='target')&&v!=null){
         const afr=Number(v);
         if(Number.isFinite(afr)){
           if(afr<12) cls+=' afr-red';
