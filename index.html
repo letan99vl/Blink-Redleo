@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.110'; // INJ VE selected-anchor interpolation preview; manual apply only
+  window.BLINK_PB_VERSION = '3.79.112'; // INJ VE selected-anchor interpolation preview; manual apply only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -1251,15 +1251,8 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   }
   .mapSelectionPad[aria-hidden="true"]{display:none!important}
 
-  /* PB3.79.107: selected INJ VE interpolation. The toolbar action is visible
-     only in the manual fuel editor; the floating I remains usable in MAP ZOOM.
-     Never show it on measured AFR, AFR target or auto-corrected-map tabs. */
-  #mapEditorScreen .editToolbar #fuelSmoothBtn{display:none!important}
-  #mapEditorScreen.standaloneFuel .editToolbar #fuelSmoothBtn{
-    display:block!important;min-width:0;grid-column:auto;
-    background:#14283b!important;border-color:#4389c8!important;color:#e5f6ff!important;
-    font-weight:900!important;letter-spacing:.1px
-  }
+  /* Keep the I smooth action ONLY in the floating +/- selection pad.
+     The duplicate toolbar action is removed to save height on phones. */
   #mapEditorScreen .mapSelectionPad #mapFloatSmoothBtn{display:none!important}
   #mapEditorScreen.standaloneFuel .mapSelectionPad #mapFloatSmoothBtn{
     display:grid!important;background:rgba(18,52,78,.97)!important;
@@ -2366,7 +2359,7 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
 
   <section id="mapEditorScreen" class="screen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
-    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="fuelSmoothBtn" class="ghost" type="button" title="I · Nội suy 4 góc vùng đã tô, chỉ đổi bảng trong Blink, chưa ghi ECU" aria-label="Làm mượt vùng thời gian phun theo 4 góc">I · LÀM MƯỢT VÙNG</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
+    <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneAfrLockToggle" class="primary" type="button" aria-pressed="true" title="Bật/tắt khóa ô AFR đã đo khi đạt mục tiêu ±0,3">🔒 KHÓA AFR ĐO: BẬT</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
     <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span></div>
     <div class="editorInfo"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">NHIỆT ĐỘ MÁY ECT</div><div class="v" data-mirror="ect">-- °C</div></div></div>
@@ -8350,9 +8343,6 @@ document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1)
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
 floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
 floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
-document.getElementById('fuelSmoothBtn')?.addEventListener('click',e=>{
-  stopPadEvent(e);smoothSelectedFuelMap();
-});
 document.getElementById('fuelAnchorPinModeBtn')?.addEventListener('click',e=>{
   stopPadEvent(e);
   window.BlinkFuelAnchorUI?.setMode(!window.BlinkFuelAnchorUI.pinMode());
