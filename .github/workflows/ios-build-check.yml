@@ -57,17 +57,26 @@ jobs:
             exit 1
           fi
           grep -q "ios-native-remote-first" "$INDEX_PATH"
-          grep -q "window.BLINK_PB_VERSION = '3.79.110'" "$INDEX_PATH"
+          grep -q "window.BLINK_PB_VERSION = '3.79.114'" "$INDEX_PATH"
           grep -q 'MARKETING_VERSION: "1.0"' project.yml
-          grep -q 'CURRENT_PROJECT_VERSION: "110"' project.yml
+          grep -q 'CURRENT_PROJECT_VERSION: "114"' project.yml
           grep -q 'applicationNameForUserAgent = "BLINK-REDLEO-IOS/1.0"' BlinkRedleo/MainViewController.swift
+          grep -q 'data-mirror="ign"' "$INDEX_PATH"
+          grep -q 'data-mirror="pw"' "$INDEX_PATH"
+          grep -q 'function mapSaveArrowMode()' "$INDEX_PATH"
+          grep -q 'const angleHeat=(f.id=' "$INDEX_PATH"
+          grep -q '#mapFloatSaveBtn.saveCorrected' "$INDEX_PATH"
+          if grep -q 'id="fuelSmoothBtn"' "$INDEX_PATH"; then
+            echo "ERROR: duplicate top-bar I smooth button reintroduced"
+            exit 1
+          fi
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
           grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
           if grep -q "const src='redleo_real_protocol.js?v=" "$INDEX_PATH"; then
             echo "ERROR: Duplicate embedded HTML protocol loader; iOS should inject remote-first."
             exit 1
           fi
-          echo "PB3.79.110 TestFlight hybrid verified: bundled UI + native CoreBluetooth + production remote protocol + local fallback"
+          echo "PB3.79.114 TestFlight hybrid verified: bundled UI + native CoreBluetooth + production remote protocol + local fallback"
 
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
