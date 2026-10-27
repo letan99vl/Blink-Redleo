@@ -1,13 +1,13 @@
 # BLINK REDLEO iOS / TestFlight
 
-Native iOS wrapper for BLINK REDLEO. This handoff bundles the production Android/web PB3.79.114 UI and compatible ECU protocol, while preserving native BLE and the existing TestFlight bundle ID.
+Native iOS wrapper for BLINK REDLEO. This handoff bundles the production Android/web PB3.79.115 UI and compatible ECU protocol, while preserving native BLE and the existing TestFlight bundle ID.
 
 **Important:** The generated `BLINK-REDLEO-unsigned.ipa` is a build verification artifact and cannot be installed or uploaded to TestFlight until Apple distribution signing is completed.
 
 ## Current release
-- UI / PB: 3.79.114
+- UI / PB: 3.79.115
 - App version: 1.0
-- Build: 114
+- Build: 115
 - Bundle ID: `vn.blinkredleo.app`
 - Minimum iOS: 15.0
 - Device family: iPhone + iPad
@@ -36,7 +36,7 @@ Then:
 1. Select target `BlinkRedleo`.
 2. Select the owner's Apple Developer Team.
 3. Keep bundle ID `vn.blinkredleo.app`.
-4. Use Version `1.0`, Build `114` or a higher unused build number.
+4. Use Version `1.0`, Build `115` or a higher unused build number.
 5. Archive with Release configuration.
 6. Distribute to App Store Connect / TestFlight.
 
