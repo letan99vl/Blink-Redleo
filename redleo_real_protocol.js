@@ -5313,7 +5313,11 @@ function installUI(){
     taskUi('loading','ĐANG ĐỌC TPS OPTIONS A2...');
     const R=await readA2SensorPageReal(false),pair=ecuTpsPairFromA2(R.cache);
     if(!pair||!window.blinkEcuTpsInfo?.())throw new Error('Chưa đọc được TPS Min/Max từ Options A2 ECU. Auto Tune vẫn khóa.');
-    notice('success','TPS ECU ĐỒNG BỘ OK',pair.min.toFixed(3)+' V → '+pair.max.toFixed(3)+' V; không gửi lệnh học/ghi ECU');
+    // This is an EXPLICIT user request to return from Blink manual TPS to ECU
+    // calibration, unlike background A2 reads which must preserve manual mode.
+    if(window.blinkReturnToEcuTps && !window.blinkReturnToEcuTps())
+      throw new Error('Chưa thể chuyển lại TPS ECU. Dừng ghi AFR, bảo đảm đã sao lưu dữ liệu AFR rồi thử lại.');
+    notice('success','TPS ECU ĐỒNG BỘ OK',pair.min.toFixed(3)+' V → '+pair.max.toFixed(3)+' V; đã chuyển về TPS ECU (không gửi lệnh học/ghi)');
   });
   capture('studyTpsBtn',tpsStudyReal);
   capture('restoreEcuBtn',restoreReal);
