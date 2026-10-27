@@ -3711,10 +3711,6 @@ function render(){
           else cls+=' afr-orange';
         }
       }
-      if(showAfrCorners){
-        const badge=autoTuneAfrCornerText(r,c);
-        if(badge)cellAttr+=' data-afr-corner="'+badge+'"';
-      }
       if(state.tab==='corrected'&&v!=null){
         const base=num(state.inject[r][c],0),meas=Number(state.measured[r][c]),samples=num(state.counts[r][c],0);
         if(base>0&&samples>0&&Number.isFinite(meas)&&meas>0){
@@ -3722,6 +3718,10 @@ function render(){
           if(change>0.0001){cls+=' corrected-add';cellAttr=' data-fuel-dir="+" title="Bù +'+change.toFixed(1)+'% xăng"';}
           else if(change<-0.0001){cls+=' corrected-cut';cellAttr=' data-fuel-dir="−" title="Bù '+change.toFixed(1)+'% xăng"';}
         }
+      }
+      if(showAfrCorners){
+        const badge=autoTuneAfrCornerText(r,c);
+        if(badge)cellAttr+=' data-afr-corner="'+badge+'"';
       }
       html+=`<td class="${cls}"${cellStyle}${cellAttr} data-r="${r}" data-c="${c}">${txt}</td>`;
     }
