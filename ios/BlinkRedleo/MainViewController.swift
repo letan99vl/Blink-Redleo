@@ -7,7 +7,7 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
     private var bleBridge: BLEBridge!
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
     private var protocolInjected = false
-    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js")!
+    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js")!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -20,6 +20,9 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
 
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Preserve the iPhone/iPad default UA. Blink uses iPhone tokens to choose
+        // its safe Apple BLE startup path; overriding the UA entirely breaks that.
+        configuration.applicationNameForUserAgent = "BLINK-REDLEO-IOS/1.0"
         configuration.websiteDataStore = .default()
 
         let userContentController = WKUserContentController()
@@ -48,7 +51,6 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         webView.scrollView.contentInset = .zero
         webView.scrollView.scrollIndicatorInsets = .zero
         webView.allowsBackForwardNavigationGestures = false
-        webView.customUserAgent = "BLINK-REDLEO-IOS/1.0"
 
         bleBridge = BLEBridge(
             webView: webView,
