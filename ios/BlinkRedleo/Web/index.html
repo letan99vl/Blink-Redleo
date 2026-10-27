@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.114'; // INJ VE selected-anchor interpolation preview; manual apply only
+  window.BLINK_PB_VERSION = '3.79.115'; // INJ VE selected-anchor interpolation preview; manual apply only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2370,6 +2370,33 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
 #redleoEditorScreen #redFeatureTable .redCell.angle-heat:not(.sel):not(.afrOff),
 #redleoEditorScreen #redFeatureTable .redCell.angle-heat.current:not(.sel):not(.afrOff){background:var(--red-angle-bg)!important;color:var(--red-angle-text)!important}
 #redleoEditorScreen #redFeatureTable .redCell.angle-heat.current:not(.sel){box-shadow:inset 0 0 0 3px #ff2d2d!important}
+
+  /* PB3.79.115: numeric AFR in a cell corner on Auto Tune > INJ VE and
+     corrected MAP only. ::before does not collide with corrected +/- ::after. */
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-corner]::before{
+    content:"A " attr(data-afr-corner)!important;
+    display:block!important;position:absolute!important;
+    right:1px!important;bottom:1px!important;z-index:2!important;
+    background:rgba(11,31,42,.91)!important;color:#e2faff!important;
+    border:1px solid rgba(100,216,249,.55)!important;
+    border-radius:3px!important;padding:0 2px!important;
+    font-size:8px!important;line-height:10px!important;font-weight:850!important;
+    letter-spacing:-.1px!important;white-space:nowrap!important;
+    pointer-events:none!important;
+    max-width:calc(100% - 2px)!important;box-sizing:border-box!important;
+  }
+  #mapEditorScreen.autoTuneMap #mapTable td.mapcell[contenteditable="true"]::before{
+    display:none!important;
+  }
+  @media(orientation:landscape){
+    #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-corner]::before{
+      font-size:7px!important;line-height:8px!important;padding:0 1px!important;
+    }
+  }
+  body.appForceLandscape #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-corner]::before{
+    font-size:7px!important;line-height:8px!important;padding:0 1px!important;
+  }
+
 </style>
 </head>
 <body>
@@ -3546,6 +3573,28 @@ window.BlinkFuelAnchorUI={
 };
 // End of PB3.79.110 selected-anchor UI.
 
+// Compact last-measured AFR badge in Auto Tune INJ VE / MAP ĐÃ BÙ.
+// CSS pseudo-element is intentionally separate from td.textContent: no
+// changes to pulse width values, keypad input or ECU write payload.
+function autoTuneAfrCornerText(r,c){
+  const samples=Number(state.counts?.[r]?.[c]);
+  const raw=state.measured?.[r]?.[c];
+  const afr=raw==null||raw===''?NaN:Number(raw);
+  return samples>0&&Number.isFinite(samples)&&Number.isFinite(afr)&&afr>0?afr.toFixed(2):'';
+}
+function autoTuneAfrCornerVisible(){
+  return (state.tab==='inject'||state.tab==='corrected')&&
+    !!document.getElementById('mapEditorScreen')?.classList.contains('autoTuneMap');
+}
+function refreshAutoTuneAfrCorner(r,c){
+  if(!autoTuneAfrCornerVisible())return;
+  const td=$('mapTable')?.querySelector('td.mapcell[data-r="'+r+'"][data-c="'+c+'"]');
+  if(!td)return;
+  const afr=autoTuneAfrCornerText(r,c);
+  if(afr)td.setAttribute('data-afr-corner',afr);
+  else td.removeAttribute('data-afr-corner');
+}
+
 function render(){
   fuelAnchorEnsureAxes();
   let view=fuelAnchorUI.preview;
@@ -3560,6 +3609,7 @@ function render(){
   }
   const showPreview=state.tab==='inject'&&fuelAnchorEditorActive()&&view&&view.mapNo===state.activeMap&&view.axisSignature===fuelAnchorUI.axisSignature;
   const pinSet=state.tab==='inject'&&fuelAnchorEditorActive()?fuelAnchorCurrentPins():null;
+  const showAfrCorners=autoTuneAfrCornerVisible();
   const table=$('mapTable'), data=showPreview?view.result.matrix:matrixFor(state.tab);
   let html='<thead><tr><th class="corner">TPS</th>'+RPMS.map(x=>`<th>${x}</th>`).join('')+'</tr></thead><tbody>';
   for(let r=0;r<R;r++){
@@ -3586,6 +3636,10 @@ function render(){
           else if(afr<=14) cls+=' afr-green';
           else cls+=' afr-orange';
         }
+      }
+      if(showAfrCorners){
+        const badge=autoTuneAfrCornerText(r,c);
+        if(badge)cellAttr+=' data-afr-corner="'+badge+'"';
       }
       if(state.tab==='corrected'&&v!=null){
         const base=num(state.inject[r][c],0),meas=Number(state.measured[r][c]),samples=num(state.counts[r][c],0);
@@ -5221,7 +5275,7 @@ function clearMeasuredAfterCorrectedWrite(mapNo){
   const bank=state.mapBanks[mapNo-1];
   if(bank)afrClearRoundKeepingLocks(mapNo,true);
   state.lastCellKey='';
-  if(state.activeMap===mapNo&&state.tab==='measured')render();
+  if(state.activeMap===mapNo&&(state.tab==='measured'||autoTuneAfrCornerVisible()))render();
   saveSoon();
   flashSave('GHI MAP ĐÃ BÙ OK · ĐÃ XÓA BẢNG AFR · MAP No.'+mapNo);
   return true;
@@ -5983,6 +6037,8 @@ function recordSample(now){
       if(Number.isFinite(a))td.classList.add(a<12?'afr-red':a<=14?'afr-green':'afr-orange');
     }
   }
+  // On new sample update one visible cell badge without rerendering 420 cells.
+  refreshAutoTuneAfrCorner(r,c);
   saveSoon();
 }
 function updateLive(){
@@ -6047,7 +6103,7 @@ async function clearMeasuredMap(){
   if(!await blinkConfirm('XÓA AFR ĐO','Xóa toàn bộ AFR đã đo của MAP No.'+mapNo+'?','XÓA AFR','HỦY'))return;
   if(state.threeRun.active||state.activeMap!==mapNo)return blinkAlert('MAP hoặc phiên Auto Tune đã thay đổi. Chưa xóa AFR.');
   afrClearRoundKeepingLocks(mapNo,true);
-  if(state.tab==='measured')render();
+  if(state.tab==='measured'||autoTuneAfrCornerVisible())render();
   saveSoon();
   flashSave('Đã xóa lượt AFR đo · giữ AFR đạt mục tiêu ±0,3 · MAP No.'+state.activeMap);
 }
