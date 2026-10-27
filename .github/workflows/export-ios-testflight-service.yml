@@ -22,20 +22,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "BLINK_PB_VERSION = '3.79.115'" ios/BlinkRedleo/Web/index.html
+          PB_VERSION="$(grep -oE "BLINK_PB_VERSION = '3[.]79[.][0-9]+'" ios/BlinkRedleo/Web/index.html | head -n1 | cut -d "'" -f2)"
+          BUILD_VERSION="$(awk -F '"' '/CURRENT_PROJECT_VERSION:/{print $2;exit}' ios/project.yml)"
+          test -n "$PB_VERSION"
+          [[ "$BUILD_VERSION" =~ ^[0-9]+$ ]]
           grep -q 'MARKETING_VERSION: "1.0"' ios/project.yml
-          grep -q 'CURRENT_PROJECT_VERSION: "115"' ios/project.yml
           grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
-
+          echo "Building source UI PB${PB_VERSION}, iOS build ${BUILD_VERSION}"
+          echo "PB_VERSION=$PB_VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> "$GITHUB_ENV"
       - name: Create service package
         shell: bash
         run: |
           set -euo pipefail
           cat > PACKAGE_INFO.txt <<EOF
           BLINK REDLEO iOS / TestFlight service package
-          PB: 3.79.115
+          PB: $PB_VERSION
           Version: 1.0
-          Build: 115
+          Build: $BUILD_VERSION
           Bundle ID: vn.blinkredleo.app
           Source branch: testflight-handoff
           Source commit: $GITHUB_SHA
@@ -43,11 +47,10 @@ jobs:
           Start with TESTFLIGHT_HANDOFF.md.
           Signing credentials are intentionally NOT included.
           EOF
-          zip -qry BLINK-REDLEO-TestFlight-Service-PB3.79.115-Build115.zip             ios TESTFLIGHT_HANDOFF.md PACKAGE_INFO.txt
-
+          zip -qry "BLINK-REDLEO-TestFlight-Service-PB${PB_VERSION}-Build${BUILD_VERSION}.zip" ios TESTFLIGHT_HANDOFF.md PACKAGE_INFO.txt
       - name: Upload service package
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-TestFlight-Service-PB3.79.115-Build115
-          path: BLINK-REDLEO-TestFlight-Service-PB3.79.115-Build115.zip
+          name: BLINK-REDLEO-TestFlight-Service-PB${{ env.PB_VERSION }}-Build${{ env.BUILD_VERSION }}
+          path: BLINK-REDLEO-TestFlight-Service-PB${{ env.PB_VERSION }}-Build${{ env.BUILD_VERSION }}.zip
           if-no-files-found: error
