@@ -1208,6 +1208,11 @@ function parseLiveReal(a){
     state.live.iat=NaN;
     state.live.mapKpa=NaN;
   }
+  // PB3.79.118: the validated 0x69/A1 ECU live packet provides IGN and PW.
+  // Older Blink UI waited for auxAt (set only by the ESP32 0xA2 fallback),
+  // so these values stayed "--" even though the real ECU parser updated them.
+  // Stamp only checksum-validated ECU frames; never infer them from MAP cells.
+  state.live.auxAt=performance.now();
   const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
   put('ectLive',Number.isFinite(state.live.ect)?r1(state.live.ect).toFixed(1)+' °C':'--');
   put('iatLive',Number.isFinite(state.live.iat)?r1(state.live.iat).toFixed(1)+' °C':'--');
@@ -1347,7 +1352,11 @@ async function initializeRealSession(){
     fuelPagePrimed.clear();
     v8LiveSlot=0;
 
-    if(typeof state!=='undefined')state.ecuPhase='handshake';
+    if(typeof state!=='undefined'){
+      state.ecuPhase='handshake';
+      // A new ECU session cannot inherit the last ignition/PW of an old ECU.
+      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;}
+    }
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
@@ -1412,6 +1421,9 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  if(typeof state!=='undefined'&&state.live){
+    state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;
+  }
   try{window.blinkResetEcuTpsCalibration?.('Mất kết nối ECU');}catch(_e){}
   readCache=null;
   pageCache.clear();
