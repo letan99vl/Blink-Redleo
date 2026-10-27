@@ -2374,7 +2374,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   /* PB3.79.115: numeric AFR in a cell corner on Auto Tune > INJ VE and
      corrected MAP only. ::before does not collide with corrected +/- ::after. */
   #mapEditorScreen.autoTuneMap #mapTable td.mapcell[data-afr-corner]::before{
-    content:"A " attr(data-afr-corner)!important;
+    content:attr(data-afr-corner)!important;
     display:block!important;position:absolute!important;
     right:1px!important;bottom:1px!important;z-index:2!important;
     background:rgba(11,31,42,.91)!important;color:#e2faff!important;
@@ -2463,29 +2463,29 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     grid-template-rows:29px 32px!important;
     display:grid!important;gap:3px!important;padding:0 7px 3px!important;
   }
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{grid-column:1!important;grid-row:1!important}
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{grid-column:2!important;grid-row:1!important}
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{grid-column:3!important;grid-row:1!important}
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{grid-column:1!important;grid-row:1!important}
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{grid-column:2!important;grid-row:1!important}
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{grid-column:3!important;grid-row:1!important}
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
     grid-column:4!important;grid-row:1!important;
     font-size:0!important;overflow:hidden!important;padding:0!important;
   }
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn::before{
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn::before{
     content:'▦'!important;font-size:18px!important;
   }
   body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #afrTargetLocalSaveBtn{
     display:block!important;grid-column:3!important;grid-row:1!important;
   }
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
     grid-column:1/-1!important;grid-row:2!important;
     height:32px!important;min-height:32px!important;font-size:10px!important;
   }
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar button{
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar button{
     min-width:0!important;height:29px!important;min-height:29px!important;
     border-radius:8px!important;padding:0 3px!important;
     font-size:9px!important;white-space:nowrap!important;
   }
-  body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+  body:not(.mapZoomMode):not(.appForceLandscape) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
     height:32px!important;min-height:32px!important;
   }
 
@@ -2514,6 +2514,21 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     font-size:clamp(7px,1.65vw,9px)!important;
     line-height:9px!important;padding:0 2px!important;
     max-width:95%!important;
+  }
+
+  /* Forced software-landscape uses the same button arrangement. */
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{grid-column:1!important;grid-row:1!important}
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{grid-column:2!important;grid-row:1!important}
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{grid-column:3!important;grid-row:1!important}
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
+    grid-column:4!important;grid-row:1!important;font-size:0!important;padding:0!important;
+  }
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn::before{content:'▦'!important;font-size:18px!important}
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #afrTargetLocalSaveBtn{
+    display:block!important;grid-column:3!important;grid-row:1!important;
+  }
+  body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+    grid-column:1/-1!important;grid-row:2!important;height:32px!important;min-height:32px!important;
   }
 </style>
 </head>
