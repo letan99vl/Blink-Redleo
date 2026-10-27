@@ -6351,8 +6351,8 @@ load();normalizeAfrIo4Calibration();$('mapSelect').value=String(state.activeMap)
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('connectEcuBtn').onclick=connectEcu;$('disconnectEcuBtn').onclick=disconnectEcu;$('readMapBtn').onclick=()=>queueReadCurrentMap(state.activeMap);$('writeMapBtn').onclick=writeCurrentFuelMap;$('applyCorrectedBtn').onclick=applyCorrectedAndWrite;$('connectAfrBtn').onclick=connectAfr;$('disconnectAfrBtn').onclick=disconnectAfr;$('recordBtn').onclick=toggleRecord;$('mapSelect').onchange=()=>selectMapBank(+$('mapSelect').value,true);$('studyTpsBtn').onclick=queueTpsStudy;$('refreshNativePortsBtn').onclick=refreshNativePorts;
 $('tuneMode').onchange=()=>setTuneMode($('tuneMode').value);$('threeRunStartBtn').onclick=startThreeRunSession;$('threeRunStepBtn').onclick=finishThreeRunPass;$('threeRunCancelBtn').onclick=cancelThreeRun;$('threeHistoryBtn').onclick=openThreeRunHistory;$('downloadThreeRunBtn').onclick=downloadLatestThreeRun;$('closeThreeHistoryBtn').onclick=()=>$('threeHistoryDialog').close();
-$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return blinkAlert('Chưa có điện áp TPS LIVE để học MIN.');blinkSetManualTpsEndpoint('min',state.live.tpsV);};
-$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV))return blinkAlert('Chưa có điện áp TPS LIVE để học MAX.');blinkSetManualTpsEndpoint('max',state.live.tpsV);};
+$('learnMin').onclick=()=>{if(!Number.isFinite(state.live.tpsV)||!tpsTelemetryFresh())return blinkAlert('Cần TPS LIVE mới từ ECU để học MIN, không dùng điện áp cũ.');blinkSetManualTpsEndpoint('min',state.live.tpsV);};
+$('learnMax').onclick=()=>{if(!Number.isFinite(state.live.tpsV)||!tpsTelemetryFresh())return blinkAlert('Cần TPS LIVE mới từ ECU để học MAX, không dùng điện áp cũ.');blinkSetManualTpsEndpoint('max',state.live.tpsV);};
 ['tpsMin','tpsMax','settleMs','afrVoltMin','afrVoltMax','afrDelayMs','limitPct','threeRunLimitPct'].forEach(id=>$(id).addEventListener('change',()=>{pullControls(id);if(id==='afrVoltMin'||id==='afrVoltMax')syncControls();render();renderThreeRunUi();}));
 $('clearMeasured').onclick=clearMeasuredMap;$('clearMeasuredEditorBtn').onclick=clearMeasuredMap;
 $('autoIdleSaveToggle')?.addEventListener('change',e=>autoIdleSaveSetEnabled(!!e.target.checked));
@@ -7134,9 +7134,14 @@ window.addEventListener('beforeunload',save);
     }
     if(d.byteLength<12||v.getUint8(0)!==0xA1)return;
     state.live.rpm=v.getUint16(1,true);
-    state.live.tps=v.getUint16(3,true)/10;
-    noteTpsTrend(state.live.tps,performance.now());
     state.live.tpsV=v.getUint16(7,true)/1000;
+    // ESP32 A1 has both a TPS percentage and a raw voltage.
+    // Explicitly learned manual endpoints must use the voltage for Auto Tune.
+    const tpsFromBridge=v.getUint16(3,true)/10;
+    state.live.tps=blinkManualTpsReady()
+      ?clamp((state.live.tpsV-blinkManualTps.min)/(blinkManualTps.max-blinkManualTps.min)*100,0,100)
+      :tpsFromBridge;
+    noteTpsTrend(state.live.tps,performance.now());
     const afrV=v.getUint16(9,true)/1000;
     const m=v.getUint8(11);
     if(m>=1&&m<=4&&m!==state.activeMap&&!state.threeRun.active){state.activeMap=m;$('mapSelect').value=String(m);}
@@ -8472,6 +8477,7 @@ function syncMapSaveArrowMode(){
 window.blinkSyncFloatingSaveMode=syncMapSaveArrowMode;
 function updateMapSelectionPad(){
   syncMapSaveArrowMode();
+  fitStandaloneFuelMapRows();
   if(!selectionPad||!wrap||!table)return;
   const screen=document.getElementById('mapEditorScreen');
   // Editor-local positioning remains valid through physical rotation AND the
@@ -8769,8 +8775,33 @@ floatSaveBtn?.addEventListener('click',e=>{
   stopPadEvent(e);
   requestMapSaveArrow();
 });
+/* Fit the actual visible map viewport to 1 RPM header + 14 TPS/IDLE rows.
+   This is measured after rotating and after the editor toolbar is laid out.
+   Never assume a fixed mobile device height or force horizontal zoom. */
+function fitStandaloneFuelMapRows(){
+  const editor=document.getElementById('mapEditorScreen');
+  if(!editor?.classList.contains('active')||!editor.classList.contains('standaloneFuel')||
+     document.body.classList.contains('mapZoomMode'))return;
+  const viewH=Number(wrap?.clientHeight||0);
+  if(viewH<120)return;
+  const padTop=parseFloat(getComputedStyle(wrap).paddingTop)||0;
+  const padBottom=parseFloat(getComputedStyle(wrap).paddingBottom)||0;
+  const free=Math.max(0,viewH-padTop-padBottom);
+  const row=Math.max(10,Math.floor((free-3)/15));
+  const old=editor.style.getPropertyValue('--fuel-fit-row-height');
+  if(old!==row+'px')editor.style.setProperty('--fuel-fit-row-height',row+'px');
+}
+try{
+  if(typeof ResizeObserver!=='undefined'&&wrap)
+    new ResizeObserver(()=>requestAnimationFrame(fitStandaloneFuelMapRows)).observe(wrap);
+  const editor=document.getElementById('mapEditorScreen');
+  if(typeof MutationObserver!=='undefined'&&editor)
+    new MutationObserver(()=>requestAnimationFrame(fitStandaloneFuelMapRows))
+      .observe(editor,{attributes:true,attributeFilter:['class']});
+}catch(_e){}
+window.blinkFitStandaloneFuelMapRows=fitStandaloneFuelMapRows;
 function refreshFuelEditorGeometry(){
-  requestAnimationFrame(()=>{updateMapSelectionPad();keepFuelSelectionVisible()});
+  requestAnimationFrame(()=>{fitStandaloneFuelMapRows();updateMapSelectionPad();keepFuelSelectionVisible()});
 }
 window.addEventListener('resize',refreshFuelEditorGeometry);
 window.addEventListener('orientationchange',()=>setTimeout(refreshFuelEditorGeometry,140));
