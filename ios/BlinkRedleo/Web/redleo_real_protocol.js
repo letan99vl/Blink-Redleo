@@ -7,9 +7,6 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
-// This is the REMOTE protocol loaded by already-installed iOS hybrid PB3.79.64.
-// Keep WKWebView UI and BLE bridge intact; only synchronize original-PC IGN codecs.
-window.BLINK_IOS64_IGN_REVISION='IOS64-IGN-FIXED360-20261018';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -360,12 +357,17 @@ function currentAuxAxes(){
     generation:newer?'9.2+':'8/9.1'
   };
 }
-// Compensation tables are not TPS tables. On the newer thermal-axis generation
-// (REDLEO 9.2+, V10/Ultra and ATE/V11), page 0x72/0x82/0x92 rows are stored
-// low->high on wire, matching the ascending ECT/MAP physical axes. Older 8/9.1
-// software uses the legacy reversed-row serializer, so preserve it there.
+// Original REDLEO ECU Pro 9.1X.exe / 9.2.exe IL audit (2026-10-23):
+// UartDatRx.UartToDgv and proUartDgvNum both map wire row 0 to PC UI row
+// (RowCount - 1), WITHOUT any Sum Signal / crank-trigger conditional.
+// Initialise_Res1.proChkGwVoltage: 9.1x PC ECT UI rows 140 -> 0 deg C.
+// Initialise_Res1.proChkMapVoltage: PC MAP UI rows 120 -> 0 kPa.
+// Therefore wire 0x72/0x82/0x92 is LOW->HIGH, and Blink's ascending
+// 0->140C/0->120kPa UI must decode/encode FORWARD for ALL known 9.1x Signals.
+// 9.2+ / V10 / V11 were already forward. Unsupported/unknown profiles remain
+// guarded by their normal read/write capability policy.
 function compRowsForwardOnWire(info=handshakeInfo){
-  return usesNewThermalAxis(info);
+  return usesNewThermalAxis(info)||isV91Direct(info);
 }
 function validDynamicAxes(tpsPct,rpmAxis){
   if(!Array.isArray(tpsPct)||tpsPct.length!==14||!Array.isArray(rpmAxis)||rpmAxis.length!==30)return false;
@@ -379,7 +381,7 @@ function publishEcuAxes(tpsPct,rpmAxis,source='ECU'){
   const aux=currentAuxAxes();
   let t=Array.from(tpsPct||[],Number),r=Array.from(rpmAxis||[],Number);
   if(!validDynamicAxes(t,r)){t=LEGACY_TPS_PCT.slice();r=LEGACY_RPM_AXIS.slice();}
-  const payload={profile:ecuProfile?.key||'UNKNOWN',firmware:handshakeInfo?.firmware||'',tpsPct:t.slice(),rpmAxis:r.slice(),ectAxis:aux.ect,iatAxis:aux.iat,mapAxis:aux.map,compRowOrder:compRowsForwardOnWire()?'forward':'legacy-reverse',source};
+  const payload={profile:ecuProfile?.key||'UNKNOWN',firmware:handshakeInfo?.firmware||'',tpsPct:t.slice(),rpmAxis:r.slice(),ectAxis:aux.ect,iatAxis:aux.iat,mapAxis:aux.map,compRowOrder:compRowsForwardOnWire()?'forward':'legacy-reverse',ectInjRowOrder:compRowsForwardOnWire()?'forward':'legacy-reverse',source};
   window.blinkEcuAxes=payload;
   try{window.applyEcuAxes?.(payload);}catch(_e){}
   return payload;
@@ -583,6 +585,8 @@ function applyProfileUi(){
   // belongs to another ECU family.
   const studyTpsBtn=document.getElementById('studyTpsBtn');
   if(studyTpsBtn){
+    const syncBtn=document.getElementById('tpsSyncReadBtn');
+    if(syncBtn)setProfileDisabled(syncBtn,!profileCap('optionsRead'),'ECU Profile không hỗ trợ Options A2');
     if(p.key==='MODERN_V11')studyTpsBtn.textContent=isUltraPro2Direct()?'HỌC TPS ECU · ULTRA PRO2':'HỌC TPS ECU · ATE V11';
     else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
     else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
@@ -753,45 +757,51 @@ function encMainInjAngle(v){
   if(isV11Profile())return clamp(Math.round(Number(v)*360/512),0,255);
   return encOilAngle(v);
 }
-// Fixed REDLEO IGN display policy for installed iOS PB3.79.64.
-// V8 / all identified V9 / V10 / Ultra Pro1: original PC B_True=ON 360°
-// converter, with exactly matching inverse writer. The local IPA UI does not
-// offer a mode selector and its PB number stays unchanged.
-// V11 / Ultra Pro2: separate, previously audited 0.28125°/raw-step codec.
-const IOS64_ORIGINAL_IGN_360_SCALE=360/1024;
+// Blink policy: every recognized REDLEO V8/V9/V10 family displays the main
+// ignition map as degrees, using the original REDLEO PC B_True=ON converter.
+// The original Windows executables also contain an OFF (/4) mode; Blink now
+// intentionally standardizes on ON without exposing a user-selectable toggle.
+// V11 / Ultra Pro2 is a separate generation with 0.28125 degree/raw-step;
+// never apply the V8/V9/V10 360/1024 codec to V11.
+const REDLEO_CLASSIC_IGN_SCALE=360/1024;
 function isRedleoClassicIgnProfile(){
   return !!(ecuProfile&&['LEGACY_V8','MODERN_V9','MODERN_V10'].includes(ecuProfile.key));
 }
-function ios64PcRound(value,places=1){
+// Math.Round(Double, 1) in original REDLEO .NET EXE is midpoint-to-even;
+// this differs from Math.round and must be preserved in READ and WRITE.
+function roundOriginalPcIgn(value,places=1){
   value=Number(value);
   if(!Number.isFinite(value))return NaN;
   const factor=Math.pow(10,places);
-  const scaled=Math.abs(value)*factor;
-  const whole=Math.floor(scaled),frac=scaled-whole;
-  const mid=Math.abs(frac-0.5)<=1e-11;
-  const up=frac>0.5+1e-11||(mid&&(whole%2===1));
+  const x=Math.abs(value)*factor;
+  const whole=Math.floor(x),frac=x-whole;
+  const midpoint=Math.abs(frac-0.5)<=1e-11;
+  const up=frac>0.5+1e-11||(midpoint&&(whole%2===1));
   const out=(whole+(up?1:0))/factor;
   return value<0?-out:out;
 }
-function ios64DecOriginalPcIgn(raw){
-  return ios64PcRound((Number(raw)-64)*IOS64_ORIGINAL_IGN_360_SCALE,1);
+function decOriginalPcIgn(raw){
+  // PC B_True ON: Math.Round(((raw-64)/4) * (360/256), 1).
+  return roundOriginalPcIgn((Number(raw)-64)*REDLEO_CLASSIC_IGN_SCALE,1);
 }
-function ios64EncOriginalPcIgn(value){
+function encOriginalPcIgn(value){
   const v=Number(value);
   if(!Number.isFinite(v))throw new Error('Góc đánh lửa không hợp lệ.');
+  // Original two-stage inverse: degrees -> raw/4 rounded to one decimal ->
+  // multiply by 4, round midpoint-to-even and offset by +64.
   const asSingle=Math.fround(Math.fround(Math.fround(v)*256)/360);
-  const units=ios64PcRound(asSingle,1);
-  return clamp(ios64PcRound(Math.fround(units*4),0)+64,0,255);
+  const units=roundOriginalPcIgn(asSingle,1);
+  return clamp(roundOriginalPcIgn(Math.fround(units*4),0)+64,0,255);
 }
 function decMainIgn(raw){
   if(isV11Profile())return r1((Number(raw)-64)*0.28125);
   if(!isRedleoClassicIgnProfile())return decIgn(raw);
-  return ios64DecOriginalPcIgn(raw);
+  return decOriginalPcIgn(raw);
 }
 function encMainIgn(v){
   if(isV11Profile())return clamp(Math.round(Number(v)/0.28125)+64,0,255);
   if(!isRedleoClassicIgnProfile())return encIgn(v);
-  return ios64EncOriginalPcIgn(v);
+  return encOriginalPcIgn(v);
 }
 function decLiveIgn(raw){
   if(isV11Profile())return r2((Number(raw)/32-16)*1.125);
@@ -1198,6 +1208,11 @@ function parseLiveReal(a){
     state.live.iat=NaN;
     state.live.mapKpa=NaN;
   }
+  // PB3.79.118: the validated 0x69/A1 ECU live packet provides IGN and PW.
+  // Older Blink UI waited for auxAt (set only by the ESP32 0xA2 fallback),
+  // so these values stayed "--" even though the real ECU parser updated them.
+  // Stamp only checksum-validated ECU frames; never infer them from MAP cells.
+  state.live.auxAt=performance.now();
   const put=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
   put('ectLive',Number.isFinite(state.live.ect)?r1(state.live.ect).toFixed(1)+' °C':'--');
   put('iatLive',Number.isFinite(state.live.iat)?r1(state.live.iat).toFixed(1)+' °C':'--');
@@ -1229,8 +1244,9 @@ function installAfrListener(){
 }
 async function handshakeReal(){
   let firstErr=null;
-  try{
-    const rx=await rawExchange(req5(0x5A,0x5A),6000);
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      const rx=await rawExchange(req5(0x5A,0x5A),6000);
     const info=parseHandshake(rx);
     info.profile=profileFromHandshake(info);
     if(info.profile.family==='v8'){
@@ -1241,9 +1257,18 @@ async function handshakeReal(){
     syncHandshakeInfo(info);
     syncCapabilityFlags(info);
     return info;
-  }catch(e){
-    firstErr=e;
-    log('0x5A handshake failed, trying safe legacy 0x69 probe:',String(e&&e.message||e));
+    }catch(e){
+      firstErr=e;
+      const msg=String(e&&e.message||e);
+      if(/GATT operation already in progress|GATT.*operation.*in progress/i.test(msg)){
+        // This is a Windows host BLE contention, not proof that ECU is legacy.
+        if(attempt===2||!cmdChar()||!mapChar())throw new Error('Bluetooth GATT bận khi xác thực ECU 0x5A sau 3 lần: '+msg);
+        await new Promise(r=>setTimeout(r,260*(attempt+1)));
+        continue;
+      }
+      log('0x5A handshake failed, trying safe legacy 0x69 probe:',msg);
+      break;
+    }
   }
 
   // V3 / very old REDLEO builds do not use the modern 0x5A flow.
@@ -1320,13 +1345,18 @@ async function initializeRealSession(){
 
     // Every new connection starts with a visibly empty ECU map UI.
     // This prevents stale values from looking like a successful ECU read.
+    try{window.blinkResetEcuTpsCalibration?.('Đang xác thực kết nối ECU mới');}catch(_e){}
     try{window.resetEcuMapUiForNewSession?.();}catch(_e){}
     readCache=null;
     pageCache.clear();
     fuelPagePrimed.clear();
     v8LiveSlot=0;
 
-    if(typeof state!=='undefined')state.ecuPhase='handshake';
+    if(typeof state!=='undefined'){
+      state.ecuPhase='handshake';
+      // A new ECU session cannot inherit the last ignition/PW of an old ECU.
+      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;}
+    }
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
@@ -1360,7 +1390,8 @@ async function initializeRealSession(){
       // ECT/IAT/MAP need the ECU voltage-relation tables. Restore the calibration
       // cache immediately when available; otherwise read A2 once after live settles.
       // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
-      if(!sensorCalCache)scheduleSensorCalWarmup(epoch,newCalIdentity,0);
+      // Fresh ECU A2 is required for TPS calibration EVEN when sensor curves were cached.
+      scheduleSensorCalWarmup(epoch,newCalIdentity,0);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1390,6 +1421,10 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  if(typeof state!=='undefined'&&state.live){
+    state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;
+  }
+  try{window.blinkResetEcuTpsCalibration?.('Mất kết nối ECU');}catch(_e){}
   readCache=null;
   pageCache.clear();
   fuelPagePrimed.clear();
@@ -1534,34 +1569,24 @@ function dataViewText(d){
 }
 
 async function confirmBridgeRawReady(id,p){
+  // FW1.5+ sends RAWREADY via STATUS notify. An additional STATUS GATT read here
+  // can block or collide with GATT writes on Android/Chromium, leaving the UI
+  // blue forever even after ESP32 accepted the whole ECU write.
+  // Poll the already installed notification instead: NO EXTRA GATT OPERATION.
   if(p&&p.bridgeReadyAt)return true;
-  // If RAW_RX already completed while we were finishing TX, the bridge could
-  // only have reached UART after fully assembling the frame.
-  if(!pending.has(id))return true;
-  const sc=statusChar();
-  if(!sc||typeof sc.readValue!=='function')return null;
-
-  // A final write-with-response barrier has already completed. Read the status
-  // characteristic a few times to make RAWREADY an application-level ACK that
-  // the ESP32 assembler truly has every byte before we wait on the ECU.
-  for(let i=0;i<3;i++){
-    if(i)await new Promise(r=>setTimeout(r,18));
-    try{
-      const d=await sc.readValue();
-      const t=dataViewText(d);
-      if(t===('RAWREADY '+id)){
-        if(p&&!p.bridgeReadyAt)p.bridgeReadyAt=performance.now();
-        return true;
-      }
-    }catch(e){
-      log('RAWREADY status read unavailable',String(e&&e.message||e));
-      return null;
-    }
+  if(!pending.has(id))return true; // The real RAW_RX response already completed.
+  const started=performance.now();
+  while(performance.now()-started<500){
     if(p&&p.bridgeReadyAt)return true;
+    if(!pending.has(id))return true;
+    await new Promise(r=>setTimeout(r,25));
   }
-  return false;
+  // A missing notification is UNKNOWN, not proof that ESP32 lost this write.
+  // Await the real ECU ACK/RAW_RX timeout and use READBACK recovery if it fails.
+  // NEVER blindly send the same page again just because RAWREADY was missed.
+  log('RAWREADY notification not observed for SID',id,'· await ECU ACK/READBACK');
+  return null;
 }
-
 function rejectPending(p,err){
   try{p&&p.reject&&p.reject(err);}catch(_e){}
 }
@@ -1593,8 +1618,12 @@ window.onBlinkStatus=function(text){
     if(p){
       p.bridgeReadyAt=performance.now();
       const dt=p.txDoneAt?Math.max(0,Math.round(p.bridgeReadyAt-p.txDoneAt)):0;
-      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'){
-        taskUi('loading','BLE ĐÃ RÁP ĐỦ FRAME'+(dt?' · '+dt+' ms':'')+' · ECU ĐANG XỬ LÝ...');
+      if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&p.cmd===0xCD){
+        taskUi('loading','ESP32 ĐÃ NHẬN ĐỦ GÓI GHI'+(dt?' · '+dt+' ms':'')+' · ĐANG CHỜ ECU ACK...');
+      }else if(ecuMapIoUiBusy&&ecuMapIoKind==='write'&&p.cmd===0x9A){
+        // This is READBACK, not a new ECU write. Do not leave a stale
+        // "ECU đang xử lý" banner after readback verification completes.
+        taskUi('loading','ĐANG ĐỌC LẠI MAP TỪ ECU · XÁC MINH 420 Ô...');
       }
     }
   }
@@ -1797,6 +1826,9 @@ function parseCanonicalReadAll(a,sourceLength=9767,layoutInfo='9767-native'){
   for(let bank=1;bank<=4;bank++){
     const b={bank};let z=decodeRowsU16(a,p,14,30,decOilTab);b.inj=z.data;p=z.next;
     z=decodeRowsByte(a,p,14,30,decOilAngle);b.injDegree=z.data;p=z.next;
+    // Legacy full-image decoder remains identical for V9; if a supported
+    // Ultra Pro1 supplies a canonical 9767B ReadAll reply, keep its main
+    // ignition-angle unit consistent with direct 0x9A and selective writes.
     z=decodeRowsByte(a,p,14,30,decMainIgn);b.ignDegree=z.data;p=z.next;
     z=decodeRowsByte(a,p,1,30,decOil);b.ignTime=z.data;p=z.next;
     b.afRaw=a.slice(p,p+420);{const A=decodeEcuAfr420(b.afRaw);b.afr=A.matrix;b.afrEnabled=A.enabled;}p+=420;
@@ -2635,7 +2667,11 @@ function parseA2Data(data){
 }
 async function exchangePage9A(pg,label='PAGE',attempts=3,settleMs=260,replyTimeout=10000,showUi=true,validateRx=null){
   pg&=255;
-  const resumeLive=liveRunning;
+  // PB3.79.103: A preceding WRITE may have scheduled Live 0x69 to resume
+  // shortly. A verification 0x9A starts before that timer fires, then
+  // stopLiveLoop() cancels it. Snapshot BOTH running and pending resume,
+  // otherwise the successful 420-cell readback permanently freezes TPS/RPM.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
   stopLiveLoop();
 
   let lastErr=null;
@@ -2710,7 +2746,24 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
   try{applyProfileUi();}catch(_e){}
   return {page:pg,frame:f,data,rxLength:rx.length,frameFormat};
 }
+// PB3.79.97: exact Options voltage fields, NOT TPS axis/breakpoint values.
+// Only known, identity-selected layouts may unlock TPS-based Auto Tune.
+function ecuTpsPairFromA2(C){
+  if(!C||!ecuProfile)return null;
+  let lo=NaN,hi=NaN;
+  if(ecuProfile.key==='MODERN_V9'&&(isV91Direct()||isV92Direct())&&C.options){
+    lo=Number(C.options.tpsMinEcu);hi=Number(C.options.tpsMaxEcu);
+  }else if(ecuProfile.key==='MODERN_V10'&&isV10Direct()&&C.v10Options?.[0]){
+    lo=Number(C.v10Options[0][0]);hi=Number(C.v10Options[0][1]);
+  }else if(ecuProfile.key==='MODERN_V10'&&isUltraDirect()){
+    lo=Number(C.optionTpsMin);hi=Number(C.optionTpsMax);
+  }else if(ecuProfile.key==='MODERN_V11'&&C.v11A2Layout&&C.ateOptions?.[0]){
+    lo=Number(C.ateOptions[0][0]);hi=Number(C.ateOptions[0][1]);
+  }else return null;
+  return Number.isFinite(lo)&&Number.isFinite(hi)&&lo>=0&&hi<=5&&hi-lo>0.1?{min:lo,max:hi}:null;
+}
 async function readA2SensorPageReal(showUi=true){
+  const tpsReadEpoch=transportEpoch,tpsReadHandshake=handshakeInfo;
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
   const v11=isV11Profile();
@@ -2722,7 +2775,8 @@ async function readA2SensorPageReal(showUi=true){
   const minData=v11?(ultra2?V11_A2_286.LEN:V11_A2.LEN):(v10Direct?V10_A2.LEN:(ultra?(ultraLayout?ultraLayout.len:ULTRA_A2.BASE_LEN):(v10Family?140:133)));
   const label=v11?(ultra2?'REDLEO ULTRA PRO2 · A2 286B':'ATE / REDLEO V11 · A2 / OPTIONS'):(v10Direct?'REDLEO V10.2 · A2 268B':(ultra?('REDLEO ULTRA · A2 '+(ultraLayout?ultraLayout.len:'≥277')+'B'):(v10Family?'REDLEO V10 FAMILY · A2 PREFIX':'CẢM BIẾN / OPTIONS')));
   const appleSafe=isAppleMobileBleClient()&&Number(window.blinkBridgeRxPayload||12)>12;
-  const resumeAppleLive=appleSafe&&liveRunning;
+  // iOS A2 can also preempt a pending (not yet running) Live resume.
+  const resumeAppleLive=appleSafe&&!!(liveRunning||liveResumeTimer);
   let R;
   if(appleSafe){
     stopLiveLoop();
@@ -2738,6 +2792,13 @@ async function readA2SensorPageReal(showUi=true){
     }
   }
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
+  if(tpsReadEpoch!==transportEpoch||tpsReadHandshake!==handshakeInfo)throw new Error('A2 thuộc phiên ECU cũ, không xác nhận TPS');
+  const freshTps=ecuTpsPairFromA2(C);
+  if(freshTps&&typeof window.blinkSetVerifiedEcuTps==='function'){
+    if(!window.blinkSetVerifiedEcuTps(freshTps.min,freshTps.max,'READ A2 · ECU Options'))throw new Error('TPS ECU đã đọc nhưng không lưu được hiệu chuẩn đã xác minh');
+  }else if(ecuProfile?.key==='MODERN_V9'||ecuProfile?.key==='MODERN_V10'||ecuProfile?.key==='MODERN_V11'){
+    try{window.blinkTpsEcuStatus?.('TPS ECU chưa xác minh: phiên bản A2 này không có Options TPS Min/Max được chứng minh.');}catch(_e){}
+  }
   sensorCalCache=C;
   sensorCalIdentity=handshakeInfo?[
     ecuProfile?.key||'UNKNOWN',handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1
@@ -3168,7 +3229,9 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   requireProfile('fuelRead','Đọc MAP thời gian phun');
   await ensureEcuAxesReal(false);
   bank=normalizeBankForProfile(bank);
+  const verifyUi=!showUi&&ecuMapIoUiBusy&&ecuMapIoKind==='write'&&ecuMapIoTransportStarted;
   if(showUi)taskUi('loading','ĐANG ĐỌC HIỆN TẠI · MAP NO.'+bank);
+  else if(verifyUi)taskUi('loading','ĐANG ĐỌC LẠI ECU · XÁC MINH MAP NO.'+bank+' / 420 Ô...');
   const pg=page(1,bank);
   const first=!fuelPagePrimed.has(bank);
   const isV8=ecuProfile&&ecuProfile.family==='v8';
@@ -3183,12 +3246,14 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
     first ? (isV8?3:4) : 3,
     first ? (isV8?450:900) : 320,
     18000,
-    showUi,
+    showUi||verifyUi,
     fuelValidate
   );
   const R=parseCurrentFuelFrame(rx,bank);
   fuelPagePrimed.add(bank);
   syncCurrentFuel(bank,R.matrix,R.frame.length);
+  // Let the per-cell Auto Tune learner pair new AFR with an ECU-verified MAP.
+  try{window.onBlinkFuelMapReadback?.(bank,R.matrix)}catch(e){log('Auto Tune learner readback observer',String(e&&e.message||e))}
   log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length,'primed',first?'first':'warm');
   if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
   return R;
@@ -3247,6 +3312,9 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
       syncV11ReadAll(C);
     }else{
       syncAll(C);
+      if(ecuProfile?.key==='MODERN_V9'&&C.options&&(isV91Direct()||isV92Direct())){
+        try{window.blinkSetVerifiedEcuTps?.(C.options.tpsMinEcu,C.options.tpsMaxEcu,'READ ALL · ECU Options');}catch(_e){}
+      }
     }
     try{applyProfileUi();}catch(_e){}
     taskUi('success',(cmd===0x8B?'KHÔI PHỤC ECU':'ĐỌC TẤT CẢ ECU')+' · OK');
@@ -4251,7 +4319,8 @@ async function writeCurrentFuelAndVerify(bank){
     await ensureEcuAxesReal(false);
   }
 
-  const resumeLive=liveRunning;
+  // Preserve a queued Live restart as well as an already-running loop.
+  const resumeLive=!!(liveRunning||liveResumeTimer);
   const previousPhase=typeof state!=='undefined'?state.ecuPhase:'live';
   const mapSelect=document.getElementById('mapSelect');
   stopLiveLoop();
@@ -4262,7 +4331,10 @@ async function writeCurrentFuelAndVerify(bank){
     await writeFuelBank(bank);
     fuelPagePrimed.delete(bank);
     const wholeMs=Math.round(performance.now()-wholeWriteStarted);
-    taskUi('success','GHI MAP NO.'+bank+' OK · ECU ACK · '+(wholeMs/1000).toFixed(1)+'s');
+    // Manual LƯU HIỆN TẠI uses fast ACK-only mode; Auto Tune still performs
+    // independent 420-cell readback at its caller before final verified status.
+    // ACK does not prove flash persistence. Never imply 420-cell verification.
+    taskUi('success','MAP NO.'+bank+' · ECU ACK ĐỦ TRANG · KHÔNG ĐỌC LẠI · '+(wholeMs/1000).toFixed(1)+'s');
     log('fuel write ACK-only total',wholeMs+'ms','MAP',bank);
     return {ack:true,bank,elapsedMs:wholeMs};
   }finally{
@@ -4526,6 +4598,29 @@ function verifyV11FullWrite(C,E){
   if(!bytesEqual(C.mapInjRaw,E.mapInjRaw))throw new Error('VERIFY Full Write sai MAP INJ.');
   for(let b=1;b<=4;b++)assertV11MainAndAfrMatch(C.banks[b-1],E.bankExpected[b-1],'FULL MAP '+b);
 }
+// UI contract: all ECU confirmations, warnings, PIN and numeric input use
+// Blink's own DOM dialogs. If UI isn't mounted yet, actions fail closed.
+async function blinkProtocolConfirm(title,message,ok='XÁC NHẬN',cancel='HỦY'){
+  if(typeof window.blinkConfirm!=='function'){
+    taskUi('error','HỘP THOẠI XÁC NHẬN TRONG APP CHƯA SẴN SÀNG',6000);
+    return false;
+  }
+  return !!(await window.blinkConfirm(title,message,ok,cancel));
+}
+function ensureSameEcuAfterDialog(epoch,identity,label){
+  // Async in-app dialogs do not freeze BLE or background navigation.
+  // Recheck the authenticated ECU immediately before any destructive TX.
+  if(epoch!==transportEpoch||identity!==handshakeInfo||!identity||!cmdChar()||!mapChar()){
+    throw new Error(label+' · ECU hoặc BLE thay đổi khi chờ thao tác trên giao diện. Không gửi lệnh.');
+  }
+}
+async function blinkProtocolPrompt(message,defaultValue='',title='NHẬP THÔNG SỐ ECU'){
+  if(typeof window.blinkPrompt!=='function'){
+    taskUi('error','BÀN PHÍM NHẬP TRONG APP CHƯA SẴN SÀNG',6000);
+    return null;
+  }
+  return await window.blinkPrompt(message,defaultValue,title);
+}
 async function sendAllV11Real(){
   if(!v11FullImageReady())await readAll();
   if(!v11FullImageReady())throw new Error('ATE V11 chỉ cho GỬI TOÀN BỘ sau READ ALL 9958B hợp lệ.');
@@ -4535,7 +4630,10 @@ async function sendAllV11Real(){
     if(!p6||p6.length<43)await readIdlePageReal(b,false);
   }
   const currentA2Layout=v11A2LayoutOf(pageCache.get(0xA2));
-  if(!confirm('ATE V11 · GỬI TOÀN BỘ ECU\n\nApp dùng Read All 9958B + '+currentA2Layout.NAME+' trực tiếp '+currentA2Layout.LEN+'B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm('ATE V11 · GỬI TOÀN BỘ ECU','App dùng Read All 9958B + '+currentA2Layout.NAME+' trực tiếp '+currentA2Layout.LEN+'B + Page 5 AFR/O2 + Page 6 trực tiếp 43B/MAP. Chỉ byte đã sửa mới thay đổi; AFR target, Idle, AutoShift và ECT Motor đều được đưa vào Full Write.\n\nGiữ nguồn ECU ổn định.'))return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'GỬI TOÀN BỘ ECU');
+  if(!v11FullImageReady())throw new Error('ECU đã thay đổi trong khi xác nhận Full Write. Đọc lại ECU.');
   const E=v11BuildFullWritePlan();
   const resume=liveRunning;stopLiveLoop();
   try{
@@ -4636,8 +4734,11 @@ async function copyBankV11Real(dest){
     const p6=page(6,d);
     if(!pageCache.get(p6)||pageCache.get(p6).length<43)await readIdlePageReal(d,false);
   }
-  if(!confirm('ATE V11 · COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 8 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + AFR/O2 target + Idle/Limit + AutoShift + ECT Motor.'))return;
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm('ATE V11 · COPY MAP','COPY MAP NO.'+src+' → '+(dest==='all'?'ALL':dests.join(','))+'\n\nCopy 8 nhóm đã xác nhận: Fuel + Góc phun + Góc lửa + Dwell + AFR/O2 target + Idle/Limit + AutoShift + ECT Motor.'))return;
 
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'COPY MAP ECU');
+  if(state.activeMap!==src||!v11FullImageReady())throw new Error('MAP nguồn hoặc ECU đã thay đổi khi xác nhận Copy MAP. Không gửi lệnh.');
   const resume=liveRunning;stopLiveLoop();
   try{
     for(const d of dests){
@@ -4680,10 +4781,7 @@ let restoreInFlight=false;
 async function confirmRestoreReal(){
   const title='KHÔI PHỤC DỮ LIỆU GỐC ECU';
   const message='ATE gốc dùng lệnh 0x8B.\n\nThao tác này thay đổi dữ liệu ECU. Giữ nguồn ECU ổn định, không tắt khóa điện và không ngắt BLE cho tới khi Blink báo hoàn tất.';
-  if(typeof window.blinkConfirm==='function'){
-    return !!(await window.blinkConfirm(title,message,'KHÔI PHỤC','HỦY'));
-  }
-  try{return !!window.confirm(title+'?\n\n'+message)}catch(_e){return false}
+  return await blinkProtocolConfirm(title,message,'KHÔI PHỤC','HỦY');
 }
 async function restoreReal(){
   requireProfile('restore','Khôi phục dữ liệu gốc');
@@ -4803,55 +4901,64 @@ async function restoreReal(){
     if(resume&&cmdChar()&&mapChar()&&handshakeInfo)setTimeout(()=>startLiveLoop(),350);
   }
 }
+function blinkTpsEcuReadSafe(){return typeof state!=='undefined'&&!state.recording&&!state.threeRun?.active;}
 async function tpsStudyReal(){
   requireProfile('tpsStudy','Học TPS');
   const profileKey=ecuProfile?.key||'UNKNOWN';
-
-  // ATE V11 returns the extended 0x77 payload whose TPS-voltage calibration
-  // is part of the V11 A2-style layout. It must not be decoded like V9/V10.
-  if(profileKey==='MODERN_V11'){
-    if(!confirm('ATE V11 · HỌC TPS\n\nSau khi tiếp tục, vặn ga từ MIN → MAX → MIN ít nhất 3 lần theo hướng dẫn ATE. Giữ nguồn ECU ổn định.'))return;
-    taskUi('loading','ATE V11 · HỌC TPS · MIN ↔ MAX > 3 LẦN...');
-    const rx=await rawExchange(req5(0x77,0x77),38000);
-    const f=findValidCommandFrame(rx,0x77,168);
-    if(!f)throw new Error('ATE V11 TPS Study không có frame 0x77 checksum hợp lệ');
-    const C=parseV11A2Data(f.slice(1,-2));
-    sensorCalCache=C;
-    sensorCalIdentity=handshakeInfo?[profileKey,handshakeInfo.ident||'',handshakeInfo.firmware||'',handshakeInfo.ecuId||1].join('|'):null;
-    const min=Number(C.tpsVolt&&C.tpsVolt[0]),max=Number(C.tpsVolt&&C.tpsVolt[13]);
-    if(Number.isFinite(min)&&Number.isFinite(max)&&Math.abs(max-min)>.1){
-      state.cal.tpsMin=min;state.cal.tpsMax=max;
-      try{window.resetBlinkTpsTrend?.();}catch(_e){}
-      try{syncControls();saveSoon();}catch(_e){}
-    }
-    notice('success','TPS STUDY ATE V11 OK',Number.isFinite(min)&&Number.isFinite(max)?min.toFixed(3)+' V → '+max.toFixed(3)+' V':'ECU đã trả calibration mới');
-    return C;
-  }
-
-  // Verified REDLEO V9 and V10/Ultra families use the standard 0x77 study
-  // response with TPS Min/Max in bytes 92/93. Keep the branches explicit so
-  // future ECU families cannot silently fall through to the wrong decoder.
-  if(profileKey!=='MODERN_V9'&&profileKey!=='MODERN_V10'){
-    throw new Error((ecuProfile?.label||profileKey)+' · chưa có quy trình Học TPS đã xác minh.');
-  }
-  const label=profileKey==='MODERN_V10'?'REDLEO V10/ULTRA':'REDLEO V9';
-  taskUi('loading',label+' · ĐANG HỌC TPS · CHỜ ECU...');
+  if(!['MODERN_V9','MODERN_V10','MODERN_V11'].includes(profileKey))throw new Error('ECU này chưa hỗ trợ HỌC TPS.');
+  if(!blinkTpsEcuReadSafe())throw new Error('Dừng ghi AFR và hủy phiên 3 lượt trước khi học TPS.');
+  if(!handshakeInfo||!state.ecuConnected)throw new Error('Chưa xác thực ECU qua BLE.');
+  const label=profileKey==='MODERN_V11'?(isUltraPro2Direct()?'ULTRA PRO2':'ATE V11'):(profileKey==='MODERN_V10'?(isUltraDirect()?'ULTRA PRO1':'V10'):'REDLEO 9.x');
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  if(!await blinkProtocolConfirm(label+' · HỌC TPS ECU','TẮT ĐỘNG CƠ, BẬT KHÓA ĐIỆN, GIỮ NGUỒN ECU ỔN ĐỊNH.\nSau khi xác nhận, xoay ga MIN → MAX → MIN ít nhất BA LẦN để ECU học.\nBlink chỉ xác minh sau khi đọc lại Options A2 độc lập.','BẮT ĐẦU HỌC','HỦY'))return false;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TPS STUDY');
+  if(!blinkTpsEcuReadSafe())throw new Error('Auto Tune bắt đầu trong khi xác nhận TPS Study; hủy học TPS.');
+  const epoch=transportEpoch,originalHandshake=handshakeInfo;
+  try{window.blinkResetEcuTpsCalibration?.('Đang học TPS từ ECU');}catch(_e){}
+  taskUi('loading',label+' · TPS STUDY 0x77 · MIN → MAX → MIN × 3...');
   const rx=await rawExchange(req5(0x77,0x77),38000);
-  if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ');
-  const min=rx[92]*20/1024,max=rx[93]*20/1024;
-  if(!(max>min+.1))throw new Error(label+' · TPS Study trả calibration không hợp lệ');
-  state.cal.tpsMin=min;state.cal.tpsMax=max;
-  try{window.resetBlinkTpsTrend?.();}catch(_e){}
-  try{syncControls();saveSoon();}catch(_e){}
-  notice('success','TPS STUDY '+(profileKey==='MODERN_V10'?'V10/ULTRA':'V9')+' OK',min.toFixed(3)+' V → '+max.toFixed(3)+' V');
+  if(epoch!==transportEpoch||originalHandshake!==handshakeInfo)throw new Error('ECU thay đổi trong khi Học TPS.');
+  let expected=null;
+  if(profileKey==='MODERN_V11'){
+    const frame=findValidCommandFrame(rx,0x77,168);
+    if(!frame)throw new Error(label+' · TPS Study 0x77 không có frame hợp lệ.');
+    const result=parseV11A2Data(frame.slice(1,-2));
+    expected=ecuTpsPairFromA2(result);
+    // Short 0x77 frames may lack full Options. Do not treat TPS axis
+    // voltage samples as if they were stored ECU TPS Min/Max.
+  }else{
+    if(rx.length<100||rx[0]!==0x77||!validFrame(rx))throw new Error(label+' · TPS Study 0x77 response không hợp lệ.');
+    const min=rx[92]*20/1024,max=rx[93]*20/1024;
+    if(!(max>min+0.1))throw new Error(label+' · TPS Study trả Min/Max không hợp lệ.');
+    expected={min,max};
+  }
+  taskUi('loading',label+' · ĐANG ĐỌC OPTIONS A2 ĐỘC LẬP...');
+  const A=await readA2SensorPageReal(false),actual=ecuTpsPairFromA2(A.cache);
+  if(epoch!==transportEpoch||originalHandshake!==handshakeInfo)throw new Error('ECU thay đổi khi đọc lại TPS.');
+  if(!actual||!window.blinkEcuTpsInfo?.()){
+    try{window.blinkResetEcuTpsCalibration?.('Chưa xác minh được Options A2 sau học');}catch(_e){}
+    throw new Error(label+' · đã nhận 0x77 nhưng chưa đọc lại được TPS Min/Max thật từ ECU.');
+  }
+  if(expected&&(Math.abs(actual.min-expected.min)>0.055||Math.abs(actual.max-expected.max)>0.055)){
+    try{window.blinkResetEcuTpsCalibration?.('Phản hồi 0x77 khác Options A2');}catch(_e){}
+    throw new Error(label+' · TPS 0x77 KHÁC A2. Phản hồi '+expected.min.toFixed(3)+'/'+expected.max.toFixed(3)+' V; A2 '+actual.min.toFixed(3)+'/'+actual.max.toFixed(3)+' V. Chưa xác minh.');
+  }
+  const detail='Min '+actual.min.toFixed(3)+' V → Max '+actual.max.toFixed(3)+' V; đã đọc mới A2'+(expected?' và khớp phản hồi 0x77':' (0x77 thiếu Options đối chiếu)');
+  notice('success',expected?'TPS STUDY ĐÃ XÁC MINH A2':'TPS ECU ĐÃ ĐỌC A2 · KIỂM TRA LẠI SAU BẬT KHÓA',detail);
+  return {min:actual.min,max:actual.max,replyCompared:!!expected};
 }
 async function testInjectorReal(){
   requireProfile('testInjector','Thử kim phun');
-  const s=Number(prompt('Thời gian test kim phun (giây, >1):','3'));
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
+  const reply=await blinkProtocolPrompt('Thời gian test kim phun (giây, >1):','3','TEST KIM PHUN');
+  if(reply===null)return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
+  const s=Number(reply);
   if(!Number.isFinite(s)||s<=1)return;
   const sec=clamp(Math.round(s),2,30);
   if(isV11Profile()){
-    if(!confirm('ATE V11 · TEST KIM PHUN '+sec+' GIÂY\n\nĐộng cơ phải tắt. Đảm bảo khu vực an toàn trước khi kích kim phun.'))return;
+    if(!await blinkProtocolConfirm('ATE V11 · TEST KIM PHUN','Thời gian '+sec+' GIÂY\n\nĐộng cơ phải tắt. Đảm bảo khu vực an toàn trước khi kích kim phun.','KÍCH KIM PHUN','HỦY'))return;
+    ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
     const resume=liveRunning;stopLiveLoop();
     const until=Date.now()+sec*1000;
     try{
@@ -4870,6 +4977,7 @@ async function testInjectorReal(){
     notice('success','TEST INJECTOR ATE V11 XONG',sec+' giây · đã gửi DC 00 stop');
     return;
   }
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TEST KIM PHUN');
   await rawExchange(req5(0xDC,sec+1),6000);
   notice('info','TEST INJECTOR','ECU đang test '+sec+' giây');
   setTimeout(()=>rawExchange(req5(0xDC,0),5000).catch(console.warn),sec*1000+200);
@@ -4911,11 +5019,13 @@ async function ensureV11PasswordCache(){
 }
 async function loginReal(){
   requireProfile('password','Đăng nhập ECU');
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
   let cur=currentPasswordBytes();
   if(isV11Profile()&&!cur)cur=await ensureV11PasswordCache();
   if(!cur)return notice('error','LOGIN','Chưa đọc được PIN ECU.');
-  const p=prompt(isV11Profile()?'Nhập PIN ECU hiện tại (1–4 số):':'Nhập mật khẩu ECU:','');
+  const p=await blinkProtocolPrompt(isV11Profile()?'Nhập PIN ECU hiện tại (1–4 số):':'Nhập mật khẩu ECU:','','ĐĂNG NHẬP ECU');
   if(p==null)return;
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐĂNG NHẬP ECU');
   const inBytes=isV11Profile()?v11PasswordDigitsToBytes(p):passwordDigitsToBytes(p);
   const ok=passwordBytesToString(inBytes)===passwordBytesToString(cur);
   loginState=ok;
@@ -4924,20 +5034,22 @@ async function loginReal(){
 function logoutReal(){loginState=false;notice('info','LOGOUT','Đã đăng xuất')}
 async function changePasswordReal(){
   requireProfile('password','Đổi mật khẩu ECU');
+  const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
 
   if(isV11Profile()){
     let cur=await ensureV11PasswordCache();
     if(!cur)throw new Error('Không đọc được PIN hiện tại từ ATE V11.');
-    const old=prompt('PIN ATE hiện tại (1–4 số):','');
+    const old=await blinkProtocolPrompt('PIN ATE hiện tại (1–4 số):','','PIN ECU HIỆN TẠI');
     if(old==null)return;
     if(passwordBytesToString(v11PasswordDigitsToBytes(old))!==passwordBytesToString(cur))throw new Error('PIN cũ sai.');
-    const p=prompt('PIN ATE mới (1–4 số, chỉ 0–9):','');
+    const p=await blinkProtocolPrompt('PIN ATE mới (1–4 số, chỉ 0–9):','','PIN ECU MỚI');
     if(p==null)return;
     const bytes=v11PasswordDigitsToBytes(p);
 
     // Original ATE V11 Change Password calls proDgvEnter(..., 0xB0).
     // The B0 serializer emits: CD B0 + 4 password nibbles + 00 00 + checksum.
     const payload=[...bytes,0,0];
+    ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐỔI PIN ECU');
     taskUi('loading','ATE V11 · ĐANG ĐỔI PIN PAGE B0...');
     await writePageChecked(0xB0,payload,false,1,'password');
     await new Promise(r=>setTimeout(r,260));
@@ -4953,10 +5065,11 @@ async function changePasswordReal(){
   }
 
   await ensureV9FullWriteReady('Đổi mật khẩu ECU');
-  const old=prompt('Mật khẩu cũ:','');if(old==null)return;
+  const old=await blinkProtocolPrompt('Mật khẩu cũ:','','MẬT KHẨU ECU');if(old==null)return;
   if(passwordBytesToString(passwordDigitsToBytes(old))!==passwordBytesToString(readCache.password))throw new Error('Mật khẩu cũ sai');
-  const p=prompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','');if(p==null)return;
+  const p=await blinkProtocolPrompt('Mật khẩu mới (tối đa 4 ký tự hex 0-9/A-F):','','MẬT KHẨU ECU MỚI');if(p==null)return;
   const bytes=passwordDigitsToBytes(p),payload=[...bytes,0,0];
+  ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'ĐỔI MẬT KHẨU ECU');
   await writePageChecked(0xB2,payload);
   readCache.password=bytes;loginState=true;
   notice('success','ĐỔI MẬT KHẨU OK','Page B2 đã ACK');
@@ -4969,7 +5082,7 @@ function ecuInfoFromCache(){if(handshakeInfo){syncHandshakeInfo(handshakeInfo);r
 function taskUi(kind,text,holdMs){try{if(typeof window.setEcuTaskStatus==='function')window.setEcuTaskStatus(kind,text,holdMs)}catch(_e){}}
 
 const ECU_MAP_IO_BUTTON_IDS=[
-  'readMapBtn','writeMapBtn','applyCorrectedBtn',
+  'readMapBtn','writeMapBtn','applyCorrectedBtn','tuneApplyCorrectedBtn',
   'redReadBtn','redWriteBtn',
   'idleLimitReadBtn','idleLimitWriteBtn'
 ];
@@ -5002,11 +5115,19 @@ function markEcuMapTransportStarted(cmd,data){
   updateActiveMapIoText(ecuMapIoKind==='read'?'⟳ ĐANG ĐỌC...':'⟳ ĐANG GHI...');
   taskUi('loading',(ecuMapIoKind==='read'?'ĐANG ĐỌC ECU · ':'ĐANG GHI ECU · ')+what);
 }
-function setEcuMapIoUiBusy(activeId,kind,on,label=''){
+function setEcuMapIoUiBusy(activeId,kind,on,label='',opts={}){
   const buttons=mapIoButtons();
   const selectors=ECU_MAP_IO_SELECT_IDS.map(id=>document.getElementById(id)).filter(Boolean);
 
   if(on){
+    // PB3.79.104: automatic TPS<1% save is NOT invoked through captureMapIo.
+    // Treat it as a real occupied transaction: refuse all manual map
+    // read/write clicks before any state is changed, and show WHY.
+    if(typeof window.blinkAutoIdleSaveBusy==='function'&&window.blinkAutoIdleSaveBusy()){
+      taskUi('info','AUTO TUNER ĐANG LƯU VÀ ĐỌC LẠI MAP · CHƯA GỬI LỆNH GHI TAY',4000);
+      notice('info','CHỜ AUTO TUNER LƯU XONG','Đang ghi MAP đã bù và xác minh lại 420 ô. Chưa gửi lệnh lưu phun xăng bằng tay; hãy chờ hoàn tất.');
+      return false;
+    }
     // SINGLE-FLIGHT: never enqueue a second user MAP read/write behind the
     // current one. The protocol mutex is the last safety net, not a click queue.
     if(ecuMapIoUiBusy)return false;
@@ -5032,7 +5153,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
       // This is only a tap acknowledgement. It deliberately does NOT say
       // "ĐANG GHI" yet. That state is promoted by rawExchange only after the
       // real ECU transport mutex has been acquired.
-      active.textContent=kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...';
+      active.textContent=opts.confirmFirst?'⏳ CHUẨN BỊ LƯU MAP ĐÃ BÙ...':(kind==='read'?'⏳ ĐANG CHỜ ĐỌC...':'⏳ ĐANG CHỜ GHI...');
       try{
         active.animate(
           [{transform:'scale(1)',filter:'brightness(1)'},{transform:'scale(.95)',filter:'brightness(1.5)'},{transform:'scale(1)',filter:'brightness(1)'}],
@@ -5042,7 +5163,10 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
     }
 
     const what=String(label||'MAP').toUpperCase();
-    taskUi('loading',(kind==='read'?'ĐÃ NHẤN ĐỌC · ':'ĐÃ NHẤN GHI · ')+what+' · ĐANG CHỜ ECU...');
+    // A corrected-map click must show its explicit confirmation FIRST. Do not
+    // raise a blue 'ĐANG CHỜ ECU' spinner while the user has not approved
+    // sending any bytes: that looked like a first tap that did nothing.
+    if(!opts.confirmFirst)taskUi('loading',(kind==='read'?'ĐÃ NHẤN ĐỌC · ':'ĐÃ NHẤN GHI · ')+what+' · ĐANG CHỜ ECU...');
     return true;
   }
 
@@ -5075,7 +5199,7 @@ function setEcuMapIoUiBusy(activeId,kind,on,label=''){
   return true;
 }
 
-function captureMapIo(id,kind,handler,labelFn){
+function captureMapIo(id,kind,handler,labelFn,options={}){
   const el=document.getElementById(id);
   if(!el)return;
   // The base page and BLE-test shim both assign legacy onclick handlers to
@@ -5086,17 +5210,48 @@ function captureMapIo(id,kind,handler,labelFn){
   el.addEventListener('click',async e=>{
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
     const label=typeof labelFn==='function'?labelFn():labelFn;
-    if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP'))return;
-    let manualCtx=null;
+    // Auto Tune 3-pass is an existing transport-first flow. Only the manual
+    // "MAP ĐÃ BÙ → ECU" button has the confirmation-first behavior.
+    const confirmFirst=!!options.confirmFirst&&!(typeof state!=='undefined'&&state.threeRun?.active);
+    if(!setEcuMapIoUiBusy(id,kind,true,label||'MAP',{confirmFirst}))return;
+    let manualCtx=null,manualStarted=false,manualPromise=null;
+    const beginTransport=async()=>{
+      if(!manualPromise){
+        manualStarted=true;
+        if(confirmFirst)taskUi('loading','ĐANG CHỜ ECU ĐỂ GHI · '+String(label||'MAP').toUpperCase());
+        manualPromise=beginManualMapIo(label||'MAP');
+      }
+      manualCtx=await manualPromise;
+      return manualCtx;
+    };
     try{
-      manualCtx=await beginManualMapIo(label||'MAP');
-      await handler(e);
+      if(!confirmFirst)await beginTransport();
+      // For manual MAP ĐÃ BÙ, handler presents the confirmation immediately,
+      // then calls beginTransport *once*, continuing with the same first tap.
+      const result=await handler(e,beginTransport);
+      if(id==='applyCorrectedBtn'&&result===true){
+        // startFuelWrite returns true only when 420/420 cells are verified.
+        taskUi('success','MAP ĐÃ BÙ · ECU ĐÃ XÁC MINH 420/420 Ô · OK',3500);
+      }else if(id==='applyCorrectedBtn'&&result===false){
+        // A false return previously left RAWREADY's blue spinner indefinitely,
+        // misleading the operator into tapping SAVE again.
+        if(ecuMapIoTransportStarted){
+          taskUi('error','MAP ĐÃ BÙ CHƯA XÁC MINH · ĐỌC LẠI ECU TRƯỚC KHI GHI LẠI',8000);
+        }else{
+          taskUi('offline','MAP ĐÃ BÙ · CHƯA GỬI ECU',3500);
+        }
+      }else if(id==='writeMapBtn'&&result===false){
+        taskUi(ecuMapIoTransportStarted?'error':'offline',
+          ecuMapIoTransportStarted?'GHI MAP CHƯA XÁC NHẬN · ĐỌC LẠI ECU':'CHƯA GỬI MAP VÀO ECU',6500);
+      }
     }catch(x){
       err(x);
       taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);
       notice('error','ECU REAL',x&&x.message||String(x));
     }finally{
-      try{endManualMapIo(manualCtx)}catch(_e){}
+      // A cancelled confirmation must NOT end a different action's manual
+      // context or resume Live unnecessarily; it never acquired the ECU.
+      if(manualStarted){try{endManualMapIo(manualCtx)}catch(_e){}}
       setEcuMapIoUiBusy(null,null,false);
     }
   },true);
@@ -5105,7 +5260,9 @@ function captureMapIo(id,kind,handler,labelFn){
 function notice(type,title,detail){
   if(type==='success')taskUi('success',title+' · OK');
   else if(type==='error')taskUi('error',title+' · LỖI',6500);
-  if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);else alert(title+'\n'+detail)
+  if(typeof window.showEcuNotice==='function')showEcuNotice(type,title,detail,4500);
+  else if(typeof window.blinkAlert==='function')window.blinkAlert(title+'\n'+detail,'ECU');
+  else console.warn('ECU NOTICE (UI not initialized):',title,detail);
 }
 function protect(fn){return async e=>{if(e){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}try{await fn(e)}catch(x){err(x);taskUi('error','ECU · LỖI: '+String(x&&x.message||x),6500);notice('error','ECU REAL',x.message||String(x))}}}
 function capture(id,handler){const e=document.getElementById(id);if(e)e.addEventListener('click',protect(handler),true)}
@@ -5151,15 +5308,29 @@ function installUI(){
   },'THỜI GIAN PHUN');
 
   captureMapIo('writeMapBtn','write',async()=>{
-    if(typeof startFuelWrite==='function'){await startFuelWrite();return;}
+    if(typeof startFuelWrite==='function')return await startFuelWrite();
     await writeCurrentFuelAndVerify(state.activeMap);
     notice('success','MAP PHUN WRITE REAL','MAP No.'+normalizeBankForProfile(state.activeMap)+' · ECU ACK · KHÔNG ĐỌC LẠI');
   },'THỜI GIAN PHUN');
 
-  captureMapIo('applyCorrectedBtn','write',async()=>{
-    if(typeof applyCorrectedAndWrite==='function'){await applyCorrectedAndWrite();return;}
+  captureMapIo('applyCorrectedBtn','write',async(_event,beginTransport)=>{
+    if(typeof applyCorrectedAndWrite==='function'){
+      return await applyCorrectedAndWrite({prepareTransport:beginTransport});
+    }
     throw new Error('Không tìm thấy luồng MAP ĐÃ BÙ an toàn.');
-  },'MAP ĐÃ BÙ');
+  },'MAP ĐÃ BÙ',{confirmFirst:true});
+  capture('tpsSyncReadBtn',async()=>{
+    requireProfile('optionsRead','Đọc TPS Min/Max ECU');
+    if(!blinkTpsEcuReadSafe())throw new Error('Dừng Auto Tune trước khi đọc lại TPS ECU.');
+    taskUi('loading','ĐANG ĐỌC TPS OPTIONS A2...');
+    const R=await readA2SensorPageReal(false),pair=ecuTpsPairFromA2(R.cache);
+    if(!pair||!window.blinkEcuTpsInfo?.())throw new Error('Chưa đọc được TPS Min/Max từ Options A2 ECU. Auto Tune vẫn khóa.');
+    // This is an EXPLICIT user request to return from Blink manual TPS to ECU
+    // calibration, unlike background A2 reads which must preserve manual mode.
+    if(window.blinkReturnToEcuTps && !window.blinkReturnToEcuTps())
+      throw new Error('Chưa thể chuyển lại TPS ECU. Dừng ghi AFR, bảo đảm đã sao lưu dữ liệu AFR rồi thử lại.');
+    notice('success','TPS ECU ĐỒNG BỘ OK',pair.min.toFixed(3)+' V → '+pair.max.toFixed(3)+' V; đã chuyển về TPS ECU (không gửi lệnh học/ghi)');
+  });
   capture('studyTpsBtn',tpsStudyReal);
   capture('restoreEcuBtn',restoreReal);
 
@@ -5234,6 +5405,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,writeIdleReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();

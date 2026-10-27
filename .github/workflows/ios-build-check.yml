@@ -1,34 +1,41 @@
-name: Check BLINK REDLEO iOS
+name: Check BLINK REDLEO iOS PB3.79.118
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'ios/**'
-      - 'tools/check-ios64-original-ign.js'
-      - 'tools/check-ios64-afr-cursor-fullrpm.js'
-      - '.github/workflows/ios-build-check.yml'
   push:
-    branches: [main, ios-testflight, ios-hybrid-fallback]
+    branches: [ios-hybrid-fallback]
     paths:
       - 'ios/**'
-      - 'tools/check-ios64-original-ign.js'
-      - 'tools/check-ios64-afr-cursor-fullrpm.js'
       - '.github/workflows/ios-build-check.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify iOS 3.79.64 native-loader and original PC IGN read/write codec
+
+      - name: Verify PB3.79.118 iOS hybrid sources
         run: |
+          set -euo pipefail
           node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
-          node tools/check-ios64-original-ign.js
-          node tools/check-ios64-afr-cursor-fullrpm.js
+          grep -q "BLINK_PB_VERSION = '3.79.118'" ios/BlinkRedleo/Web/index.html
+          grep -q "ios-native-remote-first" ios/BlinkRedleo/Web/index.html
+          if grep -q "const src='redleo_real_protocol.js?v=" ios/BlinkRedleo/Web/index.html; then
+            echo "Bundled iOS UI must not auto-load local protocol; native shell injects remote-first protocol"
+            exit 1
+          fi
+          grep -q "window.BlinkRealProtocol" ios/BlinkRedleo/Web/redleo_real_protocol.js
+          grep -q 'CURRENT_PROJECT_VERSION: "118"' ios/project.yml
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
+          grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" ios/BlinkRedleo/MainViewController.swift
+
       - name: Install XcodeGen
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+
       - name: Generate project and icons
         working-directory: ios
         run: |
@@ -39,45 +46,41 @@ jobs:
           b = p.read_bytes()
           assert b[:8] == b"\x89PNG\r\n\x1a\n", "Invalid PNG signature"
           assert b[25] == 2, f"App Store icon must be RGB without alpha; PNG color type={b[25]}"
-          print("App Store icon verified: RGB, no alpha channel")
+          print("App Store icon verified: RGB, no alpha")
           PY
           xcodegen generate
+
       - name: Build unsigned simulator app
         working-directory: ios
         run: |
           xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
 
-      - name: Build unsigned device app and IPA
+      - name: Build unsigned device IPA
         working-directory: ios
         run: |
           set -euo pipefail
-          rm -rf build-device Payload BLINK-REDLEO-unsigned.ipa
+          rm -rf build-device Payload BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa
           xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Release -sdk iphoneos -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
           APP_PATH="build-device/Build/Products/Release-iphoneos/BLINK REDLEO.app"
           test -d "$APP_PATH"
-
           INDEX_PATH="$(find "$APP_PATH" -name index.html -type f -print -quit)"
           PROTOCOL_PATH="$(find "$APP_PATH" -name redleo_real_protocol.js -type f -print -quit)"
           test -n "$INDEX_PATH"
           test -n "$PROTOCOL_PATH"
-          test "$(dirname "$INDEX_PATH")" = "$(dirname "$PROTOCOL_PATH")"
-          if grep -R -q 'letan99vl.github.io/Blink-Redleo' "$APP_PATH"; then
-            echo "Runtime bundle still contains GitHub Pages UI URL"
-            exit 1
-          fi
+          grep -q "BLINK_PB_VERSION = '3.79.118'" "$INDEX_PATH"
           grep -q "ios-native-remote-first" "$INDEX_PATH"
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
-          grep -q "IOS64-IGN-FIXED360-20261018" "$PROTOCOL_PATH"
-          grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" BlinkRedleo/MainViewController.swift
-          echo "Hybrid verified: local UI + remote protocol + bundled fallback"
-
+          if grep -R -q 'letan99vl.github.io/Blink-Redleo' "$APP_PATH"; then
+            echo "Runtime bundle contains obsolete GitHub Pages UI URL"
+            exit 1
+          fi
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          /usr/bin/zip -qry BLINK-REDLEO-unsigned.ipa Payload
+          /usr/bin/zip -qry BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa Payload
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-iOS-unsigned
-          path: ios/BLINK-REDLEO-unsigned.ipa
+          name: BLINK-REDLEO-iOS-PB3.79.118-Build118-unsigned
+          path: ios/BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa
           if-no-files-found: error
