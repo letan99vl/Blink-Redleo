@@ -190,8 +190,12 @@ async function ensureFastReadAllRx(){
   // IPA 118 keeps the BLE bootstrap in bundled HTML, but the ECU protocol is
   // remote-first. Re-run the bundled RX probe here so native iOS can recover
   // from a missed/early negotiation without rebuilding the IPA.
-  const fw=String(window.blinkBridgeFirmwareStatus||'');
+  let fw=String(window.blinkBridgeFirmwareStatus||'');
   try{
+    if(!bridgeFirmwareAtLeast(1,7)&&typeof window.ensureBlinkBridgeFirmwareStatus==='function'){
+      try{await window.ensureBlinkBridgeFirmwareStatus(2);}catch(_e){}
+      fw=String(window.blinkBridgeFirmwareStatus||fw);
+    }
     if(typeof window.configureBlinkFastBridgeRx==='function'&&bridgeFirmwareAtLeast(1,8)){
       const ok=await window.configureBlinkFastBridgeRx(fw);
       const after=Math.max(12,Number(window.blinkBridgeRxPayload||12));
