@@ -2227,10 +2227,11 @@ function setOptionFieldMeta(name,show,label,sub,step){
 }
 function ensureV9OptionExtraFields(){
   const panel=document.getElementById('legacyEcuOptionsPanel'),grid=panel&&panel.querySelector('.optionGrid');if(!grid)return;
-  for(const x of [
+  const specs=[
     ['afrDelayCold','ECU AFR Delay Work - máy nguội','AFR Delay Work (Cold)','Second'],
     ['afrDelayHot','ECU AFR Delay Work - máy nóng','AFR Delay Work (Hot)','Second']
-  ]){
+  ];
+  for(const x of specs){
     if(document.querySelector('[data-ecuopt="'+x[0]+'"]'))continue;
     const d=document.createElement('div');d.className='optionField';
     d.innerHTML='<label>'+x[1]+'<br><span style="color:#55484b">'+x[2]+'</span></label><input data-ecuopt="'+x[0]+'" type="number" step="0.1" placeholder="'+x[3]+'">';
@@ -2243,11 +2244,11 @@ function syncOptions(C){
   setValue('[data-ecuopt="autoClutchStartRpm"]',C.autoStart);
   if(o.optionFamily==='v92'){
     setOptionFieldMeta('coldStartInj',false,'','',0.1);setOptionFieldMeta('coldStartDelay',false,'','',0.1);
-    setOptionFieldMeta('openingSpeed',true,'Tổng số bước motor garanti','Total steps of idle motor','2');
+    setOptionFieldMeta('openingSpeed',true,'Tổng số bước motor garanti','Total steps of idle motor',2);
     setValue('[data-ecuopt="openingSpeed"]',o.openingSpeed);
   }else{
-    setOptionFieldMeta('coldStartInj',true,'Tăng phun khi khởi động nguội','Cold start (increase INJ)','0.1');
-    setOptionFieldMeta('coldStartDelay',true,'Độ trễ tăng phun khởi động nguội','Cold start (increase INJ delay)','0.1');
+    setOptionFieldMeta('coldStartInj',true,'Tăng phun khi khởi động nguội','Cold start (increase INJ)',0.1);
+    setOptionFieldMeta('coldStartDelay',true,'Độ trễ tăng phun khởi động nguội','Cold start (increase INJ delay)',0.1);
     setOptionFieldMeta('openingSpeed',false,'','',0.1);
     setValue('[data-ecuopt="coldStartInj"]',o.coldStartInj);setValue('[data-ecuopt="coldStartDelay"]',o.coldStartDelay);
   }
