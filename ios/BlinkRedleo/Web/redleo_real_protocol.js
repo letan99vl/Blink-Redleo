@@ -2130,10 +2130,19 @@ function parseReadAll(a,preferredCmd=null){
     hidden:{}
   };
 }
+// Native REDLEO 9.1X + 9.2 proWrDgvOption(index 4) adds +64
+// before calling Ign_EcuToPc. Thus the Option byte is UNBIASED on wire.
+// Main ignition and ECT-ign tables are different and retain the +64 bias.
+function decV9OptionIgn(raw){return roundOriginalPcIgn((Number(raw)&255)*360/(256*VER_ANGLE),1)}
+function encV9OptionIgn(v){
+  v=Number(v);
+  if(!Number.isFinite(v))throw new Error('V9 Idle Auto Reg IGN không hợp lệ');
+  return clamp(roundOriginalPcIgn(roundOriginalPcIgn(Math.max(0,v)*256/360,1)*VER_ANGLE,0),0,255);
+}
 function decodeOptions(raw,vEct,bits,startRpm){
   return {
     tpsMinEcu:decVolt(raw[0]),tpsMaxEcu:decVolt(raw[1]),idleMinCold:decOil(raw[2]),idleMinHot:decOil(raw[3]),
-    idleIgnReg:decEctIgn(raw[4]),idleInjReg:decOil(raw[5]),afrDelayCold:decSeconds(raw[6],64),afrDelayHot:decSeconds(raw[7],64),
+    idleIgnReg:decV9OptionIgn(raw[4]),idleInjReg:decOil(raw[5]),afrDelayCold:decSeconds(raw[6],64),afrDelayHot:decSeconds(raw[7],64),
     coldStartInj:decColdStart(raw[8]),coldStartDelay:decSeconds(raw[9],16),fanTemp:ectRawToTemp(raw[10],vEct),
     afrControl:(bits&1)===0,singleTpsIgn:!!(bits&2),dontMap:!!(bits&4),password:!!(bits&8),tps100Power:!!(bits&16),
     externalAxis:(bits&32)?'tps':'rpm',autoClutchEnable:!!(bits&64),o2Source:(bits&128)?'external':'original',autoClutchStartRpm:startRpm
@@ -2155,7 +2164,7 @@ function optionRawFromUI(cache){
   const old=(cache&&cache.optionRaw?cache.optionRaw:Array(12).fill(0)).slice();const vEct=cache.vEct;
   old[0]=encVolt(inputVal('tpsMinEcu',decVolt(old[0])));old[1]=encVolt(inputVal('tpsMaxEcu',decVolt(old[1])));
   old[2]=encOil(inputVal('idleMinCold',decOil(old[2])));old[3]=encOil(inputVal('idleMinHot',decOil(old[3])));
-  old[4]=clamp(Math.round((Math.max(0,inputVal('idleIgnReg',decEctIgn(old[4])))*256/360)*4),0,255); // option stores centered value without +64
+  old[4]=encV9OptionIgn(inputVal('idleIgnReg',decV9OptionIgn(old[4]))); // V9 Option IGN is unbiased raw
   old[5]=encOil(inputVal('idleInjReg',decOil(old[5])));
   // 6/7 AFR delay work are deliberately hidden: preserve exact raw bytes.
   old[8]=encColdStart(inputVal('coldStartInj',decColdStart(old[8])));
