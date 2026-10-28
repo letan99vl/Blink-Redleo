@@ -4,6 +4,7 @@ on:
   push:
     branches: [ios-hybrid-fallback]
     paths:
+      - 'ios/**'
       - 'TESTFLIGHT_HANDOFF_PB379118.md'
       - 'PACKAGE_INFO_PB379118.txt'
       - '.github/workflows/export-ios-service-pb379118.yml'
