@@ -2132,7 +2132,6 @@ function parseReadAll(a,preferredCmd=null){
 }
 window.BLINK_V9_OPTION_IGN_CODEC_REVISION='V9OPT-UNBIASED-20261028-R2';
 window.BLINK_OPTIONS_FAMILY_REVISION='V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
-// Native REDLEO V9 Option IGN is UNBIASED on wire; main/ECT IGN remains +64 biased.
 function decV9OptionIgn(raw){return roundOriginalPcIgn((Number(raw)&255)*360/(256*VER_ANGLE),1)}
 function encV9OptionIgn(v){
   v=Number(v);
@@ -2141,7 +2140,8 @@ function encV9OptionIgn(v){
 }
 function decV92OptionSecond(raw){return r1((Number(raw)&255)*0.2)}
 function encV92OptionSecond(v){
-  v=Number(v);if(!Number.isFinite(v)||v<0)throw new Error('V9.2 Option seconds không hợp lệ');
+  v=Number(v);
+  if(!Number.isFinite(v)||v<0)throw new Error('V9.2 Option seconds không hợp lệ');
   return clamp(Math.round(v/0.2),0,255);
 }
 function v9OptionCommon(raw,bits,startRpm){
@@ -2184,24 +2184,21 @@ function bitfieldFromUI(base=0){
 }
 function inputVal(name,def=0){const e=document.querySelector('[data-ecuopt="'+name+'"]');const v=e?Number(e.value):NaN;return Number.isFinite(v)?v:def}
 function optionRawFromUI(cache){
-  const old=(cache&&cache.optionRaw?Array.from(cache.optionRaw):Array(12).fill(0)).slice(0,12);const vEct=cache.vEct;
+  const old=(cache&&cache.optionRaw?Array.from(cache.optionRaw):Array(12).fill(0)).slice(0,12),vEct=cache.vEct;
   old[0]=encVolt(inputVal('tpsMinEcu',decVolt(old[0])));old[1]=encVolt(inputVal('tpsMaxEcu',decVolt(old[1])));
   old[2]=encOil(inputVal('idleMinCold',decOil(old[2])));old[3]=encOil(inputVal('idleMinHot',decOil(old[3])));
-  old[4]=encV9OptionIgn(inputVal('idleIgnReg',decV9OptionIgn(old[4])));
-  old[5]=encOil(inputVal('idleInjReg',decOil(old[5])));
+  old[4]=encV9OptionIgn(inputVal('idleIgnReg',decV9OptionIgn(old[4])));old[5]=encOil(inputVal('idleInjReg',decOil(old[5])));
   if(isV92Direct()){
     old[6]=encV92OptionSecond(inputVal('afrDelayCold',decV92OptionSecond(old[6])));
     old[7]=encV92OptionSecond(inputVal('afrDelayHot',decV92OptionSecond(old[7])));
     old[8]=clamp(Math.round(inputVal('openingSpeed',(old[8]&255)*2)/2),0,255);
     old[9]=ectTempToRaw(inputVal('fanTemp',ectRawToTemp(old[9],vEct)),vEct);
-    // Native 9.2 decoder exposes only indices 0..9. Preserve 10..11 raw.
   }else{
     old[6]=encSeconds(inputVal('afrDelayCold',decSeconds(old[6],64)),64);
     old[7]=encSeconds(inputVal('afrDelayHot',decSeconds(old[7],64)),64);
     old[8]=encColdStart(inputVal('coldStartInj',decColdStart(old[8])));
     old[9]=encSeconds(inputVal('coldStartDelay',decSeconds(old[9],16)),16);
     old[10]=ectTempToRaw(inputVal('fanTemp',ectRawToTemp(old[10],vEct)),vEct);
-    // Native 9.1X decoder exposes only indices 0..10. Preserve 11 raw.
   }
   return old;
 }
