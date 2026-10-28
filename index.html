@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.118'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
+  window.BLINK_PB_VERSION = '3.79.119'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -29,6 +29,7 @@ window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-FIXED-360-MIDPOINT-EVEN';
+window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION = 'V9OPT-UNBIASED-20261028-R2';
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
 window.BLINK_AFR_CURSOR_REVISION = 'AFR-CURSOR-ROT90';
 window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
@@ -8931,7 +8932,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
   })();
