@@ -647,7 +647,7 @@ function applyProfileUi(){
     else if(c==='LOGIN'||c==='LOGOUT')ok=profileCap('password');
     else if(c==='SEND_CURRENT')ok=profileCap('fuelWrite');
     else if(c==='SEND_ALL')ok=p.family==='v11'?v11FullImageReady():profileCap('fullWrite');
-    else if(c==='OPTIONS_WRITE')ok=!isV91Direct()&&profileCap('fullWrite');
+    else if(c==='OPTIONS_WRITE')ok=isV92Direct()&&profileCap('mainWrite');
     else if(c==='RESTORE')ok=profileCap('restore');
     else if(c==='CHANGE_PASSWORD')ok=profileCap('password')&&(p.family==='v11'||profileCap('fullWrite'));
     else if(c==='TEST_INJ')ok=profileCap('testInjector');
@@ -2171,7 +2171,7 @@ function optionRawFromUI(cache){
   old[8]=encColdStart(inputVal('coldStartInj',decColdStart(old[8])));
   old[9]=encSeconds(inputVal('coldStartDelay',decSeconds(old[9],16)),16);
   old[10]=ectTempToRaw(inputVal('fanTemp',ectRawToTemp(old[10],vEct)),vEct);
-  old[11]=bitfieldFromUI(cache.bitfield);
+  // Option byte 11 is undocumented; keep exact raw. CONFIG bitfield lives at A2 byte 80.
   return old;
 }
 
@@ -2218,7 +2218,9 @@ function syncIdle(bank){
   emitFeature(N.ect_idle_motor,b.ectMotor,bank);
 }
 function syncAll(C){
-  readCache=C;window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,extension:C.extension128||null};syncFuel(C);syncOptions(C);
+  readCache=C;window.blinkReadAllLayout={length:C.sourceLength,layout:C.layoutInfo,extension:C.extension128||null};syncFuel(C);
+  // V9 Options are authoritative only from direct A2 / ĐỌC TÙY CHỌN.
+  // READ ALL must never overwrite the Options UI with bytes from the full image.
   try{applyProfileUi();}catch(_e){}
   for(const b of C.banks){
     emitFeature(N.inj_degree,b.injDegree,b.bank);emitFeature(N.ign_degree,b.ignDegree,b.bank);emitFeature(N.ign_time,b.ignTime,b.bank);emitFeature(N.ect_idle_motor,b.ectMotor,b.bank);
@@ -4260,14 +4262,49 @@ async function writeIdleReal(){
   return {ack:true,page:pg,payload:Uint8Array.from(payload)};
 }
 async function writeOptionsReal(){
-  if(isV91Direct())throw new Error('REDLEO 9.1X · Ghi Options 12B vẫn khóa riêng; Blink chỉ cho ghi các block A2 đã xác minh và giữ Option/AutoClutch/password raw.');
-  await ensureV9FullWriteReady('Ghi Options');
-  assertSafeWriteLayout();
-  const payload=a2Payload();
-  await writePageChecked(0xA2,payload);
-  cacheAckedPage(0xA2,payload);
-  notice('success','OPTIONS GHI OK','AFR Control/O2 + Options + Sensor page A2 · ECU ACK');
-  return {ack:true,page:0xA2,payload:Uint8Array.from(payload)};
+  if(isV91Direct())throw new Error('REDLEO 9.1X · Ghi Options vẫn khóa riêng: layout/scale khác 9.2, không dùng writer chung.');
+  if(!isV92Direct())throw new Error('GHI TÙY CHỌN trực tiếp hiện chỉ mở cho REDLEO 9.2 đã nhận diện đúng.');
+  requireProfile('mainWrite','Ghi Tùy chọn V9.2');
+
+  // Authoritative baseline is the direct A2 read from ĐỌC TÙY CHỌN.
+  // No READ ALL / fullWrite dependency: preserve every unrelated A2 byte.
+  const baseline=requireCachedPageAtLeast(0xA2,133,'REDLEO 9.2 Tùy chọn');
+  const payload=baseline.slice(0,133);
+  const C=parseA2Data(baseline);
+
+  const lo=inputVal('tpsMinEcu',C.options.tpsMinEcu);
+  const hi=inputVal('tpsMaxEcu',C.options.tpsMaxEcu);
+  if(!Number.isFinite(lo)||!Number.isFinite(hi)||lo<0||hi>5||lo>=hi)
+    throw new Error('TPS Min/Max ECU phải thỏa 0 ≤ Min < Max ≤ 5 V.');
+
+  // CONFIG byte is separate from Option[11]. Patch only verified UI bits.
+  payload[80]=bitfieldFromUI(C.bitfield);
+  payload[81]=encAutoRpm(inputVal('autoClutchStartRpm',C.autoStart));
+
+  const opt=Array.from(C.optionRaw);
+  opt[0]=encVolt(lo);
+  opt[1]=encVolt(hi);
+  opt[2]=encOil(inputVal('idleMinCold',C.options.idleMinCold));
+  opt[3]=encOil(inputVal('idleMinHot',C.options.idleMinHot));
+  opt[4]=encV9OptionIgn(inputVal('idleIgnReg',C.options.idleIgnReg));
+  opt[5]=encOil(inputVal('idleInjReg',C.options.idleInjReg));
+  // Option 6/7 are AFR Delay Work and remain raw-preserved until their V9.2 UI writer is exposed.
+  opt[8]=encColdStart(inputVal('coldStartInj',C.options.coldStartInj));
+  opt[9]=encSeconds(inputVal('coldStartDelay',C.options.coldStartDelay),16);
+  opt[10]=ectTempToRaw(inputVal('fanTemp',C.options.fanTemp),C.vEct);
+  // Option 11 is undocumented; preserve exact ECU raw byte.
+  for(let i=0;i<12;i++)payload[91+i]=opt[i]&255;
+
+  taskUi('loading','REDLEO 9.2 · GHI TÙY CHỌN A2 · TX 133B · GIỮ BYTE KHÁC');
+  await writeWritablePrefixPage(0xA2,payload,baseline,'REDLEO 9.2 Tùy chọn','mainWrite',1);
+
+  const verified=pageCache.get(0xA2);
+  if(!verified||verified.length<133)throw new Error('Tùy chọn đã ACK nhưng chưa có A2 readback xác minh.');
+  const V=parseA2Data(verified);
+  sensorCalCache=V;
+  try{syncOptions(V);}catch(_e){}
+  notice('success','GHI TÙY CHỌN 9.2 OK','A2 ACK + READBACK OK · không cần ĐỌC/GỬI TOÀN BỘ');
+  return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
 
 async function writeFuelBank(bank){
