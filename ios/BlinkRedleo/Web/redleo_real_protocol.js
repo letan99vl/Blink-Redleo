@@ -138,6 +138,7 @@ function scheduleSensorCalWarmup(epoch,identity,attempt=0){
 // the conservative all-with-response path.
 let rawWritePacingMode='safe'; // 'turbo' | 'safe'
 let rawJumboSessionCap=null;   // null=unknown, true=works, false=use 13B fallback
+window.BLINK_IOS_READALL_FAST_REVISION='IOS118-RXJUMBO-RENEGOTIATE-20261028-R1';
 
 function desktopChromiumAdaptiveTx(){
   const ua=String(navigator.userAgent||''),platform=String(navigator.platform||'');
@@ -173,11 +174,41 @@ async function setAppleSensorSafeRx(enable){
     return false;
   }
 }
+function isBlinkNativeIOS(){
+  return /BLINK-REDLEO-IOS\//i.test(String(navigator.userAgent||''));
+}
 function isAppleMobileBleClient(){
   const ua=String(navigator.userAgent||'');
   const platform=String(navigator.platform||'');
-  return /iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||
+  return isBlinkNativeIOS()||/iPhone|iPad|iPod/i.test(ua)||/iPhone|iPad|iPod/i.test(platform)||
          (platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+}
+async function ensureFastReadAllRx(){
+  const current=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+  if(!isBlinkNativeIOS()||current>=160)return current;
+
+  // IPA 118 keeps the BLE bootstrap in bundled HTML, but the ECU protocol is
+  // remote-first. Re-run the bundled RX probe here so native iOS can recover
+  // from a missed/early negotiation without rebuilding the IPA.
+  const fw=String(window.blinkBridgeFirmwareStatus||'');
+  try{
+    if(typeof window.configureBlinkFastBridgeRx==='function'&&bridgeFirmwareAtLeast(1,8)){
+      const ok=await window.configureBlinkFastBridgeRx(fw);
+      const after=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+      log('iOS READ ALL RX renegotiate',ok?'OK':'fallback',after+'B');
+      return after;
+    }
+    // FW1.7 compatibility: native CoreBluetooth is already a known Apple path.
+    if(bridgeFirmwareAtLeast(1,7)){
+      const ok=await setAppleSensorSafeRx(false);
+      const after=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+      log('iOS READ ALL RX restore',ok?'OK':'fallback',after+'B');
+      return after;
+    }
+  }catch(e){
+    log('iOS READ ALL RX renegotiate failed',String(e&&e.message||e));
+  }
+  return Math.max(12,Number(window.blinkBridgeRxPayload||12));
 }
 
 const FEAT={
@@ -3345,11 +3376,11 @@ async function readAll(cmd=0xAB,timeoutMs=35000){
     if(busy)taskUi('loading','ĐỌC TẤT CẢ · CHỜ LIVE/A2 NHẢ ECU...');
     await waitForEcuIdle(9000);
 
-    // Keep the RX payload that was negotiated and probe-validated at BLE connect.
-    // For FW1.8+ browser clients, 160B is enabled only after RXPROBE succeeds.
-    // Forcing a proven jumbo link back to 12B turns a ~10 KB Read All into 800+
-    // notifications and can choke the browser BLE queue around mid-transfer.
-    const readAllRxPayload=Math.max(12,Number(window.blinkBridgeRxPayload||12));
+    // Keep/recover the fastest proven RX path. IPA Build 118 has a custom
+    // BLINK-REDLEO-IOS user-agent, so older Apple detection could leave it at
+    // the universal 12B path even though CoreBluetooth + FW1.8+ can pass 160B.
+    // Re-probe only native iOS and only immediately before this large transfer.
+    const readAllRxPayload=await ensureFastReadAllRx();
     taskUi('loading',cmd===0x8B?'ĐANG KHÔI PHỤC ECU...':'ĐANG ĐỌC TẤT CẢ ECU · 0% · RX '+readAllRxPayload+'B');
     let rx=null;
     const readTimeout=Math.max(5000,Number(timeoutMs)||35000);
