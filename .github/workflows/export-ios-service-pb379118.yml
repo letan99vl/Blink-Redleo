@@ -1,0 +1,53 @@
+name: Export iOS PB3.79.118 TestFlight Service Package
+
+on:
+  push:
+    branches: [ios-hybrid-fallback]
+    paths:
+      - 'TESTFLIGHT_HANDOFF_PB379118.md'
+      - 'PACKAGE_INFO_PB379118.txt'
+      - '.github/workflows/export-ios-service-pb379118.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ios/BlinkRedleo/AppDelegate.swift
+          test -f ios/BlinkRedleo/MainViewController.swift
+          test -f ios/BlinkRedleo/BLEBridge.swift
+          test -f ios/BlinkRedleo/Info.plist
+          test -f ios/BlinkRedleo/PrivacyInfo.xcprivacy
+          test -f ios/BlinkRedleo/Web/index.html
+          test -f ios/BlinkRedleo/Web/redleo_real_protocol.js
+          test -f ios/project.yml
+          test -f ios/prepare_xcode_project.sh
+          grep -q "BLINK_PB_VERSION = '3.79.118'" ios/BlinkRedleo/Web/index.html
+          grep -q "ios-native-remote-first" ios/BlinkRedleo/Web/index.html
+          grep -q "window.BlinkRealProtocol" ios/BlinkRedleo/Web/redleo_real_protocol.js
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
+          grep -q 'CURRENT_PROJECT_VERSION: "118"' ios/project.yml
+
+      - name: Create build-service ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="BLINK-REDLEO-TestFlight-Service-PB3.79.118-Build118.zip"
+          zip -qry "$ZIP" ios TESTFLIGHT_HANDOFF_PB379118.md PACKAGE_INFO_PB379118.txt
+          unzip -l "$ZIP" | head -100
+
+      - name: Upload build-service ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLINK-REDLEO-TestFlight-Service-PB3.79.118-Build118
+          path: BLINK-REDLEO-TestFlight-Service-PB3.79.118-Build118.zip
+          if-no-files-found: error

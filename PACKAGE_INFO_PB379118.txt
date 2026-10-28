@@ -1,0 +1,11 @@
+BLINK REDLEO iOS / TestFlight service package
+PB: 3.79.118
+Version: 1.0
+Build: 118
+Bundle ID: vn.blinkredleo.app
+Minimum iOS: 15.0
+Source branch: ios-hybrid-fallback
+Runtime: local bundled UI + native CoreBluetooth + remote-first ECU protocol + bundled fallback
+
+Start with TESTFLIGHT_HANDOFF_PB379118.md.
+Signing credentials are intentionally NOT included.
