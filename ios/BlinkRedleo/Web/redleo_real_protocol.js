@@ -2130,6 +2130,7 @@ function parseReadAll(a,preferredCmd=null){
     hidden:{}
   };
 }
+window.BLINK_V9_OPTION_IGN_CODEC_REVISION='V9OPT-UNBIASED-20261028-R2';
 // Native REDLEO 9.1X + 9.2 proWrDgvOption(index 4) adds +64
 // before calling Ign_EcuToPc. Thus the Option byte is UNBIASED on wire.
 // Main ignition and ECT-ign tables are different and retain the +64 bias.
