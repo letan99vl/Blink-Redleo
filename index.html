@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.120'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
+  window.BLINK_PB_VERSION = '3.79.121'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -30,7 +30,8 @@ window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-FIXED-360-MIDPOINT-EVEN';
 window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION = 'V9OPT-UNBIASED-20261028-R2';
-window.BLINK_OPTIONS_A2_REVISION = 'V92-OPTIONS-DIRECT-A2-RMW-20261028';
+window.BLINK_OPTIONS_A2_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
+window.BLINK_OPTIONS_FAMILY_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
 window.BLINK_AFR_CURSOR_REVISION = 'AFR-CURSOR-ROT90';
 window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
@@ -7469,7 +7470,7 @@ function featureForProfile(id){
   if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:v11Name+' · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   if(id==='auto_clutch'&&state.ecuProfile==='MODERN_V11')return {...f,rows:1,cols:6,x:['Low RPM','High RPM','Low Angle','High Angle','Close RPM','ECT On (V)'],y:['AUTO CLUTCH'],unit:'mixed',desc:'ATE V11 Dgv_Dzfm · RPM / góc trễ / ngưỡng điện áp ECT. Bit bật/tắt chức năng được giữ nguyên, Blink chỉ sửa 6 byte dữ liệu đã xác minh.'};
   if(id==='ect_start'&&state.ecuProfile==='MODERN_V10')return {...f,rows:3,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Time(Second)','INJ VE(ms)','StrtAdd(ms)'],unit:'mixed',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_EctStrt_Add 3×11 = 33 byte. Wire đảo hàng; Time dùng bước 0.2s, hai hàng INJ dùng scale Oil gốc.'};
-  if(id==='ate_options'&&state.ecuProfile==='MODERN_V10')return {...f,title:'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:'REDLEO V10.2 · Dgv_Option 18B: 15 mục có nhãn/unit từ phần mềm gốc được phép sửa; 3 byte dự phòng cuối luôn giữ nguyên raw.'};
+  if(id==='ate_options'&&state.ecuProfile==='MODERN_V10'){const ultra1=state.ecuVariant==='ULTRA_PRO1';return {...f,title:ultra1?'Tuỳ chọn REDLEO Ultra Pro1':'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:(ultra1?'REDLEO Ultra Pro1':'REDLEO V10.2')+' · Dgv_Option 18B: 15 mục đầu có codec gốc được phép sửa; 3 byte cuối luôn giữ nguyên raw.'};}
   return f;
 }
 function externalTpsAxis(){
@@ -8933,7 +8934,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&optFam='+encodeURIComponent(window.BLINK_OPTIONS_FAMILY_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
   })();
