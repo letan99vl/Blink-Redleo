@@ -1340,7 +1340,11 @@ function startLiveLoop(){
   if(liveRunning)return;
   liveRunning=true;
   clearInterval(liveTimer);
-  liveTimer=setInterval(()=>{liveOnce();},180);
+  // PB3.79.122: native Android-only 50 ms LIVE probe. Other clients stay at 180 ms.
+  // Existing busy transaction lock skips overlapping polls and preserves manual MAP priority.
+  const androidNative=/BLINK-REDLEO-ANDROID\//i.test(String(navigator.userAgent||''));
+  const livePollMs=androidNative?50:180;
+  liveTimer=setInterval(()=>{liveOnce();},livePollMs);
 }
 function stopLiveLoop(){
   liveRunning=false;
