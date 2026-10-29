@@ -5,6 +5,7 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
     // Hybrid runtime: local UI, remote-first iOS-only ECU protocol, bundled fallback.
     private var webView: WKWebView!
     private var bleBridge: BLEBridge!
+    private var backupExportBridge: BackupExportBridge?
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
     private var protocolInjected = false
     private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js")!
@@ -24,6 +25,11 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
 
         let userContentController = WKUserContentController()
         configuration.userContentController = userContentController
+        // App-owned JSON export to Files/AirDrop; WKWebView uses the default
+        // persistent website data store for offline named IndexedDB backups.
+        let exportBridge = BackupExportBridge(presenter: self)
+        backupExportBridge = exportBridge
+        userContentController.add(exportBridge, name: "blinkBackupExport")
 
         for scriptName in ["ios_fullscreen_fix", "native_bridge_ios"] {
             if let url = Bundle.main.url(forResource: scriptName, withExtension: "js"),
@@ -170,6 +176,7 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
 
     deinit {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "iosBLE")
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "blinkBackupExport")
     }
 
     override func viewWillAppear(_ animated: Bool) {
