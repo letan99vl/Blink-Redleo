@@ -1337,6 +1337,8 @@ async function liveOnce(){
 }
 function startLiveLoop(){
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
+  // Never restart ECU LIVE while an app backup or MAP read/write owns the transport.
+  if(manualMapIoDepth>0)return;
   if(liveRunning)return;
   liveRunning=true;
   clearInterval(liveTimer);
@@ -5409,12 +5411,14 @@ function installUI(){
   captureMapIo('redReadBtn','read',async()=>{
     const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');
     await readFeaturePageReal(id,state.activeMap);
+    window.blinkClearBackupStaging?.(id,state.activeMap);
     notice('success','ĐỌC TRANG ECU OK',(id||currentSource())+' · page riêng');
   },()=>currentFeatureId()||currentSource()||'MAP');
 
   captureMapIo('redWriteBtn','write',async()=>{
     const id=currentFeatureId();if(!id)throw new Error('Không xác định REDLEO feature');
     await writeFeatureReal(id);
+    window.blinkClearBackupStaging?.(id,state.activeMap);
   },()=>currentFeatureId()||currentSource()||'MAP');
 
   captureMapIo('idleLimitReadBtn','read',async()=>{
@@ -5431,6 +5435,7 @@ function installUI(){
       return;
     }
     const R=await readCurrentFuelBank(state.activeMap);
+    window.blinkClearBackupStaging?.('inj_ve',state.activeMap);
     notice('success','ĐỌC HIỆN TẠI OK','MAP No.'+state.activeMap+' · page 0x'+R.page.toString(16).toUpperCase()+' · '+R.frame.length+'B');
   },'THỜI GIAN PHUN');
 
