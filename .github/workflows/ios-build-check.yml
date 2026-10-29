@@ -23,6 +23,10 @@ jobs:
           node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
           grep -q "BLINK_PB_VERSION = '3.79.126'" ios/BlinkRedleo/Web/index.html
           grep -q "ios-native-remote-first" ios/BlinkRedleo/Web/index.html
+          grep -q "BlinkRedleoEcuBackupsV1" ios/BlinkRedleo/Web/index.html
+          grep -q 'configuration.websiteDataStore = .default()' ios/BlinkRedleo/MainViewController.swift
+          grep -q 'blinkBackupExport' ios/BlinkRedleo/MainViewController.swift
+          grep -q 'BLINK_ECU_APP_FILE_V1' ios/BlinkRedleo/BackupExportBridge.swift
           if grep -q "const src='redleo_real_protocol.js?v=" ios/BlinkRedleo/Web/index.html; then
             echo "Bundled iOS UI must not auto-load local protocol; native shell injects remote-first protocol"
             exit 1
