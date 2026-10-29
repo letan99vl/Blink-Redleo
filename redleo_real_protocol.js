@@ -4554,6 +4554,133 @@ async function writeCurrentFuelAndVerify(bank){
     }
   }
 }
+// PB3.79.127 Android ONLY: restore exactly one named-backup section to its
+// original REDLEO MAP page and verify real ECU readback. Do not use the
+// currentFeature DOM or activeMap when writing a different bank.
+function validateBackupWriteMatrix(matrix,rows,cols,label){
+  if(!Array.isArray(matrix)||matrix.length!==rows||
+     matrix.some(row=>!Array.isArray(row)||row.length!==cols||
+       row.some(v=>typeof v!=='number'||!Number.isFinite(v))))
+    throw new Error('BACKUP '+label+' không có đủ dữ liệu số '+rows+'×'+cols+'.');
+  if(matrix.every(row=>row.every(x=>x===0)))
+    throw new Error('BACKUP '+label+' toàn số 0 · không ghi dữ liệu nghi vấn xuống ECU.');
+  return matrix.map(row=>row.slice());
+}
+function strictBackupBank(bank){
+  bank=Number(bank);
+  if(!Number.isInteger(bank)||bank<1||bank>4||normalizeBankForProfile(bank)!==bank)
+    throw new Error('ECU hiện tại không hỗ trợ MAP '+bank+'. Đã chặn ghi để không đụng MAP khác.');
+  return bank;
+}
+function compareBackupWrittenMatrix(actual,expected,tolerance,label){
+  if(!Array.isArray(actual)||actual.length!==expected.length)
+    throw new Error('READBACK '+label+' bị thiếu hàng.');
+  for(let r=0;r<expected.length;r++)for(let c=0;c<expected[r].length;c++){
+    if(!Array.isArray(actual[r])||!Number.isFinite(actual[r][c])||
+       Math.abs(actual[r][c]-expected[r][c])>tolerance)
+      throw new Error('READBACK '+label+' KHÔNG KHỚP ở hàng '+(r+1)+' cột '+(c+1)+
+        ' · backup '+expected[r][c]+' / ECU '+actual[r]?.[c]+
+        '. Dừng phục hồi; phần đã ghi trước đó không tự rollback.');
+  }
+}
+async function writeBackupFuelAndVerify(bank,backupMatrix){
+  requireProfile('fuelWrite','Phục hồi backup MAP xăng');
+  bank=strictBackupBank(bank);
+  const desired=validateBackupWriteMatrix(backupMatrix,14,30,'INJ VE M'+bank);
+  if(!handshakeInfo||!state?.ecuConnected)throw new Error('ECU chưa xác thực để phục hồi backup.');
+  if(!state.mapBanks?.[bank-1])throw new Error('Không có bộ nhớ MAP '+bank+' trong Blink.');
+  // Each selected MAP gets its own ECU baseline and a dedicated ACK + independent
+  // READ CURRENT of ALL 420 cells. The existing manual writer is ACK-only.
+  const previous=await readCurrentFuelBank(bank,false);
+  if(!previous?.matrix)throw new Error('Không đọc được MAP xăng thật trước khi phục hồi.');
+  const v8=ecuProfile?.family==='v8',tolerance=v8?0.026:0.006;
+  const expected=desired.map(row=>row.map(x=>
+    v8?r2(clamp(Math.round(x*20),0,255)/20):
+    r2(clamp(Math.round(x*500),0,65535)/500)));
+  const max=v8?12.75:65535/500;
+  if(desired.some(row=>row.some(v=>v<0||v>max)))throw new Error('MAP xăng backup vượt giới hạn ECU '+max+' ms.');
+  if(expected.every((row,r)=>row.every((x,c)=>Math.abs(x-previous.matrix[r][c])<=tolerance)))
+    return {ack:true,readback:true,unchanged:true,bank,id:'inj_ve',cells:420};
+  state.mapBanks[bank-1].inject=desired;
+  let writeError=null;
+  try{await writeCurrentFuelAndVerify(bank);}
+  catch(e){writeError=e;}
+  let result;
+  try{result=await readCurrentFuelBank(bank,false);}
+  catch(e){
+    if(state.fuelSyncUnknown?.length===4)state.fuelSyncUnknown[bank-1]=true;
+    throw new Error('PHỤC HỒI MAP XĂNG '+bank+' CHƯA XÁC NHẬN: '+
+      (writeError?.message||'ECU có thể đã nhận phần ghi')+
+      '; không đọc lại được 420 ô: '+String(e?.message||e)+
+      '. Đã khóa ghi tiếp cho tới khi ĐỌC HIỆN TẠI thành công.');
+  }
+  try{compareBackupWrittenMatrix(result.matrix,expected,tolerance,'MAP XĂNG '+bank);}
+  catch(e){
+    if(state.fuelSyncUnknown?.length===4)state.fuelSyncUnknown[bank-1]=true;
+    throw e;
+  }
+  if(state.fuelSyncUnknown?.length===4)state.fuelSyncUnknown[bank-1]=false;
+  return {ack:true,readback:true,ackLost:!!writeError,bank,id:'inj_ve',cells:420};
+}
+async function writeBackupFeatureAndVerify(id,bank,backupMatrix){
+  if(!['inj_degree','ign_degree','ign_time'].includes(id))
+    throw new Error('Backup '+id+' chưa có writer riêng được xác minh; KHÔNG ghi trang ECU này.');
+  requireProfile('mainWrite','Phục hồi backup '+id);
+  if(!isDirectVerifiedFeature(id))
+    throw new Error('ECU chưa xác minh writer riêng cho '+id+'.');
+  bank=strictBackupBank(bank);
+  if(!handshakeInfo||!state?.ecuConnected)throw new Error('ECU chưa xác thực để phục hồi backup.');
+  const rows=id==='ign_time'?1:14,cols=30;
+  const desired=validateBackupWriteMatrix(backupMatrix,rows,cols,id+' MAP '+bank);
+  const encoder=id==='ign_degree'?encMainIgn:(id==='inj_degree'?encMainInjAngle:encMainDwell);
+  const decoder=id==='ign_degree'?decMainIgn:(id==='inj_degree'?decMainInjAngle:decMainDwell);
+  const expected=desired.map(row=>row.map(x=>decoder(encoder(x))));
+  // Reject values that the family serializer would silently CLAMP.
+  const allowedDelta=id==='inj_degree'?2:id==='ign_degree'?0.9:0.06;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    if(Math.abs(expected[r][c]-desired[r][c])>allowedDelta)
+      throw new Error('BACKUP '+id+' có giá trị không ghi chính xác ở hàng '+(r+1)+
+        ', cột '+(c+1)+': '+desired[r][c]+' -> '+expected[r][c]);
+  }
+  // Always prime the page with a fresh ECU read; reserved bytes are preserved
+  // by the same writeWritablePrefixPage() used by manual REDLEO writers.
+  const baselineRead=await readFeaturePageReal(id,bank,false);
+  if(!baselineRead?.matrix)throw new Error('Không đọc được page '+id+' MAP '+bank+' từ ECU.');
+  const pg=mainFeaturePage(id,bank),n=rows*cols;
+  if(pg==null)throw new Error('ECU không có trang '+id+' MAP '+bank);
+  const baseline=requireCachedPageAtLeast(pg,n,id+' backup');
+  const payload=encodeRowsByte(desired,encoder);
+  // Exactly the selected page, no A2 / other banks / whole-image writes.
+  if(payload.every((x,i)=>x===baseline[i]))
+    return {ack:true,readback:true,unchanged:true,bank,id,cells:n};
+  let issue=null;
+  try{await writeWritablePrefixPage(pg,payload,baseline,'BACKUP '+id+' MAP '+bank,'mainWrite',1);}
+  catch(e){issue=e;}
+  let after;
+  try{after=await readFeaturePageReal(id,bank,false);}
+  catch(e){
+    throw new Error('BACKUP '+id+' MAP '+bank+
+      ' · trạng thái ECU CHƯA XÁC ĐỊNH sau ghi ('+String(issue?.message||'ACK')+
+      '); đọc lại thất bại: '+String(e?.message||e)+
+      '. Đã dừng, phải đọc trang bằng tay trước khi ghi tiếp.');
+  }
+  // Even a lost ACK is not a success unless the ECU's physical page bytes
+  // (including reserved suffix) and all decoded cells agree with the intent.
+  const got=pageCache.get(pg);
+  let match=!!got&&got.length===baseline.length;
+  if(match){
+    for(let i=0;i<n;i++)if(got[i]!==payload[i]){match=false;break;}
+    for(let i=n;i<baseline.length;i++)if(got[i]!==baseline[i]){match=false;break;}
+  }
+  if(!match)throw new Error('BACKUP '+id+' MAP '+bank+
+    ' · ECU READBACK khác dữ liệu gửi hoặc byte dự phòng thay đổi. Đã DỪNG; không ghi phần tiếp theo.');
+  compareBackupWrittenMatrix(after.matrix,expected,0.0001,'BACKUP '+id+' MAP '+bank);
+  if(issue)throw new Error('BACKUP '+id+' MAP '+bank+
+    ' có lỗi ghi/kiểm tra tail dù trang hiện đọc đúng: '+String(issue?.message||issue)+
+    '. Đã dừng để tránh ghi tiếp.');
+  return {ack:true,readback:true,bank,id,cells:n};
+}
+
 async function writeBankAll(bank){
   if(!readCache)await readAll();const b=readCache.banks[bank-1];await writeFuelBank(bank);
   await writePageChecked(page(2,bank),encodeRowsByte(b.injDegree,encOilAngle));
@@ -5617,6 +5744,6 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
