@@ -1238,16 +1238,16 @@ function decodeOriginalEcuAfrLive(a,profile,calibration){
   // V9/V10/Ultra report B_EX_O2S in frame byte50, bit3 (original UartDatRx.Gb).
   const external=v8?(raw>=32768):!!(a[50]&0x08);
   const adcRaw=v8&&external?raw-32768:raw;
-  if(adcRaw<0||adcRaw>1024)return {status:'invalid-adc',afr:NaN,volts:NaN};
+  if(adcRaw<0||adcRaw>1024)return {status:'invalid-adc',afr:NaN,volts:NaN,external};
   const volts=adcRaw*5/1024;
   const bytes=calibration?.vAfrRaw;
   if(!bytes||bytes.length!==11||!Array.from(bytes).every(x=>Number.isInteger(Number(x))&&x>=0&&x<=255)){
-    return {status:'needs-ecu-vafr',afr:NaN,volts};
+    return {status:'needs-ecu-vafr',afr:NaN,volts,external};
   }
   // Native Dgv_vAFR points use voltage = byte*20/1024; they are NOT AFR target cells.
   const v=Array.from(bytes,x=>Number(x)*20/1024);
   if(!v.every(x=>Number.isFinite(x)&&x>=0&&x<=5)||v[10]<=0.01)
-    return {status:'invalid-ecu-vafr',afr:NaN,volts};
+    return {status:'invalid-ecu-vafr',afr:NaN,volts,external};
   let afr=NaN;
   if(!external){
     // Native narrow-band branch: 14.7 at final vAFR voltage with bounded lean/rich lines.
@@ -1258,7 +1258,7 @@ function decodeOriginalEcuAfrLive(a,profile,calibration){
     // V8 original has descending vAFR breakpoints; V9/V10/Ultra use ascending.
     for(let i=1;i<=9;i++){
       if(!(v8?v[i]>v[i+1]:v[i]<v[i+1]))
-        return {status:'invalid-ecu-vafr',afr:NaN,volts};
+        return {status:'invalid-ecu-vafr',afr:NaN,volts,external};
     }
     for(let i=1;i<=9;i++){
       if(v8?volts>=v[i+1]:volts<v[i+1]){
@@ -1269,7 +1269,7 @@ function decodeOriginalEcuAfrLive(a,profile,calibration){
     if(!Number.isFinite(afr))afr=9;
   }
   if(!Number.isFinite(afr)||afr<8.5||afr>20)
-    return {status:'invalid-result',afr:NaN,volts};
+    return {status:'invalid-result',afr:NaN,volts,external};
   return {status:'ready',afr,volts,external,raw};
 }
 function parseLiveReal(a){
@@ -1288,6 +1288,8 @@ function parseLiveReal(a){
   state.live.ecuAfr=ecuAfr.afr;
   state.live.ecuAfrV=ecuAfr.volts;
   state.live.ecuAfrState=ecuAfr.status;
+  // O2 source comes from the checksum-verified ECU LIVE flag, not the local Options dropdown.
+  state.live.ecuO2Source=ecuAfr.external===true?'external':(ecuAfr.external===false?'original':null);
   state.live.ecuAfrAt=ecuAfr.status==='ready'?performance.now():NaN;
   // Verified profile-specific live injection SUM:
   // V10/Ultra = byte14..15 /640; ATE V11 = byte14..15 /500.
@@ -1462,7 +1464,7 @@ async function initializeRealSession(){
     if(typeof state!=='undefined'){
       state.ecuPhase='handshake';
       // A new ECU session cannot inherit the last ignition/PW of an old ECU.
-      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';}
+      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;}
     }
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
@@ -2359,7 +2361,12 @@ function syncOptions(C){
     setOptionFieldMeta('openingSpeed',false,'','',0.1);
     setValue('[data-ecuopt="coldStartInj"]',o.coldStartInj);setValue('[data-ecuopt="coldStartDelay"]',o.coldStartDelay);
   }
-  setCheck('#afrControlToggle',o.afrControl);setValue('#o2SourceSelect',o.o2Source);
+  setCheck('#afrControlToggle',o.afrControl);
+  // o2Source is a STRING ('original'/'external'). The numeric-only setValue()
+  // helper ignored it, leaving the Options dropdown falsely on its default 'zin'.
+  // This only reflects an ECU read; it must never write ECU Settings by itself.
+  const originalO2Select=document.getElementById('o2SourceSelect');
+  if(originalO2Select&&(o.o2Source==='original'||o.o2Source==='external'))originalO2Select.value=o.o2Source;
   setCheck('[data-ecutoggle="singleTpsIgn"]',o.singleTpsIgn);setCheck('[data-ecutoggle="dontMap"]',o.dontMap);setCheck('[data-ecutoggle="password"]',o.password);setCheck('[data-ecutoggle="tps100Power"]',o.tps100Power);setCheck('[data-ecutoggle="autoClutchEnable"]',o.autoClutchEnable);
   try{if(window.syncAfrSensorUi)syncAfrSensorUi();}catch(_e){}
 }
