@@ -36,6 +36,8 @@ jobs:
           grep -q "ios-native-remote-first" ios/BlinkRedleo/Web/index.html
           grep -q 'BlinkRedleoEcuBackupsV1' ios/BlinkRedleo/Web/index.html
           test -f ios/BlinkRedleo/BackupExportBridge.swift
+          test -f ios/BlinkRedleo/BackupImportBridge.swift
+          grep -q 'blinkBackupImport' ios/BlinkRedleo/MainViewController.swift
           grep -q "window.BlinkRealProtocol" ios/BlinkRedleo/Web/redleo_real_protocol.js
           grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
           grep -q 'CURRENT_PROJECT_VERSION: "119"' ios/project.yml
