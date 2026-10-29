@@ -53,6 +53,11 @@ function compactSensorCal(C){
     vIat:C.vIat.map(Number),
     vMap:C.vMap.map(Number)
   };
+  // REDLEO native O2/AFR voltage relation (11 ECU A2 bytes). Cache ONLY with the exact ECU identity.
+  // This is not Blink's IO4 calibration and never changes Auto Tune's sensor source.
+  if(C.vAfrRaw && C.vAfrRaw.length===11 && Array.from(C.vAfrRaw).every(v=>Number.isInteger(Number(v))&&v>=0&&v<=255)){
+    out.vAfrRaw=Array.from(C.vAfrRaw,Number);
+  }
   if(Array.isArray(C.tpsPct)&&Array.isArray(C.rpmAxis)&&validDynamicAxes(C.tpsPct,C.rpmAxis)){
     out.tpsPct=C.tpsPct.map(Number);
     out.rpmAxis=C.rpmAxis.map(Number);
@@ -1211,6 +1216,62 @@ function syncCapabilityFlags(info){
   const map={idleMotor:3,solenoid:4,sideStand:5,startRelay:6};
   for(const[k,bit] of Object.entries(map)){const e=document.querySelector('[data-ecutoggle="'+k+'"]');if(e){e.checked=!!(info.features&(1<<bit));e.disabled=true;e.dataset.localOnly='0';const small=e.parentElement?.querySelector('small');if(small&&!small.textContent.includes('ECU INFO'))small.textContent+=' · ECU INFO';}}
 }
+// Original REDLEO EXE IL: live 0xA1 bytes 12..13 = ECU AFR/O2 ADC.
+ // V8 MoudeUart.proRTuart -> macroReckon.VoltageToA_F;
+ // V9.1X/9.2/V10.2/UltraPro1 UartDatRx.proRT_Dat -> proAFR_VoltageToDat.
+ // ECU vAFR A2 calibration is distinct from the original ECU Air fuel ratio target map
+ // and distinct from Blink's external IO4 AFR sensor.
+function originalEcuAfrLinear(x0,y0,x1,y1,x){
+  if(!Number.isFinite(x0)||!Number.isFinite(x1)||!Number.isFinite(x))return NaN;
+  // Matches REDLEO V9+ Class1.proReckonA: degenerate X/Y anchors return Y0.
+  if(x0===x1||y0===y1)return y0;
+  const y=y0+(x-x0)*(y1-y0)/(x1-x0);
+  return Math.max(Math.min(y0,y1),Math.min(Math.max(y0,y1),y));
+}
+function decodeOriginalEcuAfrLive(a,profile,calibration){
+  const v8=profile?.family==='v8';
+  const supported=v8||profile?.key==='MODERN_V9'||profile?.key==='MODERN_V10';
+  if(!supported)return {status:'unsupported',afr:NaN,volts:NaN};
+  if(!(a instanceof Uint8Array)||a.length!==53)return {status:'invalid-frame',afr:NaN,volts:NaN};
+  const raw=u16be(a,12);
+  // V8 sets bit15 in the AFR raw word when external O2 is active;
+  // V9/V10/Ultra report B_EX_O2S in frame byte50, bit3 (original UartDatRx.Gb).
+  const external=v8?(raw>=32768):!!(a[50]&0x08);
+  const adcRaw=v8&&external?raw-32768:raw;
+  if(adcRaw<0||adcRaw>1024)return {status:'invalid-adc',afr:NaN,volts:NaN};
+  const volts=adcRaw*5/1024;
+  const bytes=calibration?.vAfrRaw;
+  if(!bytes||bytes.length!==11||!Array.from(bytes).every(x=>Number.isInteger(Number(x))&&x>=0&&x<=255)){
+    return {status:'needs-ecu-vafr',afr:NaN,volts};
+  }
+  // Native Dgv_vAFR points use voltage = byte*20/1024; they are NOT AFR target cells.
+  const v=Array.from(bytes,x=>Number(x)*20/1024);
+  if(!v.every(x=>Number.isFinite(x)&&x>=0&&x<=5)||v[10]<=0.01)
+    return {status:'invalid-ecu-vafr',afr:NaN,volts};
+  let afr=NaN;
+  if(!external){
+    // Native narrow-band branch: 14.7 at final vAFR voltage with bounded lean/rich lines.
+    afr=volts>v[10]
+      ?originalEcuAfrLinear(v[10],14.7,1.2,9,volts)
+      :originalEcuAfrLinear(v[10],14.7,0.1,18,volts);
+  }else{
+    // V8 original has descending vAFR breakpoints; V9/V10/Ultra use ascending.
+    for(let i=1;i<=9;i++){
+      if(!(v8?v[i]>v[i+1]:v[i]<v[i+1]))
+        return {status:'invalid-ecu-vafr',afr:NaN,volts};
+    }
+    for(let i=1;i<=9;i++){
+      if(v8?volts>=v[i+1]:volts<v[i+1]){
+        afr=originalEcuAfrLinear(v[i],19-i,v[i+1],18-i,volts);
+        break;
+      }
+    }
+    if(!Number.isFinite(afr))afr=9;
+  }
+  if(!Number.isFinite(afr)||afr<8.5||afr>20)
+    return {status:'invalid-result',afr:NaN,volts};
+  return {status:'ready',afr,volts,external,raw};
+}
 function parseLiveReal(a){
   if(!(a instanceof Uint8Array))a=new Uint8Array(a);
   if(a.length!==53||a[0]!==0xA1||!validFrame(a))throw new Error('Live frame 0xA1 không hợp lệ · '+a.length+'B');
@@ -1221,6 +1282,13 @@ function parseLiveReal(a){
   state.live.tps=Math.abs(den)<.05?0:clamp((state.live.tpsV-state.cal.tpsMin)/den*100,0,100);
   try{window.noteBlinkTpsTrend?.(state.live.tps,performance.now());}catch(_e){}
   state.live.rpm=u16be(a,6);
+  // Passive ECU AFR display channel. NEVER feed this into Blink IO4/Auto Tune history.
+  const ecuAfrCal=(readCache&&readCache.vAfrRaw)?readCache:sensorCalCache;
+  const ecuAfr=decodeOriginalEcuAfrLive(a,ecuProfile,ecuAfrCal);
+  state.live.ecuAfr=ecuAfr.afr;
+  state.live.ecuAfrV=ecuAfr.volts;
+  state.live.ecuAfrState=ecuAfr.status;
+  state.live.ecuAfrAt=ecuAfr.status==='ready'?performance.now():NaN;
   // Verified profile-specific live injection SUM:
   // V10/Ultra = byte14..15 /640; ATE V11 = byte14..15 /500.
   // V8/V9 retain their previously verified paths.
@@ -1394,7 +1462,7 @@ async function initializeRealSession(){
     if(typeof state!=='undefined'){
       state.ecuPhase='handshake';
       // A new ECU session cannot inherit the last ignition/PW of an old ECU.
-      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;}
+      if(state.live){state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';}
     }
     taskUi('loading','ĐANG XÁC NHẬN ECU...');
     const info=await handshakeReal();
