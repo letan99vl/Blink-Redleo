@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.123'; // ECU original AFR LIVE display source (Android/Web); keep IO4 Auto Tune isolated
+  window.BLINK_PB_VERSION = '3.79.124'; // Show live ECU O2 zin/external mode and fix Options O2 readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2778,7 +2778,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
           <div class="field" style="grid-column:1/-1"><label for="afrDisplaySource">NGUỒN AFR HIỂN THỊ</label><select id="afrDisplaySource"><option value="blink">BLINK · CẢM BIẾN IO4 (MẶC ĐỊNH)</option><option value="ecu">ECU · CẢM BIẾN O2 QUA LIVE</option></select></div>
         </div>
         <div class="tuneSettingHelp" id="ecuAfrSourceStatus" role="status" aria-live="polite">AFR hiển thị: BLINK IO4 · Auto Tune vẫn dùng IO4.</div>
-        <div class="tuneSettingHelp">Chỉ chuyển <b>giá trị AFR và điện áp AFR hiển thị</b> trên Blink. <b>Auto Tune / ghi AFR / bù MAP luôn dùng IO4</b>; chọn ECU không lấy bảng Air fuel ratio mục tiêu làm cảm biến. Nếu dữ liệu ECU hoặc hiệu chuẩn vAFR chưa hợp lệ sẽ hiện “--”, không tự lấy giá trị giả.</div>
+        <div class="tuneSettingHelp">Chỉ chuyển <b>giá trị AFR và điện áp AFR hiển thị</b> trên Blink. ECU có hai nguồn <b>cảm biến zin</b> và <b>cảm biến rời</b>; Blink tự nhận biết qua LIVE, không tự thay đổi lựa chọn trong ECU. <b>Auto Tune / ghi AFR / bù MAP luôn dùng IO4</b>; chọn ECU không lấy bảng Air fuel ratio mục tiêu làm cảm biến. Nếu dữ liệu ECU hoặc hiệu chuẩn vAFR chưa hợp lệ sẽ hiện “--”, không tự lấy giá trị giả.</div>
       </div>
       <div class="tuneSettingsGroup tuneAutoSettings">
         <h3 class="tuneSettingsGroupHeading">03 · AUTO TUNE / THÔNG SỐ BÙ</h3>
@@ -2960,7 +2960,7 @@ const state={
   // launches; a fresh BLE session clears ECU-derived maps anyway.
   fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
-  live:{afrV:NaN,tpsV:NaN,afr:NaN,ecuAfr:NaN,ecuAfrV:NaN,ecuAfrAt:NaN,ecuAfrState:"awaiting-ecu",tps:0,rpm:0,ign:NaN,pw:NaN,auxAt:NaN},
+  live:{afrV:NaN,tpsV:NaN,afr:NaN,ecuAfr:NaN,ecuAfrV:NaN,ecuAfrAt:NaN,ecuAfrState:"awaiting-ecu",ecuO2Source:null,tps:0,rpm:0,ign:NaN,pw:NaN,auxAt:NaN},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:30,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
@@ -6288,8 +6288,9 @@ function updateLive(){
   const shownAfr=ecuSelected?(ecuFresh?state.live.ecuAfr:NaN):state.live.afr;
   const shownVolt=ecuSelected?(ecuFresh?state.live.ecuAfrV:NaN):state.live.afrV;
   $('afrLive').textContent=fmt(shownAfr,2);
+  const ecuSensorName=state.live.ecuO2Source==='external'?'CẢM BIẾN RỜI':state.live.ecuO2Source==='original'?'CẢM BIẾN ZIN':'O2 LIVE';
   const sourceLabel=document.getElementById('afrDisplayLabel');
-  if(sourceLabel)sourceLabel.textContent=ecuSelected?'AFR ECU · O2 LIVE':'AFR BLINK · IO4';
+  if(sourceLabel)sourceLabel.textContent=ecuSelected?('AFR ECU · '+ecuSensorName):'AFR BLINK · IO4';
   const sourceControl=document.getElementById('afrDisplaySource');
   if(sourceControl&&sourceControl.value!==afrDisplaySource)sourceControl.value=afrDisplaySource;
   const sourceInfo=document.getElementById('ecuAfrSourceStatus');
@@ -6298,11 +6299,11 @@ function updateLive(){
     const message=!ecuSelected
       ?'AFR hiển thị từ BLINK IO4 · Auto Tune vẫn dùng IO4.'
       :ecuFresh
-        ?'AFR ECU LIVE đã nhận · bảng vAFR ECU hợp lệ · chỉ dùng hiển thị.'
+        ?'AFR ECU LIVE · '+ecuSensorName+' · bảng vAFR hợp lệ · chỉ dùng hiển thị.'
         :reason==='unsupported'
           ?'ECU này chưa có bộ giải mã AFR LIVE gốc được xác nhận; không hiển thị giá trị giả.'
           :reason==='needs-ecu-vafr'
-            ?'Chờ hiệu chuẩn vAFR từ ECU (A2 / Read All); không dùng điện áp IO4 thay thế.'
+            ?'ECU '+ecuSensorName+' · chờ hiệu chuẩn vAFR (A2 / Read All); không dùng IO4 thay thế.'
             :reason==='invalid-ecu-vafr'||reason==='invalid-adc'||reason==='invalid-result'
               ?'AFR ECU không hợp lệ; kiểm tra O2 / bảng vAFR / firmware ECU.'
               :'Chờ gói LIVE 0xA1 và hiệu chuẩn cảm biến AFR ECU.';
@@ -7379,7 +7380,7 @@ window.addEventListener('beforeunload',save);
 
   function onDisconnected(){
     autoIdleSaveReset(true);
-    state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';
+    state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;
     otaUpdateReady=false;if($('otaInstallBtn'))$('otaInstallBtn').disabled=true;
     liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
     setBleUi(false);
@@ -7538,7 +7539,7 @@ function resetEcuMapUiForNewSession(){
   for(let b=0;b<state.mapBanks.length;b++)state.mapBanks[b].inject=blankMatrix(null);
   state.fuelSyncUnknown=[false,false,false,false];
   state.tpsTrendHistory=[];state.tpsFalling=false;
-  state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';
+  state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;
   for(const k of Object.keys(featureStore))delete featureStore[k];
   state.selection.active=false;
   state.lastCellKey='';
