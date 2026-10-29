@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.118'; // Fix verified ECU LIVE IGN/PW display; target AFR 3-band colors
+  window.BLINK_PB_VERSION = '3.79.126'; // Local APP backup via IndexedDB (Android/iOS WebView, no ESP32 firmware change)
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -29,6 +29,9 @@ window.BLINK_AFR_TARGET_KEYPAD_REVISION = 'AFR-KP1';
 window.BLINK_ULTRA_PRO1_IGN_REVISION = 'ULTRA-IGN-3515625';
 window.BLINK_V92_IGN_REVISION = 'V92-IGN-3515625';
 window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-FIXED-360-MIDPOINT-EVEN';
+window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION = 'V9OPT-UNBIASED-20261028-R2';
+window.BLINK_OPTIONS_A2_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
+window.BLINK_OPTIONS_FAMILY_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
 window.BLINK_AFR_CURSOR_REVISION = 'AFR-CURSOR-ROT90';
 window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
@@ -2530,6 +2533,18 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   body.appForceLandscape:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
     grid-column:1/-1!important;grid-row:2!important;height:32px!important;min-height:32px!important;
   }
+
+/* Experimental ECU backup manager: explicit selected ECU reads; Flash store requires opt-in FW. */
+.ecuBackupDialog{width:min(540px,94vw);max-height:89dvh;overflow:auto;padding:0 15px 14px;border:1px solid #436b86;border-radius:14px;color:#edf6ff;background:#132133;box-shadow:0 0 0 100vmax #0009}
+.ecuBackupDialog::backdrop{background:#000a}
+.ecuBkHead,.ecuBkTabs,.ecuBkActions{display:flex;align-items:center;gap:8px;justify-content:space-between;margin:12px 0}
+.ecuBkHead strong{font-size:15px}.ecuBkHead button{min-width:34px}
+.ecuBkTabs button,.ecuBkActions button{flex:1;min-height:39px;white-space:normal}
+.ecuBkField{display:flex;flex-direction:column;gap:5px;margin:10px 0}.ecuBkField label,.ecuBkSectionTitle{font-weight:700;font-size:12px;color:#c2e6ff}.ecuBkField input,.ecuBkField select{width:100%;background:#091522;color:#fff;border:1px solid #45627b;border-radius:8px;padding:10px;font-size:14px}
+.ecuBkChecks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}.ecuBkChecks label{display:flex;align-items:flex-start;gap:5px;padding:8px 5px;background:#1d3348;border:1px solid #2e4b64;border-radius:8px;font-size:12px;line-height:1.35}.ecuBkChecks input{accent-color:#3baff2}
+.ecuBkSectionTitle{margin-top:13px}.ecuBkHint{font-size:11px;line-height:1.45;color:#c7d9e5;margin:10px 0}.ecuBkStatus{font-size:12px;line-height:1.5;color:#a8defb;padding:10px;background:#0d1b2b;border-radius:8px;margin-top:12px;white-space:pre-wrap}
+@media(max-width:380px){.ecuBkChecks{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -2553,7 +2568,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     <div class="dashStatusRow"><div class="statePill">ECU</div><div class="statePill red" id="dashBleState">● OFF</div><div class="statePill" id="dashMapState">MAP NO.1</div></div>
     <div class="liveHero">
       <div class="heroCard tps"><div class="cardK">BƯỚM GA (TPS)</div><div class="cardV" id="tpsLive">--%</div><div class="cardFoot">Vị trí bướm ga</div></div>
-      <div class="heroCard afr"><div class="cardK">TỶ LỆ A/F</div><div class="cardV" id="afrLive">--</div><div class="cardFoot">AFR realtime</div></div>
+      <div class="heroCard afr"><div class="cardK">TỶ LỆ A/F</div><div class="cardV" id="afrLive">--</div><div class="cardFoot" id="afrDisplayLabel">AFR BLINK · IO4</div></div>
     </div>
     <div class="miniGrid">
       <div class="miniCard"><div class="k">KHÍ NẠP IAT</div><div class="v" id="iatLive">-- °C</div></div>
@@ -2718,7 +2733,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     <div class="ecuOpsGrid"><button data-ecucmd="READ_CURRENT" class="good">↓ ĐỌC HIỆN TẠI</button><button data-ecucmd="SEND_CURRENT" class="danger">▣ GỬI HIỆN TẠI</button><button data-ecucmd="READ_ALL" class="good">⇩ ĐỌC TOÀN BỘ</button><button data-ecucmd="SEND_ALL" class="danger">⇧ GỬI TOÀN BỘ</button><button id="restoreEcuBtn" data-ecucmd="RESTORE" class="danger wide">↺ KHÔI PHỤC DỮ LIỆU GỐC</button></div>
     <div class="groupHead"><h3>SAO CHÉP MAP / FILE</h3><span>TOOLS</span></div>
     <div class="ioBar"><button data-copybank="1">COPY → NO.1</button><button data-copybank="2">COPY → NO.2</button><button data-copybank="3">COPY → NO.3</button><button data-copybank="4">COPY → NO.4</button><button data-copybank="all">COPY → ALL</button></div>
-    <div class="ecuOpsGrid"><button id="exportBackupBtn">↓ XUẤT BACKUP JSON</button><button id="importBackupBtn">↑ NHẬP BACKUP JSON</button><input type="file" id="backupFile" accept="application/json" hidden><button data-ecucmd="TEST_INJ">◉ THỬ KIM PHUN</button></div>
+    <div class="ecuOpsGrid"><button id="exportBackupBtn">↓ SAO LƯU ECU VÀO APP</button><button id="importBackupBtn">↑ KHO BACKUP TRONG APP</button><input type="file" id="backupFile" accept="application/json" hidden><button data-ecucmd="TEST_INJ">◉ THỬ KIM PHUN</button></div>
     <div class="groupHead"><h3>TÙY CHỌN ECU</h3><span>OPTIONS</span></div>
     <div class="optPanel" id="legacyEcuOptionsPanel"><div class="optionGrid"><div class="optionField"><label>Tốc độ garanti khi máy nguội<br><span style="color:#55484b">Idle Speed (Cold)</span></label><input data-ecuopt="idleCold" type="number" step="1" placeholder="RPM"></div><div class="optionField"><label>Tốc độ garanti khi máy nóng<br><span style="color:#55484b">Idle Speed (Hot)</span></label><input data-ecuopt="idleHot" type="number" step="1" placeholder="RPM"></div><div class="optionField"><label>Ngưỡng tua phun trở lại khi giảm ga - máy nguội<br><span style="color:#55484b">Idle Return INJ (Cold)</span></label><input data-ecuopt="returnCold" type="number" step="1" placeholder="RPM"></div><div class="optionField"><label>Ngưỡng tua phun trở lại khi giảm ga - máy nóng<br><span style="color:#55484b">Idle Return INJ (Hot)</span></label><input data-ecuopt="returnHot" type="number" step="1" placeholder="RPM"></div><div class="optionField"><label>Giới hạn tốc độ động cơ tối đa<br><span style="color:#55484b">Maximum Speed</span></label><input data-ecuopt="maxSpeed" type="number" step="1" placeholder="RPM"></div><div class="optionField"><label>Phần trăm thiết lập tăng tốc<br><span style="color:#55484b">Acceleration Setup Percentage</span></label><input data-ecuopt="accelPct" type="number" step="0.1" placeholder="%"></div><div class="optionField"><label>Độ nhạy vào/thoát chế độ garanti<br><span style="color:#55484b">Enter (leave) idle sensitivity</span></label><input data-ecuopt="idleSensitivity" type="number" step="0.1" placeholder="Level"></div><div class="optionField"><label>Phun tối thiểu khi garanti - máy nguội<br><span style="color:#55484b">Idle minimum inj (cold)</span></label><input data-ecuopt="idleMinCold" type="number" step="0.01" placeholder="ms"></div><div class="optionField"><label>Phun tối thiểu khi garanti - máy nóng<br><span style="color:#55484b">Idle minimum inj (Hot)</span></label><input data-ecuopt="idleMinHot" type="number" step="0.01" placeholder="ms"></div><div class="optionField"><label>Tự điều chỉnh góc đánh lửa khi garanti<br><span style="color:#55484b">Idle Auto Regulation IGN</span></label><input data-ecuopt="idleIgnReg" type="number" step="0.1" placeholder="°"></div><div class="optionField"><label>Tự điều chỉnh phun khi garanti<br><span style="color:#55484b">Idle Auto Regulation INJ(ms)</span></label><input data-ecuopt="idleInjReg" type="number" step="0.01" placeholder="ms"></div><div class="optionField"><label>Tăng phun khi khởi động nguội<br><span style="color:#55484b">Cold start (increase INJ)</span></label><input data-ecuopt="coldStartInj" type="number" step="0.1" placeholder=""></div><div class="optionField"><label>Độ trễ tăng phun khởi động nguội<br><span style="color:#55484b">Cold start (increase INJ delay)</span></label><input data-ecuopt="coldStartDelay" type="number" step="0.1" placeholder="Second"></div><div class="optionField"><label>Nhiệt độ bật quạt<br><span style="color:#55484b">Open fan temperature</span></label><input data-ecuopt="fanTemp" type="number" step="1" placeholder="°C"></div><div class="optionField"><label>Điện áp TPS nhỏ nhất<br><span style="color:#55484b">TPS Voltage (Min.)</span></label><input data-ecuopt="tpsMinEcu" type="number" step="0.001" placeholder="V"></div><div class="optionField"><label>Điện áp TPS lớn nhất<br><span style="color:#55484b">TPS Voltage (Max.)</span></label><input data-ecuopt="tpsMaxEcu" type="number" step="0.001" placeholder="V"></div><div class="optionField"><label>RPM bắt đầu ly hợp tự động<br><span style="color:#55484b">Auto Clutch Start RPM</span></label><input data-ecuopt="autoClutchStartRpm" type="number" step="100" placeholder="RPM"></div><div class="optionField"><label>Tốc độ mở (giữ tên gốc vì ngữ cảnh chưa đủ rõ)<br><span style="color:#55484b">Opening Speed</span></label><input data-ecuopt="openingSpeed" type="number" step="0.1" placeholder="REDLEO"></div></div></div>
     <div class="optPanel"><h3>Điều khiển cảm biến AFR / O2</h3>
@@ -2771,6 +2786,11 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
           <div class="field"><label for="afrVoltMax">AFR IO4 · ĐIỆN ÁP MAX (V)</label><input id="afrVoltMax" type="number" inputmode="decimal" min="0.01" max="5" step="0.001" value="3.135"></div>
         </div>
         <div class="tuneSettingHelp">Mặc định <b>0 V = AFR 10</b> và <b>3,135 V = AFR 20</b>. Chỉnh được điện áp Min và Max; <b>AFR 10–20</b> luôn cố định. Điện áp Min phải thấp hơn Max ít nhất 0,01 V.</div>
+        <div class="settingsGrid tuneSettingsGrid" style="margin-top:8px">
+          <div class="field" style="grid-column:1/-1"><label for="afrDisplaySource">NGUỒN AFR HIỂN THỊ</label><select id="afrDisplaySource"><option value="blink">BLINK · CẢM BIẾN IO4 (MẶC ĐỊNH)</option><option value="ecu">ECU · CẢM BIẾN O2 QUA LIVE</option></select></div>
+        </div>
+        <div class="tuneSettingHelp" id="ecuAfrSourceStatus" role="status" aria-live="polite">AFR hiển thị: BLINK IO4 · Auto Tune vẫn dùng IO4.</div>
+        <div class="tuneSettingHelp">Chỉ chuyển <b>giá trị AFR và điện áp AFR hiển thị</b> trên Blink. ECU có hai nguồn <b>cảm biến zin</b> và <b>cảm biến rời</b>; Blink tự nhận biết qua LIVE, không tự thay đổi lựa chọn trong ECU. <b>Auto Tune / ghi AFR / bù MAP luôn dùng IO4</b>; chọn ECU không lấy bảng Air fuel ratio mục tiêu làm cảm biến. Nếu dữ liệu ECU hoặc hiệu chuẩn vAFR chưa hợp lệ sẽ hiện “--”, không tự lấy giá trị giả.</div>
       </div>
       <div class="tuneSettingsGroup tuneAutoSettings">
         <h3 class="tuneSettingsGroupHeading">03 · AUTO TUNE / THÔNG SỐ BÙ</h3>
@@ -2803,6 +2823,39 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   </section>
 
   <nav class="bottomNav"><button class="navBtn active" data-nav="dashboard"><span class="ico">◉</span>TRANG CHỦ</button><button class="navBtn" data-nav="maps"><span class="ico">▦</span>BẢN ĐỒ</button><button class="navBtn" data-nav="tune"><span class="ico">✦</span>AUTO TUNE</button><button class="navBtn" data-nav="ecu"><span class="ico">◆</span>ECU</button><button class="navBtn" data-nav="settings"><span class="ico">⚙</span>THIẾT LẬP</button></nav>
+
+  <dialog id="ecuBackupDialog" class="ecuBackupDialog" aria-label="Kho backup ECU trong ứng dụng">
+  <div class="ecuBkHead"><strong id="ecuBkTitle">SAO LƯU ECU VÀO ỨNG DỤNG</strong><button id="ecuBkClose" type="button" aria-label="Đóng">✕</button></div>
+  <div class="ecuBkTabs"><button id="ecuBkTabSave" type="button" class="primary">TẠO BACKUP</button><button id="ecuBkTabLoad" type="button">KHO BACKUP</button></div>
+  <div id="ecuBkSavePane">
+    <div class="ecuBkField"><label for="ecuBkName">Tên bộ MAP / bản sao lưu</label><input id="ecuBkName" maxlength="64" placeholder="VD: Winner 150 zin · REDLEO 9.2"></div>
+    <div class="ecuBkSectionTitle">MAP cần lưu</div>
+    <div class="ecuBkChecks"><label><input type="checkbox" data-bk-bank="1" checked> MAP 1</label><label><input type="checkbox" data-bk-bank="2"> MAP 2</label><label><input type="checkbox" data-bk-bank="3"> MAP 3</label><label><input type="checkbox" data-bk-bank="4"> MAP 4</label></div>
+    <div class="ecuBkSectionTitle">Bảng dữ liệu đọc từ ECU</div>
+    <div class="ecuBkChecks">
+      <label><input type="checkbox" data-bk-feature="inj_ve" checked> Bảng xăng / thời gian phun</label>
+      <label><input type="checkbox" data-bk-feature="ign_degree" checked> Bảng góc đánh lửa</label>
+      <label><input type="checkbox" data-bk-feature="inj_degree"> Bảng góc phun</label>
+      <label><input type="checkbox" data-bk-feature="ign_time"> Bảng thời gian lửa / Dwell</label>
+      <label><input type="checkbox" data-bk-feature="afr_map"> AFR mục tiêu ECU (ON/OFF: lưu dự phòng)</label>
+      <label><input type="checkbox" id="ecuBkOptionsCheck"> Tùy chọn ECU / A2 (lưu dự phòng)</label>
+    </div>
+    <div class="ecuBkHint">Blink <b>đọc mới đúng các bảng đã chọn từ ECU</b>, kiểm tra dữ liệu, sau đó lưu vào <b>bộ nhớ riêng của ứng dụng trên điện thoại</b>. Không lưu vào ESP32 và không ghi gì vào ECU. Mỗi lần lưu tạo một bản độc lập.</div>
+    <div class="ecuBkActions"><button id="ecuBkSaveApp" class="good" type="button">LƯU VÀO ỨNG DỤNG</button><button id="ecuBkSaveJson" type="button">XUẤT FILE TRỰC TIẾP TỪ ECU</button></div>
+    <div class="ecuBkActions"><button id="ecuBkOldJson" type="button">XUẤT JSON CŨ (CACHE BLINK)</button></div>
+  </div>
+  <div id="ecuBkLoadPane" style="display:none">
+    <div class="ecuBkActions"><button id="ecuBkRefresh" type="button">LÀM MỚI DANH SÁCH</button><button id="ecuBkImportApp" type="button">NHẬP FILE BACKUP</button></div>
+    <div class="ecuBkField"><label for="ecuBkStored">Các bản đã lưu trong ứng dụng này</label><select id="ecuBkStored"><option value="">Đang đọc kho backup...</option></select></div>
+    <div class="ecuBkHint" id="ecuBkSelectedInfo">Có thể xem, xuất file và xóa backup khi chưa kết nối ECU. Dữ liệu tồn tại sau khi tắt ứng dụng thông thường.</div>
+    <div class="ecuBkActions"><button id="ecuBkLoadToBlink" class="primary" type="button">NẠP VÀO BLINK</button><button id="ecuBkExportStored" type="button">XUẤT FILE ĐÃ LƯU</button></div>
+    <div class="ecuBkActions"><button id="ecuBkDeleteStored" class="danger" type="button">XÓA BACKUP</button><button id="ecuBkOldImport" type="button">NHẬP JSON CŨ</button></div>
+    <input id="ecuBkImportFile" type="file" accept=".json,application/json" hidden>
+    <div class="ecuBkHint"><b>Không cần RPM LIVE hoặc nổ máy.</b> Nạp bản backup vào Blink để xem và kiểm tra cần kết nối đúng ECU (phiên bản/ID/trục TPS/RPM). <b>Không tự ghi ECU.</b> Muốn ghi MAP sang ECU cần thao tác GHI ECU riêng. AFR ON/OFF và tùy chọn A2 hiện chỉ lưu dự phòng.</div>
+    <div class="ecuBkHint">Backup chỉ nằm trên thiết bị này; xóa dữ liệu ứng dụng, gỡ APK/IPA hoặc đổi máy có thể làm mất bản lưu. Hãy dùng <b>XUẤT FILE ĐÃ LƯU</b> để giữ bản dự phòng bên ngoài.</div>
+  </div>
+  <div class="ecuBkStatus" id="ecuBkStatus" role="status" aria-live="polite">Kho backup dùng IndexedDB của ứng dụng. Không cần thay firmware ESP32.</div>
+</dialog>
 
   <div class="compatHidden">
     <span id="ecuBadge" class="badge bad">BLE: OFF</span><span id="afrBadge" class="badge bad">AFR: OFF</span>
@@ -2952,7 +3005,7 @@ const state={
   // launches; a fresh BLE session clears ECU-derived maps anyway.
   fuelSyncUnknown:[false,false,false,false],
   afrPort:null, afrReader:null, afrKeepReading:false, afrRxBuf:'',
-  live:{afrV:NaN,tpsV:NaN,afr:NaN,tps:0,rpm:0,ign:NaN,pw:NaN,auxAt:NaN},
+  live:{afrV:NaN,tpsV:NaN,afr:NaN,ecuAfr:NaN,ecuAfrV:NaN,ecuAfrAt:NaN,ecuAfrState:"awaiting-ecu",ecuO2Source:null,tps:0,rpm:0,ign:NaN,pw:NaN,auxAt:NaN},
   cal:{tpsMin:0.45,tpsMax:4.5,settleMs:0,afrVoltMin:0,afrVoltMax:3.135,afrValueMin:10,afrValueMax:20,afrIo4Revision:null,afrDelayMs:0,limitPct:30,threeRunLimitPct:30},
   recording:false, lastCellKey:'', cellEnteredAt:0, afrHistory:[], totalSamples:0, tpsTrendHistory:[], tpsFalling:false,
   threeRun:{active:false,mapNo:1,pass:0,phase:'idle',startedAt:null,runStartedAt:null,runPw:null,target:null,runs:[null,null,null],pendingNextPass:0,lastAdaptiveStats:null,finalAdaptiveStats:null,finalPw:null,cancelRequested:false},
@@ -2961,6 +3014,18 @@ const state={
   editingCell:null
 };
 
+// PB3.79.123: display-only selection, per device. It does NOT change Auto Tune input.
+let afrDisplaySource='blink';
+try{if(localStorage.getItem('blinkAfrDisplaySourceV1')==='ecu')afrDisplaySource='ecu';}catch(_e){}
+function setAfrDisplaySource(next){
+  afrDisplaySource=next==='ecu'?'ecu':'blink';
+  try{localStorage.setItem('blinkAfrDisplaySourceV1',afrDisplaySource);}catch(_e){}
+  const el=document.getElementById('afrDisplaySource');
+  if(el)el.value=afrDisplaySource;
+  updateLive();
+  try{syncMirrors();}catch(_e){}
+}
+window.blinkGetAfrDisplaySource=()=>afrDisplaySource;
 function blankMatrix(v){return Array.from({length:R},()=>Array.from({length:C},()=>v));}
 function $ (id){return document.getElementById(id)}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
@@ -6262,11 +6327,37 @@ function recordSample(now){
   saveSoon();
 }
 function updateLive(){
-  $('afrLive').textContent=fmt(state.live.afr,2);
+  const ecuSelected=afrDisplaySource==='ecu';
+  const ecuFresh=!!state.ecuConnected&&Number.isFinite(state.live.ecuAfrAt)&&
+    performance.now()-state.live.ecuAfrAt<=2000&&Number.isFinite(state.live.ecuAfr);
+  const shownAfr=ecuSelected?(ecuFresh?state.live.ecuAfr:NaN):state.live.afr;
+  const shownVolt=ecuSelected?(ecuFresh?state.live.ecuAfrV:NaN):state.live.afrV;
+  $('afrLive').textContent=fmt(shownAfr,2);
+  const ecuSensorName=state.live.ecuO2Source==='external'?'CẢM BIẾN RỜI':state.live.ecuO2Source==='original'?'CẢM BIẾN ZIN':'O2 LIVE';
+  const sourceLabel=document.getElementById('afrDisplayLabel');
+  if(sourceLabel)sourceLabel.textContent=ecuSelected?('AFR ECU · '+ecuSensorName):'AFR BLINK · IO4';
+  const sourceControl=document.getElementById('afrDisplaySource');
+  if(sourceControl&&sourceControl.value!==afrDisplaySource)sourceControl.value=afrDisplaySource;
+  const sourceInfo=document.getElementById('ecuAfrSourceStatus');
+  if(sourceInfo){
+    const reason=state.live.ecuAfrState;
+    const message=!ecuSelected
+      ?'AFR hiển thị từ BLINK IO4 · Auto Tune vẫn dùng IO4.'
+      :ecuFresh
+        ?'AFR ECU LIVE · '+ecuSensorName+' · bảng vAFR hợp lệ · chỉ dùng hiển thị.'
+        :reason==='unsupported'
+          ?'ECU này chưa có bộ giải mã AFR LIVE gốc được xác nhận; không hiển thị giá trị giả.'
+          :reason==='needs-ecu-vafr'
+            ?'ECU '+ecuSensorName+' · chờ hiệu chuẩn vAFR (A2 / Read All); không dùng IO4 thay thế.'
+            :reason==='invalid-ecu-vafr'||reason==='invalid-adc'||reason==='invalid-result'
+              ?'AFR ECU không hợp lệ; kiểm tra O2 / bảng vAFR / firmware ECU.'
+              :'Chờ gói LIVE 0xA1 và hiệu chuẩn cảm biến AFR ECU.';
+    if(sourceInfo.textContent!==message)sourceInfo.textContent=message;
+  }
   $('tpsLive').textContent=blinkTpsEcuGuardRequired()&&!blinkAutoTuneTpsSafe()?'-- (CHỜ TPS)':fmt(state.live.tps,1)+'%'+(blinkManualTpsReady()?' · THỦ CÔNG':'');
   $('rpmLive').textContent=Math.round(state.live.rpm);
   $('tpsVLive').textContent=fmt(state.live.tpsV,3)+' V';
-  $('afrVLive').textContent=fmt(state.live.afrV,3)+' V';
+  $('afrVLive').textContent=fmt(shownVolt,3)+' V';
   const cur=currentCell(); $('cellLive').textContent=(TPS_ROWS[cur.r]==='IDLE'?'IDLE':TPS_ROWS[cur.r]+'%')+' / '+RPMS[cur.c];
   $('sampleInfo').textContent=state.totalSamples.toLocaleString()+' mẫu AFR'+(state.threeRun.active?' · lượt '+state.threeRun.pass+'/3':'');
 }
@@ -7334,9 +7425,11 @@ window.addEventListener('beforeunload',save);
 
   function onDisconnected(){
     autoIdleSaveReset(true);
+    state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;
     otaUpdateReady=false;if($('otaInstallBtn'))$('otaInstallBtn').disabled=true;
     liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
     setBleUi(false);
+    updateLive();try{syncMirrors();}catch(_e){}
     setEcuTaskStatus('offline','ECU ĐÃ NGẮT KẾT NỐI',5000);
     showEcuNotice('error','ECU Blink ĐÃ NGẮT BLE','Bấm KẾT NỐI ECU BLINK để kết nối lại.');
   }
@@ -7467,7 +7560,7 @@ function featureForProfile(id){
   if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:v11Name+' · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   if(id==='auto_clutch'&&state.ecuProfile==='MODERN_V11')return {...f,rows:1,cols:6,x:['Low RPM','High RPM','Low Angle','High Angle','Close RPM','ECT On (V)'],y:['AUTO CLUTCH'],unit:'mixed',desc:'ATE V11 Dgv_Dzfm · RPM / góc trễ / ngưỡng điện áp ECT. Bit bật/tắt chức năng được giữ nguyên, Blink chỉ sửa 6 byte dữ liệu đã xác minh.'};
   if(id==='ect_start'&&state.ecuProfile==='MODERN_V10')return {...f,rows:3,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Time(Second)','INJ VE(ms)','StrtAdd(ms)'],unit:'mixed',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_EctStrt_Add 3×11 = 33 byte. Wire đảo hàng; Time dùng bước 0.2s, hai hàng INJ dùng scale Oil gốc.'};
-  if(id==='ate_options'&&state.ecuProfile==='MODERN_V10')return {...f,title:'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:'REDLEO V10.2 · Dgv_Option 18B: 15 mục có nhãn/unit từ phần mềm gốc được phép sửa; 3 byte dự phòng cuối luôn giữ nguyên raw.'};
+  if(id==='ate_options'&&state.ecuProfile==='MODERN_V10'){const ultra1=state.ecuVariant==='ULTRA_PRO1';return {...f,title:ultra1?'Tuỳ chọn REDLEO Ultra Pro1':'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:(ultra1?'REDLEO Ultra Pro1':'REDLEO V10.2')+' · Dgv_Option 18B: 15 mục đầu có codec gốc được phép sửa; 3 byte cuối luôn giữ nguyên raw.'};}
   return f;
 }
 function externalTpsAxis(){
@@ -7487,10 +7580,13 @@ function refreshRedEcuAxes(){
 window.refreshRedEcuAxes=refreshRedEcuAxes;
 function saveFeatureStore(){localStorage.setItem('blinkRedleoFeatureStoreV6',JSON.stringify(featureStore))}
 function resetEcuMapUiForNewSession(){
+  // A new physical ECU session must never inherit staged archive data.
+  bkStagedCells.clear();
   // Keep AFR measured/target/local autotune data, but remove all ECU-derived maps.
   for(let b=0;b<state.mapBanks.length;b++)state.mapBanks[b].inject=blankMatrix(null);
   state.fuelSyncUnknown=[false,false,false,false];
   state.tpsTrendHistory=[];state.tpsFalling=false;
+  state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;
   for(const k of Object.keys(featureStore))delete featureStore[k];
   state.selection.active=false;
   state.lastCellKey='';
@@ -7531,6 +7627,8 @@ async function autoReadVisibleEcuPage(reason='open'){
       return;
     }
     if(active==='redleoEditorScreen'&&currentFeature){
+      // A confirmed backup staged locally must survive opening the editor.
+      if(bkStagedCells.has(currentFeature.id+':'+state.activeMap))return;
       if(!await ensureActiveEcuAxes(false))return;
       currentFeature=featureForProfile(currentFeature.id)||currentFeature;
       await api.readFeaturePageReal(currentFeature.id,state.activeMap,true);
@@ -8302,8 +8400,501 @@ function saveOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>opt
 function syncAfrSensorUi(){const t=document.getElementById('afrControlToggle'),s=document.getElementById('afrControlState');if(t&&s){s.textContent=t.checked?'ON':'OFF';s.style.color=t.checked?'#76ff9a':'#ff7d88'}}
 function loadOptions(){document.querySelectorAll('[data-ecuopt]').forEach(e=>e.value=optionStore[e.dataset.ecuopt]??'');document.querySelectorAll('[data-ecutoggle]').forEach(e=>e.checked=!!optionStore[e.dataset.ecutoggle]);if(document.getElementById('o2SourceSelect')&&!optionStore.o2Source)document.getElementById('o2SourceSelect').value='original';syncAfrSensorUi()}
 async function ecuCommand(c){saveOptions();try{await cmd(c);showEcuNotice('info','ĐÃ GỬI LỆNH',c)}catch(e){showEcuNotice('error','BLE',e.message,0)}}
-function exportBackup(){const blob=new Blob([JSON.stringify({version:7,featureStore,optionStore,mapBanks:state.mapBanks,cal:state.cal},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='BLINK_REDLEO_BACKUP_v7.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportBackupLegacy(){const blob=new Blob([JSON.stringify({version:7,featureStore,optionStore,mapBanks:state.mapBanks,cal:state.cal},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='BLINK_REDLEO_BACKUP_v7.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal){Object.assign(state.cal,j.cal);state.cal.afrIo4Revision=j.cal.afrIo4Revision||null;}normalizeAfrIo4Calibration();saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
+
+// ===== PB3.79.126: named ECU backup in app IndexedDB (NO ESP32 flash commands) =====
+const BK_DB_NAME='BlinkRedleoEcuBackupsV1',BK_DB_STORE='snapshots',BK_DB_VERSION=1;
+const BK_FORMAT='BLINK_ECU_SELECTED_V1',BK_FILE_FORMAT='BLINK_ECU_APP_FILE_V1';
+const BK_MAX_JSON_BYTES=512*1024;
+const BK_MAP_FEATURES=new Set(['inj_ve','ign_degree','inj_degree','ign_time','afr_map']);
+const bkStagedCells=new Set();
+window.blinkClearBackupStaging=(id,bank)=>bkStagedCells.delete(id+':'+bank);
+const bkEncoder=new TextEncoder(),bkDecoder=new TextDecoder();
+const bkEl=id=>document.getElementById(id);
+let bkBusy=false;
+function bkLog(message){const e=bkEl('ecuBkStatus');if(e)e.textContent=String(message)}
+function bkCrc32(bytes){
+  let c=0xFFFFFFFF;
+  for(const b of bytes){c^=b;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xEDB88320:0);}
+  return(c^0xFFFFFFFF)>>>0;
+}
+function bkJsonBytes(value){
+  const json=JSON.stringify(value);
+  if(!json||bkEncoder.encode(json).length>BK_MAX_JSON_BYTES)throw new Error('Backup quá lớn / không hợp lệ (tối đa 512 KB).');
+  return bkEncoder.encode(json);
+}
+function bkValidateSnapshot(snap){
+  if(!snap||typeof snap!=='object'||Array.isArray(snap)||snap.format!==BK_FORMAT||snap.version!==1||
+      !snap.identity||typeof snap.identity!=='object'||!snap.maps||typeof snap.maps!=='object'||
+      Array.isArray(snap.maps)||!snap.selection||typeof snap.selection!=='object')
+    throw new Error('File không phải backup ECU chọn lọc của Blink.');
+  if(typeof snap.name!=='string'||!snap.name.trim()||snap.name.length>64)
+    throw new Error('Backup thiếu tên hoặc tên vượt 64 ký tự.');
+  const id=snap.identity;
+  if(typeof id.profile!=='string'||!id.profile||id.profile==='UNKNOWN'||id.profile.length>64||
+    typeof id.ident!=='string'||id.ident.length>96||typeof id.firmware!=='string'||id.firmware.length>64||
+    !Number.isFinite(id.ecuId)||!Number.isFinite(id.ecuMode))
+    throw new Error('Backup không có thông tin nhận dạng ECU hợp lệ.');
+  if(!Array.isArray(snap.selection.banks)||snap.selection.banks.some(x=>!Number.isInteger(x)||x<1||x>4)||
+      new Set(snap.selection.banks).size!==snap.selection.banks.length||
+      !Array.isArray(snap.selection.features)||snap.selection.features.some(x=>!BK_MAP_FEATURES.has(x))||
+      new Set(snap.selection.features).size!==snap.selection.features.length||
+      typeof snap.selection.options!=='boolean')
+    throw new Error('Danh sách MAP / bảng trong backup không hợp lệ.');
+  const keys=Object.keys(snap.maps);
+  if(keys.length>4||keys.some(b=>!['1','2','3','4'].includes(b)||!snap.selection.banks.includes(Number(b))))
+    throw new Error('Backup chứa MAP không thuộc danh sách được chọn.');
+  if(keys.length!==snap.selection.banks.length||snap.selection.banks.some(b=>!Object.prototype.hasOwnProperty.call(snap.maps,String(b))))
+    throw new Error('Backup thiếu MAP đã chọn.');
+  for(const bank of keys){
+    const group=snap.maps[bank];
+    if(!group||typeof group!=='object'||Array.isArray(group))throw new Error('MAP '+bank+' không hợp lệ.');
+    for(const field of Object.keys(group)){
+      if(field==='afrEnabled'){
+        if(!snap.selection.features.includes('afr_map')||!Array.isArray(group[field])||group[field].length!==14||
+          group[field].some(row=>!Array.isArray(row)||row.length!==30||row.some(v=>typeof v!=='boolean')))
+          throw new Error('AFR ON/OFF trong backup không hợp lệ.');
+        continue;
+      }
+      if(!BK_MAP_FEATURES.has(field)||!snap.selection.features.includes(field))
+        throw new Error('Backup chứa bảng không được phép: '+field);
+      const rows=field==='ign_time'?1:14;
+      if(!Array.isArray(group[field])||group[field].length!==rows||
+        group[field].some(row=>!Array.isArray(row)||row.length!==30||row.some(v=>typeof v!=='number'||!Number.isFinite(v))))
+        throw new Error('Bảng '+field+' MAP '+bank+' không đúng kích thước/dữ liệu.');
+    }
+    for(const f of snap.selection.features){
+      if(!Object.prototype.hasOwnProperty.call(group,f))throw new Error('Backup thiếu '+f+' MAP '+bank+'.');
+    }
+    if(snap.selection.features.includes('afr_map')&&!Object.prototype.hasOwnProperty.call(group,'afrEnabled'))
+      throw new Error('Backup AFR thiếu trạng thái ON/OFF MAP '+bank+'.');
+  }
+  if(snap.selection.options){
+    const op=snap.optionsA2;
+    if(!op||!Array.isArray(op.raw)||!op.raw.length||op.raw.length>4096||
+      op.raw.some(x=>!Number.isInteger(x)||x<0||x>255)||op.length!==op.raw.length)
+      throw new Error('Backup thiếu dữ liệu tùy chọn A2 hợp lệ.');
+  }else if(snap.optionsA2!=null)throw new Error('Dữ liệu A2 không thuộc danh sách đã chọn.');
+  if(snap.axes!=null){
+    if(typeof snap.axes!=='object'||!Array.isArray(snap.axes.rpm)||!Array.isArray(snap.axes.tpsRows)||
+      snap.axes.rpm.length!==30||snap.axes.tpsRows.length!==14)
+      throw new Error('Backup có trục TPS/RPM sai định dạng.');
+  }
+  bkJsonBytes(snap);
+  return snap;
+}
+function bkId(){
+  if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function')return crypto.randomUUID();
+  return 'bk-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+}
+function bkNewRecord(snapshot,imported=false){
+  bkValidateSnapshot(snapshot);
+  const bytes=bkJsonBytes(snapshot);
+  return {id:bkId(),name:snapshot.name.trim(),savedAt:new Date().toISOString(),
+    createdAt:snapshot.createdAt||new Date().toISOString(),imported:!!imported,
+    profile:snapshot.identity.profile,ecuIdent:snapshot.identity.ident,
+    banks:snapshot.selection.banks.slice(),features:snapshot.selection.features.slice(),
+    size:bytes.byteLength,crc32:bkCrc32(bytes),snapshot};
+}
+function bkCheckedRecord(rec){
+  if(!rec||!rec.snapshot||typeof rec.id!=='string'||!Number.isInteger(rec.crc32))
+    throw new Error('Bản backup trong ứng dụng bị lỗi.');
+  bkValidateSnapshot(rec.snapshot);
+  const bytes=bkJsonBytes(rec.snapshot);
+  if(bkCrc32(bytes)!==rec.crc32||bytes.byteLength!==rec.size)
+    throw new Error('Kiểm tra CRC32 bản backup thất bại; không nạp.');
+  return rec.snapshot;
+}
+function bkOpenDb(){
+  if(!('indexedDB' in window)||!window.indexedDB)
+    return Promise.reject(new Error('WebView không hỗ trợ IndexedDB: không thể bảo đảm lưu backup. Hãy dùng Xuất file dự phòng.'));
+  return new Promise((resolve,reject)=>{
+    let req;
+    try{req=window.indexedDB.open(BK_DB_NAME,BK_DB_VERSION);}
+    catch(e){reject(new Error('Không mở được kho backup trong ứng dụng: '+String(e?.message||e)));return;}
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(BK_DB_STORE))
+        db.createObjectStore(BK_DB_STORE,{keyPath:'id'});
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(new Error('IndexedDB không mở được. Hãy kiểm tra ứng dụng không ở chế độ dữ liệu tạm.'));
+    req.onblocked=()=>reject(new Error('Kho backup đang được sử dụng bởi phiên Blink khác.'));
+  });
+}
+async function bkDbOp(mode,createRequest){
+  const db=await bkOpenDb();
+  try{
+    return await new Promise((resolve,reject)=>{
+      let result,settled=false,tx;
+      const fail=reason=>{if(!settled){settled=true;reject(new Error(reason||'Lỗi lưu trữ IndexedDB.'));}};
+      try{
+        tx=db.transaction(BK_DB_STORE,mode);
+        const req=createRequest(tx.objectStore(BK_DB_STORE));
+        req.onsuccess=()=>{result=req.result;};
+        req.onerror=()=>fail('Lệnh IndexedDB thất bại: '+String(req.error?.message||'unknown'));
+        tx.oncomplete=()=>{if(!settled){settled=true;resolve(result);}};
+        tx.onabort=()=>fail('Kho backup không thể ghi: '+String(tx.error?.message||'thiếu dung lượng/quyền lưu'));
+        tx.onerror=()=>fail('Kho backup IndexedDB gặp lỗi giao dịch.');
+      }catch(e){if(tx)try{tx.abort()}catch(_e){}fail('Không thực hiện được lệnh backup: '+String(e?.message||e));}
+    });
+  }finally{try{db.close()}catch(_e){}}
+}
+async function bkDbSave(snapshot,imported=false){
+  const record=bkNewRecord(snapshot,imported);
+  await bkDbOp('readwrite',store=>store.put(record));
+  const back=await bkDbGet(record.id);
+  bkCheckedRecord(back);
+  return record;
+}
+function bkDbGet(id){return bkDbOp('readonly',store=>store.get(id));}
+async function bkDbList(){
+  const records=await bkDbOp('readonly',store=>store.getAll());
+  return (records||[]).sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
+}
+function bkDbDelete(id){return bkDbOp('readwrite',store=>store.delete(id));}
+function bkDateLabel(value){
+  const n=Date.parse(value);
+  return Number.isFinite(n)?new Date(n).toLocaleString('vi-VN'):'Không rõ ngày';
+}
+function bkSelection(){
+  const banks=[...document.querySelectorAll('[data-bk-bank]:checked')].map(x=>Number(x.dataset.bkBank));
+  const ids=[...document.querySelectorAll('[data-bk-feature]:checked')].map(x=>x.dataset.bkFeature);
+  const options=!!bkEl('ecuBkOptionsCheck')?.checked;
+  if(!ids.length&&!options)throw new Error('Phải chọn ít nhất một bảng hoặc Tùy chọn ECU');
+  if(ids.length&&!banks.length)throw new Error('Hãy chọn ít nhất một MAP cho các bảng xăng/lửa');
+  const title=String(bkEl('ecuBkName')?.value||'').trim();
+  if(!title||title.length>64)throw new Error('Hãy đặt tên backup (1–64 ký tự)');
+  return {banks,ids,options,title};
+}
+function bkChosenId(){
+  const id=bkEl('ecuBkStored')?.value||'';
+  if(!id)throw new Error('Hãy chọn một bản backup đã lưu trong ứng dụng');
+  return id;
+}
+async function bkRefresh(){
+  const el=bkEl('ecuBkStored');
+  const previous=el.value;
+  const entries=await bkDbList();
+  el.replaceChildren();
+  if(!entries.length){
+    el.add(new Option('Chưa có bản sao lưu nào',''));
+    bkEl('ecuBkSelectedInfo').textContent='Kho backup trống. Bấm TẠO BACKUP, chọn các bảng và LƯU VÀO ỨNG DỤNG.';
+    bkLog('Kho backup trong ứng dụng đang trống. Không cần ESP32 FW2.2B.');
+  }else{
+    for(const item of entries){
+      el.add(new Option(item.name+' · '+bkDateLabel(item.savedAt)+' · '+item.profile,item.id));
+    }
+    if(entries.some(r=>r.id===previous))el.value=previous;
+    bkShowSelectedInfo(entries);
+    bkLog('Đã đọc '+entries.length+' bộ backup từ bộ nhớ riêng của ứng dụng.');
+  }
+  return entries;
+}
+async function bkShowSelectedInfo(known){
+  const info=bkEl('ecuBkSelectedInfo'),id=bkEl('ecuBkStored')?.value;
+  if(!id){if(info)info.textContent='Chưa chọn backup.';return;}
+  try{
+    const rec=(known||await bkDbList()).find(x=>x.id===id);
+    if(!rec)return;
+    bkCheckedRecord(rec);
+    if(info)info.textContent='MAP: '+(rec.banks.length?rec.banks.join(', '):'Tùy chọn')+
+      ' · Bảng: '+(rec.features.length?rec.features.join(', '):'A2')+
+      ' · ECU: '+rec.profile+' · ID: '+rec.ecuIdent+
+      ' · '+bkDateLabel(rec.savedAt)+' · '+rec.size+' byte · CRC OK. Không cần RPM LIVE.';
+  }catch(e){if(info)info.textContent='KHÔNG ĐỌC ĐƯỢC: '+String(e?.message||e);}
+}
+
+function bkVerifiedMatrix(m,f,description){
+  if(!Array.isArray(m)||m.length!==f.rows||m.some(r=>!Array.isArray(r)||r.length!==f.cols||r.some(v=>typeof v!=='number'||!Number.isFinite(v))))
+    throw new Error(description+' chưa đọc đủ từ ECU; không dùng cache/ô số 0 giả để backup');
+  if(m.every(row=>row.every(x=>x===0)))throw new Error(description+' toàn số 0; hãy kiểm tra ECU gốc trước khi backup');
+  return m.map(row=>row.slice());
+}
+function bkIdentity(api){
+  const h=api.handshake||{},p=api.profile||{};
+  return {profile:String(p.key||''),ident:String(h.ident||''),firmware:String(h.firmware||''),ecuId:Number(h.ecuId||0),ecuMode:Number(h.ecuMode||0)};
+}
+function bkSameMainAxes(a,b){
+  if(!a||!b||!Array.isArray(a.rpm)||!Array.isArray(b.rpm)||
+    !Array.isArray(a.tpsRows)||!Array.isArray(b.tpsRows))return false;
+  const same=(x,y)=>x.length===y.length&&x.every((v,i)=>
+    String(v).toUpperCase()==='IDLE'||String(y[i]).toUpperCase()==='IDLE'
+      ?String(v).toUpperCase()===String(y[i]).toUpperCase()
+      :Math.abs(Number(v)-Number(y[i]))<0.001);
+  return same(a.rpm,b.rpm)&&same(a.tpsRows,b.tpsRows);
+}
+function bkAssertSameEcu(saved,real){
+  if(!saved||!real||saved.profile!==real.profile||saved.ident!==real.ident||
+    saved.firmware!==real.firmware||saved.ecuId!==real.ecuId||saved.ecuMode!==real.ecuMode)
+    throw new Error('Bản backup thuộc ECU khác (profile/ID/firmware/ECU_MODE). Đã khóa nạp để tránh sai góc lửa/xăng.');
+}
+async function bkFreshSnapshot(sel){
+  const api=window.BlinkRealProtocol;
+  if(!api||!api.handshake||!state.ecuConnected)throw new Error('Cần xác thực ECU trước khi tạo backup thật');
+  if(state.recording||state.threeRun?.active||state.ecuWriteQueued||autoIdleSave.inFlight)
+    throw new Error('Dừng ghi AFR, Auto Tune và mọi lượt ghi ECU trước khi backup');
+  const identity=bkIdentity(api);
+  if(!identity.profile||identity.profile==='UNKNOWN')throw new Error('Không thể backup ECU chưa nhận diện');
+  const result={format:'BLINK_ECU_SELECTED_V1',version:1,name:sel.title,createdAt:new Date().toISOString(),identity,
+    axes:window.getBlinkEcuAxes?.()||null,selection:{banks:sel.banks,features:sel.ids,options:sel.options},
+    maps:{},optionsA2:null};
+  for(const bank of sel.banks){
+    if(api.normalizeBank(bank)!==bank)throw new Error('ECU này không hỗ trợ MAP No.'+bank+' (ECU_MODE một bảng)');
+    const entry={};result.maps[String(bank)]=entry;
+    for(const id of sel.ids){
+      bkLog('ĐANG ĐỌC ECU MAP '+bank+' · '+id+' ...');
+      if(id==='inj_ve'){
+        await api.readCurrentFuelBank(bank);
+        const f=featureForProfile('inj_ve');
+        entry[id]=bkVerifiedMatrix(state.mapBanks[bank-1]?.inject,f,'INJ VE MAP '+bank);
+      }else{
+        await api.readFeaturePageReal(id,bank);
+        const f=featureForProfile(id);
+        if(!f)throw new Error('Không hỗ trợ bảng '+id);
+        const key=keyFor(f,bank);
+        entry[id]=bkVerifiedMatrix(featureStore[key],f,id+' MAP '+bank);
+        if(id==='afr_map'){
+          const meta=window.blinkEcuAfrMeta?.[bank]||window.blinkV11AfrMeta?.[bank];
+          if(!meta||!Array.isArray(meta.enabled)||meta.enabled.length!==f.rows)throw new Error('AFR map chưa có trạng thái ON/OFF từ ECU');
+          entry.afrEnabled=meta.enabled.map(row=>row.slice());
+        }
+      }
+    }
+  }
+  if(sel.options){
+    bkLog('ĐANG ĐỌC TÙY CHỌN A2 GỐC...');
+    const opts=await api.readA2SensorPageReal(true);
+    if(!opts?.data?.length)throw new Error('Chưa nhận được Options A2 từ ECU');
+    // Raw snapshot deliberately preserves hidden/reserved bytes; NEVER
+    // attempt to replay this full A2 page to another ECU.
+    result.optionsA2={raw:Array.from(opts.data),source:'ECU PAGE A2',length:opts.data.length,
+      decoded:opts.cache?.options||opts.cache?.v10Options||opts.cache?.ultraOptions||opts.cache?.ateOptions||null};
+  }
+  bkAssertSameEcu(identity,bkIdentity(api));
+  // A2 may populate real TPS/RPM axes during the selected page reads.
+  result.axes=window.getBlinkEcuAxes?.()||result.axes;
+  return result;
+}
+
+
+
+async function bkWithTask(fn,needsEcu=false){
+  if(bkBusy)throw new Error('Đang thực hiện tác vụ backup khác');
+  bkBusy=true;
+  document.querySelectorAll('#ecuBackupDialog button').forEach(b=>{b.disabled=true});
+  let manual=null,attempted=false;
+  const api=window.BlinkRealProtocol;
+  try{
+    if(needsEcu){
+      if(!state.ecuConnected||!api?.handshake||typeof api.beginManualMapIo!=='function')
+        throw new Error('Bật khóa điện và kết nối xác thực ECU để đọc/nạp bảng, không cần RPM LIVE.');
+      if(api.manualIoActive)throw new Error('ECU đang bận đọc/ghi MAP khác.');
+      attempted=true;
+      manual=await api.beginManualMapIo('APP ECU BACKUP');
+      if(manual?.nested)throw new Error('ECU đang có tác vụ MAP khác, đã hủy backup.');
+    }
+    return await fn();
+  }finally{
+    if(manual)try{api.endManualMapIo(manual)}catch(_e){}
+    else if(attempted&&api?.manualIoActive)try{api.endManualMapIo(null)}catch(_e){}
+    bkBusy=false;
+    document.querySelectorAll('#ecuBackupDialog button').forEach(b=>{b.disabled=false});
+  }
+}
+// Existing Blink confirmation overlay must appear above our modal dialog.
+async function bkConfirm(title,message,okText,cancelText){
+  const d=bkEl('ecuBackupDialog'),reopen=!!d?.open;
+  if(reopen)d.close();
+  try{return await blinkConfirm(title,message,okText,cancelText);}
+  finally{if(reopen&&!d.open)d.showModal();}
+}
+
+async function bkSaveInApp(){
+  const selection=bkSelection();
+  if(!await bkConfirm('SAO LƯU VÀO ỨNG DỤNG',
+    'Blink sẽ đọc mới dữ liệu đã chọn từ ECU rồi lưu thành bản độc lập tên "'+
+    selection.title+'". Không ghi ECU và không dùng Flash ESP32.','ĐỌC VÀ LƯU','HỦY'))return;
+  await bkWithTask(async()=>{
+    bkLog('ĐANG ĐỌC CÁC BẢNG TỪ ECU...');
+    const snapshot=await bkFreshSnapshot(selection);
+    bkLog('ĐÃ ĐỌC XONG ECU · lưu vào kho backup của ứng dụng...');
+    if(navigator.storage?.persist)try{await navigator.storage.persist()}catch(_e){}
+    const record=await bkDbSave(snapshot);
+    bkLog('ĐÃ LƯU VÀ KIỂM TRA CRC TRONG ỨNG DỤNG · '+record.name+
+      ' · '+record.size+' byte · '+bkDateLabel(record.savedAt)+
+      '.\nKhông thay đổi ECU. Xuất file dự phòng khi cần đổi/gỡ ứng dụng.');
+  },true);
+}
+async function bkSaveSelectedJson(){
+  const selection=bkSelection();
+  await bkWithTask(async()=>{
+    const snapshot=await bkFreshSnapshot(selection);
+    await bkExportFile('BLINK_ECU_'+selection.title,snapshot,null);
+    bkLog('ĐÃ YÊU CẦU XUẤT FILE BACKUP từ ECU. Không lưu trên ESP32, không ghi ECU.');
+  },true);
+}
+async function bkExportFile(name,snapshot,crc){
+  bkValidateSnapshot(snapshot);
+  const envelope={bundle:BK_FILE_FORMAT,exportedAt:new Date().toISOString(),crc32:crc??bkCrc32(bkJsonBytes(snapshot)),snapshot};
+  const text=JSON.stringify(envelope,null,2);
+  const filename=('BLINK_'+String(name)).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9_-]+/gi,'_').slice(0,66)+'.json';
+  const blob=new Blob([text],{type:'application/json'});
+  // iOS hybrid's local file:// WKWebView needs a native share sheet for
+  // reliable export to Files/AirDrop. No network upload; JSON stays on-device.
+  const iosShare=window.webkit?.messageHandlers?.blinkBackupExport;
+  if(iosShare){
+    iosShare.postMessage({filename,text});
+    return 'requested-native';
+  }
+  // Native share sheet is preferable for iOS/Android WebViews. Fall back to
+  // standard Blob download (some old IPA wrappers lack an onDownload handler).
+  if(typeof File==='function'&&navigator.share&&navigator.canShare){
+    const file=new File([blob],filename,{type:'application/json'});
+    try{
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'Blink REDLEO ECU Backup'});
+        return 'shared';
+      }
+    }catch(e){if(e?.name==='AbortError')return 'cancelled';}
+  }
+  const a=document.createElement('a'),url=URL.createObjectURL(blob);
+  a.href=url;a.download=filename;a.style.display='none';
+  document.body.appendChild(a);
+  try{a.click();}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  return 'requested';
+}
+
+async function bkRestoreToBlink(){
+  await bkWithTask(async()=>{
+    const rec=await bkDbGet(bkChosenId());
+    const snapshot=bkCheckedRecord(rec);
+    const api=window.BlinkRealProtocol;
+    bkAssertSameEcu(snapshot.identity,bkIdentity(api));
+    if(state.recording||state.threeRun?.active||autoIdleSave.inFlight)throw new Error('Dừng Auto Tune trước khi nạp backup vào Blink');
+    // Validate ALL selected matrices before changing any data, no partial imports.
+    const changes=[];
+    for(const [b,groups] of Object.entries(snapshot.maps)){
+      const bank=Number(b);
+      if(!Number.isInteger(bank)||bank<1||bank>4||api.normalizeBank(bank)!==bank)
+        throw new Error('MAP backup không phù hợp ECU hiện tại: '+b);
+      for(const [id,data] of Object.entries(groups)){
+        if(id==='afrEnabled'||id==='afr_map')continue; // AFR ON/OFF is archived but not replayed by this version.
+        const f=featureForProfile(id);
+        if(!f||!f.banked)throw new Error('Bảng '+id+' không hỗ trợ nạp từ backup');
+        changes.push({bank,id,data:bkVerifiedMatrix(data,f,id+' MAP '+bank)});
+      }
+    }
+    if(!changes.length){
+      bkLog('Đã tải backup trong ứng dụng và kiểm tra ECU/CRC. Bản này chỉ có Options A2 hoặc AFR ON/OFF: dữ liệu đã lưu an toàn nhưng hiện CHƯA hỗ trợ phục hồi các mục đó vào ECU.');
+      return;
+    }
+    if(!await bkConfirm('NẠP BACKUP VÀO BLINK',
+      'Tải '+changes.length+' bảng từ '+snapshot.name+' vào bộ nhớ Blink trên thiết bị này.\nKHÔNG tự ghi sang ECU. Các bảng chỉ có thể GHI ECU bằng nút lưu tương ứng và quy trình kiểm tra đã có.','NẠP VÀO BLINK','HỦY'))return;
+    // Prime REAL ECU page baselines before replacing only visible values in RAM.
+    // Otherwise a safe family-specific writer could lack the reserved bytes it
+    // must preserve, or a later lazy read could erase the staged backup.
+    for(const c of changes){
+      bkLog('ĐANG ĐỌC ECU NỀN MAP '+c.bank+' · '+c.id+' (KHÔNG GHI ECU)...');
+      if(c.id==='inj_ve')await api.readCurrentFuelBank(c.bank);
+      else await api.readFeaturePageReal(c.id,c.bank);
+    }
+    bkAssertSameEcu(snapshot.identity,bkIdentity(api));
+    if(!bkSameMainAxes(snapshot.axes,window.getBlinkEcuAxes?.()))
+      throw new Error('Trục TPS/RPM hiện tại khác bản backup. Đã chặn nạp để tránh lệch góc lửa/xăng.');
+    for(const c of changes){
+      if(c.id==='inj_ve'){state.mapBanks[c.bank-1].inject=c.data;}
+      else featureStore[c.id+':'+c.bank]=c.data;
+      bkStagedCells.add(c.id+':'+c.bank);
+    }
+    // Raw A2 Options backup is deliberately archived but NOT sent as a full
+    // unverified ECU write. The original Option editor remains independent.
+    saveFeatureStore();saveSoon();render();
+    if(currentFeature)renderFeature();
+    const optionsNote=(snapshot.optionsA2?' · TÙY CHỌN A2 chỉ lưu dự phòng':'')+
+      (Object.values(snapshot.maps).some(v=>v.afr_map)?' · AFR ECU ON/OFF chỉ lưu dự phòng':'');
+    bkLog('ĐÃ NẠP '+changes.length+' BẢNG VÀO BLINK · CHƯA GHI ECU'+optionsNote+'.\nMở bảng tương ứng, kiểm tra dữ liệu rồi dùng nút GHI ECU được hỗ trợ. Sau ghi cần đọc lại từ ECU để đối chiếu.');
+  },true);
+}
+
+async function bkExportStored(){
+  await bkWithTask(async()=>{
+    const rec=await bkDbGet(bkChosenId());
+    const snap=bkCheckedRecord(rec);
+    const result=await bkExportFile(snap.name,snap,rec.crc32);
+    bkLog(result==='cancelled'?'Đã hủy chia sẻ file. Bản backup trong ứng dụng vẫn còn.'
+      :'Đã '+(result==='shared'?'chia sẻ':'yêu cầu tải')+' file backup '+snap.name+'. Hãy kiểm tra file đã được lưu trước khi xóa app.');
+  });
+}
+async function bkImportFile(file){
+  if(!file)return;
+  await bkWithTask(async()=>{
+    if(file.size>BK_MAX_JSON_BYTES+16384)throw new Error('File backup quá lớn (giới hạn khoảng 512 KB).');
+    const parsed=JSON.parse(await file.text());
+    let snapshot;
+    if(parsed?.bundle===BK_FILE_FORMAT){
+      snapshot=bkValidateSnapshot(parsed.snapshot);
+      if(!Number.isInteger(parsed.crc32)||bkCrc32(bkJsonBytes(snapshot))!==parsed.crc32)
+        throw new Error('File backup bị thay đổi hoặc CRC sai; không nhập.');
+    }else snapshot=bkValidateSnapshot(parsed); // early experimental selected-ECU JSON
+    const saved=await bkDbSave(snapshot,true);
+    bkLog('ĐÃ NHẬP FILE VÀ LƯU TRONG ỨNG DỤNG · '+saved.name+
+      '. Không cần kết nối ECU để nhập file; chưa ghi ECU.');
+    await bkRefresh();
+    bkEl('ecuBkStored').value=saved.id;
+    await bkShowSelectedInfo();
+  });
+}
+async function bkDeleteSelected(){
+  const id=bkChosenId();
+  const rec=await bkDbGet(id);
+  bkCheckedRecord(rec);
+  if(!await bkConfirm('XÓA BẢN BACKUP',
+    'Xóa "'+rec.name+'" khỏi BỘ NHỚ ỨNG DỤNG NÀY? Thao tác không xóa MAP đang có trong ECU.','XÓA BACKUP','HỦY'))return;
+  await bkWithTask(async()=>{
+    await bkDbDelete(id);
+    await bkRefresh();
+    bkLog('ĐÃ XÓA BẢN BACKUP TRONG ỨNG DỤNG: '+rec.name+'. ECU không đổi.');
+  });
+}
+function openBackupDialog(mode='save'){
+  const d=bkEl('ecuBackupDialog');if(!d)return;
+  const save=mode!=='load';
+  bkEl('ecuBkSavePane').style.display=save?'':'none';
+  bkEl('ecuBkLoadPane').style.display=save?'none':'';
+  bkEl('ecuBkTitle').textContent=save?'SAO LƯU ECU VÀO ỨNG DỤNG':'KHO BACKUP TRONG ỨNG DỤNG';
+  bkEl('ecuBkTabSave').classList.toggle('primary',save);
+  bkEl('ecuBkTabLoad').classList.toggle('primary',!save);
+  if(!d.open)d.showModal();
+  bkLog(save?'Chọn MAP/bảng, đặt tên và lưu. Không cần FW ESP32 mới.'
+    :'Kho backup IndexedDB của ứng dụng; có thể duyệt/xuất/nhập file khi chưa kết nối ECU.');
+  if(!save)bkRefresh().catch(e=>bkLog('LỖI KHO BACKUP: '+String(e?.message||e)));
+}
+function exportBackup(){openBackupDialog('save')}
+function bkReportTask(fn){
+  return async()=>{try{await fn();}catch(e){bkLog('LỖI: '+String(e?.message||e));showEcuNotice('error','BACKUP ỨNG DỤNG',String(e?.message||e),0);}};
+}
+bkEl('ecuBkClose')?.addEventListener('click',()=>{if(!bkBusy)bkEl('ecuBackupDialog').close()});
+bkEl('ecuBackupDialog')?.addEventListener('cancel',e=>{if(bkBusy)e.preventDefault()});
+bkEl('ecuBkTabSave')?.addEventListener('click',()=>openBackupDialog('save'));
+bkEl('ecuBkTabLoad')?.addEventListener('click',()=>openBackupDialog('load'));
+bkEl('ecuBkSaveApp')?.addEventListener('click',bkReportTask(bkSaveInApp));
+bkEl('ecuBkSaveJson')?.addEventListener('click',bkReportTask(bkSaveSelectedJson));
+bkEl('ecuBkRefresh')?.addEventListener('click',bkReportTask(bkRefresh));
+bkEl('ecuBkImportApp')?.addEventListener('click',()=>bkEl('ecuBkImportFile')?.click());
+bkEl('ecuBkImportFile')?.addEventListener('change',e=>{
+  const f=e.target.files?.[0];e.target.value='';
+  if(f)bkReportTask(()=>bkImportFile(f))();
+});
+bkEl('ecuBkStored')?.addEventListener('change',()=>bkShowSelectedInfo());
+bkEl('ecuBkLoadToBlink')?.addEventListener('click',bkReportTask(bkRestoreToBlink));
+bkEl('ecuBkExportStored')?.addEventListener('click',bkReportTask(bkExportStored));
+bkEl('ecuBkDeleteStored')?.addEventListener('click',bkReportTask(bkDeleteSelected));
+bkEl('ecuBkOldJson')?.addEventListener('click',()=>{exportBackupLegacy();bkLog('JSON CŨ: chỉ xuất cache Blink, KHÔNG phải backup đọc mới từ ECU.')});
+bkEl('ecuBkOldImport')?.addEventListener('click',()=>bkEl('backupFile')?.click());
+
 function syncMirrors(){const auxFresh=!!state.ecuConnected&&Number.isFinite(state.live.auxAt)&&performance.now()-state.live.auxAt<3000;
   const m={
     rpm:document.getElementById('rpmLive')?.textContent||'0',
@@ -8352,7 +8943,7 @@ document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.prev
 document.getElementById('redFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('redWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc bảng ECU thành công và kiểm tra profile trước khi ghi.',0)});
 document.getElementById('redKeypadToggle')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openRedKeypad()});
 document.getElementById('redKeypad')?.querySelectorAll('[data-red-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const k=btn.dataset.redKey;if(k==='clear'){redKeypadClear();return}if(k==='backspace'){redKeypadBackspace();return}if(k==='hide'){hideRedKeypad();return}redKeypadAppend(k)}));
-document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>document.getElementById('backupFile').click());document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
+document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>openBackupDialog('load'));document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
 document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());
 
 const redTableWrap=document.querySelector('#redleoEditorScreen .redTableWrap');
@@ -8917,6 +9508,8 @@ function syncRotateButton(){
     btn.textContent='↻ XOAY NGANG';
   }
 }
+document.getElementById('afrDisplaySource')?.addEventListener('change',e=>setAfrDisplaySource(e.target.value));
+try{const afrSrc=document.getElementById('afrDisplaySource');if(afrSrc)afrSrc.value=afrDisplaySource;}catch(_e){}
 document.getElementById('rotateLandscapeBtn')?.addEventListener('click',requestLandscape);
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{syncMapZoomOrientation();highlightCurrent();},180)});
 window.addEventListener('resize',()=>{setTimeout(()=>{syncAppOrientation();},80)},{passive:true});
