@@ -1,4 +1,4 @@
-name: Check BLINK REDLEO iOS PB3.79.126
+name: Check BLINK REDLEO iOS PB3.79.118
 
 on:
   workflow_dispatch:
@@ -17,25 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify PB3.79.126 iOS hybrid sources
+      - name: Verify PB3.79.118 iOS hybrid sources
         run: |
           set -euo pipefail
           node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
-          grep -q "BLINK_PB_VERSION = '3.79.126'" ios/BlinkRedleo/Web/index.html
+          grep -q "BLINK_PB_VERSION = '3.79.118'" ios/BlinkRedleo/Web/index.html
           grep -q "ios-native-remote-first" ios/BlinkRedleo/Web/index.html
-          grep -q "BlinkRedleoEcuBackupsV1" ios/BlinkRedleo/Web/index.html
-          grep -q 'configuration.websiteDataStore = .default()' ios/BlinkRedleo/MainViewController.swift
-          grep -q 'blinkBackupExport' ios/BlinkRedleo/MainViewController.swift
-          grep -q 'BLINK_ECU_APP_FILE_V1' ios/BlinkRedleo/BackupExportBridge.swift
-          grep -q 'blinkBackupImport' ios/BlinkRedleo/MainViewController.swift
-          grep -q 'blinkReceiveNativeBackupFile' ios/BlinkRedleo/Web/index.html
-          test -f ios/BlinkRedleo/BackupImportBridge.swift
           if grep -q "const src='redleo_real_protocol.js?v=" ios/BlinkRedleo/Web/index.html; then
             echo "Bundled iOS UI must not auto-load local protocol; native shell injects remote-first protocol"
             exit 1
           fi
           grep -q "window.BlinkRealProtocol" ios/BlinkRedleo/Web/redleo_real_protocol.js
-          grep -q 'CURRENT_PROJECT_VERSION: "119"' ios/project.yml
+          grep -q 'CURRENT_PROJECT_VERSION: "118"' ios/project.yml
           grep -q 'PRODUCT_BUNDLE_IDENTIFIER: vn.blinkredleo.app' ios/project.yml
           grep -q "raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js" ios/BlinkRedleo/MainViewController.swift
 
@@ -66,7 +59,7 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
-          rm -rf build-device Payload BLINK-REDLEO-PB3.79.126-Build119-unsigned.ipa
+          rm -rf build-device Payload BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa
           xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo -configuration Release -sdk iphoneos -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
           APP_PATH="build-device/Build/Products/Release-iphoneos/BLINK REDLEO.app"
           test -d "$APP_PATH"
@@ -74,7 +67,7 @@ jobs:
           PROTOCOL_PATH="$(find "$APP_PATH" -name redleo_real_protocol.js -type f -print -quit)"
           test -n "$INDEX_PATH"
           test -n "$PROTOCOL_PATH"
-          grep -q "BLINK_PB_VERSION = '3.79.126'" "$INDEX_PATH"
+          grep -q "BLINK_PB_VERSION = '3.79.118'" "$INDEX_PATH"
           grep -q "ios-native-remote-first" "$INDEX_PATH"
           grep -q "window.BlinkRealProtocol" "$PROTOCOL_PATH"
           if grep -R -q 'letan99vl.github.io/Blink-Redleo' "$APP_PATH"; then
@@ -83,11 +76,11 @@ jobs:
           fi
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          /usr/bin/zip -qry BLINK-REDLEO-PB3.79.126-Build119-unsigned.ipa Payload
+          /usr/bin/zip -qry BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa Payload
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BLINK-REDLEO-iOS-PB3.79.126-Build119-unsigned
-          path: ios/BLINK-REDLEO-PB3.79.126-Build119-unsigned.ipa
+          name: BLINK-REDLEO-iOS-PB3.79.118-Build118-unsigned
+          path: ios/BLINK-REDLEO-PB3.79.118-Build118-unsigned.ipa
           if-no-files-found: error
