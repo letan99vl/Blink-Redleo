@@ -27,10 +27,13 @@ final class BackupExportBridge: NSObject, WKScriptMessageHandler {
 
         // Filenames are untrusted JS input: allow only ASCII letters, digits,
         // dash, underscore and dot, and force .json for Files/AirDrop.
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-        let cleaned = String(fileName.unicodeScalars.filter { allowed.contains($0) }.prefix(80))
-        guard !cleaned.isEmpty else { return }
-        let baseName = cleaned.hasSuffix(".json") ? cleaned : cleaned + ".json"
+        let cleaned = fileName.replacingOccurrences(of: "[^A-Za-z0-9._-]",
+                                                      with: "_",
+                                                      options: .regularExpression)
+        let name = String(cleaned.prefix(80))
+        guard !name.isEmpty else { return }
+        let prefixed = name.hasPrefix("BLINK_") ? name : "BLINK_" + name
+        let baseName = prefixed.hasSuffix(".json") ? prefixed : prefixed + ".json"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(baseName)
 
         do {
