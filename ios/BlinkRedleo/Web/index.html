@@ -8442,6 +8442,8 @@ function bkValidateSnapshot(snap){
       new Set(snap.selection.features).size!==snap.selection.features.length||
       typeof snap.selection.options!=='boolean')
     throw new Error('Danh sách MAP / bảng trong backup không hợp lệ.');
+  if(!snap.selection.features.length&&!snap.selection.options)throw new Error('Backup trống, không có bảng dữ liệu.');
+  if(snap.selection.features.length&&!snap.selection.banks.length)throw new Error('Backup có bảng xăng/lửa nhưng chưa chọn MAP.');
   const keys=Object.keys(snap.maps);
   if(keys.length>4||keys.some(b=>!['1','2','3','4'].includes(b)||!snap.selection.banks.includes(Number(b))))
     throw new Error('Backup chứa MAP không thuộc danh sách được chọn.');
@@ -8718,6 +8720,7 @@ async function bkSaveInApp(){
     selection.title+'". Không ghi ECU và không dùng Flash ESP32.','ĐỌC VÀ LƯU','HỦY'))return;
   await bkWithTask(async()=>{
     bkLog('ĐANG ĐỌC CÁC BẢNG TỪ ECU...');
+    const testDb=await bkOpenDb();testDb.close();
     const snapshot=await bkFreshSnapshot(selection);
     bkLog('ĐÃ ĐỌC XONG ECU · lưu vào kho backup của ứng dụng...');
     if(navigator.storage?.persist)try{await navigator.storage.persist()}catch(_e){}
@@ -8831,7 +8834,7 @@ async function bkExportStored(){
 async function bkImportFile(file){
   if(!file)return;
   await bkWithTask(async()=>{
-    if(file.size>BK_MAX_JSON_BYTES+16384)throw new Error('File backup quá lớn (giới hạn khoảng 512 KB).');
+    if(file.size>BK_MAX_JSON_BYTES*4+16384)throw new Error('File backup JSON vượt 2 MB · đã chặn nhập.');
     const parsed=JSON.parse(await file.text());
     let snapshot;
     if(parsed?.bundle===BK_FILE_FORMAT){
