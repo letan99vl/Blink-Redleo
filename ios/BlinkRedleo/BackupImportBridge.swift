@@ -43,10 +43,10 @@ final class BackupImportBridge: NSObject, WKScriptMessageHandler, UIDocumentPick
         // only to local IndexedDB (never to ECU or ESP32).
         let payload = data.base64EncodedString()
         DispatchQueue.main.async { [weak self] in
-            let js = "window.blinkReceiveNativeBackupFile && window.blinkReceiveNativeBackupFile('\\(payload)');"
+            let js = "window.blinkReceiveNativeBackupFile && window.blinkReceiveNativeBackupFile('\(payload)');"
             self?.webView?.evaluateJavaScript(js, completionHandler: { _, error in
                 if let error = error {
-                    print("BLINK backup import JS bridge failed: \\(error.localizedDescription)")
+                    print("BLINK backup import JS bridge failed: \(error.localizedDescription)")
                 }
             })
         }
