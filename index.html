@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.126'; // Local APP backup via IndexedDB (Android/iOS WebView, no ESP32 firmware change)
+  window.BLINK_PB_VERSION = '3.79.127'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2534,7 +2534,14 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     grid-column:1/-1!important;grid-row:2!important;height:32px!important;min-height:32px!important;
   }
 
-/* Experimental ECU backup manager: explicit selected ECU reads; Flash store requires opt-in FW. */
+/* REDLEO app backup manager: IndexedDB local; selective ECU restore readback. */
+.ecuBkRestoreParts{max-height:31vh;overflow:auto;margin:8px 0;padding:6px;border:1px solid #31536e;border-radius:9px;background:#0c1b2b;}
+.ecuBkRestoreBank{font-size:12px;color:#c8e2ff;font-weight:800;margin:9px 3px 5px;}
+.ecuBkRestoreChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+.ecuBkRestoreChoices label{display:flex;align-items:center;gap:6px;padding:8px 5px;background:#1c3449;border-radius:7px;font-size:11px;line-height:1.3;}
+.ecuBkRestoreChoices label.disabled{opacity:.52;}
+.ecuBkRestoreChoices input{accent-color:#3baff2;}
+
 .ecuBackupDialog{width:min(540px,94vw);max-height:89dvh;overflow:auto;padding:0 15px 14px;border:1px solid #436b86;border-radius:14px;color:#edf6ff;background:#132133;box-shadow:0 0 0 100vmax #0009}
 .ecuBackupDialog::backdrop{background:#000a}
 .ecuBkHead,.ecuBkTabs,.ecuBkActions{display:flex;align-items:center;gap:8px;justify-content:space-between;margin:12px 0}
@@ -2848,10 +2855,14 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     <div class="ecuBkActions"><button id="ecuBkRefresh" type="button">LÀM MỚI DANH SÁCH</button><button id="ecuBkImportApp" type="button">NHẬP FILE BACKUP</button></div>
     <div class="ecuBkField"><label for="ecuBkStored">Các bản đã lưu trong ứng dụng này</label><select id="ecuBkStored"><option value="">Đang đọc kho backup...</option></select></div>
     <div class="ecuBkHint" id="ecuBkSelectedInfo">Có thể xem, xuất file và xóa backup khi chưa kết nối ECU. Dữ liệu tồn tại sau khi tắt ứng dụng thông thường.</div>
-    <div class="ecuBkActions"><button id="ecuBkLoadToBlink" class="primary" type="button">NẠP VÀO BLINK</button><button id="ecuBkExportStored" type="button">XUẤT FILE ĐÃ LƯU</button></div>
+    <div class="ecuBkSectionTitle">CHỌN ĐÚNG MAP VÀ BẢNG MUỐN NẠP LẠI</div>
+    <div id="ecuBkRestoreParts" class="ecuBkRestoreParts" aria-label="Chọn phần khôi phục" role="group">Chọn một bản backup để hiện các MAP và bảng đã lưu.</div>
+    <div class="ecuBkHint">Các mục được tích mới được ghi. Chỉ hỗ trợ ghi độc lập <b>xăng, góc phun, góc lửa và Dwell</b> khi ECU có giao thức đã kiểm chứng. AFR mục tiêu ON/OFF và Tùy chọn A2 hiện vẫn chỉ lưu dự phòng, không tự ghi.</div>
+    <div class="ecuBkActions"><button id="ecuBkLoadToEcu" class="good" type="button">NẠP PHẦN ĐÃ CHỌN → ECU</button><button id="ecuBkLoadToBlink" type="button">XEM TRƯỚC TRONG BLINK</button></div>
+    <div class="ecuBkActions"><button id="ecuBkExportStored" type="button">XUẤT FILE ĐÃ LƯU</button></div>
     <div class="ecuBkActions"><button id="ecuBkDeleteStored" class="danger" type="button">XÓA BACKUP</button><button id="ecuBkOldImport" type="button">NHẬP JSON CŨ</button></div>
     <input id="ecuBkImportFile" type="file" accept=".json,application/json" hidden>
-    <div class="ecuBkHint"><b>Không cần RPM LIVE hoặc nổ máy.</b> Nạp bản backup vào Blink để xem và kiểm tra cần kết nối đúng ECU (phiên bản/ID/trục TPS/RPM). <b>Không tự ghi ECU.</b> Muốn ghi MAP sang ECU cần thao tác GHI ECU riêng. AFR ON/OFF và tùy chọn A2 hiện chỉ lưu dự phòng.</div>
+    <div class="ecuBkHint"><b>Không cần RPM LIVE và không cần nổ máy.</b> Khi phục hồi ECU, chỉ bật khóa điện, giữ động cơ dừng. Blink xác thực lại ECU/ID/đời/trục TPS/RPM, ghi từng MAP/bảng đã tích, rồi đọc lại để xác minh. <b>Đây không phải khôi phục toàn ECU</b> và các phần chưa tích sẽ không bị ghi.</div>
     <div class="ecuBkHint">Backup chỉ nằm trên thiết bị này; xóa dữ liệu ứng dụng, gỡ APK/IPA hoặc đổi máy có thể làm mất bản lưu. Hãy dùng <b>XUẤT FILE ĐÃ LƯU</b> để giữ bản dự phòng bên ngoài.</div>
   </div>
   <div class="ecuBkStatus" id="ecuBkStatus" role="status" aria-live="polite">Kho backup dùng IndexedDB của ứng dụng. Không cần thay firmware ESP32.</div>
@@ -8403,7 +8414,14 @@ async function ecuCommand(c){saveOptions();try{await cmd(c);showEcuNotice('info'
 function exportBackupLegacy(){const blob=new Blob([JSON.stringify({version:7,featureStore,optionStore,mapBanks:state.mapBanks,cal:state.cal},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='BLINK_REDLEO_BACKUP_v7.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function importBackup(file){const j=JSON.parse(await file.text());if(j.featureStore)Object.assign(featureStore,j.featureStore);if(j.optionStore)Object.assign(optionStore,j.optionStore);if(Array.isArray(j.mapBanks)&&j.mapBanks.length===4)state.mapBanks=j.mapBanks;if(j.cal){Object.assign(state.cal,j.cal);state.cal.afrIo4Revision=j.cal.afrIo4Revision||null;}normalizeAfrIo4Calibration();saveFeatureStore();localStorage.setItem('blinkRedleoOptionsV6',JSON.stringify(optionStore));loadOptions();syncControls();saveSoon();showEcuNotice('success','ĐÃ NHẬP BACKUP','Dữ liệu v7 đã được nạp vào giao diện.')}
 
-// ===== PB3.79.126: named ECU backup in app IndexedDB (NO ESP32 flash commands) =====
+// ===== PB3.79.127: Android-native app backup, other platforms use old JSON =====
+const bkIsNativeAndroid=/BLINK-REDLEO-ANDROID\//i.test(String(navigator.userAgent||''));
+if(!bkIsNativeAndroid){
+  const exp=document.getElementById('exportBackupBtn');
+  const imp=document.getElementById('importBackupBtn');
+  if(exp)exp.textContent='↓ XUẤT BACKUP JSON';
+  if(imp)imp.textContent='↑ NHẬP BACKUP JSON';
+}
 const BK_DB_NAME='BlinkRedleoEcuBackupsV1',BK_DB_STORE='snapshots',BK_DB_VERSION=1;
 const BK_FORMAT='BLINK_ECU_SELECTED_V1',BK_FILE_FORMAT='BLINK_ECU_APP_FILE_V1';
 const BK_MAX_JSON_BYTES=512*1024;
@@ -8582,6 +8600,9 @@ async function bkRefresh(){
   el.replaceChildren();
   if(!entries.length){
     el.add(new Option('Chưa có bản sao lưu nào',''));
+    bkEl('ecuBkRestoreParts')?.replaceChildren();
+    if(bkEl('ecuBkLoadToEcu'))bkEl('ecuBkLoadToEcu').disabled=true;
+    if(bkEl('ecuBkLoadToBlink'))bkEl('ecuBkLoadToBlink').disabled=true;
     bkEl('ecuBkSelectedInfo').textContent='Kho backup trống. Bấm TẠO BACKUP, chọn các bảng và LƯU VÀO ỨNG DỤNG.';
     bkLog('Kho backup trong ứng dụng đang trống. Không cần ESP32 FW2.2B.');
   }else{
@@ -8594,18 +8615,92 @@ async function bkRefresh(){
   }
   return entries;
 }
+const BK_RESTORE_WRITABLE=new Set(['inj_ve','inj_degree','ign_degree','ign_time']);
+const BK_RESTORE_NAMES={
+  inj_ve:'BẢNG XĂNG / THỜI GIAN PHUN',
+  inj_degree:'GÓC PHUN',
+  ign_degree:'GÓC ĐÁNH LỬA',
+  ign_time:'THỜI GIAN ĐÁNH LỬA / DWELL',
+  afr_map:'AFR MỤC TIÊU + ON/OFF (CHỈ DỰ PHÒNG)',
+  optionsA2:'TÙY CHỌN ECU A2 (CHỈ DỰ PHÒNG)'
+};
+function bkRenderRestoreParts(snapshot){
+  const root=bkEl('ecuBkRestoreParts');if(!root)return;
+  root.replaceChildren();
+  const banks=Object.keys(snapshot.maps||{}).map(Number).sort((a,b)=>a-b);
+  let count=0;
+  for(const bank of banks){
+    const groups=snapshot.maps[String(bank)]||{};
+    const ids=Object.keys(groups).filter(x=>x!=='afrEnabled').sort((a,b)=>
+      ['inj_ve','inj_degree','ign_degree','ign_time','afr_map'].indexOf(a)-
+      ['inj_ve','inj_degree','ign_degree','ign_time','afr_map'].indexOf(b));
+    const head=document.createElement('div');
+    head.className='ecuBkRestoreBank';head.textContent='MAP NO.'+bank;
+    root.appendChild(head);
+    const area=document.createElement('div');area.className='ecuBkRestoreChoices';
+    for(const id of ids){
+      const active=BK_RESTORE_WRITABLE.has(id);
+      const label=document.createElement('label');
+      if(!active)label.className='disabled';
+      const input=document.createElement('input');
+      input.type='checkbox';input.disabled=!active;input.checked=active;
+      input.dataset.bkRestoreBank=String(bank);input.dataset.bkRestoreFeature=id;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(BK_RESTORE_NAMES[id]||id));
+      area.appendChild(label);
+      if(active)count++;
+    }
+    root.appendChild(area);
+  }
+  if(snapshot.optionsA2){
+    const label=document.createElement('label');label.className='disabled';
+    const ch=document.createElement('input');ch.type='checkbox';ch.disabled=true;
+    label.appendChild(ch);label.appendChild(document.createTextNode(BK_RESTORE_NAMES.optionsA2));
+    root.appendChild(label);
+  }
+  if(count===0){
+    const message=document.createElement('div');message.className='ecuBkHint';
+    message.textContent='Backup này chỉ gồm dữ liệu chưa được phép tự ghi vào ECU. Có thể xuất file dự phòng, không báo khôi phục giả.';
+    root.appendChild(message);
+  }
+  const write=bkEl('ecuBkLoadToEcu'),preview=bkEl('ecuBkLoadToBlink');
+  if(write)write.disabled=count===0;
+  if(preview)preview.disabled=count===0;
+}
+function bkRestoreSelection(snapshot){
+  const boxes=[...document.querySelectorAll('#ecuBkRestoreParts input[data-bk-restore-bank][data-bk-restore-feature]:checked')];
+  const plan=[];
+  for(const box of boxes){
+    if(box.disabled)continue;
+    const bank=Number(box.dataset.bkRestoreBank),id=box.dataset.bkRestoreFeature;
+    const data=snapshot?.maps?.[String(bank)]?.[id];
+    if(!Number.isInteger(bank)||bank<1||bank>4||!BK_RESTORE_WRITABLE.has(id)||
+       !snapshot.selection.banks.includes(bank)||!snapshot.selection.features.includes(id)||!data)
+      throw new Error('Bản backup không chứa MAP/bảng đã chọn: MAP '+bank+' '+id);
+    const f=featureForProfile(id);
+    if(!f||!f.banked)throw new Error('Phiên bản ECU không hỗ trợ bảng '+id);
+    plan.push({bank,id,data:bkVerifiedMatrix(data,f,id+' MAP '+bank)});
+  }
+  if(!plan.length)throw new Error('Hãy tích chọn ít nhất một MAP/bảng có thể phục hồi ECU.');
+  const order={inj_ve:0,inj_degree:1,ign_degree:2,ign_time:3};
+  plan.sort((a,b)=>a.bank-b.bank||order[a.id]-order[b.id]);
+  return plan;
+}
 async function bkShowSelectedInfo(known){
   const info=bkEl('ecuBkSelectedInfo'),id=bkEl('ecuBkStored')?.value;
-  if(!id){if(info)info.textContent='Chưa chọn backup.';return;}
+  if(!id){if(info)info.textContent='Chưa chọn backup.';bkEl('ecuBkRestoreParts')?.replaceChildren();return;}
   try{
     const rec=(known||await bkDbList()).find(x=>x.id===id);
     if(!rec)return;
-    bkCheckedRecord(rec);
+    const snapshot=bkCheckedRecord(rec);
+    if(bkEl('ecuBkStored')?.value!==id)return;
     if(info)info.textContent='MAP: '+(rec.banks.length?rec.banks.join(', '):'Tùy chọn')+
       ' · Bảng: '+(rec.features.length?rec.features.join(', '):'A2')+
       ' · ECU: '+rec.profile+' · ID: '+rec.ecuIdent+
       ' · '+bkDateLabel(rec.savedAt)+' · '+rec.size+' byte · CRC OK. Không cần RPM LIVE.';
-  }catch(e){if(info)info.textContent='KHÔNG ĐỌC ĐƯỢC: '+String(e?.message||e);}
+    bkRenderRestoreParts(snapshot);
+  }catch(e){if(info)info.textContent='KHÔNG ĐỌC ĐƯỢC: '+String(e?.message||e);
+    bkEl('ecuBkRestoreParts')?.replaceChildren();}
 }
 
 function bkVerifiedMatrix(m,f,description){
@@ -8745,6 +8840,13 @@ async function bkExportFile(name,snapshot,crc){
   const filename=('BLINK_'+String(name)).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9_-]+/gi,'_').slice(0,66)+'.json';
   const blob=new Blob([text],{type:'application/json'});
+  // Android APK Build with native Storage Access Framework file saver.
+  // The installed older APK can still keep IndexedDB backups, but may not
+  // support importing/exporting JSON until its native wrapper is updated.
+  if(typeof window.AndroidBLE?.exportBackupJson==='function'){
+    window.AndroidBLE.exportBackupJson(filename,text);
+    return 'requested-native';
+  }
   // Native share sheet is preferable for iOS/Android WebViews. Fall back to
   // standard Blob download (some old IPA wrappers lack an onDownload handler).
   if(typeof File==='function'&&navigator.share&&navigator.canShare){
@@ -8763,55 +8865,122 @@ async function bkExportFile(name,snapshot,crc){
   return 'requested';
 }
 
+async function bkRestorePreflight(snapshot,plan,api){
+  const phaseBefore=state.ecuPhase;
+  if(!state.ecuConnected||!api?.handshake)throw new Error('Chưa xác thực ECU để phục hồi.');
+  if(state.recording||state.threeRun?.active||autoIdleSave.inFlight||state.ecuWriteQueued||
+      state.ecuPhase==='write1'||state.ecuPhase==='write2')
+    throw new Error('Dừng Auto Tune / mọi lệnh ghi ECU đang chạy trước khi phục hồi.');
+  if(api.otaPaused)throw new Error('Đang OTA ESP32 · không được ghi MAP đồng thời.');
+  // Verify the CURRENT physical ECU through a new checksum-checked 0x5A,
+  // not just the session's cached 0x5A or stale zero-RPM screen.
+  await api.handshakeReal();
+  bkAssertSameEcu(snapshot.identity,bkIdentity(api));
+  await api.ensureAxes(false);
+  if(!bkSameMainAxes(snapshot.axes,window.getBlinkEcuAxes?.()))
+    throw new Error('Trục TPS/RPM ECU không giống bản backup. Đã KHÓA ghi để tránh lệch góc lửa/xăng.');
+  for(const part of plan){
+    if(api.normalizeBank(part.bank)!==part.bank)
+      throw new Error('ECU này không hỗ trợ MAP '+part.bank+' đã chọn.');
+    if(part.id==='inj_ve'){
+      if(!api.profile?.caps?.fuelWrite)throw new Error('ECU chưa mở writer MAP xăng an toàn.');
+    }else if(!api.profile?.caps?.mainWrite){
+      throw new Error('ECU chưa mở writer '+part.id+' an toàn.');
+    }
+  }
+  // New checksum-verified 0x5A updates the UI phase to 'identified'.
+  // Restore the previous live UI phase only after the same-ECU, axes and
+  // capability checks all pass; LIVE packets themselves are not required.
+  if(phaseBefore==='live'&&state.ecuConnected&&state.ecuPhase==='identified')
+    state.ecuPhase='live';
+}
 async function bkRestoreToBlink(){
   await bkWithTask(async()=>{
-    const rec=await bkDbGet(bkChosenId());
-    const snapshot=bkCheckedRecord(rec);
-    const api=window.BlinkRealProtocol;
-    bkAssertSameEcu(snapshot.identity,bkIdentity(api));
-    if(state.recording||state.threeRun?.active||autoIdleSave.inFlight)throw new Error('Dừng Auto Tune trước khi nạp backup vào Blink');
-    // Validate ALL selected matrices before changing any data, no partial imports.
-    const changes=[];
-    for(const [b,groups] of Object.entries(snapshot.maps)){
-      const bank=Number(b);
-      if(!Number.isInteger(bank)||bank<1||bank>4||api.normalizeBank(bank)!==bank)
-        throw new Error('MAP backup không phù hợp ECU hiện tại: '+b);
-      for(const [id,data] of Object.entries(groups)){
-        if(id==='afrEnabled'||id==='afr_map')continue; // AFR ON/OFF is archived but not replayed by this version.
-        const f=featureForProfile(id);
-        if(!f||!f.banked)throw new Error('Bảng '+id+' không hỗ trợ nạp từ backup');
-        changes.push({bank,id,data:bkVerifiedMatrix(data,f,id+' MAP '+bank)});
-      }
-    }
-    if(!changes.length){
-      bkLog('Đã tải backup trong ứng dụng và kiểm tra ECU/CRC. Bản này chỉ có Options A2 hoặc AFR ON/OFF: dữ liệu đã lưu an toàn nhưng hiện CHƯA hỗ trợ phục hồi các mục đó vào ECU.');
-      return;
-    }
-    if(!await bkConfirm('NẠP BACKUP VÀO BLINK',
-      'Tải '+changes.length+' bảng từ '+snapshot.name+' vào bộ nhớ Blink trên thiết bị này.\nKHÔNG tự ghi sang ECU. Các bảng chỉ có thể GHI ECU bằng nút lưu tương ứng và quy trình kiểm tra đã có.','NẠP VÀO BLINK','HỦY'))return;
-    // Prime REAL ECU page baselines before replacing only visible values in RAM.
-    // Otherwise a safe family-specific writer could lack the reserved bytes it
-    // must preserve, or a later lazy read could erase the staged backup.
+    const rec=await bkDbGet(bkChosenId()),snapshot=bkCheckedRecord(rec);
+    const api=window.BlinkRealProtocol,changes=bkRestoreSelection(snapshot);
+    await bkRestorePreflight(snapshot,changes,api);
+    const describe=changes.map(c=>'M'+c.bank+' '+(BK_RESTORE_NAMES[c.id]||c.id)).join(', ');
+    if(!await bkConfirm('XEM TRƯỚC BACKUP · KHÔNG GHI ECU',
+      'Nạp '+changes.length+' phần vào RAM Blink: '+describe+
+      '.\nĐây chỉ là bản xem trước, CHƯA ghi sang ECU.','XEM TRƯỚC','HỦY'))return;
+    // Read the original ECU pages first so later manual writes have the
+    // correct, current reserved-byte baselines for each family.
     for(const c of changes){
-      bkLog('ĐANG ĐỌC ECU NỀN MAP '+c.bank+' · '+c.id+' (KHÔNG GHI ECU)...');
-      if(c.id==='inj_ve')await api.readCurrentFuelBank(c.bank);
-      else await api.readFeaturePageReal(c.id,c.bank);
+      bkLog('ĐỌC NỀN ECU MAP '+c.bank+' · '+c.id+' (CHỈ XEM TRƯỚC)...');
+      if(c.id==='inj_ve')await api.readCurrentFuelBank(c.bank,false);
+      else await api.readFeaturePageReal(c.id,c.bank,false);
     }
     bkAssertSameEcu(snapshot.identity,bkIdentity(api));
     if(!bkSameMainAxes(snapshot.axes,window.getBlinkEcuAxes?.()))
-      throw new Error('Trục TPS/RPM hiện tại khác bản backup. Đã chặn nạp để tránh lệch góc lửa/xăng.');
+      throw new Error('Trục TPS/RPM đã thay đổi; không đưa backup vào Blink.');
     for(const c of changes){
-      if(c.id==='inj_ve'){state.mapBanks[c.bank-1].inject=c.data;}
+      if(c.id==='inj_ve')state.mapBanks[c.bank-1].inject=c.data;
       else featureStore[c.id+':'+c.bank]=c.data;
       bkStagedCells.add(c.id+':'+c.bank);
     }
-    // Raw A2 Options backup is deliberately archived but NOT sent as a full
-    // unverified ECU write. The original Option editor remains independent.
     saveFeatureStore();saveSoon();render();
     if(currentFeature)renderFeature();
-    const optionsNote=(snapshot.optionsA2?' · TÙY CHỌN A2 chỉ lưu dự phòng':'')+
-      (Object.values(snapshot.maps).some(v=>v.afr_map)?' · AFR ECU ON/OFF chỉ lưu dự phòng':'');
-    bkLog('ĐÃ NẠP '+changes.length+' BẢNG VÀO BLINK · CHƯA GHI ECU'+optionsNote+'.\nMở bảng tương ứng, kiểm tra dữ liệu rồi dùng nút GHI ECU được hỗ trợ. Sau ghi cần đọc lại từ ECU để đối chiếu.');
+    bkLog('ĐÃ XEM TRƯỚC '+changes.length+' PHẦN TRONG BLINK · CHƯA GHI ECU.\n'+
+      'Chỉ '+describe+' được nạp vào RAM. Có thể dùng PHỤC HỒI → ECU để ghi và xác minh từng phần.');
+  },true);
+}
+async function bkRestoreSelectedToEcu(){
+  await bkWithTask(async()=>{
+    const rec=await bkDbGet(bkChosenId()),snapshot=bkCheckedRecord(rec);
+    const api=window.BlinkRealProtocol,plan=bkRestoreSelection(snapshot);
+    if(!api||typeof api.writeBackupFuelAndVerify!=='function'||
+       typeof api.writeBackupFeatureAndVerify!=='function')
+      throw new Error('Protocol REDLEO cần bản Android 3.79.127 trở lên để ghi backup theo từng MAP.');
+    await bkRestorePreflight(snapshot,plan,api);
+    const names=plan.map(p=>'M'+p.bank+' '+(BK_RESTORE_NAMES[p.id]||p.id));
+    const ok=await bkConfirm('PHỤC HỒI '+plan.length+' PHẦN VÀO ECU',
+      'ĐÃ TẮT MÁY, CHỈ BẬT KHÓA ĐIỆN?\n'+
+      'Blink sẽ ghi đúng '+plan.length+' phần: '+names.join(' · ')+
+      '.\nKHÔNG ghi các bảng/MAP khác. Mỗi phần phải READBACK đúng mới chuyển phần kế tiếp.'+
+      '\nNếu dừng giữa chừng, các phần đã xác minh sẽ GIỮ NGUYÊN, KHÔNG tự rollback.',
+      'GHI ĐÚNG PHẦN','HỦY');
+    if(!ok)return;
+    // No writes until every selected page is independently READABLE.
+    // A missing feature/page fails before changing ANY ECU page.
+    const phaseBefore=state.ecuPhase,verified=[];
+    try{
+      for(const p of plan){
+        bkLog('TIỀN KIỂM TRA PAGE ECU MAP '+p.bank+' · '+p.id+'...');
+        if(p.id==='inj_ve')await api.readCurrentFuelBank(p.bank,false);
+        else await api.readFeaturePageReal(p.id,p.bank,false);
+        bkAssertSameEcu(snapshot.identity,bkIdentity(api));
+      }
+      if(!bkSameMainAxes(snapshot.axes,window.getBlinkEcuAxes?.()))
+        throw new Error('Trục ECU thay đổi trong lúc tiền kiểm tra. Không ghi bất kỳ phần nào.');
+      for(const p of plan){
+        const label='MAP '+p.bank+' / '+(BK_RESTORE_NAMES[p.id]||p.id);
+        bkLog('PHỤC HỒI '+(verified.length+1)+'/'+plan.length+' · '+label+
+          '\nĐang GHI ECU + READBACK toàn trang...');
+        bkAssertSameEcu(snapshot.identity,bkIdentity(api));
+        const r=p.id==='inj_ve'
+          ?await api.writeBackupFuelAndVerify(p.bank,p.data)
+          :await api.writeBackupFeatureAndVerify(p.id,p.bank,p.data);
+        if(!r?.readback||r.bank!==p.bank||r.id!==p.id)
+          throw new Error('Thiếu READBACK xác minh cho '+label+'; đã DỪNG.');
+        verified.push(label+(r.unchanged?' (ĐÃ TRÙNG)':' (GHI + ĐỌC LẠI OK)'));
+        window.blinkClearBackupStaging?.(p.id,p.bank);
+        bkLog('ĐÃ XÁC MINH '+verified.length+'/'+plan.length+': '+verified.join('; '));
+      }
+      try{saveFeatureStore();saveSoon();render();if(currentFeature)renderFeature();}catch(_e){}
+      bkLog('PHỤC HỒI ECU THÀNH CÔNG '+verified.length+'/'+plan.length+' PHẦN:\n'+
+        verified.join('\n')+'\nCác MAP/bảng KHÔNG CHỌN đã không được gửi lệnh GHI.');
+      showEcuNotice('success','BACKUP → ECU ĐÃ XÁC MINH',
+        verified.length+' phần đã READBACK đúng theo MAP và bảng đã chọn.',6000);
+    }catch(e){
+      try{saveFeatureStore();saveSoon();render();if(currentFeature)renderFeature();}catch(_e){}
+      const msg='PHỤC HỒI ĐÃ DỪNG. '+verified.length+'/'+plan.length+
+        ' phần trước đó đã được ECU xác minh: '+(verified.join('; ')||'chưa có')+
+        '. Các phần CHƯA TỚI không được ghi. Lỗi: '+String(e?.message||e);
+      bkLog(msg);
+      throw new Error(msg);
+    }finally{
+      if(state.ecuConnected&&state.ecuPhase==='identified'&&phaseBefore==='live')state.ecuPhase='live';
+    }
   },true);
 }
 
@@ -8868,7 +9037,7 @@ function openBackupDialog(mode='save'){
     :'Kho backup IndexedDB của ứng dụng; có thể duyệt/xuất/nhập file khi chưa kết nối ECU.');
   if(!save)bkRefresh().catch(e=>bkLog('LỖI KHO BACKUP: '+String(e?.message||e)));
 }
-function exportBackup(){openBackupDialog('save')}
+function exportBackup(){if(!bkIsNativeAndroid)return exportBackupLegacy();openBackupDialog('save')}
 function bkReportTask(fn){
   return async()=>{try{await fn();}catch(e){bkLog('LỖI: '+String(e?.message||e));showEcuNotice('error','BACKUP ỨNG DỤNG',String(e?.message||e),0);}};
 }
@@ -8886,6 +9055,7 @@ bkEl('ecuBkImportFile')?.addEventListener('change',e=>{
 });
 bkEl('ecuBkStored')?.addEventListener('change',()=>bkShowSelectedInfo());
 bkEl('ecuBkLoadToBlink')?.addEventListener('click',bkReportTask(bkRestoreToBlink));
+bkEl('ecuBkLoadToEcu')?.addEventListener('click',bkReportTask(bkRestoreSelectedToEcu));
 bkEl('ecuBkExportStored')?.addEventListener('click',bkReportTask(bkExportStored));
 bkEl('ecuBkDeleteStored')?.addEventListener('click',bkReportTask(bkDeleteSelected));
 bkEl('ecuBkOldJson')?.addEventListener('click',()=>{exportBackupLegacy();bkLog('JSON CŨ: chỉ xuất cache Blink, KHÔNG phải backup đọc mới từ ECU.')});
@@ -8939,7 +9109,7 @@ document.getElementById('redFloatMinusBtn')?.addEventListener('click',e=>{e.prev
 document.getElementById('redFloatSaveBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const b=document.getElementById('redWriteBtn');if(b&&!b.disabled)b.click();else showEcuNotice('error','CHƯA THỂ GHI ECU','Nút GHI ECU đang bị khóa. Hãy đọc bảng ECU thành công và kiểm tra profile trước khi ghi.',0)});
 document.getElementById('redKeypadToggle')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openRedKeypad()});
 document.getElementById('redKeypad')?.querySelectorAll('[data-red-key]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const k=btn.dataset.redKey;if(k==='clear'){redKeypadClear();return}if(k==='backspace'){redKeypadBackspace();return}if(k==='hide'){hideRedKeypad();return}redKeypadAppend(k)}));
-document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>openBackupDialog('load'));document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
+document.querySelectorAll('[data-ecucmd]').forEach(e=>e.addEventListener('click',()=>ecuCommand(e.dataset.ecucmd)));document.querySelectorAll('[data-copybank]').forEach(e=>e.addEventListener('click',()=>ecuCommand('COPY_MAP:'+e.dataset.copybank)));document.getElementById('exportBackupBtn')?.addEventListener('click',exportBackup);document.getElementById('importBackupBtn')?.addEventListener('click',()=>{if(bkIsNativeAndroid)openBackupDialog('load');else document.getElementById('backupFile')?.click()});document.getElementById('backupFile')?.addEventListener('change',e=>{if(e.target.files[0])importBackup(e.target.files[0]).catch(x=>showEcuNotice('error','BACKUP',x.message,0))});document.querySelectorAll('[data-ecuopt],[data-ecutoggle]').forEach(e=>e.addEventListener('change',()=>{saveOptions();syncAfrSensorUi()}));
 document.getElementById('openHistoryCard')?.addEventListener('click',()=>document.getElementById('threeHistoryBtn')?.click());
 
 const redTableWrap=document.querySelector('#redleoEditorScreen .redTableWrap');
