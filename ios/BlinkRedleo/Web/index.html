@@ -8886,7 +8886,21 @@ bkEl('ecuBkTabLoad')?.addEventListener('click',()=>openBackupDialog('load'));
 bkEl('ecuBkSaveApp')?.addEventListener('click',bkReportTask(bkSaveInApp));
 bkEl('ecuBkSaveJson')?.addEventListener('click',bkReportTask(bkSaveSelectedJson));
 bkEl('ecuBkRefresh')?.addEventListener('click',bkReportTask(bkRefresh));
-bkEl('ecuBkImportApp')?.addEventListener('click',()=>bkEl('ecuBkImportFile')?.click());
+bkEl('ecuBkImportApp')?.addEventListener('click',()=>{
+  const picker=window.webkit?.messageHandlers?.blinkBackupImport;
+  if(picker)picker.postMessage({action:'pick-json'});
+  else bkEl('ecuBkImportFile')?.click();
+});
+// iOS local file:// WKWebView import callback. The native picker passes only
+// an explicitly chosen UTF-8 JSON file; format/CRC are checked before IndexedDB put.
+window.blinkReceiveNativeBackupFile=encoded=>{
+  bkReportTask(async()=>{
+    const raw=atob(String(encoded||''));
+    if(raw.length>BK_MAX_JSON_BYTES*4+16384)throw new Error('File backup quá lớn');
+    const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));
+    await bkImportFile({size:bytes.length,text:async()=>bkDecoder.decode(bytes)});
+  })();
+};
 bkEl('ecuBkImportFile')?.addEventListener('change',e=>{
   const f=e.target.files?.[0];e.target.value='';
   if(f)bkReportTask(()=>bkImportFile(f))();
