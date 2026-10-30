@@ -253,7 +253,7 @@ const N={inj_degree:2,ign_degree:3,ign_time:4,idle_limit:5,ect_idle_motor:6,ect_
 const ECU_PROFILE_DEFS=Object.freeze({
   MODERN_V9:Object.freeze({key:'MODERN_V9',label:'REDLEO MODERN 9.x',short:'MODERN 9.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   MODERN_V10:Object.freeze({key:'MODERN_V10',label:'REDLEO MODERN 10.x / ULTRA',short:'MODERN 10.x',family:'modern',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:true,testInjector:true,password:false}}),
-  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ATE / REDLEO 11.x · EXTENDED TUNE',short:'ATE 11.x',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
+  MODERN_V11:Object.freeze({key:'MODERN_V11',label:'ECU V11 · REDLEO/ATE (CHƯA PHÂN LOẠI)',short:'ECU V11',family:'v11',caps:{live:true,pageRead:true,optionsRead:true,idleRead:true,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:true,tpsStudy:true,testInjector:true,password:true}}),
   LEGACY_V8:Object.freeze({key:'LEGACY_V8',label:'REDLEO V8 · MAIN TUNE',short:'V8',family:'v8',caps:{live:true,pageRead:true,optionsRead:false,idleRead:false,fuelRead:true,readAll:true,fuelWrite:true,mainWrite:true,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   LEGACY_PROBE:Object.freeze({key:'LEGACY_PROBE',label:'REDLEO LEGACY · SAFE MODE',short:'LEGACY SAFE',family:'legacy',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}}),
   UNKNOWN:Object.freeze({key:'UNKNOWN',label:'ECU CHƯA XÁC ĐỊNH · SAFE MODE',short:'UNKNOWN SAFE',family:'unknown',caps:{live:false,pageRead:false,optionsRead:false,idleRead:false,fuelRead:false,readAll:false,fuelWrite:false,restore:false,tpsStudy:false,testInjector:false,password:false}})
@@ -312,6 +312,11 @@ function isUltraPro2Identity(info=handshakeInfo){
   const ident=String(info&&info.ident||'').trim().toUpperCase();
   const all=(fw+' '+ident).replace(/\s+/g,' ').trim();
   const v=firmwareNumbers(info);
+  // An explicitly declared Pro1 cannot silently turn into Pro2 because the
+  // four firmware bytes are malformed, inconsistent, or belong to another ECU.
+  const explicitPro1=/ULTRA\s*PRO\s*1\b|ULTRA\s*PRO1\b/.test(all);
+  const explicitPro2=/ULTRA\s*PRO\s*2\b|ULTRA\s*PRO2\b/.test(all);
+  if(explicitPro1||(explicitPro2&&v.major!==11))return false;
   // Original REDLEO Ultra Pro2 PC software is tqmcu_ECU_V11 / assembly 11.1.7.0.
   // Prefer an explicit PRO2 identity; also accept ULTRA + ECU firmware major 11.
   return /ULTRA\s*PRO\s*2|ULTRA\s*PRO2/.test(all) || (/ULTRA/.test(all)&&v.major===11);
@@ -448,6 +453,14 @@ function profileFromHandshake(info){
     if(im)major=Number(im[1]);
   }
 
+  // A contradictory or unversioned ULTRA handshake is NOT evidence that a
+  // V10/Pro1 ECU can be written with the V11/Pro2 serializer (or vice versa).
+  // Remain connected in UNKNOWN SAFE MODE until real identity evidence exists.
+  const explicitPro1=/ULTRA\s*PRO\s*1\b|ULTRA\s*PRO1\b/.test(all);
+  const explicitPro2=/ULTRA\s*PRO\s*2\b|ULTRA\s*PRO2\b/.test(all);
+  if((explicitPro1&&major!==10)||(explicitPro2&&major!==11)||
+      (/ULTRA/.test(all)&&!Number.isFinite(major)))return ECU_PROFILE_DEFS.UNKNOWN;
+
   // Ultra Pro2 is a REDLEO-branded V11 generation ECU. Ultra Pro1 remains V10.
   if(isUltraPro2Identity(info)||(/ULTRA/.test(all)&&major===11))return ECU_PROFILE_DEFS.MODERN_V11;
   if(/ULTRA/.test(all))return ECU_PROFILE_DEFS.MODERN_V10;
@@ -458,8 +471,29 @@ function profileFromHandshake(info){
   if(major===8||/\bV8\b|\bVER\s*8\b/.test(all))return ECU_PROFILE_DEFS.LEGACY_V8;
   return ECU_PROFILE_DEFS.UNKNOWN;
 }
+// An ULTRA label + firmware number is only a tentative wire-family choice.
+// Require a fresh direct 0x9A/A2 decode from this exact BLE ECU session before
+// ANY ULTRA write; a cached old-session sensor curve is not a write proof.
+// V10/Ultra Pro1 A2=277/285B; V11/Ultra Pro2 A2=286B.
+function ultraSessionWriteReady(){
+  if(!handshakeInfo||!ecuProfile)return false;
+  const text=(String(handshakeInfo.ident||'')+' '+String(handshakeInfo.firmware||'')).toUpperCase();
+  if(!/ULTRA/.test(text))return true;
+  const wire=pageCache.get(0xA2),C=sensorCalCache;
+  if(!(wire instanceof Uint8Array)||!C||sensorCalIdentity!==sensorIdentity())return false;
+  if(ecuProfile.key==='MODERN_V11'){
+    return isUltraPro2Direct()&&wire.length>=V11_A2_286.LEN&&
+      C.v11A2Layout===V11_A2_286.NAME&&C.v11A2KnownLength===V11_A2_286.LEN;
+  }
+  if(ecuProfile.key==='MODERN_V10'){
+    const layout=ultraA2LayoutForSession(false);
+    return !!(isUltraDirect()&&layout&&wire.length>=layout.len&&
+      C.ultraA2BaseLength===ULTRA_A2.BASE_LEN&&(!layout.hasChg||C.ultraA2HasChg));
+  }
+  return false;
+}
 function v11FullImageReady(){
-  return !!(ecuProfile&&ecuProfile.family==='v11'&&readCache&&readCache.v11Decoded&&readCache.sourceLength===9958);
+  return !!(ecuProfile&&ecuProfile.family==='v11'&&readCache&&readCache.v11Decoded&&readCache.sourceLength===9958&&ultraSessionWriteReady());
 }
 function profileCap(name){
   if(name==='fullWrite'){
@@ -470,6 +504,8 @@ function profileCap(name){
     return !!(knownV9&&readCache&&!readCache.rawOnly&&readCache.sourceLength===9767);
   }
   const cap=!!(ecuProfile&&ecuProfile.caps&&ecuProfile.caps[name]);
+  if(cap&&['fuelWrite','mainWrite','restore','password','tpsStudy','testInjector'].includes(name)&&
+      !ultraSessionWriteReady())return false;
   if(cap&&ecuProfile&&ecuProfile.family==='v11'&&(name==='tpsStudy'||name==='testInjector')){
     const mode=Number(handshakeInfo&&handshakeInfo.ecuMode);
     if(Number.isFinite(mode)&&mode>=4)return false;
@@ -592,7 +628,7 @@ function applyProfileUi(){
   if(logoutBtn)logoutBtn.textContent=p.family==='v11'?'XÓA XÁC NHẬN PIN':'ĐĂNG XUẤT';
   if(changePwBtn)changePwBtn.textContent=p.family==='v11'?'ĐỔI PIN ECU':'ĐỔI MẬT KHẨU';
   if(optionsReadBtn){
-    if(p.family==='v11')optionsReadBtn.textContent=isUltraPro2Direct()?'ĐỌC A2 / TÙY CHỌN ULTRA PRO2':'ĐỌC A2 / TÙY CHỌN ATE';
+    if(p.family==='v11')optionsReadBtn.textContent=isUltraPro2Direct()?'ĐỌC A2 / TÙY CHỌN ULTRA PRO2':'ĐỌC A2 / TÙY CHỌN ECU V11';
     else if(p.key==='MODERN_V10')optionsReadBtn.textContent='ĐỌC A2 / TRỤC + SENSOR';
     else optionsReadBtn.textContent='ĐỌC TÙY CHỌN';
   }
@@ -604,7 +640,7 @@ function applyProfileUi(){
   const mapSub=document.getElementById('mapsProfileSub');
   if(mapSub){
     const fw=String(handshakeInfo&&handshakeInfo.firmware||'').trim();
-    if(p.family==='v11')mapSub.textContent=(isUltraPro2Direct()?'ULTRA PRO2 ':'ATE ')+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
+    if(p.family==='v11')mapSub.textContent=(isUltraPro2Direct()?'ULTRA PRO2 ':'ECU V11 ')+(fw||'11.x')+' · bảng V11 thích nghi + AFR/O2 map gốc + Auto Tune Blink';
     else if(p.family==='modern')mapSub.textContent=p.label+(fw?' · FW '+fw:'')+' · giao diện REDLEO thích nghi';
     else if(p.family==='v8')mapSub.textContent=p.label+' · ECU_MODE '+(handshakeInfo?.ecuMode??'—')+' · chỉ hiện bảng đã xác minh';
     else mapSub.textContent='AUTO ECU PROFILE · chờ nhận diện';
@@ -627,7 +663,7 @@ function applyProfileUi(){
   if(studyTpsBtn){
     const syncBtn=document.getElementById('tpsSyncReadBtn');
     if(syncBtn)setProfileDisabled(syncBtn,!profileCap('optionsRead'),'ECU Profile không hỗ trợ Options A2');
-    if(p.key==='MODERN_V11')studyTpsBtn.textContent=isUltraPro2Direct()?'HỌC TPS ECU · ULTRA PRO2':'HỌC TPS ECU · ATE V11';
+    if(p.key==='MODERN_V11')studyTpsBtn.textContent=isUltraPro2Direct()?'HỌC TPS ECU · ULTRA PRO2':'HỌC TPS · ECU V11';
     else if(p.key==='MODERN_V10')studyTpsBtn.textContent='HỌC TPS ECU · V10 / ULTRA';
     else if(p.key==='MODERN_V9')studyTpsBtn.textContent='HỌC TPS ECU · V9';
     else studyTpsBtn.textContent='HỌC TPS ECU · CHƯA HỖ TRỢ';
@@ -2982,8 +3018,10 @@ async function readA2SensorPageReal(showUi=true){
   const C=v11?parseV11A2Data(R.data):(v10Direct?parseV10A2Data(R.data):(ultra?parseUltraA2Data(R.data):(v10Family?parseModernA2Prefix(R.data):parseA2Data(R.data))));
   if(tpsReadEpoch!==transportEpoch||tpsReadHandshake!==handshakeInfo)throw new Error('A2 thuộc phiên ECU cũ, không xác nhận TPS');
   const freshTps=ecuTpsPairFromA2(C);
+  let tpsVerified=false;
   if(freshTps&&typeof window.blinkSetVerifiedEcuTps==='function'){
     if(!window.blinkSetVerifiedEcuTps(freshTps.min,freshTps.max,'READ A2 · ECU Options'))throw new Error('TPS ECU đã đọc nhưng không lưu được hiệu chuẩn đã xác minh');
+    tpsVerified=true;
   }else if(ecuProfile?.key==='MODERN_V9'||ecuProfile?.key==='MODERN_V10'||ecuProfile?.key==='MODERN_V11'){
     try{window.blinkTpsEcuStatus?.('TPS ECU chưa xác minh: phiên bản A2 này không có Options TPS Min/Max được chứng minh.');}catch(_e){}
   }
@@ -3046,7 +3084,9 @@ async function readA2SensorPageReal(showUi=true){
     }catch(_e){}
     taskUi('success',v11?((ultra2?'ULTRA PRO2':'V11')+' · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + OPTION + MOTOR + START + EXTERNAL · OK'):(ultra?('ULTRA · A2 '+R.data.length+'B · AXIS + SENSOR + OPTION15 + MOTOR + START + EXTERNAL · RESERVED/SPARE/CHG giữ raw'):(v10Family?'V10 FAMILY · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK'))));
   }
-  return {...R,cache:C};
+  // A2 completion can unlock only the matching ULTRA serializer's write UI.
+  try{applyProfileUi();}catch(_e){}
+  return {...R,cache:C,tpsVerified};
 }
 async function ensureEcuAxesReal(showUi=false){
   if(!handshakeInfo)throw new Error('Chưa nhận diện ECU để lấy trục TPS/RPM.');
@@ -5244,7 +5284,7 @@ async function tpsStudyReal(){
   if(!['MODERN_V9','MODERN_V10','MODERN_V11'].includes(profileKey))throw new Error('ECU này chưa hỗ trợ HỌC TPS.');
   if(!blinkTpsEcuReadSafe())throw new Error('Dừng ghi AFR và hủy phiên 3 lượt trước khi học TPS.');
   if(!handshakeInfo||!state.ecuConnected)throw new Error('Chưa xác thực ECU qua BLE.');
-  const label=profileKey==='MODERN_V11'?(isUltraPro2Direct()?'ULTRA PRO2':'ATE V11'):(profileKey==='MODERN_V10'?(isUltraDirect()?'ULTRA PRO1':'V10'):'REDLEO 9.x');
+  const label=profileKey==='MODERN_V11'?(isUltraPro2Direct()?'ULTRA PRO2':'ECU V11'):(profileKey==='MODERN_V10'?(isUltraDirect()?'ULTRA PRO1':'V10'):'REDLEO 9.x');
   const dialogEpoch=transportEpoch,dialogIdentity=handshakeInfo;
   if(!await blinkProtocolConfirm(label+' · HỌC TPS ECU','TẮT ĐỘNG CƠ, BẬT KHÓA ĐIỆN, GIỮ NGUỒN ECU ỔN ĐỊNH.\nSau khi xác nhận, xoay ga MIN → MAX → MIN ít nhất BA LẦN để ECU học.\nBlink chỉ xác minh sau khi đọc lại Options A2 độc lập.','BẮT ĐẦU HỌC','HỦY'))return false;
   ensureSameEcuAfterDialog(dialogEpoch,dialogIdentity,'TPS STUDY');
@@ -5271,9 +5311,11 @@ async function tpsStudyReal(){
   taskUi('loading',label+' · ĐANG ĐỌC OPTIONS A2 ĐỘC LẬP...');
   const A=await readA2SensorPageReal(false),actual=ecuTpsPairFromA2(A.cache);
   if(epoch!==transportEpoch||originalHandshake!==handshakeInfo)throw new Error('ECU thay đổi khi đọc lại TPS.');
-  if(!actual||!window.blinkEcuTpsInfo?.()){
+  // The independent A2 Options pair + successful verified-setter call are
+  // the proof. Do not depend on a secondary legacy/UI info helper here.
+  if(!actual||!A.tpsVerified){
     try{window.blinkResetEcuTpsCalibration?.('Chưa xác minh được Options A2 sau học');}catch(_e){}
-    throw new Error(label+' · đã nhận 0x77 nhưng chưa đọc lại được TPS Min/Max thật từ ECU.');
+    throw new Error(label+' · đã nhận 0x77 nhưng TPS Min/Max A2 chưa hợp lệ hoặc chưa đồng bộ vào Blink.');
   }
   if(expected&&(Math.abs(actual.min-expected.min)>0.055||Math.abs(actual.max-expected.max)>0.055)){
     try{window.blinkResetEcuTpsCalibration?.('Phản hồi 0x77 khác Options A2');}catch(_e){}
