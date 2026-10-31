@@ -1,4 +1,4 @@
-/* Blink Redleo | Fuel base map calculator: regional 2D TPS x RPM template | WEB/ANDROID ONLY | PB3.79.129 */
+/* Blink Redleo | Fuel base map calculator: regional 2D TPS x RPM template | WEB/ANDROID ONLY | PB3.79.130 */
 (function(root){
   'use strict';
   const RPM_VE=[[500,.54],[1500,.61],[3000,.75],[4500,.85],[6000,.92],[6500,.94],[7500,.90],[9000,.82],[11000,.72],[15000,.60]];
@@ -42,11 +42,11 @@
   // 2D region weight: 0% = legacy separable model, 100% = shape of supplied
   // reference; 95% preserves the low-rpm plateaus and TPS-specific peaks.
   const DEFAULTS={bore:72,stroke:72,throttle:32,flow:300,ratedBar:3,pressure:3.5,
-    afr:13,afrScale:'gauge',iat:30,maxRpm:9000,peakVe:94,shapePct:95,deadtime:.9,
-    pulses:'1',output:'command',scope:'full'};
+    afr:13,afrScale:'gauge',iat:30,baroKpa:101.325,maxRpm:9000,peakVe:94,shapePct:95,deadtime:.9,
+    pulses:'1',output:'command',scope:'full',model:'regional'};
   const specs={bore:[30,125],stroke:[30,140],throttle:[15,75],flow:[50,2000],
     ratedBar:[1,7],pressure:[1,7],afr:[9,18],iat:[-20,100],maxRpm:[500,30000],
-    peakVe:[35,130],shapePct:[0,100],deadtime:[0,4]};
+    peakVe:[35,130],shapePct:[0,100],baroKpa:[80,110],deadtime:[0,4]};
   function valueNum(n){return Number(String(n).replace(',','.'));}
   function interp(curve,x){
     if(x<=curve[0][0])return curve[0][1];
@@ -67,13 +67,55 @@
       p[key]=v;
     }
     if(!['gauge','e10'].includes(p.afrScale))throw new Error('Thang AFR không hợp lệ.');
+    if(!['regional','airmass'].includes(p.model))throw new Error('Chế độ tính không hợp lệ.');
     if(!['1','2'].includes(String(p.pulses)))throw new Error('Số lần phun/720° không hợp lệ.');
     p.pulses=Number(p.pulses);
     if(!['command','effective'].includes(p.output))throw new Error('Kiểu thời gian phun không hợp lệ.');
     if(!['full','selected'].includes(p.scope))throw new Error('Vùng tính không hợp lệ.');
     return p;
   }
-  function calculate(raw,axes,baseline,selected){
+  function paramsPhysics(p){
+    const displacement=Math.PI*p.bore*p.bore*p.stroke/4000; // cm3, one cylinder
+    const rho=(p.model==='airmass'?p.baroKpa:101.325)*1000/(287.05*(273.15+p.iat)); // kg/m3 = mg/cm3
+    const flow=p.flow*Math.sqrt(p.pressure/p.ratedBar); // cc/min; injector *differential* pressure
+    const injectorMgPerMs=flow/60*.75; // E10 density approx. .75 g/cc
+    return {displacement,rho,flow,injectorMgPerMs};
+  }
+  function baseVe(p,tps,rpm){
+    // This is an Alpha-N 2D prior, NOT a measured air-mass map.
+    const fill=interp(TPS_FILL,tps);
+    const oldVe=interp(RPM_VE,rpm)*(p.peakVe/94)*fill;
+    const refVe=photoRegionalVe(tps,rpm,p.peakVe/100);
+    return oldVe*(1-p.shapePct/100)+refVe*(p.shapePct/100);
+  }
+  function inferVe(raw,reading){
+    // Explicit manual steady-state reading only; never consume transient ECU AFR.
+    const p=validate(Object.assign({},raw,{model:'airmass'}));
+    if(!reading||typeof reading!=='object')throw new Error('Thiếu dữ liệu AFR đo và PW thực tế.');
+    const tps=Number(reading.tps),rpm=Number(reading.rpm);
+    const afr=valueNum(reading.afr),pw=valueNum(reading.pw);
+    if(!Number.isFinite(tps)||tps<0||tps>100||!Number.isFinite(rpm)||rpm<500)
+      throw new Error('TPS hoặc RPM ô đã chọn không hợp lệ.');
+    if(!Number.isFinite(afr)||afr<9||afr>20)throw new Error('AFR đo phải trong khoảng 9–20.');
+    if(!Number.isFinite(pw)||pw<=.05||pw>60)throw new Error('PW đang chạy phải trong khoảng 0,05–60 ms.');
+    const {displacement,rho,flow,injectorMgPerMs}=paramsPhysics(p);
+    const effectivePerPulse=pw-(p.output==='command'?p.deadtime:0);
+    if(effectivePerPulse<=0)throw new Error('PW trừ deadtime không dương, không thể suy ra VE.');
+    const lambda=afr/(p.afrScale==='gauge'?14.7:14.1);
+    const realAfr=lambda*14.1;
+    const fuelMg=effectivePerPulse*p.pulses*injectorMgPerMs;
+    const airMg=fuelMg*realAfr;
+    const ve=airMg/(displacement*rho);
+    const prior=baseVe(p,tps,rpm);
+    const departurePct=(ve/prior-1)*100;
+    if(!Number.isFinite(ve)||ve<.03||ve>1.3)
+      throw new Error('VE suy ra '+(ve*100).toFixed(1)+'% ngoài khoảng thẩm định 3–130%. Kiểm tra AFR/PW/áp suất/deadtime.');
+    if(Math.abs(departurePct)>50)
+      throw new Error('VE lệch '+departurePct.toFixed(1)+'% so với VE nền (giới hạn ±50% thử nghiệm). Kiểm tra điều kiện đo trước.');
+    return {ve,vePct:ve*100,airMg,fuelMg,realAfr,lambda,prior,departurePct,
+      flow,displacement,rho,tps,rpm,pw,afr};
+  }
+  function calculate(raw,axes,baseline,selected,calibrations){
     const p=validate(raw);
     if(!axes||!Array.isArray(axes.rpms)||!Array.isArray(axes.tps)||
        !axes.rpms.length||!axes.tps.length)throw new Error('Không có trục TPS/RPM hợp lệ.');
@@ -82,36 +124,41 @@
       throw new Error('MAP nền không khớp trục ECU.');
     if(p.scope==='selected'&&(!selected||![selected.r0,selected.r1,selected.c0,selected.c1].every(Number.isInteger)))
       throw new Error('Hãy chọn vùng TPS × RPM trên MAP trước.');
-    const rho=101325/(287.05*(273.15+p.iat)); // kg/m3; numerical mg/cc
-    const displacement=Math.PI*p.bore*p.bore*p.stroke/4000; // cc
-    // 300 cc/min at rated pressure -> at operating injector differential pressure.
-    const flow=p.flow*Math.sqrt(p.pressure/p.ratedBar);
-    const injectorMgPerMs=flow/60*.75; // E10 fuel density assumption: 0.75 g/cc
+    const {displacement,rho,flow,injectorMgPerMs}=paramsPhysics(p);
     const lambda=p.afr/(p.afrScale==='gauge'?14.7:14.1);
     const actualE10Afr=14.1*lambda;
     const effective=[];
     const command=[];
     const output=[];
+    const airMassMg=[];
+    const veGrid=[];
+    const correctedGrid=new Map();
+    if(p.model==='airmass'&&Array.isArray(calibrations)){
+      for(const a of calibrations){
+        if(!a||!Number.isInteger(a.r)||!Number.isInteger(a.c)||a.r<0||a.c<0||
+            a.r>=axes.tps.length||a.c>=axes.rpms.length||!Number.isFinite(a.ve)||a.ve<.03||a.ve>1.3)continue;
+        correctedGrid.set(a.r+':'+a.c,a.ve);
+      }
+    }
     const candidate=baseline.map(row=>row.slice());
-    let updated=0,min=Infinity,max=-Infinity,maxDuty=0,aboveDuty=0,maxVe=0,extrapolated=0;
+    let updated=0,min=Infinity,max=-Infinity,maxDuty=0,aboveDuty=0,maxVe=0,extrapolated=0,usedCalibrations=0;
     for(let r=0;r<axes.tps.length;r++){
-      const effectiveRow=[],commandRow=[],outRow=[];
+      const effectiveRow=[],commandRow=[],outRow=[],mgRow=[],veRow=[];
       const rowLabel=axes.tps[r];
       const tps=String(rowLabel).toUpperCase()==='IDLE'?0:valueNum(rowLabel);
       if(!Number.isFinite(tps)||tps<0||tps>100)throw new Error('Trục TPS không hợp lệ ở hàng '+(r+1));
-      const fill=interp(TPS_FILL,tps);
       for(let c=0;c<axes.rpms.length;c++){
         const rpm=Number(axes.rpms[c]);
         if(!Number.isFinite(rpm)||rpm<=0)throw new Error('Trục RPM không hợp lệ ở cột '+(c+1));
         const included=rpm<=p.maxRpm && (p.scope==='full'||(r>=selected.r0&&r<=selected.r1&&c>=selected.c0&&c<=selected.c1));
-        if(!included){effectiveRow.push(null);commandRow.push(null);outRow.push(null);continue;}
-        const oldVe=interp(RPM_VE,rpm)*(p.peakVe/94)*fill;
-        const refVe=photoRegionalVe(tps,rpm,p.peakVe/100);
-        const regionalWeight=p.shapePct/100;
-        const ve=oldVe*(1-regionalWeight)+refVe*regionalWeight;
+        if(!included){effectiveRow.push(null);commandRow.push(null);outRow.push(null);mgRow.push(null);veRow.push(null);continue;}
+        const anchor=correctedGrid.get(r+':'+c);
+        const ve=anchor===undefined?baseVe(p,tps,rpm):anchor;
+        if(anchor!==undefined)usedCalibrations++;
         maxVe=Math.max(maxVe,ve);
         if(rpm>PHOTO_RPM_MAX)extrapolated++; // no photo data above 9500
         const airMg=displacement*rho*ve;
+        mgRow.push(airMg);veRow.push(ve*100);
         const fuelMg=airMg/actualE10Afr;
         const pwEffective=fuelMg/injectorMgPerMs/p.pulses;
         const pwCommand=pwEffective+p.deadtime;
@@ -126,12 +173,13 @@
         if(duty>80)aboveDuty++;
       }
       effective.push(effectiveRow);command.push(commandRow);output.push(outRow);
+      airMassMg.push(mgRow);veGrid.push(veRow);
     }
     if(!updated)throw new Error('Không có ô RPM nào trong phạm vi tính.');
     return {params:p,cc:displacement,rho,flow,injectorMgPerMs,lambda,actualE10Afr,
-      effective,command,output,candidate,updated,min,max,maxDuty,aboveDuty,maxVe,extrapolated};
+      effective,command,output,airMassMg,veGrid,candidate,updated,min,max,maxDuty,aboveDuty,maxVe,extrapolated,usedCalibrations};
   }
-  root.BlinkFuelModelMath=Object.freeze({calculate,validate,interpolate:interp,referenceMs:photoRegionalMs,referenceTps:PHOTO_TPS.slice(),referenceRpmMin:PHOTO_RPM_MIN,referenceRpmMax:PHOTO_RPM_MAX,defaults:Object.freeze(Object.assign({},DEFAULTS))});
+  root.BlinkFuelModelMath=Object.freeze({calculate,validate,inferVe,baseVe,interpolate:interp,referenceMs:photoRegionalMs,referenceTps:PHOTO_TPS.slice(),referenceRpmMin:PHOTO_RPM_MIN,referenceRpmMax:PHOTO_RPM_MAX,defaults:Object.freeze(Object.assign({},DEFAULTS))});
 
   const doc=root.document,nav=root.navigator||{},ua=String(nav.userAgent||'');
   const isIOS=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints)>1);
