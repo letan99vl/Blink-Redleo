@@ -352,6 +352,20 @@
       Number.isInteger(x.c)&&Number.isFinite(x.ve)&&x.ve>=.03&&x.ve<=1.3):[];
     return {db,signature,anchors,stale:false};
   }
+  function calSnapshotChanged(snap){
+    if(!baseline||baseline.bank!==snap.bank||
+      JSON.stringify(baseline.rpms)!==JSON.stringify(snap.rpms)||
+      JSON.stringify(baseline.tps)!==JSON.stringify(snap.tps)||
+      !Array.isArray(snap.map)||!Array.isArray(baseline.map))return true;
+    for(let r=0;r<snap.map.length;r++){
+      if(!Array.isArray(snap.map[r])||!Array.isArray(baseline.map[r])||
+        snap.map[r].length!==baseline.map[r].length)return true;
+      for(let c=0;c<snap.map[r].length;c++){
+        if(!Object.is(snap.map[r][c],baseline.map[r][c]))return true;
+      }
+    }
+    return false;
+  }
   function currentSingle(snap){
     const s=snap?.selection;
     return s&&s.r0===s.r1&&s.c0===s.c1&&s.r0>=0&&s.c0>=0&&s.r0<snap.tps.length&&s.c0<snap.rpms.length
@@ -361,12 +375,13 @@
     if(el('fmcModel')?.value!=='airmass')return;
     try{
       const snap=bridge.snapshot(),p=validate(readFields()),one=currentSingle(snap),cal=calStatus(p,snap);
-      const info=cal.stale?'Dữ liệu VE cũ không dùng vì trục TPS/RPM hoặc thông số động cơ đã thay đổi.':'Đã khóa '+cal.anchors.length+' ô VE cho MAP No.'+snap.bank+'.';
+      const changed=calSnapshotChanged(snap);
+      const info=changed?'DỮ LIỆU MAP ĐÃ THAY ĐỔI: đóng và mở lại bộ tính trước khi hiệu chỉnh.':(cal.stale?'Dữ liệu VE cũ không dùng vì trục TPS/RPM hoặc thông số động cơ đã thay đổi.':'Đã khóa '+cal.anchors.length+' ô VE cho MAP No.'+snap.bank+'.');
       const selected=one?'Ô '+one.tps+'% TPS / '+one.rpm+' RPM':'CHƯA CHỌN 1 Ô trên map INJ VE';
       const anchor=one&&cal.anchors.find(x=>x.r===one.r&&x.c===one.c);
       el('fmcCalStatus').textContent=selected+' · '+info+(anchor?' · VE đã lưu '+(anchor.ve*100).toFixed(1)+'%':'');
-      el('fmcCalSave').disabled=!one||!snap.baselineValid||snap.unknown||snap.busy;
-      el('fmcCalRemove').disabled=!anchor||snap.busy;
+      el('fmcCalSave').disabled=!one||!snap.baselineValid||snap.unknown||snap.busy||changed;
+      el('fmcCalRemove').disabled=!anchor||snap.busy||changed;
       if(one&&el('fmcCalPw').value==='')el('fmcCalPw').value=Number(snap.map[one.r][one.c]).toFixed(3);
     }catch(e){el('fmcCalStatus').textContent='Chưa sẵn sàng: '+String(e?.message||e);}
   }
@@ -374,6 +389,7 @@
     try{
       const snap=bridge.snapshot();
       if(!snap.active||snap.busy||!snap.baselineValid||snap.unknown)throw new Error('Cần MAP ECU hợp lệ, không đang ghi/đọc.');
+      if(calSnapshotChanged(snap))throw new Error('MAP/trục hoặc dữ liệu gốc đã đổi. Đóng và mở lại bộ tính trước khi lưu VE.');
       const p=validate(readFields());
       if(p.model!=='airmass')throw new Error('Chỉ dùng với chế độ Triumph – mg khí.');
       const one=currentSingle(snap);
