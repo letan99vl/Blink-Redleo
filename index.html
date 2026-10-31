@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.127'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
+  window.BLINK_PB_VERSION = '3.79.128'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -7512,6 +7512,51 @@ window.addEventListener('beforeunload',save);
   $('studyTpsInfo').textContent='Nạp firmware ECU Blink BLE TEST rồi mở trang này bằng Bluefy qua HTTPS.';
   $('recordBadge').textContent='GHI AFR: OFF';
   window.addEventListener('pagehide',()=>{try{if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();}catch(_e){}});
+
+// PB3.79.128 | Fuel model gateway: manual INJ VE local-only, no ECU writes.
+window.blinkFuelModelBridge={
+  snapshot(){
+    const s=state.selection;
+    const selection=s.active?{r0:Math.min(s.anchorR,s.focusR),r1:Math.max(s.anchorR,s.focusR),
+      c0:Math.min(s.anchorC,s.focusC),c1:Math.max(s.anchorC,s.focusC)}:null;
+    const map=state.inject.map(row=>row.slice());
+    return {active:fuelAnchorEditorActive(),busy:fuelAnchorBusy()||fuelAnchorUI.mode||!!fuelAnchorUI.preview,
+      bank:state.activeMap,rpms:RPMS.slice(),tps:TPS_ROWS.slice(),map,selection,
+      baselineValid:inspectFuelMap(map).ok,unknown:fuelMapSyncUnknown()};
+  },
+  notice(type,title,message){showEcuNotice(type,title,message,4000);},
+  applyLocal(candidate,ctx){
+    if(!fuelAnchorEditorActive()||fuelAnchorBusy()||fuelAnchorUI.mode||fuelAnchorUI.preview)
+      throw new Error('Map thời gian phun đang bận hoặc không còn ở trang chỉnh tay.');
+    if(!ctx||state.activeMap!==ctx.bank||!Array.isArray(ctx.rpms)||!Array.isArray(ctx.tps)||
+       !sameAxis(RPMS,ctx.rpms)||TPS_ROWS.length!==ctx.tps.length||
+       TPS_ROWS.some((v,i)=>String(v)!==String(ctx.tps[i])))
+      throw new Error('MAP hoặc trục TPS/RPM đã thay đổi. Hãy tính lại.');
+    const previous=state.inject;
+    if(!validMatrix(previous)||!validMatrix(ctx.baseline)||!validMatrix(candidate))
+      throw new Error('Dữ liệu phải đủ 420 ô.');
+    if(!inspectFuelMap(previous).ok||fuelMapSyncUnknown())
+      throw new Error('Hãy ĐỌC HIỆN TẠI từ ECU trước khi áp dụng, bảo toàn vùng ngoài RPM giới hạn.');
+    const maxMs=fuelProtocolMaxMs();
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      if(!Object.is(previous[r][c],ctx.baseline[r][c]))
+        throw new Error('MAP gốc đã thay đổi kể từ lúc xem trước. Hãy tính lại.');
+      const n=Number(candidate[r][c]);
+      if(!Number.isFinite(n)||n<0||n>maxMs)
+        throw new Error('Ô '+r+','+c+' vượt giới hạn 0–'+maxMs.toFixed(2)+' ms.');
+      const inside=RPMS[c]<=Number(ctx.maxRpm)&&(ctx.scope==='full'||
+        (ctx.selection&&r>=ctx.selection.r0&&r<=ctx.selection.r1&&c>=ctx.selection.c0&&c<=ctx.selection.c1));
+      if(!inside&&!Object.is(candidate[r][c],previous[r][c]))
+        throw new Error('Bản tính đã thay ô nằm ngoài phạm vi được chọn.');
+    }
+    state.inject=candidate.map(row=>row.map(Number));
+    fuelAnchorUI.preview=null;
+    render();saveSoon();
+    flashSave('MAP NỀN CỤC BỘ · MAP NO.'+state.activeMap+' · CHƯA GHI ECU');
+    return {bank:state.activeMap};
+  }
+};
+
 })();
 </script>
 
@@ -9693,6 +9738,9 @@ updateMapControls();
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&optFam='+encodeURIComponent(window.BLINK_OPTIONS_FAMILY_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
+    // PB3.79.128: base-map calculator only for non-iOS clients.
+    const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+    if(!isiOS)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'"><\/script>');
   })();
 </script>
 </body>
