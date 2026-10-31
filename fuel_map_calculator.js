@@ -243,7 +243,7 @@
     ['peakVe','VE quy chiếu WOT / 6500 (%)'],['shapePct','Độ bám dáng map mẫu (%)'],['deadtime','Deadtime kim (ms)']
   ];
   function numericField(key,label){
-    return '<label>'+label+'<input type="text" readonly inputmode="none" data-fmc-field="'+key+'" aria-label="'+label+'"></label>';
+    return '<label>'+label+'<input id="fmc'+key.charAt(0).toUpperCase()+key.slice(1)+'" type="text" readonly inputmode="none" data-fmc-field="'+key+'" aria-label="'+label+'"></label>';
   }
   dlg.innerHTML=[
     '<div class="fmc-head"><h3>TÍNH MAP PHUN NỀN · AFR MONG MUỐN</h3><button type="button" class="fmc-close" id="fmcClose">✕</button></div>',
