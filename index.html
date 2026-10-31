@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = '3.79.128'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
+  window.BLINK_PB_VERSION = (/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) ? '3.79.128' : '3.79.129'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
