@@ -1,4 +1,4 @@
-/* Blink Redleo | Fuel base map calculator: regional 2D TPS x RPM template | WEB/ANDROID ONLY | PB3.79.130 */
+/* Blink Redleo | Fuel base map calculator: regional 2D TPS x RPM template | WEB/ANDROID + BLUEFY ONLY | PB3.79.131 */
 (function(root){
   'use strict';
   const RPM_VE=[[500,.54],[1500,.61],[3000,.75],[4500,.85],[6000,.92],[6500,.94],[7500,.90],[9000,.82],[11000,.72],[15000,.60]];
@@ -183,7 +183,8 @@
 
   const doc=root.document,nav=root.navigator||{},ua=String(nav.userAgent||'');
   const isIOS=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints)>1);
-  if(isIOS||!doc||!doc.getElementById('mapEditorScreen')||!root.blinkFuelModelBridge)return;
+  const isBluefy=/Bluefy/i.test(ua);
+  if((isIOS&&!isBluefy)||!doc||!doc.getElementById('mapEditorScreen')||!root.blinkFuelModelBridge)return;
 
   const bridge=root.blinkFuelModelBridge;
   const bar=doc.querySelector('#fuelAnchorBar .fuelAnchorActions');
