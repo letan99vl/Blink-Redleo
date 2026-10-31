@@ -190,7 +190,7 @@
   if(!bar)return;
   const launcher=doc.createElement('button');
   launcher.id='fuelModelCalcBtn';launcher.type='button';launcher.textContent='ƒx TÍNH MAP NỀN';
-  launcher.title='Tính 2 chiều theo vùng TPS/RPM của map tham chiếu và AFR mong muốn; chỉ áp dụng cục bộ';
+  launcher.title='Chọn MAP mẫu hoặc chế độ Triumph khối lượng khí/VE 2D, AFR mong muốn; không tự ghi ECU';
   bar.appendChild(launcher);
   const css=doc.createElement('style');
   css.textContent=[
@@ -225,6 +225,10 @@
     '#fuelModelDialog .fmc-preview .fmc-rowhead{background:#235e83;color:#fff;position:sticky;left:0}',
     '#fuelModelDialog .fmc-preview td.fmc-active{background:#1d5942;color:#dbffe9}',
     '#fuelModelDialog .fmc-preview td.fmc-skip{background:#14181e;color:#76847c}',
+    '#fuelModelDialog .fmc-preview td.fmc-cal{background:#174e74!important;color:#f3ffff!important;font-weight:900}',
+    '#fuelModelDialog .fmc-air-panel{border:1px solid #3b7290;border-radius:10px;padding:10px;display:grid;gap:8px;background:#10202b}',
+    '#fuelModelDialog .fmc-air-panel h4{margin:0;font-size:13px;color:#97defe}',
+    '#fuelModelDialog [hidden]{display:none!important}',
     '#fuelModelDialog .fmc-ack{display:flex;align-items:flex-start;gap:7px;font-weight:500;font-size:11px}',
     '#fuelModelDialog .fmc-ack input{margin-top:2px;flex-shrink:0}',
     '@media(max-width:560px){#fuelModelDialog .fmc-head{padding:8px}#fuelModelDialog .fmc-body{padding:8px;gap:8px}#fuelModelDialog .fmc-grid{gap:6px}#fuelModelDialog .fmc-grid label{font-size:10px}#fuelModelDialog h3{font-size:15px}}'
@@ -235,7 +239,7 @@
     ['bore','Piston (mm)'],['stroke','Hành trình dên (mm)'],
     ['throttle','Họng ga (mm)'],['flow','Kim phun (cc/phút)'],
     ['ratedBar','Áp chuẩn kim (bar)'],['pressure','Chênh áp thực qua kim (bar)'],
-    ['iat','Nhiệt độ khí nạp (°C)'],['maxRpm','Giới hạn tính (RPM)'],
+    ['iat','Nhiệt độ khí nạp (°C)'],['baroKpa','Áp suất khí quyển (kPa)'],['maxRpm','Giới hạn tính (RPM)'],
     ['peakVe','VE quy chiếu WOT / 6500 (%)'],['shapePct','Độ bám dáng map mẫu (%)'],['deadtime','Deadtime kim (ms)']
   ];
   function numericField(key,label){
@@ -244,6 +248,7 @@
   dlg.innerHTML=[
     '<div class="fmc-head"><h3>TÍNH MAP PHUN NỀN · AFR MONG MUỐN</h3><button type="button" class="fmc-close" id="fmcClose">✕</button></div>',
     '<div class="fmc-body">',
+    '<div class="fmc-important"><label>CHỌN THUẬT TOÁN<select data-fmc-option="model" id="fmcModel"><option value="regional">MAP MẪU 2D (GIỮ NGUYÊN)</option><option value="airmass">TRIUMPH THỬ NGHIỆM · MG KHÍ → AFR → MS</option></select></label></div>',
     '<div class="fmc-important">'+numericField('afr','AFR MONG MUỐN (BẮT BUỘC)')+
     '<label style="margin-top:7px">Thang AFR<select data-fmc-option="afrScale"><option value="gauge">AFR đồng hồ xăng · 14,7</option><option value="e10">AFR thực E10 · 14,1</option></select></label></div>',
     '<div class="fmc-grid">'+fields.map(x=>numericField(x[0],x[1])).join('')+'</div>',
@@ -252,14 +257,24 @@
     '<label>Đơn vị map tạo ra<select data-fmc-option="output"><option value="command">ms lệnh (cộng deadtime)</option><option value="effective">ms hữu hiệu (chưa cộng)</option></select></label>',
     '<label>Phạm vi áp dụng<select data-fmc-option="scope"><option value="full">Toàn bộ TPS đến RPM giới hạn</option><option value="selected">Chỉ vùng đang chọn trên map</option></select></label>',
     '<label>Nhiên liệu<select disabled><option>E10 · AFR stoich 14,1</option></select></label></div>',
-    '<div class="fmc-help">Bộ tính lấy hình dáng 14 hàng TPS × 19 cột RPM trong ẢNH MAP bạn gửi làm mẫu tương đối: vùng thấp 500–2000, vùng trũng khoảng 3500–4500, vùng đỉnh 6000–7500 và giảm sau đó. Nội suy hai chiều giữa các hàng TPS, KHÔNG sao chép số ms của ECU mẫu. VE quy chiếu tại 100% TPS / 6500 RPM. Độ bám dáng 0%=công thức cũ, 100%=theo ảnh. Các điểm trên 9500 RPM chỉ ngoại suy. Họng ga 32 mm chỉ là thông tin tham khảo, KHÔNG thể suy lưu lượng khí chính xác từ đường kính. Áp suất phải là chênh áp qua kim, không mặc định bằng áp đường rail. Kim được giả định định mức tại áp chuẩn nhập ở trên, E10 có khối lượng riêng giả định 0,75 g/cc. Độ trễ kim và số xung/chu kỳ chưa được xác minh với ECU.</div>',
+    '<div class="fmc-help" id="fmcRegionalHelp">Bộ tính lấy hình dáng 14 hàng TPS × 19 cột RPM trong ẢNH MAP bạn gửi làm mẫu tương đối: vùng thấp 500–2000, vùng trũng khoảng 3500–4500, vùng đỉnh 6000–7500 và giảm sau đó. Nội suy hai chiều giữa các hàng TPS, KHÔNG sao chép số ms của ECU mẫu. VE quy chiếu tại 100% TPS / 6500 RPM. Độ bám dáng 0%=công thức cũ, 100%=theo ảnh. Các điểm trên 9500 RPM chỉ ngoại suy. Họng ga 32 mm chỉ là thông tin tham khảo, KHÔNG thể suy lưu lượng khí chính xác từ đường kính. Áp suất phải là chênh áp qua kim, không mặc định bằng áp đường rail. Kim được giả định định mức tại áp chuẩn nhập ở trên, E10 có khối lượng riêng giả định 0,75 g/cc. Độ trễ kim và số xung/chu kỳ chưa được xác minh với ECU.</div>',
+    '<div class="fmc-help" id="fmcTriumphHelp" hidden>TRIUMPH PHONG CÁCH TÍNH: VE 2D (ước lượng) → KHỐI LƯỢNG KHÍ mg/chu kỳ → LƯỢNG XĂNG theo AFR mong muốn → THỜI GIAN KIM ms. Vẫn là mô hình Alpha-N TPS × RPM, không phải bảng F/L thật của Triumph và chưa dùng chuyển bảng MAP. Các ô VE được hiệu chỉnh thủ công từ AFR đo ổn định sẽ được giữ riêng theo MAP No. và đúng bộ thông số động cơ. KHÔNG tự học AFR khi tăng tốc, KHÔNG bù tăng tốc hoặc nhiệt độ động cơ vào map nền. Chênh áp kim, deadtime, số xung và đặc tính phun thực tế phải xác nhận trước khi sử dụng.</div>',
+    '<section class="fmc-air-panel" id="fmcAirPanel" hidden>',
+    '<h4>HIỆU CHỈNH VE TỪ AFR ĐO · CHỈ MỘT Ô TPS × RPM</h4>',
+    '<div class="fmc-help" id="fmcCalStatus">Chọn một ô trên MAP INJ VE, rồi mở bộ tính lại để hiệu chỉnh.</div>',
+    '<div class="fmc-grid">'+numericField('calAfr','AFR ĐO ỔN ĐỊNH (CÙNG THANG Ở TRÊN)')+numericField('calPw','PW TỔNG ĐANG CHẠY (ms)')+'</div>',
+    '<div class="fmc-help">Giá trị PW được gợi ý từ ô MAP đang đọc; nếu ECU có bù ECT/IAT/MAP/điện áp hoặc chế độ điều khiển O2, phải nhập PW thực tế đã xác minh. Chỉ dùng AFR đo ở trạng thái ga/tải ổn định, không dùng AFR tăng tốc hoặc cảm biến đang trễ. Hiệu chỉnh một ô riêng lẻ, không lan sang các ô lân cận.</div>',
+    '<label class="fmc-ack"><input id="fmcCalConfirm" type="checkbox">AFR và PW đã đo ổn định đúng ô, tôi đã kiểm tra áp suất kim/deadtime, không dùng giá trị lúc mở ga đột ngột.</label>',
+    '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcCalSave">LƯU VE Ô NÀY (TRONG BLINK)</button><button type="button" id="fmcCalRemove">XÓA VE Ô NÀY</button><button type="button" class="fmc-danger" id="fmcCalReset">XÓA VE MAP</button></div>',
+    '</section>',
     '<div id="fmcPad" class="fmc-pad" aria-hidden="true"><span class="fmc-pad-title" id="fmcPadTitle">Chọn ô để nhập</span>',
     ['1','2','3','C','4','5','6','⌫','7','8','9','.','−','0','XONG'].map(k=>'<button type="button" data-fmc-key="'+k+'">'+k+'</button>').join(''),
     '</div>',
     '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcPreview">TÍNH & XEM TRƯỚC</button><button type="button" id="fmcClose2">ĐÓNG</button></div>',
     '<div class="fmc-result" id="fmcResult" role="status" aria-live="polite">Chưa tính. AFR mong muốn luôn do bạn nhập, không lấy từ Auto Tune.</div>',
+    '<div class="fmc-grid"><label>LOẠI BẢNG XEM TRƯỚC<select id="fmcView"><option value="pw">THỜI GIAN PHUN ms</option><option value="mg">KHỐI LƯỢNG KHÍ mg/chu kỳ</option><option value="ve">VE %</option></select></label></div>',
     '<div class="fmc-tablebox" id="fmcTableBox" hidden><table class="fmc-preview" id="fmcTable"></table></div>',
-    '<label class="fmc-ack"><input type="checkbox" id="fmcAck">Tôi hiểu hình dáng MAP ảnh mẫu KHÔNG chứng minh VE thật của xe, đã xác minh kiểu ms của ECU và sẽ đo AFR/tải thực tế trước khi sử dụng.</label>',
+    '<label class="fmc-ack"><input type="checkbox" id="fmcAck">Tôi hiểu đây là ước tính khối lượng khí/VE, KHÔNG phải đo VE thực; đã xác minh cơ chế PW của ECU và sẽ kiểm tra AFR trên tải thực trước khi sử dụng.</label>',
     '<div class="fmc-actions"><button type="button" class="fmc-danger" id="fmcApply" disabled>ÁP DỤNG CỤC BỘ · KHÔNG GHI ECU</button></div>',
     '<div class="fmc-help">Chỉ thay các ô trong vùng tính, các cột RPM cao hơn giới hạn luôn giữ nguyên. Để áp dụng cần MAP hiện tại đủ 420 ô hợp lệ; nếu đang toàn 0, hãy ĐỌC HIỆN TẠI từ ECU. Không chạm lệnh GHI ECU.</div>',
     '</div>'
@@ -278,13 +293,18 @@
   setFields(stored);
   function readFields(){
     const p={};
-    dlg.querySelectorAll('[data-fmc-field]').forEach(input=>{p[input.dataset.fmcField]=input.value;});
+    dlg.querySelectorAll('[data-fmc-field]').forEach(input=>{if(!input.dataset.fmcField.startsWith('cal'))p[input.dataset.fmcField]=input.value;});
     dlg.querySelectorAll('[data-fmc-option]').forEach(input=>{p[input.dataset.fmcOption]=input.value;});
     return p;
   }
   function invalidate(){
     preview=null;el('fmcApply').disabled=true;el('fmcAck').checked=false;el('fmcTableBox').hidden=true;
     el('fmcResult').textContent='Đã sửa thông số. Bấm TÍNH & XEM TRƯỚC để cập nhật.';
+    const mode=el('fmcModel')?.value==='airmass';
+    el('fmcAirPanel').hidden=!mode;
+    el('fmcRegionalHelp').hidden=mode;
+    el('fmcTriumphHelp').hidden=!mode;
+    if(mode)syncCalUI();
   }
   function showKeypad(input){
     activeField=input;el('fmcPad').classList.add('show');el('fmcPad').setAttribute('aria-hidden','false');
@@ -296,6 +316,7 @@
     input.addEventListener('focus',()=>showKeypad(input));
   });
   dlg.querySelectorAll('[data-fmc-option]').forEach(input=>input.addEventListener('change',invalidate));
+  el('fmcView').addEventListener('change',()=>{if(preview)renderPreview(preview.out,preview.snap,preview.anchors);});
   dlg.querySelectorAll('[data-fmc-key]').forEach(key=>key.addEventListener('click',()=>{
     if(!activeField)return;
     const k=key.dataset.fmcKey;
@@ -306,10 +327,99 @@
     else if(k==='−')activeField.value=s.startsWith('-')?s.slice(1):'-'+s;
     else if(k==='.') {if(!s.includes('.'))activeField.value=(s||'0')+'.';}
     else if(s.length<12)activeField.value=s+k;
-    invalidate();
+    if(activeField.dataset.fmcField.startsWith('cal')){
+      el('fmcCalConfirm').checked=false;
+    }else invalidate();
   }));
   function msg(x){el('fmcResult').textContent=String(x);}
-  function renderPreview(out,snap){
+
+  const CAL_STORE_KEY='blinkFuelAirVeAnchorsV1';
+  function calStorage(){
+    try{const v=JSON.parse(root.localStorage.getItem(CAL_STORE_KEY)||'{}');return v&&typeof v==='object'&&v.banks&&typeof v.banks==='object'?v:{banks:{}};}
+    catch(_e){return {banks:{}};}
+  }
+  function calSignature(p,snap){
+    // Never re-use inferred VE after injector, ambient or axis changes.
+    // AFR target/shape model are deliberately excluded: VE is air/fuel-independent.
+    return JSON.stringify({rpms:snap.rpms,tps:snap.tps,
+      engine:[p.bore,p.stroke,p.throttle,p.flow,p.ratedBar,p.pressure,p.iat,p.baroKpa,p.deadtime,p.pulses,p.output]});
+  }
+  function calStatus(p,snap){
+    const db=calStorage(),item=db.banks[String(snap.bank)],signature=calSignature(p,snap);
+    if(!item)return {db,signature,anchors:[],stale:false};
+    if(item.signature!==signature)return {db,signature,anchors:[],stale:true};
+    const anchors=Array.isArray(item.anchors)?item.anchors.filter(x=>Number.isInteger(x.r)&&
+      Number.isInteger(x.c)&&Number.isFinite(x.ve)&&x.ve>=.03&&x.ve<=1.3):[];
+    return {db,signature,anchors,stale:false};
+  }
+  function currentSingle(snap){
+    const s=snap?.selection;
+    return s&&s.r0===s.r1&&s.c0===s.c1&&s.r0>=0&&s.c0>=0&&s.r0<snap.tps.length&&s.c0<snap.rpms.length
+      ?{r:s.r0,c:s.c0,tps:String(snap.tps[s.r0]).toUpperCase()==='IDLE'?0:Number(snap.tps[s.r0]),rpm:snap.rpms[s.c0]}:null;
+  }
+  function syncCalUI(){
+    if(el('fmcModel')?.value!=='airmass')return;
+    try{
+      const snap=bridge.snapshot(),p=validate(readFields()),one=currentSingle(snap),cal=calStatus(p,snap);
+      const info=cal.stale?'Dữ liệu VE cũ không dùng vì trục TPS/RPM hoặc thông số động cơ đã thay đổi.':'Đã khóa '+cal.anchors.length+' ô VE cho MAP No.'+snap.bank+'.';
+      const selected=one?'Ô '+one.tps+'% TPS / '+one.rpm+' RPM':'CHƯA CHỌN 1 Ô trên map INJ VE';
+      const anchor=one&&cal.anchors.find(x=>x.r===one.r&&x.c===one.c);
+      el('fmcCalStatus').textContent=selected+' · '+info+(anchor?' · VE đã lưu '+(anchor.ve*100).toFixed(1)+'%':'');
+      el('fmcCalSave').disabled=!one||!snap.baselineValid||snap.unknown||snap.busy;
+      el('fmcCalRemove').disabled=!anchor||snap.busy;
+      if(one&&el('fmcCalPw').value==='')el('fmcCalPw').value=Number(snap.map[one.r][one.c]).toFixed(3);
+    }catch(e){el('fmcCalStatus').textContent='Chưa sẵn sàng: '+String(e?.message||e);}
+  }
+  function changeCal(mode){
+    try{
+      const snap=bridge.snapshot();
+      if(!snap.active||snap.busy||!snap.baselineValid||snap.unknown)throw new Error('Cần MAP ECU hợp lệ, không đang ghi/đọc.');
+      const p=validate(readFields());
+      if(p.model!=='airmass')throw new Error('Chỉ dùng với chế độ Triumph – mg khí.');
+      const one=currentSingle(snap);
+      const entry=calStatus(p,snap);
+      if(mode!=='reset'&&!one)throw new Error('Hãy chọn đúng một ô MAP INJ VE trước khi mở bộ tính.');
+      if(mode==='save'){
+        if(!el('fmcCalConfirm').checked)throw new Error('Phải xác nhận AFR và PW đo ổn định.');
+        const result=inferVe(p,{tps:one.tps,rpm:one.rpm,afr:el('fmcCalAfr').value,pw:el('fmcCalPw').value});
+        const arr=entry.anchors.filter(x=>!(x.r===one.r&&x.c===one.c));
+        arr.push({r:one.r,c:one.c,ve:result.ve});
+        entry.db.banks[String(snap.bank)]={signature:entry.signature,anchors:arr};
+        if(!saveCalStorage(entry.db))throw new Error('Không thể lưu VE lên thiết bị.');
+        el('fmcCalConfirm').checked=false;
+        invalidate();syncCalUI();
+        msg('Đã lưu VE ô '+one.tps+'% / '+one.rpm+' RPM = '+result.vePct.toFixed(1)+'%, dựa trên AFR đo '+result.afr+
+          ' và PW '+result.pw.toFixed(3)+' ms. Sai khác '+result.departurePct.toFixed(1)+
+          '% so với VE nền. Chỉ lưu trong Blink, CHƯA thay bảng INJ VE và CHƯA ghi ECU. Bấm TÍNH & XEM TRƯỚC.');
+        return;
+      }
+      if(mode==='remove'){
+        const arr=entry.anchors.filter(x=>!(x.r===one.r&&x.c===one.c));
+        entry.db.banks[String(snap.bank)]={signature:entry.signature,anchors:arr};
+        if(!saveCalStorage(entry.db))throw new Error('Không thể xóa VE lên bộ nhớ.');
+        invalidate();syncCalUI();msg('Đã bỏ hiệu chỉnh VE một ô trên Blink, chưa ghi ECU.');return;
+      }
+      if(mode==='reset'){
+        if(el('fmcCalReset').dataset.armed!=='yes'){
+          el('fmcCalReset').dataset.armed='yes';
+          el('fmcCalReset').textContent='NHẤN LẦN NỮA ĐỂ XÓA';
+          return;
+        }
+        el('fmcCalReset').dataset.armed='no';
+        el('fmcCalReset').textContent='XÓA VE MAP';
+        delete entry.db.banks[String(snap.bank)];
+        if(!saveCalStorage(entry.db))throw new Error('Không thể lưu thao tác xóa.');
+        invalidate();syncCalUI();msg('Đã xóa hiệu chỉnh VE MAP No.'+snap.bank+' trên Blink, không thay MAP ECU.');
+      }
+    }catch(e){el('fmcCalStatus').textContent='LỖI HIỆU CHỈNH: '+String(e?.message||e);}
+  }
+  function saveCalStorage(db){
+    try{root.localStorage.setItem(CAL_STORE_KEY,JSON.stringify(db));return true;}catch(_e){return false;}
+  }
+  function renderPreview(out,snap,anchors){
+    const mode=el('fmcView').value;
+    const matrix=mode==='mg'?out.airMassMg:mode==='ve'?out.veGrid:out.output;
+    const locked=new Set((anchors||[]).map(a=>a.r+':'+a.c));
     const visible=snap.rpms.map((rpm,c)=>({rpm,c})).filter(x=>x.rpm<=out.params.maxRpm);
     const h=['<thead><tr><th class="fmc-rowhead">TPS</th>'];
     for(const x of visible)h.push('<th>'+x.rpm+'</th>');
@@ -317,8 +427,9 @@
     for(let r=0;r<snap.tps.length;r++){
       h.push('<tr><th class="fmc-rowhead">'+String(snap.tps[r])+(String(snap.tps[r]).toUpperCase()==='IDLE'?'':'%')+'</th>');
       for(const x of visible){
-        const v=out.output[r][x.c],yes=v!==null;
-        h.push('<td class="'+(yes?'fmc-active':'fmc-skip')+'">'+(yes?v.toFixed(2):'—')+'</td>');
+        const v=matrix[r][x.c],yes=v!==null;
+        const css=''+(yes?(locked.has(r+':'+x.c)?'fmc-cal':'fmc-active'):'fmc-skip');
+        h.push('<td class="'+css+'">'+(yes?Number(v).toFixed(2):'—')+'</td>');
       }
       h.push('</tr>');
     }
@@ -331,17 +442,20 @@
       const snap=bridge.snapshot();
       if(!snap.active)throw new Error('Chức năng chỉ mở trong DỮ LIỆU → THỜI GIAN PHUN.');
       if(snap.busy)throw new Error('Đang chọn ô neo / ghi hoặc đọc ECU. Hãy kết thúc tác vụ trước.');
-      const out=calculate(readFields(),{rpms:snap.rpms,tps:snap.tps},snap.map,snap.selection);
-      preview={snap,out};
+      const p=validate(readFields());
+      const calibration=p.model==='airmass'?calStatus(p,snap):{anchors:[],stale:false};
+      const out=calculate(p,{rpms:snap.rpms,tps:snap.tps},snap.map,snap.selection,calibration.anchors);
+      preview={snap,out,anchors:calibration.anchors};
       el('fmcAck').checked=false;
       const canApply=snap.baselineValid&&!snap.unknown;
       el('fmcApply').disabled=!canApply;
-      renderPreview(out,snap);
+      renderPreview(out,snap,calibration.anchors);
+      if(p.model==='airmass')syncCalUI();
       msg('MAP NO.'+snap.bank+' · '+out.cc.toFixed(2)+' cc · kim '+out.flow.toFixed(1)+' cc/phút @ '+out.params.pressure+' bar\n'+
         'AFR mong muốn: '+out.params.afr+' ('+(out.params.afrScale==='gauge'?'đồng hồ 14,7':'E10 thực 14,1')+') · Lambda '+out.lambda.toFixed(3)+' · AFR E10 thực '+out.actualE10Afr.toFixed(2)+'\n'+
         'Tạo '+out.updated+' ô; '+out.min.toFixed(2)+'–'+out.max.toFixed(2)+' ms; duty lớn nhất '+out.maxDuty.toFixed(1)+'%'+(out.aboveDuty?' · '+out.aboveDuty+' ô duty trên 80%':'')+'\n'+
-        'Theo vùng 2D của ảnh tham chiếu '+out.params.shapePct+'% · VE lớn nhất ước tính '+(out.maxVe*100).toFixed(1)+'%'+(out.extrapolated?' · '+out.extrapolated+' ô trên 9500 RPM là ngoại suy':'')+'\n'+
-        'RPM > '+out.params.maxRpm+' giữ nguyên MAP cũ. Đường cong chỉ tham khảo từ ảnh MAP khác, KHÔNG phải đo VE xe bạn; chưa kiểm chứng cam/MAP và AFR thực tế.\n'+
+        (p.model==='airmass'?'TRIUMPH THỬ NGHIỆM: tính mg khí trước, sử dụng '+out.usedCalibrations+' ô VE đã đo'+(calibration.stale?' (BẢN VE CŨ BỊ BỎ QUA DO KHÁC THÔNG SỐ)':''):'MAP MẪU 2D: giữ thuật toán 3.79.129')+' · VE lớn nhất ước tính '+(out.maxVe*100).toFixed(1)+'%'+(out.extrapolated?' · '+out.extrapolated+' ô trên 9500 RPM là ngoại suy':'')+'\n'+
+        'RPM > '+out.params.maxRpm+' giữ nguyên MAP cũ. VE chưa đo tại các ô chưa hiệu chỉnh; KHÔNG dùng tăng ga đột ngột để học VE. Chưa mô phỏng F/L, MAP chân không hoặc bù tăng tốc/ECT.\n'+
         (canApply?'Có thể áp dụng vào Blink CỤC BỘ sau khi xác nhận. Không tự ghi ECU.':'CHƯA THỂ ÁP DỤNG: MAP cũ chưa đủ 420 ô hợp lệ hoặc trạng thái chưa đồng bộ. Hãy ĐỌC HIỆN TẠI từ ECU.'));
       try{root.localStorage.setItem('blinkFuelModelSettingsV1',JSON.stringify(out.params));}catch(_e){}
     }catch(e){
@@ -367,10 +481,18 @@
     const snap=bridge.snapshot();
     if(!snap.active||snap.busy){bridge.notice('info','MAP ĐANG BẬN','Hãy vào Thời gian phun và hoàn tất thao tác hiện tại.');return;}
     preview=null;baseline=snap;el('fmcAck').checked=false;el('fmcApply').disabled=true;el('fmcTableBox').hidden=true;
+    el('fmcCalAfr').value='';el('fmcCalPw').value='';el('fmcCalConfirm').checked=false;
+    el('fmcCalReset').dataset.armed='no';el('fmcCalReset').textContent='XÓA VE MAP';
+    const isAir=el('fmcModel').value==='airmass';
+    el('fmcAirPanel').hidden=!isAir;el('fmcTriumphHelp').hidden=!isAir;el('fmcRegionalHelp').hidden=isAir;
+    if(isAir)syncCalUI();
     msg('MAP NO.'+snap.bank+' · AFR mong muốn do bạn nhập. Tính thử không thay đổi dữ liệu ECU. Trên 9.000 RPM sẽ giữ nguyên nếu giới hạn đang là 9.000.');
     dlg.showModal();
   });
   el('fmcPreview').addEventListener('click',doPreview);
+  el('fmcCalSave').addEventListener('click',()=>changeCal('save'));
+  el('fmcCalRemove').addEventListener('click',()=>changeCal('remove'));
+  el('fmcCalReset').addEventListener('click',()=>changeCal('reset'));
   el('fmcApply').addEventListener('click',doApply);
   el('fmcClose').addEventListener('click',closeDialog);
   el('fmcClose2').addEventListener('click',closeDialog);
