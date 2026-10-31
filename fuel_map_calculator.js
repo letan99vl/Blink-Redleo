@@ -1,14 +1,52 @@
-/* Blink Redleo | Fuel base map calculator | WEB/ANDROID ONLY | PB3.79.128 */
+/* Blink Redleo | Fuel base map calculator: regional 2D TPS x RPM template | WEB/ANDROID ONLY | PB3.79.129 */
 (function(root){
   'use strict';
   const RPM_VE=[[500,.54],[1500,.61],[3000,.75],[4500,.85],[6000,.92],[6500,.94],[7500,.90],[9000,.82],[11000,.72],[15000,.60]];
   const TPS_FILL=[[0,.16],[2,.19],[5,.25],[8,.31],[14,.43],[20,.55],[30,.68],[40,.78],[50,.85],[60,.90],[70,.94],[80,.97],[90,.99],[100,1]];
+  // Regional fuel-shape reference transcribed from the USER'S TPS x RPM screenshot,
+  // NOT an independently measured VE map. Use SHAPE only; never copy reference ms.
+  // Columns 500..9500 RPM in 500 RPM steps; rows 100..2% then IDLE(0%).
+  const PHOTO_RPM_MIN=500, PHOTO_RPM_STEP=500, PHOTO_RPM_MAX=9500;
+  const PHOTO_TPS=[100,90,80,70,60,50,40,30,20,14,8,5,2,0];
+  const PHOTO_MS=[[7.67,7.67,7.67,7.67,7.39,7.39,6.76,6.39,6.39,6.48,6.76,7.11,7.18,7.18,7.18,7.03,6.8,6.76,6.34],[7.67,7.67,7.67,7.67,7.39,7.39,6.76,6.39,6.39,6.48,6.76,7.11,7.18,7.18,7.18,7.03,6.8,6.76,6.34],[7.67,7.67,7.67,7.67,7.39,7.39,6.76,6.39,6.39,6.48,6.76,7.08,7.11,7.11,7.11,6.99,6.76,6.71,6.25],[7.67,7.67,7.67,7.67,7.39,7.18,6.67,6.48,6.48,6.48,6.71,7.08,7.08,7.08,6.99,6.85,6.67,6.39,6.07],[7.67,7.67,7.67,7.67,7.39,7.18,6.67,6.48,6.48,6.48,6.53,6.8,6.89,6.76,6.62,6.48,6.25,5.98,5.66],[7.67,7.67,7.46,7.46,7.18,7.18,6.62,6.34,6.34,6.34,6.39,6.48,6.34,6.17,5.98,5.8,5.62,5.44,5.17],[7.39,7.39,7.25,7.25,6.99,6.93,6.53,6.17,5.89,5.75,5.75,5.75,5.62,5.39,5.17,5.03,4.89,4.62,4.39],[7.11,7.03,7.03,7.03,6.85,6.76,6.03,5.39,5.17,4.89,4.89,4.89,4.75,4.52,4.39,4.21,4.07,3.98,3.85],[6.21,6.21,6.21,6.21,5.98,5.62,4.8,4.3,4.07,3.89,3.85,3.8,3.75,3.62,3.48,3.35,3.25,3.25,3.21],[5.8,5.71,5.71,5.66,4.94,4.58,3.98,3.58,3.39,3.25,3.3,3.25,3.16,3.07,2.98,2.89,2.76,2.66,2.48],[4.89,4.89,4.8,4.66,4.21,3.71,3.21,2.98,2.84,2.76,2.66,2.57,2.44,2.35,2.3,2.35,2.3,2.25,2.08],[4.43,4.35,4.03,3.98,3.62,3.25,2.8,2.53,2.39,2.25,2.08,1.93,1.89,1.85,1.89,1.85,1.85,1.89,1.8],[3.67,3.35,2.89,2.62,2.25,2.02,1.8,1.76,1.71,1.62,1.62,1.62,1.62,1.62,1.62,1.62,1.62,1.57,1.48],[4.26,2.35,2.06,1.8,1.62,1.53,1.53,1.39,1.39,1.39,1.39,1.39,1.39,1.39,1.3,1.3,1.21,1.17,1.07]];
+  // The reference ECU injector deadtime is unknown; 0.90 ms is an explicit
+  // shape-extraction offset, NOT the actual new injector's deadtime.
+  const PHOTO_OFFSET_MS=0.9;
+  function photoRowMs(row,rpm){
+    const x=Math.max(PHOTO_RPM_MIN,Math.min(PHOTO_RPM_MAX,rpm));
+    const k=Math.min(PHOTO_MS[row].length-2,Math.floor((x-PHOTO_RPM_MIN)/PHOTO_RPM_STEP));
+    const t=(x-(PHOTO_RPM_MIN+k*PHOTO_RPM_STEP))/PHOTO_RPM_STEP;
+    const m=PHOTO_MS[row][k]+t*(PHOTO_MS[row][k+1]-PHOTO_MS[row][k]);
+    if(rpm<=PHOTO_RPM_MAX)return m;
+    // Above the supplied photo's final 9500 RPM point, taper using the
+    // older WOT RPM prior. This is extrapolation, NOT measured from the photo.
+    const taper=interp(RPM_VE,rpm)/interp(RPM_VE,PHOTO_RPM_MAX);
+    return PHOTO_OFFSET_MS+(m-PHOTO_OFFSET_MS)*taper;
+  }
+  function photoRegionalMs(tps,rpm){
+    if(tps>=PHOTO_TPS[0])return photoRowMs(0,rpm);
+    for(let i=1;i<PHOTO_TPS.length;i++){
+      if(tps>=PHOTO_TPS[i]){
+        const hi=PHOTO_TPS[i-1],lo=PHOTO_TPS[i];
+        const ratio=(tps-lo)/(hi-lo);
+        return photoRowMs(i,rpm)*(1-ratio)+photoRowMs(i-1,rpm)*ratio;
+      }
+    }
+    return photoRowMs(PHOTO_TPS.length-1,rpm);
+  }
+  function photoRegionalVe(tps,rpm,veAtWot6500){
+    const numerator=Math.max(.01,photoRegionalMs(tps,rpm)-PHOTO_OFFSET_MS);
+    const denominator=photoRegionalMs(100,6500)-PHOTO_OFFSET_MS;
+    return veAtWot6500*(numerator/denominator);
+  }
+  // 2D region weight: 0% = legacy separable model, 100% = shape of supplied
+  // reference; 95% preserves the low-rpm plateaus and TPS-specific peaks.
   const DEFAULTS={bore:72,stroke:72,throttle:32,flow:300,ratedBar:3,pressure:3.5,
-    afr:13,afrScale:'gauge',iat:30,maxRpm:9000,peakVe:94,deadtime:.9,
+    afr:13,afrScale:'gauge',iat:30,maxRpm:9000,peakVe:94,shapePct:95,deadtime:.9,
     pulses:'1',output:'command',scope:'full'};
   const specs={bore:[30,125],stroke:[30,140],throttle:[15,75],flow:[50,2000],
     ratedBar:[1,7],pressure:[1,7],afr:[9,18],iat:[-20,100],maxRpm:[500,30000],
-    peakVe:[35,130],deadtime:[0,4]};
+    peakVe:[35,130],shapePct:[0,100],deadtime:[0,4]};
   function valueNum(n){return Number(String(n).replace(',','.'));}
   function interp(curve,x){
     if(x<=curve[0][0])return curve[0][1];
@@ -55,7 +93,7 @@
     const command=[];
     const output=[];
     const candidate=baseline.map(row=>row.slice());
-    let updated=0,min=Infinity,max=-Infinity,maxDuty=0,aboveDuty=0;
+    let updated=0,min=Infinity,max=-Infinity,maxDuty=0,aboveDuty=0,maxVe=0,extrapolated=0;
     for(let r=0;r<axes.tps.length;r++){
       const effectiveRow=[],commandRow=[],outRow=[];
       const rowLabel=axes.tps[r];
@@ -67,7 +105,12 @@
         if(!Number.isFinite(rpm)||rpm<=0)throw new Error('Trục RPM không hợp lệ ở cột '+(c+1));
         const included=rpm<=p.maxRpm && (p.scope==='full'||(r>=selected.r0&&r<=selected.r1&&c>=selected.c0&&c<=selected.c1));
         if(!included){effectiveRow.push(null);commandRow.push(null);outRow.push(null);continue;}
-        const ve=interp(RPM_VE,rpm)*(p.peakVe/94)*fill; // simplified Alpha-N assumption
+        const oldVe=interp(RPM_VE,rpm)*(p.peakVe/94)*fill;
+        const refVe=photoRegionalVe(tps,rpm,p.peakVe/100);
+        const regionalWeight=p.shapePct/100;
+        const ve=oldVe*(1-regionalWeight)+refVe*regionalWeight;
+        maxVe=Math.max(maxVe,ve);
+        if(rpm>PHOTO_RPM_MAX)extrapolated++; // no photo data above 9500
         const airMg=displacement*rho*ve;
         const fuelMg=airMg/actualE10Afr;
         const pwEffective=fuelMg/injectorMgPerMs/p.pulses;
@@ -86,9 +129,9 @@
     }
     if(!updated)throw new Error('Không có ô RPM nào trong phạm vi tính.');
     return {params:p,cc:displacement,rho,flow,injectorMgPerMs,lambda,actualE10Afr,
-      effective,command,output,candidate,updated,min,max,maxDuty,aboveDuty};
+      effective,command,output,candidate,updated,min,max,maxDuty,aboveDuty,maxVe,extrapolated};
   }
-  root.BlinkFuelModelMath=Object.freeze({calculate,validate,interpolate:interp,defaults:Object.freeze(Object.assign({},DEFAULTS))});
+  root.BlinkFuelModelMath=Object.freeze({calculate,validate,interpolate:interp,referenceMs:photoRegionalMs,referenceTps:PHOTO_TPS.slice(),referenceRpmMin:PHOTO_RPM_MIN,referenceRpmMax:PHOTO_RPM_MAX,defaults:Object.freeze(Object.assign({},DEFAULTS))});
 
   const doc=root.document,nav=root.navigator||{},ua=String(nav.userAgent||'');
   const isIOS=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints)>1);
@@ -99,11 +142,11 @@
   if(!bar)return;
   const launcher=doc.createElement('button');
   launcher.id='fuelModelCalcBtn';launcher.type='button';launcher.textContent='ƒx TÍNH MAP NỀN';
-  launcher.title='Tính theo động cơ, VE giả định và AFR mong muốn; chỉ áp dụng cục bộ';
+  launcher.title='Tính 2 chiều theo vùng TPS/RPM của map tham chiếu và AFR mong muốn; chỉ áp dụng cục bộ';
   bar.appendChild(launcher);
   const css=doc.createElement('style');
   css.textContent=[
-    '#fuelModelCalcBtn{background:#13392c!important;border-color:#268e67!important;color:#b7ffdc!important}',
+    '#fuelModelCalcBtn{grid-column:1/-1!important;background:#13392c!important;border-color:#268e67!important;color:#b7ffdc!important;font-size:11px!important}',
     '#fuelModelDialog{position:fixed;inset:0;margin:auto;box-sizing:border-box;width:min(96vw,950px);max-width:950px;max-height:94dvh;overflow:auto;padding:0;border:1px solid #337459;border-radius:14px;background:#101419;color:#eff8f2;z-index:999999;font:13px system-ui,-apple-system,sans-serif;box-shadow:0 18px 65px #000b}',
     '#fuelModelDialog::backdrop{background:rgba(0,0,0,.78)}',
     '#fuelModelDialog .fmc-head{position:sticky;top:0;z-index:3;background:#15251d;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #35684e}',
@@ -145,7 +188,7 @@
     ['throttle','Họng ga (mm)'],['flow','Kim phun (cc/phút)'],
     ['ratedBar','Áp chuẩn kim (bar)'],['pressure','Chênh áp thực qua kim (bar)'],
     ['iat','Nhiệt độ khí nạp (°C)'],['maxRpm','Giới hạn tính (RPM)'],
-    ['peakVe','VE đỉnh giả định (%)'],['deadtime','Deadtime kim (ms)']
+    ['peakVe','VE quy chiếu WOT / 6500 (%)'],['shapePct','Độ bám dáng map mẫu (%)'],['deadtime','Deadtime kim (ms)']
   ];
   function numericField(key,label){
     return '<label>'+label+'<input type="text" readonly inputmode="none" data-fmc-field="'+key+'" aria-label="'+label+'"></label>';
@@ -161,14 +204,14 @@
     '<label>Đơn vị map tạo ra<select data-fmc-option="output"><option value="command">ms lệnh (cộng deadtime)</option><option value="effective">ms hữu hiệu (chưa cộng)</option></select></label>',
     '<label>Phạm vi áp dụng<select data-fmc-option="scope"><option value="full">Toàn bộ TPS đến RPM giới hạn</option><option value="selected">Chỉ vùng đang chọn trên map</option></select></label>',
     '<label>Nhiên liệu<select disabled><option>E10 · AFR stoich 14,1</option></select></label></div>',
-    '<div class="fmc-help">Mô hình Alpha-N giả định VE theo RPM và TPS; họng ga 32 mm chỉ là thông tin tham khảo, KHÔNG thể suy lưu lượng khí chính xác từ đường kính. Áp suất phải là chênh áp qua kim, không mặc định bằng áp đường rail. Kim được giả định định mức tại áp chuẩn nhập ở trên, E10 có khối lượng riêng giả định 0,75 g/cc. Độ trễ kim và số xung/chu kỳ chưa được xác minh với ECU.</div>',
+    '<div class="fmc-help">Bộ tính lấy hình dáng 14 hàng TPS × 19 cột RPM trong ẢNH MAP bạn gửi làm mẫu tương đối: vùng thấp 500–2000, vùng trũng khoảng 3500–4500, vùng đỉnh 6000–7500 và giảm sau đó. Nội suy hai chiều giữa các hàng TPS, KHÔNG sao chép số ms của ECU mẫu. VE quy chiếu tại 100% TPS / 6500 RPM. Độ bám dáng 0%=công thức cũ, 100%=theo ảnh. Các điểm trên 9500 RPM chỉ ngoại suy. Họng ga 32 mm chỉ là thông tin tham khảo, KHÔNG thể suy lưu lượng khí chính xác từ đường kính. Áp suất phải là chênh áp qua kim, không mặc định bằng áp đường rail. Kim được giả định định mức tại áp chuẩn nhập ở trên, E10 có khối lượng riêng giả định 0,75 g/cc. Độ trễ kim và số xung/chu kỳ chưa được xác minh với ECU.</div>',
     '<div id="fmcPad" class="fmc-pad" aria-hidden="true"><span class="fmc-pad-title" id="fmcPadTitle">Chọn ô để nhập</span>',
     ['1','2','3','C','4','5','6','⌫','7','8','9','.','−','0','XONG'].map(k=>'<button type="button" data-fmc-key="'+k+'">'+k+'</button>').join(''),
     '</div>',
     '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcPreview">TÍNH & XEM TRƯỚC</button><button type="button" id="fmcClose2">ĐÓNG</button></div>',
     '<div class="fmc-result" id="fmcResult" role="status" aria-live="polite">Chưa tính. AFR mong muốn luôn do bạn nhập, không lấy từ Auto Tune.</div>',
     '<div class="fmc-tablebox" id="fmcTableBox" hidden><table class="fmc-preview" id="fmcTable"></table></div>',
-    '<label class="fmc-ack"><input type="checkbox" id="fmcAck">Tôi hiểu đây chỉ là bản ước tính VE, đã xác minh kiểu ms của ECU và sẽ đo AFR/tải thực tế trước khi sử dụng.</label>',
+    '<label class="fmc-ack"><input type="checkbox" id="fmcAck">Tôi hiểu hình dáng MAP ảnh mẫu KHÔNG chứng minh VE thật của xe, đã xác minh kiểu ms của ECU và sẽ đo AFR/tải thực tế trước khi sử dụng.</label>',
     '<div class="fmc-actions"><button type="button" class="fmc-danger" id="fmcApply" disabled>ÁP DỤNG CỤC BỘ · KHÔNG GHI ECU</button></div>',
     '<div class="fmc-help">Chỉ thay các ô trong vùng tính, các cột RPM cao hơn giới hạn luôn giữ nguyên. Để áp dụng cần MAP hiện tại đủ 420 ô hợp lệ; nếu đang toàn 0, hãy ĐỌC HIỆN TẠI từ ECU. Không chạm lệnh GHI ECU.</div>',
     '</div>'
@@ -249,7 +292,8 @@
       msg('MAP NO.'+snap.bank+' · '+out.cc.toFixed(2)+' cc · kim '+out.flow.toFixed(1)+' cc/phút @ '+out.params.pressure+' bar\n'+
         'AFR mong muốn: '+out.params.afr+' ('+(out.params.afrScale==='gauge'?'đồng hồ 14,7':'E10 thực 14,1')+') · Lambda '+out.lambda.toFixed(3)+' · AFR E10 thực '+out.actualE10Afr.toFixed(2)+'\n'+
         'Tạo '+out.updated+' ô; '+out.min.toFixed(2)+'–'+out.max.toFixed(2)+' ms; duty lớn nhất '+out.maxDuty.toFixed(1)+'%'+(out.aboveDuty?' · '+out.aboveDuty+' ô duty trên 80%':'')+'\n'+
-        'RPM > '+out.params.maxRpm+' giữ nguyên MAP cũ. VE giả định, chưa kiểm chứng cam/MAP thực tế.\n'+
+        'Theo vùng 2D của ảnh tham chiếu '+out.params.shapePct+'% · VE lớn nhất ước tính '+(out.maxVe*100).toFixed(1)+'%'+(out.extrapolated?' · '+out.extrapolated+' ô trên 9500 RPM là ngoại suy':'')+'\n'+
+        'RPM > '+out.params.maxRpm+' giữ nguyên MAP cũ. Đường cong chỉ tham khảo từ ảnh MAP khác, KHÔNG phải đo VE xe bạn; chưa kiểm chứng cam/MAP và AFR thực tế.\n'+
         (canApply?'Có thể áp dụng vào Blink CỤC BỘ sau khi xác nhận. Không tự ghi ECU.':'CHƯA THỂ ÁP DỤNG: MAP cũ chưa đủ 420 ô hợp lệ hoặc trạng thái chưa đồng bộ. Hãy ĐỌC HIỆN TẠI từ ECU.'));
       try{root.localStorage.setItem('blinkFuelModelSettingsV1',JSON.stringify(out.params));}catch(_e){}
     }catch(e){
