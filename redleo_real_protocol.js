@@ -1334,6 +1334,19 @@ function parseLiveReal(a){
   if(Number.isFinite(state.live.batt))put('battLive',r1(state.live.batt).toFixed(1)+' V');
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
   try{updateLive();highlightCurrent();syncMirrors();}catch(_e){}
+  // PB3.79.135: Chrome Windows SMART tuner reads VERIFIED 0xA1 timestamps.
+  // No new ECU polling, no effect on native Android/iOS or other browsers.
+  if(window.BLINK_PC_SMART_TUNE===true&&window.BlinkPcSmartAutoTune?.isActive?.()){
+    try{
+      window.BlinkPcSmartAutoTune.onLive({
+        t:performance.now(),bank:state.activeMap,tps:state.live.tps,
+        rpm:state.live.rpm,pw:state.live.pw
+      });
+    }catch(e){
+      log('SMART PC TRACE stopped',String(e&&e.message||e));
+      try{window.BlinkPcSmartAutoTune.stop('Trace ECU LIVE gặp lỗi; đã dừng học SMART.')}catch(_e){}
+    }
+  }
 }
 function installAfrListener(){
   const ch=window.blinkLiveChar;if(!ch||ch.__blinkRealAfr)return;ch.__blinkRealAfr=true;
