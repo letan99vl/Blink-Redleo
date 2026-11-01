@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.136' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.136: Chrome PC BLE read wait recovery
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.137' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.137: Chrome PC SMART AFR off-grid + IDLE view
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-WIN-TRACE-AFR-QUALITY-MAP-PREVIEW-20261101';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-WIN-TRACE-AFR-IDLE-GRID-EVIDENCE-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -3597,7 +3597,10 @@ function correctedMatrix(){
 
 function displayValue(tab,r,c){
   const data=matrixFor(tab),v=data[r][c];
-  if(tab==='measured') return v==null?'0':fmt(Number(v),2);
+  // Chrome PC SMART: an unmeasured AFR cell is blank, NOT AFR=0.
+  if(tab==='measured') return v==null?
+    ((window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.())?'--':'0')
+    :fmt(Number(v),2);
   if(tab==='target') return fmt(Number(v),1);
   if(tab==='inject') return v==null?'--':fmt(Number(v),2);
   return v==null?'--':fmt(Number(v),2);
@@ -3995,8 +3998,21 @@ function render(){
     const rh=TPS_ROWS[r], idle=r===R-1?' idle':'';
     html+=`<tr><td class="rowhead${idle}">${rh==='IDLE'?'IDLE':rh+'%'}</td>`;
     for(let c=0;c<C;c++){
-      const v=data[r][c],txt=showPreview?(v==null?'--':fmt(Number(v),2)):displayValue(state.tab,r,c);
+      const v=data[r][c];
+      let txt=showPreview?(v==null?'--':fmt(Number(v),2)):displayValue(state.tab,r,c);
       let cls='mapcell',cellStyle='',cellAttr='';
+      // SMART Chrome: stable off-axis AFR contributes to 2–4 corner estimates,
+      // but MUST NOT be written into state.measured as if sampled on each node.
+      if(state.tab==='measured'&&v==null&&window.BLINK_PC_SMART_TUNE&&
+         window.BlinkPcSmartAutoTune?.isActive?.()){
+        const estimate=window.BlinkPcSmartAutoTune.measuredEstimate?.(r,c);
+        if(estimate&&Number.isFinite(estimate.afr)){
+          txt='≈'+fmt(estimate.afr,2);
+          cls+=' smart-pc-afr-estimated';
+          cellAttr=' title="AFR ƯỚC TÍNH từ điểm TPS/RPM lân cận ('
+            +Number(estimate.n)+' mẫu hợp lệ); chưa đo trực tiếp đúng ô; không tự ghi ECU"';
+        }
+      }
       if(state.tab==='inject'&&fuelAnchorEditorActive()){
         if(pinSet?.has(fuelAnchorKey(r,c)))cls+=' fuelAnchorPinned';
         else if(showPreview&&view.keys.has(fuelAnchorKey(r,c)))cls+=' fuelAnchorCandidate';
@@ -7697,10 +7713,17 @@ window.blinkPcSmartBridge={
     if(autoIdleSave.enabled)autoIdleSaveSetEnabled(false);
     return !autoIdleSave.enabled;
   },
-  recordVerified(bank,r,c,afr){
+  recordVerified(bank,r,c,afr,opts={}){
+    // IDLE is measured only when the ACTUAL live throttle is below the
+    // independent idle threshold. This must never create a fuel correction.
+    const isIdle=r===R-1;
+    const minNumericTps=Number(TPS_ROWS[R-2]);
+    const idleOk=!!opts.idle&&Number.isFinite(minNumericTps)&&
+      Number.isFinite(state.live.tps)&&state.live.tps<Math.max(.05,minNumericTps/2);
     if(bank!==state.activeMap||!state.recording||!blinkAutoTuneTpsSafe()||
        autoIdleSave.inFlight||!Number.isFinite(afr)||afr<=0||
-       !Number.isInteger(r)||r<0||r>=R-1||!Number.isInteger(c)||c<0||c>=C)return false;
+       !Number.isInteger(r)||r<0||r>=R||!Number.isInteger(c)||c<0||c>=C||
+       (isIdle&&!idleOk))return false;
     state.measured[r][c]=afrObserveMeasuredValue(bank,r,c,afr);
     state.counts[r][c]=(Number(state.counts[r][c])||0)+1;
     refreshAutoTuneAfrCorner(r,c);
