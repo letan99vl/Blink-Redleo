@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.138 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.139 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -64,17 +64,17 @@ function filterAfr(w){
   if(w.length!==7)return {ok:false,reason:'Chuỗi AFR chưa đủ'};
   const vs=w.map(a=>a.afr),center=vs[3];
   if(vs.some(x=>!Number.isFinite(x)||x<=CFG.minAfr||x>=CFG.maxAfr))
-    return {ok:false,reason:'AFR sát giới hạn hoặc tín hiệu không hợp lệ'};
+    return {ok:false,code:'afrInvalid',reason:'AFR sát giới hạn hoặc tín hiệu không hợp lệ'};
   const mid=median(vs),deviations=vs.map(x=>Math.abs(x-mid));
   const mad=median(deviations);
   // Reject a real CENTER spike. A lone outlier at either edge must NOT
   // automatically invalidate all six otherwise stable neighboring samples.
   // This never chooses samples merely because they are near AFR TARGET.
   if(Math.abs(center-mid)>Math.max(0.75,3*Math.max(mad,0.12)))
-    return {ok:false,reason:'AFR trung tâm đột biến: nghi bỏ lửa/nhiễu'};
+    return {ok:false,code:'afrSpike',reason:'AFR trung tâm đột biến: nghi bỏ lửa/nhiễu'};
   const core=vs.filter(x=>Math.abs(x-mid)<=0.55);
   if(core.length<5||Math.max(...core)-Math.min(...core)>Math.max(0.9,CFG.maxAfrSpread))
-    return {ok:false,reason:'AFR dao động: không dùng học MAP'};
+    return {ok:false,code:'afrUnstable',reason:'AFR dao động: không dùng học MAP'};
   // Use the robust observed AFR cluster. Also requires a stable ECU trace.
   return {ok:true,afr:median(core),support:core.length};
 }
@@ -82,6 +82,12 @@ root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filter
 let active=false,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
 let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
+const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:0,
+  traceUnstable:0,liveStale:0,pwInvalid:0,outsideAxis:0,targetInvalid:0,
+  errorLarge:0,anchorConflict:0,spacing:0,nearTarget:0,idleOnly:0});
+let diagnostics=emptyDiagnostics();
+const note=key=>{if(Object.prototype.hasOwnProperty.call(diagnostics,key))diagnostics[key]++;};
+const readyAnchors=()=>run?Array.from(run.anchors.values()).filter(a=>a.n>=2).length:0;
 let reason='Chưa bật SMART MAP · Chỉ Chrome Windows';
 const clone=m=>m.map(row=>row.slice());
 const keyOf=s=>JSON.stringify([s.bank,s.identity,s.tps,s.rpms,s.map,s.target]);
@@ -107,6 +113,7 @@ function startRun(){
   if(!s){say('Hãy kết nối, ĐỌC MAP ECU, xác minh TPS và AFR mục tiêu trước');return false;}
   if(s.autoIdle){say('Phải tắt TỰ LƯU MAP trước khi bật SMART');return false;}
   history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
+  diagnostics=emptyDiagnostics();
   provisionalSamples=provisionalSkipped=0;lastProvisionalUI=0;
   lastAccept=lastUI=0;
   run={bank:s.bank,identity:s.identity,key:keyOf(s),base:clone(s.map),target:clone(s.target),
@@ -278,13 +285,13 @@ function addPoint(center,afr,point){
   const idle=Number.isFinite(minTps)&&point.tps<Math.max(0.05,minTps/2);
   const u=idle?run.tps.length-1:coord(run.tps.slice(0,-1),point.tps,true);
   const v=coord(run.rpms,point.rpm);
-  if(u===null||v===null){say('Ngoài vùng TPS/RPM có thể học');return;}
+  if(u===null||v===null){note('outsideAxis');say('Ngoài vùng TPS/RPM có thể học');return;}
   const target=sample2D(run.target,u,v);
-  if(!Number.isFinite(target)||target<9||target>18){say('AFR mục tiêu ở vùng này không hợp lệ');return;}
+  if(!Number.isFinite(target)||target<9||target>18){note('targetInvalid');say('AFR mục tiêu ở vùng này không hợp lệ');return;}
   if(Math.abs(afr/target-1)>CFG.maxRelError){
-    say('AFR quá lệch mục tiêu: dừng học, kiểm tra bỏ lửa/thiếu dư xăng',true);return;
+    note('errorLarge');say('AFR quá lệch mục tiêu: dừng học, kiểm tra bỏ lửa/thiếu dư xăng',true);return;
   }
-  if(center.t-lastAccept<CFG.minPointGap)return;
+  if(center.t-lastAccept<CFG.minPointGap){note('spacing');return;}
   const near=Math.abs(afr-target)<=.3;
   const logK=near?0:Math.log(afr/target);
   // Only numeric TPS cells act as SMART fuel-correction anchors.
@@ -292,13 +299,15 @@ function addPoint(center,afr,point){
     const key=Math.round(u)+':'+Math.round(v);
     let a=run.anchors.get(key);
     if(a&&a.n>=2&&Math.abs(logK-a.logSum/a.n)>.115){
-      say('Các lượt đo trong một vùng mâu thuẫn: cần đo lại',true);return;
+      note('anchorConflict');say('Các lượt đo trong một vùng mâu thuẫn: cần đo lại',true);return;
     }
     if(!a){a={u,v,n:0,logSum:0,afrSum:0,targetSum:0};run.anchors.set(key,a);}
     a.u=(a.u*a.n+u)/(a.n+1);a.v=(a.v*a.n+v)/(a.n+1);
     a.logSum+=logK;a.afrSum+=afr;a.targetSum+=target;a.n++;
   }
   lastAccept=center.t;accepted++;
+  if(near)note('nearTarget');
+  if(idle)note('idleOnly');
   // Keep measured AFR distinct from estimated AFR. Exact near-axis points
   // are written to state.measured; off-axis points only update view evidence.
   const onGrid=idle
@@ -351,18 +360,21 @@ function onAfr(info){
   if(mid.handled)return true;
   mid.handled=true;
   const q=filterAfr(window);
-  if(!q.ok){log({t:mid.t,afr:mid.afr,quality:'reject',reason:q.reason});say(q.reason,true);return true;}
+  if(!q.ok){note(q.code);log({t:mid.t,afr:mid.afr,quality:'reject',reason:q.reason});say(q.reason,true);return true;}
   const delay=clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500);
   const when=mid.t-delay;
   const p=findTrace(history,when);
-  if(!p||!stableTrace(history,when,p)||
-     !history.length||t-history[history.length-1].t>900){
-    log({t:mid.t,afr:q.afr,quality:'reject',reason:'ga chuyển tiếp / thiếu trace'});
+  const fresh=!!history.length&&t-history[history.length-1].t<=900;
+  const steady=!!p&&stableTrace(history,when,p);
+  if(!p||!steady||!fresh){
+    const diagnosis=!p?'traceMissing':!fresh?'liveStale':'traceUnstable';
+    note(diagnosis);
+    log({t:mid.t,afr:q.afr,quality:'reject',reason:diagnosis});
     say('Ga thay đổi / LIVE chưa ổn định: '+
       (provisionalSamples?'~AFR TẠM đã ghi vào bảng (không dùng học xăng)':'chờ thêm AFR + TRACE để hiện số tạm'),true);
     return true;
   }
-  if(!Number.isFinite(p.pw)||p.pw<=0){say('PW LIVE chưa hợp lệ',true);return true;}
+  if(!Number.isFinite(p.pw)||p.pw<=0){note('pwInvalid');say('PW LIVE chưa hợp lệ',true);return true;}
   log({t:mid.t,afr:q.afr,quality:'stable',tps:p.tps,rpm:p.rpm,delayMs:delay});
   addPoint(mid,q.afr,p);
   return true;
@@ -370,7 +382,8 @@ function onAfr(info){
 function preview(bank){return active&&run&&Number(bank)===run.bank?run.preview:null;}
 function cellStatus(r,c){return active&&run?run.labels[r]?.[c]||'none':'none';}
 function ui(){
-  const b=get('smartPcToggle'),s=get('smartPcStatus'),k=get('smartPcStats'),apply=get('smartPcApply');
+  const b=get('smartPcToggle'),s=get('smartPcStatus'),k=get('smartPcStats'),
+    quality=get('smartPcDiagnostics'),apply=get('smartPcApply');
   if(!b)return;
   b.textContent=active?'■ TẮT SMART MAP':'◆ BẬT SMART MAP (PC)';
   b.classList.toggle('danger',active);
@@ -379,10 +392,35 @@ function ui(){
     ' · ô AFR tạm '+(run?run.provisional.size:0)+
     ' · điểm học xăng '+accepted+' · loại/chờ '+rejected+
     ' · nghi vấn '+suspected+' · vùng neo '+(run?run.anchors.size:0)+
+    ' · vùng neo đủ ≥2 mẫu '+readyAnchors()+
     ' · ô xăng suy luận '+(run?run.estimated:0)+
     ' · ô AFR ≈ '+(run?Array.from(run.evidence.keys()).filter(key=>{
       const p=key.split(':');return !!measuredEstimate(Number(p[0]),Number(p[1]));
     }).length:0);
+  if(quality){
+    const d=diagnostics;
+    const reasons=[
+      ['ga/LIVE chưa ổn định',d.traceUnstable],
+      ['không khớp TRACE',d.traceMissing],
+      ['LIVE quá cũ',d.liveStale],
+      ['AFR dao động',d.afrUnstable],
+      ['AFR đột biến',d.afrSpike],
+      ['AFR ngoài ngưỡng',d.afrInvalid],
+      ['cách nhau <850ms',d.spacing],
+      ['lỗi PW',d.pwInvalid],
+      ['ngoài trục TPS/RPM',d.outsideAxis],
+      ['AFR mục tiêu lỗi',d.targetInvalid],
+      ['AFR lệch >18%',d.errorLarge],
+      ['hai lần đo mâu thuẫn',d.anchorConflict]
+    ].filter(x=>x[1]>0).map(x=>x[0]+' '+x[1]);
+    const status=readyAnchors()===0?'Chưa có vùng neo đủ 2 mẫu độc lập.':
+      (run?.estimated===0?'Đã đủ mẫu vùng neo nhưng hiện chưa có ô cần bù.':'Đã có đề xuất bù CỤC BỘ, chưa ghi ECU.');
+    quality.textContent='CHẨN ĐOÁN: '+status+
+      (d.nearTarget?' · '+d.nearTarget+' điểm AFR sát mục tiêu (không cần bù)':'')+
+      (d.idleOnly?' · '+d.idleOnly+' điểm IDLE chỉ đo, không bù':'')+
+      (reasons.length?' | Không dùng học: '+reasons.join(' · '):'')+
+      ' | Muốn học: giữ TPS/RPM ổn định ≥1,1s, AFR đều; ≥2 mẫu độc lập/cùng vùng.';
+  }
   if(apply)apply.disabled=!active||!run||!run.estimated||!!bridge.live()?.recording;
 }
 function stop(message){
@@ -419,8 +457,9 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.138',bank:run.bank,identity:run.identity,
-    config:CFG,stats:{raw,accepted,rejected,suspected,provisionalSamples,provisionalSkipped},
+  const payload={revision:'PB3.79.139',bank:run.bank,identity:run.identity,
+    config:CFG,stats:{raw,accepted,rejected,suspected,provisionalSamples,provisionalSkipped,
+      readyAnchors:readyAnchors()},diagnostics:{...diagnostics},
     base:run.base,target:run.target,proposedMap:run.preview,anchors,
     evidence:Array.from(run.evidence.entries()),
     provisional:Array.from(run.provisional.entries()),
@@ -441,6 +480,7 @@ function initUI(){
     'border:1px solid #4c9ac8;font-weight:800}'+
     '#smartPcToggle{background:#075a55;color:#fff}#smartPcToggle.danger{background:#8c2635}'+
     '#smartPcStatus{flex:1 1 350px}#smartPcStats{flex:1 1 100%;color:#93cddf;font-size:11px}'+
+    '#smartPcDiagnostics{flex:1 1 100%;color:#f3d3aa;font-size:11px;line-height:1.35}'+
     '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-inferred{outline:1px dashed #6bc8fa;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}'+
@@ -457,7 +497,8 @@ function initUI(){
     '<span id="smartPcStatus" role="status">SMART MAP mặc định tắt.</span>'+
     '<button type="button" id="smartPcApply" disabled>✓ ÁP DỤNG VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
-    '<span id="smartPcStats">Chưa có mẫu</span>'+
+    '<span id="smartPcStats">Chưa có mẫu</span>'+ 
+    '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
     '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
     'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: suy luận từ các mẫu ổn định; '+
     'AFR số thường: đã nhận gần đúng breakpoint. '+
@@ -473,6 +514,7 @@ root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,previe
   measuredEstimate,pendingAfr,getStats:()=>({active,raw,accepted,rejected,suspected,
     provisionalSamples,provisionalSkipped,provisionalCells:run?.provisional.size||0,
     anchors:run?.anchors.size||0,estimated:run?.estimated||0,
-    afrEstimates:run?.evidence.size||0,reason})});
+    afrEstimates:run?.evidence.size||0,readyAnchors:readyAnchors(),
+    diagnostics:{...diagnostics},reason})});
 initUI();
 })(window);
