@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.139 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.140 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -53,12 +53,34 @@ function findTrace(history,at){
   }
   return null;
 }
-function stableTrace(history,at,p){
+// Diagnostic classifier with an identical Boolean gate to PB3.79.139.
+function inspectStableTrace(history,at,p){
   const h=history.filter(a=>a.t>=at-1400&&a.t<=at+120);
-  if(h.length<5||h[h.length-1].t-h[0].t<CFG.minLiveSpan||h.some(a=>a.bank!==p.bank))return false;
+  if(h.length<5)return {ok:false,code:'traceFewFrames'};
+  if(h[h.length-1].t-h[0].t<CFG.minLiveSpan)return {ok:false,code:'traceShortWindow'};
+  if(h.some(a=>a.bank!==p.bank))return {ok:false,code:'traceBankChanged'};
   const tps=h.map(a=>a.tps),rpm=h.map(a=>a.rpm);
-  return Math.max(...tps)-Math.min(...tps)<=CFG.tpsSpread&&
-    Math.max(...rpm)-Math.min(...rpm)<=Math.max(CFG.rpmSpread,p.rpm*.035);
+  const dTps=Math.max(...tps)-Math.min(...tps);
+  const dRpm=Math.max(...rpm)-Math.min(...rpm);
+  const badTps=dTps>CFG.tpsSpread,badRpm=dRpm>Math.max(CFG.rpmSpread,p.rpm*.035);
+  if(badTps&&badRpm)return {ok:false,code:'traceBothMoving'};
+  if(badTps)return {ok:false,code:'traceTpsMoving'};
+  if(badRpm)return {ok:false,code:'traceRpmMoving'};
+  return {ok:true,code:'steady'};
+}
+function stableTrace(history,at,p){return inspectStableTrace(history,at,p).ok;}
+function missingTraceReason(history,at){
+  if(!history.length)return 'traceNoFrames';
+  if(at<history[0].t)return 'traceTooOld';
+  if(at>history[history.length-1].t)return 'traceWaitingLive';
+  for(let i=1;i<history.length;i++){
+    const x=history[i-1],y=history[i];
+    if(x.t<=at&&y.t>=at){
+      if(x.bank!==y.bank)return 'traceBankGap';
+      if(y.t-x.t>CFG.maxGap)return 'traceFrameGap';
+    }
+  }
+  return 'traceUnmatched';
 }
 function filterAfr(w){
   if(w.length!==7)return {ok:false,reason:'Chuỗi AFR chưa đủ'};
@@ -84,7 +106,11 @@ let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
 const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:0,
   traceUnstable:0,liveStale:0,pwInvalid:0,outsideAxis:0,targetInvalid:0,
-  errorLarge:0,anchorConflict:0,spacing:0,nearTarget:0,idleOnly:0});
+  errorLarge:0,anchorConflict:0,spacing:0,nearTarget:0,idleOnly:0,
+  traceFewFrames:0,traceShortWindow:0,traceBankChanged:0,
+  traceBothMoving:0,traceTpsMoving:0,traceRpmMoving:0,
+  traceNoFrames:0,traceTooOld:0,traceWaitingLive:0,
+  traceFrameGap:0,traceBankGap:0,traceUnmatched:0});
 let diagnostics=emptyDiagnostics();
 const note=key=>{if(Object.prototype.hasOwnProperty.call(diagnostics,key))diagnostics[key]++;};
 const readyAnchors=()=>run?Array.from(run.anchors.values()).filter(a=>a.n>=2).length:0;
@@ -365,13 +391,26 @@ function onAfr(info){
   const when=mid.t-delay;
   const p=findTrace(history,when);
   const fresh=!!history.length&&t-history[history.length-1].t<=900;
-  const steady=!!p&&stableTrace(history,when,p);
+  const traceCheck=p?inspectStableTrace(history,when,p):null;
+  const steady=!!traceCheck?.ok;
   if(!p||!steady||!fresh){
     const diagnosis=!p?'traceMissing':!fresh?'liveStale':'traceUnstable';
+    const detail=!p?missingTraceReason(history,when):(!fresh?null:traceCheck.code);
     note(diagnosis);
-    log({t:mid.t,afr:q.afr,quality:'reject',reason:diagnosis});
-    say('Ga thay đổi / LIVE chưa ổn định: '+
-      (provisionalSamples?'~AFR TẠM đã ghi vào bảng (không dùng học xăng)':'chờ thêm AFR + TRACE để hiện số tạm'),true);
+    if(detail)note(detail);
+    log({t:mid.t,afr:q.afr,quality:'reject',reason:diagnosis,detail});
+    const detailLabel={
+      traceFewFrames:'LIVE quá ít khung',traceShortWindow:'chưa giữ đều đủ 1,1s',
+      traceBankChanged:'MAP ECU đổi',traceBothMoving:'TPS và RPM cùng thay đổi',
+      traceTpsMoving:'TPS lệch >0,85%',traceRpmMoving:'RPM thay đổi quá ngưỡng',
+      traceNoFrames:'chưa có LIVE',traceTooOld:'TRACE quá cũ',
+      traceWaitingLive:'chờ khung LIVE tiếp theo',traceFrameGap:'LIVE bị ngắt >650ms',
+      traceBankGap:'LIVE đổi MAP',traceUnmatched:'không khớp khung LIVE'
+    };
+    const cause=detailLabel[detail]||(!fresh?'LIVE quá cũ':'chưa đủ điều kiện TRACE');
+    // Avoid word "dao động" here: the legacy suspect counter is for AFR anomalies.
+    say('Chưa dùng học MAP: '+cause+' · '+
+      (provisionalSamples?'~AFR TẠM chỉ hiển thị, KHÔNG bù xăng':'chờ thêm AFR và LIVE'),true);
     return true;
   }
   if(!Number.isFinite(p.pw)||p.pw<=0){note('pwInvalid');say('PW LIVE chưa hợp lệ',true);return true;}
@@ -390,8 +429,9 @@ function ui(){
   if(s)s.textContent=reason;
   if(k)k.textContent='AFR nhận '+raw+' · mẫu tạm '+provisionalSamples+
     ' · ô AFR tạm '+(run?run.provisional.size:0)+
-    ' · điểm học xăng '+accepted+' · loại/chờ '+rejected+
-    ' · nghi vấn '+suspected+' · vùng neo '+(run?run.anchors.size:0)+
+    ' · mẫu AFR ổn định '+accepted+' · mẫu ngoài IDLE '+Math.max(0,accepted-diagnostics.idleOnly)+
+    ' · loại/chờ '+rejected+' · nghi vấn '+suspected+
+    ' · vùng neo '+(run?run.anchors.size:0)+
     ' · vùng neo đủ ≥2 mẫu '+readyAnchors()+
     ' · ô xăng suy luận '+(run?run.estimated:0)+
     ' · ô AFR ≈ '+(run?Array.from(run.evidence.keys()).filter(key=>{
@@ -399,9 +439,21 @@ function ui(){
     }).length:0);
   if(quality){
     const d=diagnostics;
+    const subgroup=(entries)=>entries.filter(x=>x[1]>0)
+      .map(x=>x[0]+':'+x[1]).join(', ');
+    const unstableDetail=subgroup([
+      ['TPS+RPM',d.traceBothMoving],['TPS',d.traceTpsMoving],
+      ['RPM',d.traceRpmMoving],['LIVE <5 khung',d.traceFewFrames],
+      ['ổn định <1,1s',d.traceShortWindow],['đổi MAP',d.traceBankChanged]
+    ]);
+    const missingDetail=subgroup([
+      ['chờ LIVE',d.traceWaitingLive],['đứt LIVE >650ms',d.traceFrameGap],
+      ['TRACE quá cũ',d.traceTooOld],['chưa có LIVE',d.traceNoFrames],
+      ['đổi MAP',d.traceBankGap],['khác',d.traceUnmatched]
+    ]);
     const reasons=[
-      ['ga/LIVE chưa ổn định',d.traceUnstable],
-      ['không khớp TRACE',d.traceMissing],
+      ['ga/LIVE chưa ổn định'+(unstableDetail?' ('+unstableDetail+')':''),d.traceUnstable],
+      ['không khớp TRACE'+(missingDetail?' ('+missingDetail+')':''),d.traceMissing],
       ['LIVE quá cũ',d.liveStale],
       ['AFR dao động',d.afrUnstable],
       ['AFR đột biến',d.afrSpike],
@@ -419,7 +471,7 @@ function ui(){
       (d.nearTarget?' · '+d.nearTarget+' điểm AFR sát mục tiêu (không cần bù)':'')+
       (d.idleOnly?' · '+d.idleOnly+' điểm IDLE chỉ đo, không bù':'')+
       (reasons.length?' | Không dùng học: '+reasons.join(' · '):'')+
-      ' | Muốn học: giữ TPS/RPM ổn định ≥1,1s, AFR đều; ≥2 mẫu độc lập/cùng vùng.';
+      ' | Muốn học: TPS thay đổi ≤0,85%, RPM ≤max(160, 3,5%) trong ≥1,1s; ≥2 mẫu độc lập/cùng vùng.';
   }
   if(apply)apply.disabled=!active||!run||!run.estimated||!!bridge.live()?.recording;
 }
@@ -457,8 +509,9 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.139',bank:run.bank,identity:run.identity,
-    config:CFG,stats:{raw,accepted,rejected,suspected,provisionalSamples,provisionalSkipped,
+  const payload={revision:'PB3.79.140',bank:run.bank,identity:run.identity,
+    config:CFG,stats:{raw,accepted,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
+      idleOnly:diagnostics.idleOnly,rejected,suspected,provisionalSamples,provisionalSkipped,
       readyAnchors:readyAnchors()},diagnostics:{...diagnostics},
     base:run.base,target:run.target,proposedMap:run.preview,anchors,
     evidence:Array.from(run.evidence.entries()),
@@ -512,7 +565,8 @@ function initUI(){
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
   measuredEstimate,pendingAfr,getStats:()=>({active,raw,accepted,rejected,suspected,
-    provisionalSamples,provisionalSkipped,provisionalCells:run?.provisional.size||0,
+    provisionalSamples,provisionalSkipped,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
+    provisionalCells:run?.provisional.size||0,
     anchors:run?.anchors.size||0,estimated:run?.estimated||0,
     afrEstimates:run?.evidence.size||0,readyAnchors:readyAnchors(),
     diagnostics:{...diagnostics},reason})});
