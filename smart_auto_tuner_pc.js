@@ -358,7 +358,9 @@ function onAfr(info){
   if(!p||!stableTrace(history,when,p)||
      !history.length||t-history[history.length-1].t>900){
     log({t:mid.t,afr:q.afr,quality:'reject',reason:'ga chuyển tiếp / thiếu trace'});
-    say('Ga sốc hoặc lịch sử TPS/RPM chưa ổn định: chỉ lưu trace',true);return true;
+    say('Ga thay đổi / LIVE chưa ổn định: '+
+      (provisionalSamples?'~AFR TẠM đã ghi vào bảng (không dùng học xăng)':'chờ thêm AFR + TRACE để hiện số tạm'),true);
+    return true;
   }
   if(!Number.isFinite(p.pw)||p.pw<=0){say('PW LIVE chưa hợp lệ',true);return true;}
   log({t:mid.t,afr:q.afr,quality:'stable',tps:p.tps,rpm:p.rpm,delayMs:delay});
