@@ -14,6 +14,16 @@ let sid=(Math.random()*220+1)|0;
 let pending=new Map();
 let installedChar=null;
 let busy=false;
+// Chrome Windows only: a stalled GATT write may never settle, so the normal
+// reply timeout (armed AFTER TX) cannot release the LIVE 0x69 mutex.
+// Fail CLOSED on TX stall and require a new physical BLE connection.
+let pcGattTxFault=false;
+let rawInFlightCmd=NaN;
+const pcChromeReadTransport=()=>window.BLINK_PC_SMART_TUNE===true;
+function pcTxFaultMessage(){
+  return 'Chrome Windows BLE TX bị treo. Đã dừng giao tiếp để tránh lệnh chồng nhau. '+
+    'Hãy NGẮT KẾT NỐI và KẾT NỐI ECU lại; chưa có dữ liệu MAP nào được xác nhận.';
+}
 let liveTimer=null;
 let liveRunning=false;
 let liveResumeTimer=null;
@@ -1413,6 +1423,7 @@ async function handshakeReal(){
 }
 let v8LiveSlot=0;
 async function liveOnce(){
+  if(pcGattTxFault)return;
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
   try{
@@ -1427,6 +1438,7 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
+  if(pcGattTxFault)return;
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
   // A backup or verified MAP read/write owns the manual ECU transaction scope.
   // Do not restart background 0x69 from a stale delayed timer until it ends.
@@ -1618,10 +1630,16 @@ function installRawListener(){
 async function waitForEcuIdle(maxWait=16000){
   const t0=performance.now();
   while(busy){
+    if(pcGattTxFault)throw new Error(pcTxFaultMessage());
     if(!cmdChar()||!mapChar())throw new Error('BLE đã ngắt trong khi chờ ECU');
-    if(performance.now()-t0>maxWait)throw new Error('ECU bận quá lâu; transaction trước chưa hoàn tất');
+    if(performance.now()-t0>maxWait){
+      const op=Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():'không xác định';
+      throw new Error('ECU đang giữ khóa giao tiếp quá '+Math.round(maxWait/1000)+
+        ' giây ở lệnh '+op+'. Không gửi 0x9A chồng lên lệnh này. Hãy ngắt và kết nối BLE lại.');
+    }
     await new Promise(r=>setTimeout(r,40));
   }
+  if(pcGattTxFault)throw new Error(pcTxFaultMessage());
 }
 
 let manualMapIoDepth=0;
@@ -1639,8 +1657,11 @@ async function beginManualMapIo(label='MAP'){
 
   const t0=performance.now();
   if(busy){
-    updateActiveMapIoText('⏳ CHỜ LIVE NHẢ ECU...');
-    taskUi('loading','ĐANG CHỜ LIVE KẾT THÚC · '+String(label||'MAP').toUpperCase());
+    const owner=rawInFlightCmd===0x69?'LIVE 0x69':
+      rawInFlightCmd===0x9A?'PAGE 0x9A':
+      Number.isFinite(rawInFlightCmd)?'ECU 0x'+rawInFlightCmd.toString(16).toUpperCase():'ECU';
+    updateActiveMapIoText('⏳ CHỜ '+owner+' NHẢ ECU...');
+    taskUi('loading','ĐANG CHỜ '+owner+' KẾT THÚC · '+String(label||'MAP').toUpperCase());
   }
   await waitForEcuIdle(8000);
   const waited=Math.round(performance.now()-t0);
@@ -1662,6 +1683,7 @@ function endManualMapIo(ctx){
 async function acquireEcuTransaction(maxWait=16000){
   const t0=performance.now();
   while(true){
+    if(pcGattTxFault)throw new Error(pcTxFaultMessage());
     if(!cmdChar()||!mapChar())throw new Error('BLE đã ngắt trong khi chờ ECU');
     // Check + set occurs in one JS turn before any await, so only one caller
     // can acquire the transport. This closes the race between Live 0x69 and
@@ -1672,23 +1694,54 @@ async function acquireEcuTransaction(maxWait=16000){
   }
 }
 
-async function writeRawBleChunk(cur,pkt,mode='response'){
-  if(mode==='no-response'){
-    if(typeof cur.writeValueWithoutResponse==='function'){await cur.writeValueWithoutResponse(pkt);return;}
-    // Some Web Bluetooth shims expose only the generic API. It is still safe;
-    // it simply becomes a barrier for this packet.
-    if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
-    if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
-  }else{
-    if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
-    if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
-    if(typeof cur.writeValueWithoutResponse==='function'){
-      await cur.writeValueWithoutResponse(pkt);
-      await new Promise(r=>setTimeout(r,8));
-      return;
+async function writeRawBleChunk(cur,pkt,mode='response',cmd=null){
+  if(pcGattTxFault)throw new Error(pcTxFaultMessage());
+  const write=async()=>{
+    if(mode==='no-response'){
+      if(typeof cur.writeValueWithoutResponse==='function'){await cur.writeValueWithoutResponse(pkt);return;}
+      // Some Web Bluetooth shims expose only the generic API.
+      if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
+      if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
+    }else{
+      if(typeof cur.writeValueWithResponse==='function'){await cur.writeValueWithResponse(pkt);return;}
+      if(typeof cur.writeValue==='function'){await cur.writeValue(pkt);return;}
+      if(typeof cur.writeValueWithoutResponse==='function'){
+        await cur.writeValueWithoutResponse(pkt);
+        await new Promise(r=>setTimeout(r,8));
+        return;
+      }
     }
-  }
-  throw new Error('BLE characteristic không hỗ trợ ghi RAW');
+    throw new Error('BLE characteristic không hỗ trợ ghi RAW');
+  };
+  // Only read-only commands on Windows Chrome get a GATT TX watchdog.
+  // Never time out a 0xCD fuel-write chunk and silently release its mutex:
+  // a half-written ECU page must remain protected by the existing writer.
+  const readOnly=[0x69,0x9A,0x5A,0xAB,0x8B].includes(cmd);
+  if(!pcChromeReadTransport()||!readOnly)return write();
+  let timer=null;
+  const tx=write();
+  const stalled=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      pcGattTxFault=true;stopLiveLoop();
+      const code='0x'+cmd.toString(16).toUpperCase();
+      const reason='Chrome Windows: GATT TX '+code+' treo quá 6,5 giây. '+pcTxFaultMessage();
+      log('PC GATT TX STALL',code,reason);
+      // Reject the waiting RAW command first, so its pending SID is cleaned up
+      // before the browser dispatches a disconnect notification. Releasing
+      // busy does NOT permit new commands: pcGattTxFault stays latched.
+      reject(new Error(reason));
+      // Disconnect the PHYSICAL session on the next turn. Otherwise an old
+      // hung Chrome GATT operation may overlap a subsequent READ MAP command.
+      setTimeout(()=>{
+        try{
+          const device=cur?.service?.device;
+          if(device?.gatt?.connected)device.gatt.disconnect();
+        }catch(e){log('PC GATT disconnect request',String(e&&e.message||e));}
+      },0);
+    },6500);
+  });
+  try{return await Promise.race([tx,stalled]);}
+  finally{if(timer)clearTimeout(timer);}
 }
 
 function dataViewText(d){
@@ -1775,6 +1828,7 @@ async function rawExchange(bytes,timeout=12000){
   const myEpoch=transportEpoch;
   try{
     const id=(sid=(sid%250)+1),data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),total=data.length;
+    rawInFlightCmd=data[0];
 
     // This is the first truthful point at which the command owns the ECU
     // transport. UI may have acknowledged the tap earlier, but only now should
@@ -1812,7 +1866,7 @@ async function rawExchange(bytes,timeout=12000){
 
           const last=(k===chunks-1);
           const barrier=!burstMode||last||(((k+1)%barrierEvery)===0);
-          await writeRawBleChunk(cur,pkt,barrier?'response':'no-response');
+          await writeRawBleChunk(cur,pkt,barrier?'response':'no-response',data[0]);
         }
       };
 
@@ -1937,6 +1991,7 @@ async function rawExchange(bytes,timeout=12000){
     log('TX',data.length,'0x'+data[0].toString(16),'RX',rx.length,'meta',lastExchangeMeta);
     return rx;
   }finally{
+    rawInFlightCmd=NaN;
     busy=false;
   }
 }
@@ -5750,6 +5805,9 @@ function boot(){
 
     // New BLE characteristic objects = a fresh connection/reconnection.
     abortRawTransport('BLE transport reconnected');
+    // A fresh pair of GATT characteristics proves this is a NEW session.
+    // Do not clear a TX-stall latch merely because the old write Promise ended.
+    pcGattTxFault=false;
     transportCmdChar=cc;transportMapChar=mc;
     installRawListener();installAfrListener();
     log('transport ready / reconnect detected');
@@ -5768,6 +5826,10 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused}};
+window.BlinkRealProtocol={writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
+  busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
+  pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
+  pendingCount:pending.size,liveRunning,transportEpoch
+}}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
