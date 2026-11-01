@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.137' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.137: Chrome PC SMART AFR off-grid + IDLE view
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.138' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.138: Chrome PC provisional TRACE AFR display
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-WIN-TRACE-AFR-IDLE-GRID-EVIDENCE-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-AFR-PROVISIONAL-TRACE-ONLY-NO-ECU-WRITE-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -3606,6 +3606,24 @@ function displayValue(tab,r,c){
   return v==null?'--':fmt(Number(v),2);
 }
 
+
+function smartPcAfrOverlay(r,c){
+  if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.())return null;
+  const engine=window.BlinkPcSmartAutoTune;
+  const verified=engine.measuredEstimate?.(r,c);
+  if(verified&&Number.isFinite(verified.afr)){
+    return {txt:'≈'+fmt(verified.afr,2),cls:'smart-pc-afr-estimated',
+      title:'AFR ≈ từ các mẫu ga ỔN ĐỊNH, suy luận giữa mốc TPS/RPM; chưa đo trực tiếp tại đúng ô; không tự ghi ECU.'};
+  }
+  const provisional=engine.pendingAfr?.(r,c);
+  if(provisional&&Number.isFinite(provisional.afr)){
+    return {txt:'~'+fmt(provisional.afr,2),cls:'smart-pc-afr-provisional',
+      title:'AFR TẠM từ TRACE khi con trỏ đi qua vùng này ('
+        +Number(provisional.n)+' mẫu). Dữ liệu chưa đủ tin cậy, có thể lệch do trễ cảm biến/bù tăng tốc/bỏ lửa; KHÔNG dùng để bù xăng hoặc ghi ECU.'};
+  }
+  return null;
+}
+
 const INJ_HEAT_RED_MS=13;
 function injectionHeatColor(value){
   const v=Number(value);
@@ -4001,16 +4019,15 @@ function render(){
       const v=data[r][c];
       let txt=showPreview?(v==null?'--':fmt(Number(v),2)):displayValue(state.tab,r,c);
       let cls='mapcell',cellStyle='',cellAttr='';
-      // SMART Chrome: stable off-axis AFR contributes to 2–4 corner estimates,
-      // but MUST NOT be written into state.measured as if sampled on each node.
+      // On Chrome PC, all eligible RAW AFR TRACE passes can populate a
+      // PROVISIONAL "~" display. Only strict stable points may be learned.
       if(state.tab==='measured'&&v==null&&window.BLINK_PC_SMART_TUNE&&
          window.BlinkPcSmartAutoTune?.isActive?.()){
-        const estimate=window.BlinkPcSmartAutoTune.measuredEstimate?.(r,c);
-        if(estimate&&Number.isFinite(estimate.afr)){
-          txt='≈'+fmt(estimate.afr,2);
-          cls+=' smart-pc-afr-estimated';
-          cellAttr=' title="AFR ƯỚC TÍNH từ điểm TPS/RPM lân cận ('
-            +Number(estimate.n)+' mẫu hợp lệ); chưa đo trực tiếp đúng ô; không tự ghi ECU"';
+        const overlay=smartPcAfrOverlay(r,c);
+        if(overlay){
+          txt=overlay.txt;
+          cls+=' '+overlay.cls;
+          cellAttr=' title="'+overlay.title+'"';
         }
       }
       if(state.tab==='inject'&&fuelAnchorEditorActive()){
@@ -7730,7 +7747,9 @@ window.blinkPcSmartBridge={
     if(state.tab==='measured'){
       const td=$('mapTable')?.querySelector('td.mapcell[data-r="'+r+'"][data-c="'+c+'"]');
       if(td){td.textContent=fmt(Number(state.measured[r][c]),2);
-        td.classList.remove('afr-red','afr-green','afr-orange','afr-target-locked');
+        td.classList.remove('afr-red','afr-green','afr-orange','afr-target-locked',
+          'smart-pc-afr-provisional','smart-pc-afr-estimated');
+        td.removeAttribute('title');
         if(afrTargetLockActive(r,c))td.classList.add('afr-target-locked');
         const v=Number(state.measured[r][c]);
         td.classList.add(v<12?'afr-red':v<=14?'afr-green':'afr-orange');}
@@ -7740,6 +7759,27 @@ window.blinkPcSmartBridge={
     saveSoon();return true;
   },
   refreshView(){if(state.tab==='corrected'||state.tab==='measured')render();},
+  refreshPendingCells(cells){
+    // Incremental DOM update: never redraw all 420 cells for every AFR packet.
+    // Provisional data stays outside state.measured / counts / ECU writer.
+    if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.()||
+       state.tab!=='measured'||!Array.isArray(cells))return;
+    const grid=$('mapTable');
+    if(!grid)return;
+    for(const p of cells){
+      const r=Number(p?.r),c=Number(p?.c);
+      if(!Number.isInteger(r)||r<0||r>=R||!Number.isInteger(c)||c<0||c>=C||
+         state.measured[r]?.[c]!=null)continue;
+      const td=grid.querySelector('td.mapcell[data-r="'+r+'"][data-c="'+c+'"]');
+      if(!td)continue;
+      const overlay=smartPcAfrOverlay(r,c);
+      if(!overlay)continue;
+      td.textContent=overlay.txt;
+      td.classList.remove('smart-pc-afr-provisional','smart-pc-afr-estimated');
+      td.classList.add(overlay.cls);
+      td.title=overlay.title;
+    }
+  },
   applyLocal({bank,baseline,proposal}){
     if(bank!==state.activeMap||state.recording||autoIdleSave.enabled||
       autoIdleSave.inFlight||state.ecuWriteQueued||
