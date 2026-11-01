@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.137 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.138 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -9,7 +9,8 @@ const bridge=root.blinkPcSmartBridge,doc=root.document;
 if(!pc||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
   minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,maxRelError:0.18,
-  maxPreviewPct:7,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2});
+  maxPreviewPct:7,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2,
+  provisionalLiveMaxAge:450,provisionalAfrRange:2.8,provisionalCornerWeight:0.10});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
 function coord(axis,x,descending=false){
@@ -79,6 +80,7 @@ function filterAfr(w){
 }
 root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filterAfr});
 let active=false,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
+let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
 let reason='Chưa bật SMART MAP · Chỉ Chrome Windows';
 const clone=m=>m.map(row=>row.slice());
@@ -105,9 +107,10 @@ function startRun(){
   if(!s){say('Hãy kết nối, ĐỌC MAP ECU, xác minh TPS và AFR mục tiêu trước');return false;}
   if(s.autoIdle){say('Phải tắt TỰ LƯU MAP trước khi bật SMART');return false;}
   history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
+  provisionalSamples=provisionalSkipped=0;lastProvisionalUI=0;
   lastAccept=lastUI=0;
   run={bank:s.bank,identity:s.identity,key:keyOf(s),base:clone(s.map),target:clone(s.target),
-    tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),evidence:new Map(),
+    tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),evidence:new Map(),provisional:new Map(),
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
   return true;
 }
@@ -181,6 +184,90 @@ function measuredEstimate(r,c){
   return Number.isFinite(afr)?{afr,n:e.n,weight:e.weight,kind:'inferred'}:null;
 }
 
+
+// RAW TRACE DISPLAY ONLY: a fast TPS/RPM sweep still leaves an AFR sample.
+// The sample may be affected by exhaust transport delay / accel fuel / misfire,
+// so it is tagged "~" (provisional) and can NEVER become a fuel correction.
+function provisionalTraceAt(at){
+  const exact=findTrace(history,at);
+  if(exact)return {...exact,source:'interpolated'};
+  const last=history[history.length-1];
+  // AFR can arrive between ECU 0xA1 frames. A recent last-known LIVE sample
+  // is sufficient for a *provisional* display, never for verified learning.
+  if(last&&at>=last.t&&at-last.t<=CFG.provisionalLiveMaxAge)
+    return {...last,t:at,source:'recent-live',ageMs:at-last.t};
+  return null;
+}
+function collectProvisional(sample,neighbors){
+  if(!active||!run||!Array.isArray(neighbors)||neighbors.length!==3)return;
+  const values=neighbors.map(x=>Number(x.afr));
+  if(values.some(v=>!Number.isFinite(v)||v<=CFG.minAfr||v>=CFG.maxAfr)){
+    provisionalSkipped++;return;
+  }
+  const [before,center,after]=values;
+  // A spike or unstable lambda segment must not paint a plausible-looking AFR
+  // value over four cells. This rule is independent of AFR TARGET.
+  if(Math.max(...values)-Math.min(...values)>CFG.provisionalAfrRange ||
+     (Math.abs(center-before)>2&&Math.abs(center-after)>2&&Math.abs(before-after)<1)){
+    provisionalSkipped++;return;
+  }
+  const delay=clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500);
+  const p=provisionalTraceAt(sample.t-delay);
+  if(!p||p.bank!==run.bank||!Number.isFinite(p.pw)||p.pw<=0||
+     !Number.isFinite(p.tps)||!Number.isFinite(p.rpm)){
+    provisionalSkipped++;return;
+  }
+  const minimum=Number(run.tps[run.tps.length-2]);
+  const idle=Number.isFinite(minimum)&&p.tps<Math.max(.05,minimum/2);
+  const u=idle?run.tps.length-1:coord(run.tps.slice(0,-1),p.tps,true);
+  const v=coord(run.rpms,p.rpm);
+  if(u===null||v===null){provisionalSkipped++;return;}
+  const atTarget=sample2D(run.target,u,v);
+  if(!Number.isFinite(atTarget)||atTarget<9||atTarget>18){provisionalSkipped++;return;}
+  const r0=Math.floor(u),r1=idle?r0:Math.min(run.tps.length-2,r0+1);
+  const c0=Math.floor(v),c1=Math.min(run.rpms.length-1,c0+1);
+  const dy=idle?0:clamp(u-r0,0,1),dx=clamp(v-c0,0,1);
+  const rr=r0===r1?[[r0,1]]:[[r0,1-dy],[r1,dy]];
+  const cc=c0===c1?[[c0,1]]:[[c0,1-dx],[c1,dx]];
+  const changed=[];
+  for(const [r,rw] of rr)for(const [c,cw] of cc){
+    const w=rw*cw;
+    if(w<CFG.provisionalCornerWeight||r<0||r>=run.tps.length||
+       c<0||c>=run.rpms.length)continue;
+    const targetCell=Number(run.target[r][c]);
+    if(!Number.isFinite(targetCell)||targetCell<=0)continue;
+    // An estimated AFR at a neighboring node is a DISPLAY value only.
+    // It is NOT a measured AFR for that breakpoint.
+    const inferredAfr=targetCell*(center/atTarget);
+    if(!Number.isFinite(inferredAfr)||inferredAfr<=0||inferredAfr>=21)continue;
+    const key=r+':'+c;
+    let e=run.provisional.get(key);
+    if(!e){e={samples:[],n:0,last:0,source:p.source};run.provisional.set(key,e);}
+    e.samples.push({afr:inferredAfr,w,t:sample.t});
+    if(e.samples.length>11)e.samples.shift();
+    e.n++;e.last=sample.t;e.source=p.source;
+    changed.push({r,c});
+  }
+  if(!changed.length){provisionalSkipped++;return;}
+  provisionalSamples++;
+  log({t:sample.t,afr:center,quality:'provisional-not-for-tuning',
+    tps:p.tps,rpm:p.rpm,delayMs:delay,traceSource:p.source,cells:changed.length});
+  try{bridge.refreshPendingCells?.(changed);}catch(_e){}
+  if(sample.t-lastProvisionalUI>500){lastProvisionalUI=sample.t;ui();}
+}
+function pendingAfr(r,c){
+  if(!active||!run)return null;
+  const e=run.provisional.get(r+':'+c);
+  if(!e||!e.samples.length)return null;
+  // A weighted median resists transient outliers without moving the real MAP.
+  const samples=e.samples.slice().sort((a,b)=>a.afr-b.afr);
+  const half=samples.reduce((sum,x)=>sum+x.w,0)/2;
+  let sum=0,value=samples[samples.length-1].afr;
+  for(const x of samples){sum+=x.w;if(sum>=half){value=x.afr;break;}}
+  return Number.isFinite(value)?{afr:value,n:e.n,kind:'provisional',
+    traceSource:e.source,last:e.last}:null;
+}
+
 function addPoint(center,afr,point){
   if(!validRun())return;
   const s=getSnapshot();
@@ -247,9 +334,19 @@ function onAfr(info){
   if(!bridge.live()?.recording)return true;
   if(!validRun())return true;
   raw++;
-  afrRing.push({t,afr:value,handled:false});
+  afrRing.push({t,afr:value,handled:false,pendingHandled:false});
   if(afrRing.length>20)afrRing.shift();
-  if(afrRing.length<7){reason='Đang gom chuỗi AFR 7 mẫu';ui();return true;}
+  // Use a three-point local AFR window for EARLY, DISPLAY-ONLY trace markers.
+  // Even if seven-point stable learning rejects this sequence, visible "~"
+  // readings can show where usable historical AFR arrived during a sweep.
+  if(afrRing.length>=3){
+    const recentThree=afrRing.slice(-3),candidate=recentThree[1];
+    if(!candidate.pendingHandled){
+      candidate.pendingHandled=true;
+      collectProvisional(candidate,recentThree);
+    }
+  }
+  if(afrRing.length<7){reason='Đang gom chuỗi AFR để xác nhận tự bù';ui();return true;}
   const window=afrRing.slice(-7),mid=window[3];
   if(mid.handled)return true;
   mid.handled=true;
@@ -276,7 +373,9 @@ function ui(){
   b.textContent=active?'■ TẮT SMART MAP':'◆ BẬT SMART MAP (PC)';
   b.classList.toggle('danger',active);
   if(s)s.textContent=reason;
-  if(k)k.textContent='AFR nhận '+raw+' · điểm học '+accepted+' · bị loại/chờ '+rejected+
+  if(k)k.textContent='AFR nhận '+raw+' · mẫu tạm '+provisionalSamples+
+    ' · ô AFR tạm '+(run?run.provisional.size:0)+
+    ' · điểm học xăng '+accepted+' · loại/chờ '+rejected+
     ' · nghi vấn '+suspected+' · vùng neo '+(run?run.anchors.size:0)+
     ' · ô xăng suy luận '+(run?run.estimated:0)+
     ' · ô AFR ≈ '+(run?Array.from(run.evidence.keys()).filter(key=>{
@@ -318,9 +417,11 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.137',bank:run.bank,identity:run.identity,
-    config:CFG,stats:{raw,accepted,rejected,suspected},base:run.base,target:run.target,
-    proposedMap:run.preview,anchors,evidence:Array.from(run.evidence.entries()),
+  const payload={revision:'PB3.79.138',bank:run.bank,identity:run.identity,
+    config:CFG,stats:{raw,accepted,rejected,suspected,provisionalSamples,provisionalSkipped},
+    base:run.base,target:run.target,proposedMap:run.preview,anchors,
+    evidence:Array.from(run.evidence.entries()),
+    provisional:Array.from(run.provisional.entries()),
     trace:history,recentAfr:recent};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),link=doc.createElement('a');
@@ -343,7 +444,10 @@ function initUI(){
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-afr-estimated{'+
     'color:#c3e8ff!important;background:rgba(15,92,126,.30)!important;'+
-    'outline:1px dashed rgba(88,197,246,.75);outline-offset:-2px;font-style:italic}';
+    'outline:1px dashed rgba(88,197,246,.75);outline-offset:-2px;font-style:italic}'+
+    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-afr-provisional{'+
+    'color:#ffe3a7!important;background:rgba(116,76,23,.34)!important;'+
+    'outline:1px dotted rgba(255,184,75,.78);outline-offset:-2px;font-style:italic}';
   doc.head.appendChild(style);
   const panel=doc.createElement('div');
   panel.id='smartPcPanel';
@@ -352,11 +456,11 @@ function initUI(){
     '<button type="button" id="smartPcApply" disabled>✓ ÁP DỤNG VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
     '<span id="smartPcStats">Chưa có mẫu</span>'+
-    '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. AFR ĐO: ≈ là suy luận từ mẫu ga ổn định giữa các mốc, '+
-    'KHÔNG phải AFR đo trực tiếp của ô; số thường là mẫu gần đúng breakpoint đã nhận. '+
-    'Hàng IDLE chỉ ghi AFR, không bù xăng. '+
-    'Không học ga sốc/bỏ lửa; AFR MỤC TIÊU được nội suy theo TPS/RPM. '+
-    'MAP ĐÃ BÙ chỉ xem trước, KHÔNG tự ghi ECU. Trễ AFR chỉnh trong CÀI ĐẶT.</small>';
+    '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
+    'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: suy luận từ các mẫu ổn định; '+
+    'AFR số thường: đã nhận gần đúng breakpoint. '+
+    'Chỉ điểm đạt bộ lọc chặt và AFR MỤC TIÊU mới học MAP. '+
+    'MAP ĐÃ BÙ chỉ xem trước, KHÔNG tự ghi ECU. Độ trễ AFR chỉnh trong CÀI ĐẶT.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
@@ -364,7 +468,9 @@ function initUI(){
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
-  measuredEstimate,getStats:()=>({active,raw,accepted,rejected,suspected,anchors:run?.anchors.size||0,
-    estimated:run?.estimated||0,afrEstimates:run?.evidence.size||0,reason})});
+  measuredEstimate,pendingAfr,getStats:()=>({active,raw,accepted,rejected,suspected,
+    provisionalSamples,provisionalSkipped,provisionalCells:run?.provisional.size||0,
+    anchors:run?.anchors.size||0,estimated:run?.estimated||0,
+    afrEstimates:run?.evidence.size||0,reason})});
 initUI();
 })(window);
