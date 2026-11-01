@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.135 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.137 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -9,7 +9,7 @@ const bridge=root.blinkPcSmartBridge,doc=root.document;
 if(!pc||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
   minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,maxRelError:0.18,
-  maxPreviewPct:7,minWeight:0.18});
+  maxPreviewPct:7,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
 function coord(axis,x,descending=false){
@@ -61,16 +61,21 @@ function stableTrace(history,at,p){
 }
 function filterAfr(w){
   if(w.length!==7)return {ok:false,reason:'Chuỗi AFR chưa đủ'};
-  const vs=w.map(a=>a.afr);
+  const vs=w.map(a=>a.afr),center=vs[3];
   if(vs.some(x=>!Number.isFinite(x)||x<=CFG.minAfr||x>=CFG.maxAfr))
     return {ok:false,reason:'AFR sát giới hạn hoặc tín hiệu không hợp lệ'};
-  const range=Math.max(...vs)-Math.min(...vs);
-  if(range>CFG.maxAfrSpread){
-    const a=vs[2],b=vs[3],c=vs[4];
-    const isolated=Math.abs(b-a)>2.4&&Math.abs(b-c)>2.4&&Math.sign(b-a)===Math.sign(b-c);
-    return {ok:false,reason:isolated?'AFR đột biến: nghi bỏ lửa/nhiễu':'AFR dao động: không dùng học MAP'};
-  }
-  return {ok:true,afr:median(vs)};
+  const mid=median(vs),deviations=vs.map(x=>Math.abs(x-mid));
+  const mad=median(deviations);
+  // Reject a real CENTER spike. A lone outlier at either edge must NOT
+  // automatically invalidate all six otherwise stable neighboring samples.
+  // This never chooses samples merely because they are near AFR TARGET.
+  if(Math.abs(center-mid)>Math.max(0.75,3*Math.max(mad,0.12)))
+    return {ok:false,reason:'AFR trung tâm đột biến: nghi bỏ lửa/nhiễu'};
+  const core=vs.filter(x=>Math.abs(x-mid)<=0.55);
+  if(core.length<5||Math.max(...core)-Math.min(...core)>Math.max(0.9,CFG.maxAfrSpread))
+    return {ok:false,reason:'AFR dao động: không dùng học MAP'};
+  // Use the robust observed AFR cluster. Also requires a stable ECU trace.
+  return {ok:true,afr:median(core),support:core.length};
 }
 root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filterAfr});
 let active=false,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
@@ -102,8 +107,8 @@ function startRun(){
   history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
   lastAccept=lastUI=0;
   run={bank:s.bank,identity:s.identity,key:keyOf(s),base:clone(s.map),target:clone(s.target),
-    tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),preview:clone(s.map),
-    labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
+    tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),evidence:new Map(),
+    preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
   return true;
 }
 function validRun(){
@@ -142,11 +147,49 @@ function makePreview(s){
   }
   run.preview=out;run.labels=labels;run.estimated=changed;
 }
+
+// VIEW-ONLY AFR accumulation for 1, 2 or 4 neighbor cells when a stable
+// operating point lies BETWEEN RPM/TPS axes. Every candidate gets a ~ marker;
+// these are *inferred* AFR values and are never stored as ECU-measured AFR.
+// ECU corrections continue to use only stable samples & the target ratio.
+function collectAfrEvidence(u,v,afr,atTarget,idle=false){
+  if(!run||!Number.isFinite(afr)||!Number.isFinite(atTarget)||atTarget<=0)return;
+  const loR=Math.floor(u),hiR=idle?loR:Math.min(run.tps.length-2,loR+1);
+  const loC=Math.floor(v),hiC=Math.min(run.rpms.length-1,loC+1);
+  const dr=idle?0:clamp(u-loR,0,1),dc=clamp(v-loC,0,1);
+  const rs=hiR===loR?[[loR,1]]:[[loR,1-dr],[hiR,dr]];
+  const cs=hiC===loC?[[loC,1]]:[[loC,1-dc],[hiC,dc]];
+  const ratio=afr/atTarget;
+  for(const [r,rw] of rs)for(const [c,cw] of cs){
+    const weight=rw*cw;
+    if(weight<0.12||r<0||r>=run.tps.length||c<0||c>=run.rpms.length)continue;
+    const targetCell=Number(run.target[r][c]);
+    if(!Number.isFinite(targetCell)||targetCell<=0)continue;
+    const estimate=targetCell*ratio;
+    if(!Number.isFinite(estimate)||estimate<=0||estimate>21)continue;
+    const key=r+':'+c;
+    let e=run.evidence.get(key);
+    if(!e){e={sum:0,weight:0,n:0,last:0};run.evidence.set(key,e);}
+    e.sum+=estimate*weight;e.weight+=weight;e.n++;e.last=lastAccept;
+  }
+}
+function measuredEstimate(r,c){
+  if(!active||!run)return null;
+  const e=run.evidence.get(r+':'+c);
+  if(!e||e.n<CFG.minAfrEstimateCount||e.weight<CFG.minAfrEstimateWeight)return null;
+  const afr=e.sum/e.weight;
+  return Number.isFinite(afr)?{afr,n:e.n,weight:e.weight,kind:'inferred'}:null;
+}
+
 function addPoint(center,afr,point){
   if(!validRun())return;
   const s=getSnapshot();
   if(!s?.recording){say('Chờ BẮT ĐẦU GHI AFR');return;}
-  const u=coord(run.tps.slice(0,-1),point.tps,true);
+  // The real ECU's IDLE row has no numeric TPS breakpoint. Record only its
+  // stable AFR for display: NEVER infer a fuel correction for IDLE.
+  const minTps=Number(run.tps[run.tps.length-2]);
+  const idle=Number.isFinite(minTps)&&point.tps<Math.max(0.05,minTps/2);
+  const u=idle?run.tps.length-1:coord(run.tps.slice(0,-1),point.tps,true);
   const v=coord(run.rpms,point.rpm);
   if(u===null||v===null){say('Ngoài vùng TPS/RPM có thể học');return;}
   const target=sample2D(run.target,u,v);
@@ -157,24 +200,33 @@ function addPoint(center,afr,point){
   if(center.t-lastAccept<CFG.minPointGap)return;
   const near=Math.abs(afr-target)<=.3;
   const logK=near?0:Math.log(afr/target);
-  const key=Math.round(u)+':'+Math.round(v);
-  let a=run.anchors.get(key);
-  if(a&&a.n>=2&&Math.abs(logK-a.logSum/a.n)>.115){
-    say('Các lượt đo trong một vùng mâu thuẫn: cần đo lại',true);return;
+  // Only numeric TPS cells act as SMART fuel-correction anchors.
+  if(!idle){
+    const key=Math.round(u)+':'+Math.round(v);
+    let a=run.anchors.get(key);
+    if(a&&a.n>=2&&Math.abs(logK-a.logSum/a.n)>.115){
+      say('Các lượt đo trong một vùng mâu thuẫn: cần đo lại',true);return;
+    }
+    if(!a){a={u,v,n:0,logSum:0,afrSum:0,targetSum:0};run.anchors.set(key,a);}
+    a.u=(a.u*a.n+u)/(a.n+1);a.v=(a.v*a.n+v)/(a.n+1);
+    a.logSum+=logK;a.afrSum+=afr;a.targetSum+=target;a.n++;
   }
-  if(!a){a={u,v,n:0,logSum:0,afrSum:0,targetSum:0};run.anchors.set(key,a);}
-  a.u=(a.u*a.n+u)/(a.n+1);a.v=(a.v*a.n+v)/(a.n+1);
-  a.logSum+=logK;a.afrSum+=afr;a.targetSum+=target;a.n++;
   lastAccept=center.t;accepted++;
-  // All stable, attributable AFR observations are visible in measured cells;
-  // only near-target values may become locked anchors via the existing gate.
-  if(Math.abs(u-Math.round(u))<.28&&Math.abs(v-Math.round(v))<.28){
-    try{bridge.recordVerified(run.bank,Math.round(u),Math.round(v),afr)}catch(_e){}
+  // Keep measured AFR distinct from estimated AFR. Exact near-axis points
+  // are written to state.measured; off-axis points only update view evidence.
+  const onGrid=idle
+    ?Math.abs(v-Math.round(v))<0.28
+    :Math.abs(u-Math.round(u))<0.28&&Math.abs(v-Math.round(v))<0.28;
+  if(onGrid){
+    try{bridge.recordVerified(run.bank,Math.round(u),Math.round(v),afr,{idle})}catch(_e){}
   }
-  makePreview(s);
-  reason='Đã học TPS '+point.tps.toFixed(1)+'% / '+Math.round(point.rpm)+
-    ' RPM · AFR '+afr.toFixed(2)+' / mục tiêu '+target.toFixed(2)+(near?' · đạt':' · bù đề xuất');
-  if(s.tab==='corrected')try{bridge.refreshView()}catch(_e){}
+  collectAfrEvidence(u,v,afr,target,idle);
+  if(!idle)makePreview(s);
+  reason=(idle?'AFR IDLE ổn định':'Đã học TPS '+point.tps.toFixed(1)+'% / '+Math.round(point.rpm)+' RPM')+
+    ' · AFR '+afr.toFixed(2)+' / mục tiêu '+target.toFixed(2)+
+    (near?' · đạt':' · đang theo dõi bù')+
+    (onGrid?' · ghi ô thật':' · hiện ≈ AFR ở ô lân cận');
+  if(s.tab==='corrected'||s.tab==='measured')try{bridge.refreshView()}catch(_e){}
   ui();
 }
 function onLive(info){
@@ -226,7 +278,10 @@ function ui(){
   if(s)s.textContent=reason;
   if(k)k.textContent='AFR nhận '+raw+' · điểm học '+accepted+' · bị loại/chờ '+rejected+
     ' · nghi vấn '+suspected+' · vùng neo '+(run?run.anchors.size:0)+
-    ' · ô suy luận '+(run?run.estimated:0);
+    ' · ô xăng suy luận '+(run?run.estimated:0)+
+    ' · ô AFR ≈ '+(run?Array.from(run.evidence.keys()).filter(key=>{
+      const p=key.split(':');return !!measuredEstimate(Number(p[0]),Number(p[1]));
+    }).length:0);
   if(apply)apply.disabled=!active||!run||!run.estimated||!!bridge.live()?.recording;
 }
 function stop(message){
@@ -263,9 +318,10 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.135',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.137',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,accepted,rejected,suspected},base:run.base,target:run.target,
-    proposedMap:run.preview,anchors,trace:history,recentAfr:recent};
+    proposedMap:run.preview,anchors,evidence:Array.from(run.evidence.entries()),
+    trace:history,recentAfr:recent};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),link=doc.createElement('a');
   link.href=url;link.download='BLINK_SMART_PC_MAP'+run.bank+'_'+Date.now()+'.json';
@@ -284,7 +340,10 @@ function initUI(){
     '#smartPcStatus{flex:1 1 350px}#smartPcStats{flex:1 1 100%;color:#93cddf;font-size:11px}'+
     '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-inferred{outline:1px dashed #6bc8fa;outline-offset:-2px}'+
-    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}';
+    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}'+
+    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-afr-estimated{'+
+    'color:#c3e8ff!important;background:rgba(15,92,126,.30)!important;'+
+    'outline:1px dashed rgba(88,197,246,.75);outline-offset:-2px;font-style:italic}';
   doc.head.appendChild(style);
   const panel=doc.createElement('div');
   panel.id='smartPcPanel';
@@ -293,10 +352,11 @@ function initUI(){
     '<button type="button" id="smartPcApply" disabled>✓ ÁP DỤNG VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
     '<span id="smartPcStats">Chưa có mẫu</span>'+
-    '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. Dùng AFR MỤC TIÊU theo TPS/RPM; '+
-    'không học ga sốc/bỏ lửa; giữ MAP nền và khóa ô đạt. '+
-    'Chỉ xem trước MAP ĐÃ BÙ, không tự ghi ECU. Trễ AFR chỉnh trong CÀI ĐẶT; '+
-    '0 ms chỉ phù hợp khi giữ ga ổn định đủ lâu.</small>';
+    '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. AFR ĐO: ≈ là suy luận từ mẫu ga ổn định giữa các mốc, '+
+    'KHÔNG phải AFR đo trực tiếp của ô; số thường là mẫu gần đúng breakpoint đã nhận. '+
+    'Hàng IDLE chỉ ghi AFR, không bù xăng. '+
+    'Không học ga sốc/bỏ lửa; AFR MỤC TIÊU được nội suy theo TPS/RPM. '+
+    'MAP ĐÃ BÙ chỉ xem trước, KHÔNG tự ghi ECU. Trễ AFR chỉnh trong CÀI ĐẶT.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
@@ -304,7 +364,7 @@ function initUI(){
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
-  getStats:()=>({active,raw,accepted,rejected,suspected,anchors:run?.anchors.size||0,
-    estimated:run?.estimated||0,reason})});
+  measuredEstimate,getStats:()=>({active,raw,accepted,rejected,suspected,anchors:run?.anchors.size||0,
+    estimated:run?.estimated||0,afrEstimates:run?.evidence.size||0,reason})});
 initUI();
 })(window);
