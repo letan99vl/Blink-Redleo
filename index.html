@@ -13,7 +13,12 @@
   window.BLINK_WINDOWS_WEB_AFR = /Windows NT|Win64|Win32/i.test(navigator.userAgent) &&
     !/Electron|BLINK-REDLEO-ANDROID|Bluefy/i.test(navigator.userAgent);
   document.documentElement.classList.toggle('blinkWindowsWeb',window.BLINK_WINDOWS_WEB_AFR);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // PB3.79.133: Windows web AFR panel only
+  // SMART AUTO TUNER is opt-in and exclusively loaded by desktop Windows Chrome.
+  // Edge, Opera, Electron, Android, iOS, Bluefy and native wrappers remain unchanged.
+  window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
+    /Chrome\/\d+/i.test(navigator.userAgent) &&
+    !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.135' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.135: SMART MAP Chrome Windows only
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -26,6 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-WIN-TRACE-AFR-QUALITY-MAP-PREVIEW-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
 window.BLINK_V91_COMP_REVISION = 'V91-ALL-SIGNALS-3COMP-FORWARD-20261023';
@@ -3578,7 +3584,15 @@ function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
   }
   return out;
 }
-function correctedMatrix(){return correctedFrom(state.inject,state.measured,state.target,state.cal.limitPct);}
+function correctedMatrix(){
+  // Chrome Windows SMART MAP shows a local-only preview. No ECU write path
+  // may transmit this estimate without the separate local application step.
+  if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
+    const proposal=window.BlinkPcSmartAutoTune.preview(state.activeMap);
+    if(proposal)return proposal;
+  }
+  return correctedFrom(state.inject,state.measured,state.target,state.cal.limitPct);
+}
 
 function displayValue(tab,r,c){
   const data=matrixFor(tab),v=data[r][c];
@@ -4004,6 +4018,17 @@ function render(){
         }
       }
       if(state.tab==='corrected'&&v!=null){
+        // SMART PC: corrected values use the same heat palette as INJ VE.
+        // Dashed = inferred; solid = repeatedly sampled support, neither is ECU-verified.
+        if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
+          const kind=window.BlinkPcSmartAutoTune.cellStatus(r,c);
+          if(kind==='estimated')cls+=' smart-pc-inferred';
+          else if(kind==='supported')cls+=' smart-pc-supported';
+          if(Number.isFinite(Number(v))){
+            cls+=' inj-heat';
+            cellStyle=' style="--inj-heat:'+injectionHeatColor(v)+'"';
+          }
+        }
         const base=num(state.inject[r][c],0),meas=Number(state.measured[r][c]),samples=num(state.counts[r][c],0);
         if(base>0&&samples>0&&Number.isFinite(meas)&&meas>0){
           const change=(Number(v)/base-1)*100;
@@ -5208,6 +5233,11 @@ async function writeCurrentFuelMap(){
 }
 
 async function applyCorrectedAndWrite(options={}){
+  if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
+    showEcuNotice('info','SMART MAP CHỈ XEM TRƯỚC',
+      'Bản suy luận chưa được kiểm chứng trên ECU. DỪNG GHI AFR và dùng ÁP DỤNG VÀO BLINK trước; không gửi MAP SMART trực tiếp từ nút này.',5000);
+    return false;
+  }
   if(autoIdleSave.inFlight&&!options.autoIdle){
     showEcuNotice('info','AUTO TUNER ĐANG LƯU','Đợi ghi ECU và đọc lại 420 ô hoàn tất trước khi bấm LƯU MAP ĐÃ BÙ bằng tay.',4000);
     return false;
@@ -5320,11 +5350,16 @@ function autoIdleSaveReset(disable=false){
   autoIdleSaveStatus(!autoIdleSave.enabled?'Đang tắt · Bật khi cần và chỉ dùng khi xe dừng an toàn.':'Chờ TPS lên ≥1% rồi nhả về dưới 1%; phải đang GHI AFR.');
 }
 function autoIdleSaveSetEnabled(on){
+  if(on&&window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
+    showEcuNotice('info','SMART MAP ĐANG HOẠT ĐỘNG','TỰ LƯU ECU bị khóa khi SMART MAP PC đang xem trước.',3800);
+    autoIdleSave.enabled=false;autoIdleSaveReset(false);return;
+  }
   autoIdleSave.enabled=!!on;
   autoIdleSaveReset(false);
   if(autoIdleSave.enabled)showEcuNotice('info','TỰ LƯU BÙ IDLE: ON','Sau khi ghi AFR, nhả ga từ TPS >=1% về TPS <1% đủ 2 giây: tự lưu và xác minh 420 ô, không phụ thuộc RPM. Chỉ dùng khi xe đứng yên an toàn.',3500);
 }
 function autoIdleSaveBaseReady(now){
+  if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.())return false;
   return !!(autoIdleSave.enabled&&!autoIdleSave.inFlight&&state.recording&&state.ecuConnected&&
     state.ecuPhase==='live'&&!state.threeRun.active&&!state.ecuWriteQueued&&
     !autoIdleSaveManualIoBusy()&&!state.pendingAfrClearMapNo&&!fuelMapSyncUnknown(state.activeMap)&&
@@ -6324,7 +6359,14 @@ function processAfrPacket(p){
   state.afrHistory.push({t:now,v:state.live.afr,blocked});
   while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
   updateLive();
-  if(state.recording)recordSample(now);
+  // PC-only SMART owns sample placement, including the reject case. Never
+  // also run the legacy nearest-cell recorder for the same sample.
+  let smartOwned=false;
+  if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
+    try{smartOwned=window.BlinkPcSmartAutoTune.onAfr({t:now,afr:state.live.afr})===true;}
+    catch(e){console.warn('SMART PC AFR',e);window.BlinkPcSmartAutoTune.stop('SMART MAP lỗi; chuyển về ghi AFR thường.');}
+  }
+  if(state.recording&&!smartOwned)recordSample(now);
   highlightCurrent();
   $('rxDot').classList.add('on');
   clearTimeout(window.rxTimer);
@@ -7625,6 +7667,82 @@ window.blinkFuelModelBridge={
     render();saveSoon();
     flashSave('MAP NỀN CỤC BỘ · MAP NO.'+state.activeMap+' · CHƯA GHI ECU');
     return {bank:state.activeMap};
+  }
+};
+
+// PB3.79.135: Chrome PC SMART MAP reads snapshots and applies ONLY to Blink RAM.
+// Kept separate from REAL ECU transport; an explicit later manual SAVE is required.
+window.blinkPcSmartBridge={
+  snapshot(){
+    const m=state.inject.map(row=>row.slice()),t=state.target.map(row=>row.slice());
+    const h=window.BlinkRealProtocol?.handshake;
+    const p=window.BlinkRealProtocol?.profile;
+    const identity=JSON.stringify([p?.key||'',h?.ident||'',h?.firmware||'',h?.ecuId??'']);
+    const locked=Array.from({length:R},(_,r)=>
+      Array.from({length:C},(_,c)=>!!afrTargetLockActive(r,c)));
+    return {bank:state.activeMap,identity,connected:!!state.ecuConnected,
+      safe:inspectFuelMap(m).ok,unknown:fuelMapSyncUnknown(state.activeMap),
+      tpsSafe:blinkAutoTuneTpsSafe(),ioBusy:!!(autoIdleSave.inFlight||
+        state.ecuWriteQueued||window.BlinkRealProtocol?.manualIoActive||
+        state.ecuPhase==='write1'||state.ecuPhase==='write2'),
+      recording:!!state.recording,tab:state.tab,autoIdle:!!autoIdleSave.enabled,
+      tps:TPS_ROWS.slice(),rpms:RPMS.slice(),map:m,target:t,locked,maxMs:fuelProtocolMaxMs()};
+  },
+  live(){return {recording:!!state.recording,bank:state.activeMap,
+    afrDelayMs:Number(state.cal.afrDelayMs)||0,tps:state.live.tps,
+    rpm:state.live.rpm,connected:!!state.ecuConnected};},
+  disableAutoIdle(){
+    if(autoIdleSave.inFlight)return false;
+    if(autoIdleSave.enabled)autoIdleSaveSetEnabled(false);
+    return !autoIdleSave.enabled;
+  },
+  recordVerified(bank,r,c,afr){
+    if(bank!==state.activeMap||!state.recording||!blinkAutoTuneTpsSafe()||
+       autoIdleSave.inFlight||!Number.isFinite(afr)||afr<=0||
+       !Number.isInteger(r)||r<0||r>=R-1||!Number.isInteger(c)||c<0||c>=C)return false;
+    state.measured[r][c]=afrObserveMeasuredValue(bank,r,c,afr);
+    state.counts[r][c]=(Number(state.counts[r][c])||0)+1;
+    refreshAutoTuneAfrCorner(r,c);
+    if(state.tab==='measured'){
+      const td=$('mapTable')?.querySelector('td.mapcell[data-r="'+r+'"][data-c="'+c+'"]');
+      if(td){td.textContent=fmt(Number(state.measured[r][c]),2);
+        td.classList.remove('afr-red','afr-green','afr-orange','afr-target-locked');
+        if(afrTargetLockActive(r,c))td.classList.add('afr-target-locked');
+        const v=Number(state.measured[r][c]);
+        td.classList.add(v<12?'afr-red':v<=14?'afr-green':'afr-orange');}
+    }
+    if(blinkManualTpsReady())state.mapBanks[bank-1].tpsCaptureKey=blinkManualTps.key;
+    else if(blinkEcuTpsReady())state.mapBanks[bank-1].tpsCaptureKey=blinkVerifiedEcuTps.key;
+    saveSoon();return true;
+  },
+  refreshView(){if(state.tab==='corrected'||state.tab==='measured')render();},
+  applyLocal({bank,baseline,proposal}){
+    if(bank!==state.activeMap||state.recording||autoIdleSave.enabled||
+      autoIdleSave.inFlight||state.ecuWriteQueued||
+      window.BlinkRealProtocol?.manualIoActive||
+      state.ecuPhase==='write1'||state.ecuPhase==='write2')
+      throw new Error('Dừng GHI AFR/TỰ LƯU và đợi ECU rảnh trước khi áp dụng.');
+    if(!state.ecuConnected||fuelMapSyncUnknown(bank)||!blinkAutoTuneTpsSafe()||
+       !validMatrix(baseline)||!validMatrix(proposal)||!inspectFuelMap(state.inject).ok)
+      throw new Error('MAP/ECU chưa xác thực hoặc dữ liệu chưa hợp lệ.');
+    const max=fuelProtocolMaxMs();
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
+        throw new Error('MAP nền đã thay đổi. Không áp dụng bản suy luận cũ.');
+      const old=Number(baseline[r][c]),n=Number(proposal[r][c]);
+      if(!Number.isFinite(n)||n<0||n>max)throw new Error('Thời gian phun vượt giới hạn ở '+r+','+c);
+      if(r===R-1||afrTargetLockActive(r,c)){
+        if(Math.abs(n-old)>0.000001)throw new Error('SMART đã đụng ô IDLE/ô khóa AFR: '+r+','+c);
+      }else if(old>0&&Math.abs(n/old-1)>0.071)
+        throw new Error('SMART vượt giới hạn thay đổi 7%: '+r+','+c);
+    }
+    state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
+    state.measured=blankMatrix(null);state.counts=blankMatrix(0);
+    afrResetTargetLocks(bank);state.lastCellKey='';
+    render();saveSoon();
+    showEcuNotice('info','MAP HỌC ĐÃ ÁP DỤNG TRONG BLINK',
+      'Chưa ghi ECU. Dữ liệu AFR cũ đã xóa để tránh áp dụng mức bù hai lần. Cần kiểm tra MAP rồi mới chủ động ghi ECU và đo xác minh lại.',6500);
+    return true;
   }
 };
 
@@ -9829,6 +9947,8 @@ updateMapControls();
     const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
     const isBluefy=/Bluefy/i.test(navigator.userAgent);
     if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'"><\/script>');
+    // Never load SMART MAP on Android/iOS/Bluefy/Edge/desktop wrappers.
+    if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
   })();
 </script>
 </body>
