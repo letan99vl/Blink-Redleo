@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : '3.79.131'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : '3.79.132'; // ANDROID ONLY: selective named backup restore writes exact MAP pages with readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -18,6 +18,7 @@ window.BLINK_LIVE_RESUME_FIX = 'AUTO-WRITE-READBACK-IO-SCOPE-20261025';
 window.BLINK_NO_THREE_RUN_REVISION = 'NORMAL-ONLY-MOBILE-ECT-20261024';
 window.BLINK_AFR_TARGET_LOCK_REVISION = 'AFR-LOCK-RAM-3ROUNDS-20261024';
 window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
+window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -1254,6 +1255,13 @@ window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
   }
   .mapSelectionPad[aria-hidden="true"]{display:none!important}
 
+  /* Manual AFR unlock: shown only for a locked cell in measured Auto Tune. */
+  #mapEditorScreen .mapSelectionPad #mapFloatAfrUnlockBtn{display:none!important}
+  #mapEditorScreen.autoTuneMap.autoTuneReadOnly .mapSelectionPad #mapFloatAfrUnlockBtn.afrUnlockVisible{
+    display:grid!important;background:rgba(15,98,77,.98)!important;
+    border-color:#48efc1!important;color:#fff!important;font-size:13px!important;
+    line-height:1.1!important;text-align:center!important;
+  }
   /* Keep the I smooth action ONLY in the floating +/- selection pad.
      The duplicate toolbar action is removed to save height on phones. */
   #mapEditorScreen .mapSelectionPad #mapFloatSmoothBtn{display:none!important}
@@ -2623,7 +2631,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
       <div id="fuelAnchorStatus" role="status" aria-live="polite">Chọn ô neo từ các ô đã canh xăng chuẩn · chưa thay đổi MAP ECU.</div>
     </div>
     <main class="mapwrap" id="mapWrap"><table id="mapTable"></table></main>
-    <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button><button id="mapFloatSmoothBtn" class="smooth" type="button" aria-label="I · Làm mượt vùng phun đã chọn" title="I · Nội suy bốn góc vùng TPS/RPM đã tô, chưa ghi ECU">I</button></div>
+    <div id="mapSelectionPad" class="mapSelectionPad" aria-hidden="true"><button id="mapFloatSaveBtn" class="save" type="button" aria-label="Lưu hiện tại" title="Lưu hiện tại">↓</button><button id="mapFloatAfrUnlockBtn" type="button" aria-label="Mở khóa ô AFR đã chọn" title="Mở khóa ô AFR đã chọn">🔓<small style="font-size:9px">MỞ KHÓA</small></button><button id="mapFloatPlusBtn" class="plus" type="button" aria-label="Tăng vùng chọn" title="Tăng vùng chọn">＋</button><button id="mapFloatMinusBtn" class="minus" type="button" aria-label="Giảm vùng chọn" title="Giảm vùng chọn">−</button><button id="mapFloatSmoothBtn" class="smooth" type="button" aria-label="I · Làm mượt vùng phun đã chọn" title="I · Nội suy bốn góc vùng TPS/RPM đã tô, chưa ghi ECU">I</button></div>
     <div id="mapZoomHud" aria-live="polite">
       <div class="zoomStat">ECT <b id="mapZoomEct">-- °C</b></div>
       <button id="mapZoomCorrectedSaveBtn" type="button" aria-label="Lưu MAP đã bù vào ECU" title="Lưu MAP đã bù vào ECU">↓ BÙ → ECU</button>
@@ -3378,6 +3386,9 @@ function setAfrTargetLockEnabled(enabled){
 }
 const AFR_TARGET_LOCK_BAND=0.30;
 const afrTargetLockBanks=Array.from({length:4},()=>blankMatrix(null));
+// A user-unlocked AFR cell stays free for the current measurement round only.
+const afrManualUnlocked=Array.from({length:4},()=>new Set());
+const afrUnlockKey=(r,c)=>r+':'+c;
 function afrNearTarget(value,target){
   const a=Number(value),t=Number(target);
   return value!=null&&target!=null&&Number.isFinite(a)&&Number.isFinite(t)&&t>0&&Math.abs(a-t)<=AFR_TARGET_LOCK_BAND+1e-9;
@@ -3408,8 +3419,22 @@ function afrTargetLockCount(mapNo=state.activeMap){
 }
 function afrResetTargetLocks(mapNo=0){
   const from=mapNo?Math.round(mapNo)-1:0,to=mapNo?from+1:4;
-  for(let i=from;i<to;i++)if(i>=0&&i<4)afrTargetLockBanks[i]=blankMatrix(null);
+  for(let i=from;i<to;i++)if(i>=0&&i<4){afrTargetLockBanks[i]=blankMatrix(null);afrManualUnlocked[i].clear();}
 }
+function afrUnlockMeasuredCell(r,c,mapNo=state.activeMap){
+  const i=Math.round(Number(mapNo))-1;
+  const b=state.mapBanks[i];
+  if(state.tab!=='measured'||!b||!afrTargetLockActive(r,c,mapNo))return false;
+  afrTargetLockBanks[i][r][c]=null;
+  afrManualUnlocked[i].add(afrUnlockKey(r,c));
+  b.measured[r][c]=null;b.counts[r][c]=0;
+  state.lastCellKey='';
+  render();saveSoon();
+  showEcuNotice('success','ĐÃ MỞ KHÓA Ô AFR',
+    'MAP '+mapNo+' · TPS '+TPS_ROWS[r]+' · '+RPMS[c]+' RPM. Ô sẽ đo AFR mới, không ghi ECU.',3000);
+  return true;
+}
+window.blinkUnlockMeasuredAfrCell=afrUnlockMeasuredCell;
 function afrDiscardChangedTargets(mapNo=state.activeMap){
   for(let r=0;r<R;r++)for(let c=0;c<C;c++)afrTargetLock(mapNo,r,c);
 }
@@ -3418,7 +3443,7 @@ function afrReleaseTargetLock(mapNo,r,c,value){
   return value;
 }
 function afrObserveMeasuredValue(mapNo,r,c,afr){
-  if(!state.afrTargetLockEnabled)return afr;
+  if(!state.afrTargetLockEnabled||afrManualUnlocked[mapNo-1]?.has(afrUnlockKey(r,c)))return afr;
   const bank=state.mapBanks[mapNo-1];
   const aim=Number(bank?.target?.[r]?.[c]);
   if(!Number.isFinite(aim)||aim<=0)return afr;
@@ -3486,6 +3511,7 @@ function afrApplyReleasedFarReadings(mapNo,items){
 }
 function afrClearRoundKeepingLocks(mapNo=state.activeMap,complete=true){
   const released=complete?afrFinishMeasurementCycle(mapNo):[];
+  afrManualUnlocked[mapNo-1]?.clear();
   const b=state.mapBanks[mapNo-1];
   if(!b)return;
   b.measured=blankMatrix(null);b.counts=blankMatrix(0);
@@ -9218,6 +9244,7 @@ let mapStep=0.1,mapMode='unit',scanMode=false,scanPointer=null,scanMoved=false,s
 const table=document.getElementById('mapTable'),wrap=document.getElementById('mapWrap'),scanBtn=document.getElementById('mapScanToggle'),
       selectionPad=document.getElementById('mapSelectionPad'),
       floatSaveBtn=document.getElementById('mapFloatSaveBtn'),
+      floatAfrUnlockBtn=document.getElementById('mapFloatAfrUnlockBtn'),
       floatPlusBtn=document.getElementById('mapFloatPlusBtn'),
       floatMinusBtn=document.getElementById('mapFloatMinusBtn'),
       fuelKeypad=document.getElementById('fuelKeypad'),
@@ -9248,6 +9275,7 @@ function adjustMap(sign){
 }
 
 function hideMapSelectionPad(){
+  floatAfrUnlockBtn?.classList.remove('afrUnlockVisible');
   if(!selectionPad)return;
   selectionPad.classList.remove('show');
   selectionPad.setAttribute('aria-hidden','true');
@@ -9313,6 +9341,12 @@ function updateMapSelectionPad(){
   }
   const cells=table.querySelectorAll('td.mapcell.selected');
   if(!cells.length){hideMapSelectionPad();return}
+  const selected=selectionBounds();
+  const oneCell=selected.r0===selected.r1&&selected.c0===selected.c1;
+  floatAfrUnlockBtn?.classList.toggle('afrUnlockVisible',!!(
+    inAutoTune&&state.tab==='measured'&&oneCell&&
+    afrTargetLockActive(selected.r0,selected.c0)));
+  // Keep the pad compact: add unlock button without changing the save arrow.
   const padW=selectionPad.offsetWidth||48;
   const padH=selectionPad.offsetHeight||158;
   const edge=8;
@@ -9539,6 +9573,14 @@ window.blinkFuelAnchorDisableScan=()=>{scanMode=false;scanPointer=null;updateMap
 document.getElementById('mapPlusBtn')?.addEventListener('click',()=>adjustMap(1));document.getElementById('mapMinusBtn')?.addEventListener('click',()=>adjustMap(-1));
 
 function stopPadEvent(e){e.preventDefault();e.stopPropagation()}
+floatAfrUnlockBtn?.addEventListener('click',e=>{
+  stopPadEvent(e);
+  const screen=document.getElementById('mapEditorScreen');
+  if(!screen?.classList.contains('autoTuneMap')||state.tab!=='measured'||!state.selection.active)return;
+  const b=selectionBounds();
+  if(b.r0!==b.r1||b.c0!==b.c1)return;
+  afrUnlockMeasuredCell(b.r0,b.c0);
+});
 floatPlusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(1)});
 floatMinusBtn?.addEventListener('click',e=>{stopPadEvent(e);adjustMap(-1)});
 document.getElementById('fuelAnchorPinModeBtn')?.addEventListener('click',e=>{
