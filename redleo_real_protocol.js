@@ -117,13 +117,21 @@ function scheduleSensorCalWarmup(epoch,identity,attempt=0){
   sensorWarmupTimer=setTimeout(async()=>{
     sensorWarmupTimer=null;
     if(epoch!==transportEpoch||!cmdChar()||!mapChar()||!handshakeInfo)return;
+    // Windows web manual MAP reads have priority over background A2 warmup.
+    // Do not start a new 0x9A A2 while the operator already requested INJ VE.
+    // Keep the same retry number so a long manual read cannot exhaust it.
+    if(window.BLINK_WINDOWS_WEB_AFR===true&&
+       (manualMapIoDepth>0||ecuMapIoUiBusy)){
+      scheduleSensorCalWarmup(epoch,identity,attempt);
+      return;
+    }
     if(busy){
       if(attempt<6)scheduleSensorCalWarmup(epoch,identity,attempt+1);
       return;
     }
     try{
       log('LIVE ECT/IAT · reading A2 sensor calibration in background');
-      await readA2SensorPageReal(false);
+      await readA2SensorPageReal(false,window.BLINK_WINDOWS_WEB_AFR===true);
       if(epoch!==transportEpoch)return;
       if(sensorCalCache&&sensorCalIdentity===identity){
         saveStoredSensorCal(identity,sensorCalCache);
@@ -2914,7 +2922,7 @@ function directPageFrameError(rx,pg,label,minData){
   const tail=Array.from(rx.slice(Math.max(0,rx.length-8)),x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
   return new Error(label+' · page 0x'+(pg&255).toString(16).toUpperCase()+' frame chưa hợp lệ · RX '+rx.length+'B · cần data ≥'+minData+'B · head '+head+' · tail '+tail);
 }
-async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
+async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true,backgroundWarmup=false){
   requireProfile('pageRead','Đọc page 0x9A');
   pg&=255;
   if(showUi)taskUi('loading','ĐANG ĐỌC '+label+' · PAGE 0x'+pg.toString(16).toUpperCase());
@@ -2923,7 +2931,10 @@ async function readDirectPageReal(pg,minData=0,label='PAGE',showUi=true){
     if(!s)throw directPageFrameError(rx,pg,label,minData);
     return true;
   };
-  const rx=await exchangePage9A(pg,label,3,300,12000,showUi,validate);
+  // Background Windows A2 must not monopolize the BLE mutex for 3 × 12s.
+  // Keep the original 3-retry / 12s policy for ALL operator-initiated reads.
+  const quickWarmup=backgroundWarmup===true&&pg===0xA2&&window.BLINK_WINDOWS_WEB_AFR===true;
+  const rx=await exchangePage9A(pg,label,quickWarmup?1:3,300,quickWarmup?6000:12000,showUi,validate);
   const selected=selectDirectPageFrame(rx,pg,minData);
   if(!selected)throw directPageFrameError(rx,pg,label,minData);
   const {f,trailer,frameFormat}=selected;
@@ -2950,7 +2961,7 @@ function ecuTpsPairFromA2(C){
   }else return null;
   return Number.isFinite(lo)&&Number.isFinite(hi)&&lo>=0&&hi<=5&&hi-lo>0.1?{min:lo,max:hi}:null;
 }
-async function readA2SensorPageReal(showUi=true){
+async function readA2SensorPageReal(showUi=true,backgroundWarmup=false){
   const tpsReadEpoch=transportEpoch,tpsReadHandshake=handshakeInfo;
   requireProfile('optionsRead','Đọc Options/Voltage');
   if(ecuProfile&&ecuProfile.family==='v8')throw new Error('REDLEO V8: page Options/Voltage dùng layout riêng, chưa mở ở profile MAIN TUNE.');
@@ -2972,7 +2983,7 @@ async function readA2SensorPageReal(showUi=true){
     await setAppleSensorSafeRx(true);
   }
   try{
-    R=await readDirectPageReal(0xA2,minData,label,showUi);
+    R=await readDirectPageReal(0xA2,minData,label,showUi,backgroundWarmup);
   }finally{
     if(appleSafe){
       await setAppleSensorSafeRx(false);
