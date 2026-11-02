@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.153 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.154 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -168,7 +168,7 @@ function startRun(){
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),
     rowApproved:new Set(),rowTrial:new Set(),fullRowCells:new Set(),fullRowWriteCells:new Set(),fullRowInterior:new Set(),fullRowExtra:new Set(),
     fullRowRows:new Set(),fullRowWritableRows:new Set(),
-    fullRowMeta:{rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0},
+    fullRowMeta:{rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0,calibrated:0,provisional:0,previewOnlyRows:0,lastError:''},
     rowMeta:{rows:0,segments:0,writeSegments:0,trialSegments:0,
       inferred:0,approved:0,trialCells:0,baseKinks:0},estimated:0};
   return true;
@@ -219,21 +219,31 @@ function fullRowProposals(r,s){
     return null;
   }
   const base=run.base[r],target=run.target[r];
+  // Two confidence tiers:
+  // 4+ warm, steady LIVE observations = calibrated VE row / local draft.
+  // 4+ blue corroborated observations = VISUAL-ONLY preliminary VE row.
+  // BLUE means repeated spatial AFR/PW corroboration, NOT proof that fuel
+  // injection has stabilized. Do not silently treat BLUE as write-safe.
   const rows=Array.from(run.spatialConfirmed.values()).filter(x=>
-    x.r===r&&x.previewEligible===true&&x.stableForVe===true&&
+    x.r===r&&x.previewEligible===true&&
     Number.isInteger(x.c)&&x.c>=0&&x.c<base.length&&!s.locked?.[r]?.[x.c]&&
     Number.isFinite(x.livePw)&&x.livePw>0&&
     Number.isFinite(x.liveRpm)&&x.liveRpm>=500&&
     Number.isFinite(x.observedAfr)&&x.observedAfr>CFG.minAfr&&
     Number.isFinite(x.liveTps)&&x.liveTps>=0).sort((a,b)=>a.c-b.c);
-  const dedup=[];
-  for(const x of rows)if(!dedup.length||dedup[dedup.length-1].c!==x.c)dedup.push(x);
-  if(dedup.length<CFG.fullRowMinAnchors)return null;
+  const dedup=xs=>{
+    const out=[];for(const x of xs)if(!out.length||out[out.length-1].c!==x.c)out.push(x);
+    return out;
+  };
+  const blue=dedup(rows),stable=dedup(rows.filter(x=>x.stableForVe===true));
+  const verified=stable.length>=CFG.fullRowMinAnchors;
+  const use=verified?stable:blue;
+  if(use.length<CFG.fullRowMinAnchors)return null;
   let predicted;
   try{
     predicted=math.calculateStableFuelRow(settings,{
       tps:Number(run.tps[r]),rpms:run.rpms,targets:target,
-      readings:dedup.map(x=>({c:x.c,tps:x.liveTps,rpm:x.liveRpm,
+      readings:use.map(x=>({c:x.c,tps:x.liveTps,rpm:x.liveRpm,
         afr:x.observedAfr,pw:x.livePw})),
       maxMs:Number(s.maxMs)||131.07
     });
@@ -254,13 +264,18 @@ function fullRowProposals(r,s){
     for(let k=c;k<base.length&&Math.abs(Number(base[k])-v)<.005;k++)placeholders.add(k);
     break;
   }
-  run.fullRowMeta.calibrated=(run.fullRowMeta.calibrated||0)+predicted.anchorCount;
+  if(verified)run.fullRowMeta.calibrated+=predicted.anchorCount;
+  else{
+    run.fullRowMeta.provisional+=predicted.anchorCount;
+    run.fullRowMeta.previewOnlyRows++;
+  }
   const oldKinks=fullRowKinkCount(base.map(Number),valid);
   const newKinks=fullRowKinkCount(output.map(Number),valid);
   // All modeled full-row cells are preview/local draft, never direct ECU write.
   return {row:r,first:predicted.first,last:predicted.last,
     anchorSet:new Set(predicted.nodes.map(x=>x.c)),safeSpan:new Set(),
-    valid,output,placeholders,writeReady:false,
+    valid,output,placeholders,writeReady:false,lowConfidence:!verified,
+    stableAnchorCount:stable.length,blueAnchorCount:blue.length,
     oldKinks,newKinks,protected:placeholders.size};
 }
 function makePreview(s){
@@ -268,7 +283,7 @@ function makePreview(s){
   const base=run.base,rows=base.length-1,cols=base[0].length;
   run.rowApproved.clear();run.rowTrial.clear();
   run.fullRowCells.clear();run.fullRowWriteCells.clear();run.fullRowInterior.clear();run.fullRowExtra.clear();run.fullRowRows.clear();run.fullRowWritableRows.clear();
-  run.fullRowMeta={rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0};
+  run.fullRowMeta={rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0,calibrated:0,provisional:0,previewOnlyRows:0,lastError:''};
   const out=clone(base),labels=base.map(row=>row.map(()=>'none'));
   const curve=Array.from({length:rows},()=>Array(cols).fill(null));
   const approved=Array.from({length:rows},()=>Array(cols).fill(false));
@@ -614,13 +629,20 @@ function spatialCellAssessment(key){
     Math.abs(Math.log(x.pwFactor/centerPw))<=CFG.spatialPwTolerance);
   if(agrees.length<2)return {ok:false,kind:'local-conflict'};
   const ratio=median(agrees.map(x=>x.ratio)),pw=median(agrees.map(x=>x.pwFactor));
-  const livePw=median(agrees.map(x=>x.pw)),liveRpm=median(agrees.map(x=>x.rpm)),
-    liveTps=median(agrees.map(x=>x.tps)),observedAfr=median(agrees.map(x=>x.afr));
+  // Use warm-time-matched samples for an actual VE calibration. Earlier
+  // cold/warm-up excursions must NOT pollute otherwise stable warm PW/AFR.
+  // A blue-only preview may still show the overall independently repeated
+  // samples but remains explicitly low-confidence and cannot be staged.
+  const warmSamples=agrees.filter(x=>Number.isFinite(x.ect)&&x.ect>=CFG.spatialWarmEctC);
+  const physSamples=warmSamples.length>=2?warmSamples:agrees;
+  const livePw=median(physSamples.map(x=>x.pw)),liveRpm=median(physSamples.map(x=>x.rpm)),
+    liveTps=median(physSamples.map(x=>x.tps)),observedAfr=median(physSamples.map(x=>x.afr));
   const span=a=>Math.max(...a)-Math.min(...a);
-  const stableReading=agrees.length>=2&&
-    span(agrees.map(x=>x.afr))<=.55&&
-    span(agrees.map(x=>x.pw))/Math.max(.05,livePw)<=.14&&
-    span(agrees.map(x=>x.rpm))<=500&&span(agrees.map(x=>x.tps))<=2.5;
+  const stableReading=warmSamples.length>=2&&
+    span(warmSamples.map(x=>x.afr))<=.55&&
+    span(warmSamples.map(x=>x.pw))/Math.max(.05,livePw)<=.14&&
+    span(warmSamples.map(x=>x.rpm))<=500&&
+    span(warmSamples.map(x=>x.tps))<=2.5;
   const [r,c]=key.split(':').map(Number);
   const near=[];
   for(let dr=-1;dr<=1;dr++)for(let dc=-2;dc<=2;dc++){
@@ -644,8 +666,7 @@ function spatialCellAssessment(key){
   const cellTarget=Number(run.target[r]?.[c]);
   if(!Number.isFinite(cellTarget)||cellTarget<=0)return {ok:false,kind:'no-target'};
   const afr=cellTarget*spatialRatio;
-  const warmLocal=agrees.filter(x=>Number.isFinite(x.ect)&&x.ect>=CFG.spatialWarmEctC);
-  const localWarm=warmLocal.length>=2;
+  const localWarm=warmSamples.length>=2;
   const neighborsWarm=near.some(x=>x.warm);
   // An AFR value stuck at a likely wideband lower limit, especially while
   // crossing multiple cells, is evidence of sensor clipping, not certainty.
@@ -664,6 +685,10 @@ function spatialCellAssessment(key){
   return {ok:true,kind:'corroborated',afr,n:agrees.length,neighbors:near.length,
     ratio:spatialRatio,pwFactor:pw,previewEligible,fuelEligible,
     stableForVe,livePw,liveRpm,liveTps,observedAfr,
+    warmSamples:warmSamples.length,independentSamples:agrees.length,
+    veReason:!previewEligible?'Đo gần ngưỡng / AFR delay':
+      !localWarm?'Chưa đủ 2 mẫu ấm cùng vùng':
+      !stableReading?'AFR/PW/RPM/TPS cùng vùng chưa đủ ổn định':'Đủ ổn định',
     errorPct:(spatialRatio-1)*100,note:noteLabel,
     inputCount:bucket.count,r,c};
 }
@@ -914,7 +939,8 @@ function ui(){
     ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
     ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
     ' · hàng VE đủ 4 neo ổn định '+(run?.fullRowMeta?.rows||0)+
-    ' · neo VE từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
+    ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
+    ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
     ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
@@ -944,8 +970,9 @@ function ui(){
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
       'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG (VE): từ ít nhất 4 vị trí RPM có AFR + PW LIVE ổn định khi ECT đủ ấm trên CÙNG TPS, '+
-      'suy VE theo đúng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
+      'SỬA CONG CẢ HÀNG (VE): từ 4 ô XANH AFR/PW có thể DỰNG XEM THỬ; '+
+      'chỉ 4 neo PW LIVE + AFR đủ ổn định, khi máy ấm, mới được lưu BẢN NHÁP Blink. '+
+      'Dùng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
       'Nội suy hệ số hiệu chỉnh VE theo RPM, ngoại suy về VE nền, rồi tính TGP bằng AFR MỤC TIÊU từng cột. '+
       'Không ép TGP giảm tuyến tính và KHÔNG lấy thời gian phun cũ của ô chưa đo/15ms làm nền. '+
       'Cần nhập và lưu thông số piston/dên/kim/áp/deadtime/số xung trong ƒx trước khi dựng VE. '+
@@ -954,7 +981,8 @@ function ui(){
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
   if(apply)apply.disabled=!active||!run||saving||awaitingRebase||
-    !!bridge.live()?.recording||!run.estimated;
+    !!bridge.live()?.recording||!run.estimated||
+    (fullRowEnabled&&run.fullRowMeta.previewOnlyRows>0);
 }
 
 function stop(message){
@@ -999,6 +1027,11 @@ async function applyLocal(){
     say('Chưa có MAP bù để lưu vào Blink');return false;
   }
   if(bridge.live()?.recording){say('DỪNG GHI AFR rồi mới lưu MAP bù');return false;}
+  if(fullRowEnabled&&run.fullRowMeta.previewOnlyRows>0){
+    say('CHỈ XEM: còn '+run.fullRowMeta.previewOnlyRows+
+      ' hàng VE dựng từ 4 ô xanh nhưng chưa có đủ 4 neo PW/AFR ỔN ĐỊNH. Chưa thể lưu bản nháp.');
+    return false;
+  }
   if(!validRun())return false;
   const s=run,proposal=clone(s.preview),baseline=clone(s.base);
   const modeledFullRow=fullRowEnabled&&s.fullRowMeta.rows>0;
@@ -1135,7 +1168,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.153',algorithm:'STABLE-LIVE-AFR-PW-SHARED-VE-PHYSICS',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.154',algorithm:'STABLE-LIVE-AFR-PW-SHARED-VE-PHYSICS',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1205,7 +1238,7 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG lấy ít nhất 4 ô có AFR/PW LIVE đã đo ổn định khi máy ấm cùng TPS để suy VE. '+
+    'SỬA CONG CẢ HÀNG: 4 ô XANH cùng TPS dựng XEM THỬ VE; 4 ô PW LIVE/AFR thật sự ổn định, đủ ấm mới có thể lưu nháp Blink. '+
     'Dùng cùng công thức ƒx TÍNH MAP NỀN với thông số động cơ/kim đã lưu để dựng cả 30 RPM. '+
     'Không dùng TGP cũ ô chưa chạy, kể cả 15ms; không ép tuyến tính giảm. '+
     'Ngoài vùng đo là NGOẠI SUY. Chỉ XEM/LƯU NHÁP BLINK; GHI THỬ/ GHI ECU trực tiếp bị KHÓA trong chế độ này. '+
