@@ -185,15 +185,13 @@ function validRun(){
   }
   return true;
 }
-// Entire-row SHAPE-PRESERVING fuel correction within measured RPM brackets.
-// A TPS row needs >=2 independent AFR/PW-confirmed anchors. Interpolate the
-// LOG of AFR/target instead of PW; retaining the stock PW(RPM,TPS) base shape.
-// No extrapolation beyond corroborated anchor brackets. Two warm + valid
-// anchor endpoints authorize the interior RPM cells for deliberate ECU write.
-// WHOLE TPS ROW: model fuel shape only after >=2 independently corroborated
-// WARM AFR/PW anchor cells on this SAME TPS row. The result is a PREVIEW
-// across RPM, not proof of AFR at unmeasured points. Suspicious constant
-// high-RPM 15.00ms plateaus are deliberately untouched.
+// Full-row VE fuel prediction: at least 3 independently corroborated
+// LIVE AFR/PW measurements at different RPMs on the SAME TPS row.
+// The model predicts all 30 RPM columns, including old 15.00ms placeholders.
+// Direct ECU write is a separate, LIMITED action: >=3 WARM-STABLE nodes
+// and only bounded measured RPM brackets, never outside/extrapolated cells,
+// never a suspicious original 15ms plateau, and <=20% per original cell.
+// Source/live AFR validation and readback do not establish safe road fueling.
 function fullRowKinkCount(values,valid){
   let count=0;
   for(let c=1;c<values.length-1;c++){
@@ -931,7 +929,8 @@ function veReadinessMessage(){
     return 'CHƯA CÓ THÔNG SỐ MÁY/KIM: vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập và kiểm tra thông số thực, bấm TÍNH & XEM TRƯỚC rồi bật lại SMART. '+short;
   if(rows){
     return 'ĐÃ DỰNG '+rows+' HÀNG VE · '+previewOnly+
-      ' hàng từ ô XANH CHƯA ỔN ĐỊNH: ĐƯỢC LƯU NHÁP TRONG BLINK, CHẶN GHI ECU. '+
+      ' hàng XANH CHƯA ỔN ĐỊNH (chỉ LƯU NHÁP) · '+
+      (run.fullRowWriteCells.size||0)+' ô đủ 3 NEO ẤM / GIỚI HẠN 20% được phép GHI ECU. '+
       (short||'')+' · Ô tím ngoài khoảng đo là ngoại suy, KHÔNG GHI ECU.';
   }
   if(run.fullRowMeta?.lastError)
@@ -950,7 +949,7 @@ function ui(){
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
   if(trialButton){
-    trialButton.textContent=fullRowEnabled?'GHI ĐOẠN 3 NEO ỔN ĐỊNH: MAP ĐÃ BÙ → ECU':
+    trialButton.textContent=fullRowEnabled?'GHI QUA NÚT MAP ĐÃ BÙ → ECU':
       (trialWriteArmed?'⚠ GHI THỬ ECU: BẬT':'GHI THỬ ECU: TẮT');
     trialButton.disabled=!active||saving||awaitingRebase||fullRowEnabled;
     trialButton.classList.toggle('danger',trialWriteArmed);
@@ -986,6 +985,7 @@ function ui(){
     ' · hàng VE từ ≥3 neo cùng TPS '+(run?.fullRowMeta?.rows||0)+
     ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
     ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
+    ' · ô VE giữa neo đủ điều kiện GHI '+(run?.fullRowWriteCells?.size||0)+
     ' · hàng VE từ ô XANH chưa ổn định '+(run?.fullRowMeta?.previewOnlyRows||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
