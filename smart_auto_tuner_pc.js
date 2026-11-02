@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.151 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.152 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -197,100 +197,91 @@ function fullRowKinkCount(values,valid){
 }
 function fullRowProposals(r,s){
   const base=run.base[r],target=run.target[r],n=base.length;
-  // Require FOUR distinct RPM columns on this TPS row for the preview.
-  // Four independently validated WARM columns are required for ECU write.
-  const visual=Array.from(run.spatialConfirmed.values()).filter(x=>
+  // Four independent BLUE AFR/PW anchor cells at DISTINCT RPMs in THIS TPS row.
+  const pool=Array.from(run.spatialConfirmed.values()).filter(x=>
     x.previewEligible===true&&x.r===r&&Number.isInteger(x.c)&&
-    Number.isFinite(x.afr)&&x.afr>CFG.minAfr&&x.afr<CFG.maxAfr&&
-    Number(base[x.c])>0&&Number(target[x.c])>0&&
-    !s.locked?.[r]?.[x.c]).sort((a,b)=>a.c-b.c);
-  const dedupe=nodes=>{
-    const unique=[];
-    for(const x of nodes)if(!unique.length||unique[unique.length-1].c!==x.c)unique.push(x);
-    return unique;
-  };
-  const warm=dedupe(visual.filter(x=>x.fuelEligible===true));
-  const writeReady=warm.length>=CFG.fullRowMinAnchors;
-  // If enough warm cells exist, the VERY SAME anchors drive the preview and
-  // the eligible ECU write. Blue-only evidence is never silently promoted.
-  const unique=writeReady?warm:dedupe(visual);
+    x.c>=0&&x.c<n&&Number.isFinite(x.afr)&&x.afr>CFG.minAfr&&x.afr<CFG.maxAfr&&
+    Number(base[x.c])>0&&Number(target[x.c])>0&&!s.locked?.[r]?.[x.c])
+    .sort((a,b)=>a.c-b.c);
+  const dedupe=xs=>{const out=[];for(const x of xs)
+    if(!out.length||x.c!==out[out.length-1].c)out.push(x);return out;};
+  const warm=dedupe(pool.filter(x=>x.fuelEligible===true));
+  const warmQualified=warm.length>=CFG.fullRowMinAnchors;
+  const unique=warmQualified?warm:dedupe(pool);
   if(unique.length<CFG.fullRowMinAnchors||!(run.sensorDelayMs>0))return null;
   const first=unique[0].c,last=unique[unique.length-1].c;
-  // An RPM bracket beyond 6 steps (3000RPM) is a MODEL ONLY.
-  // Normal ECU writes are limited to brackets with close confirmed anchors.
-  const safeSpan=new Set();
-  for(let i=1;i<unique.length;i++){
-    const p=unique[i-1],q=unique[i];
-    if(q.c-p.c<=CFG.rowMaxAnchorGap)
-      for(let c=p.c;c<=q.c;c++)safeSpan.add(c);
+  // PW_i is used ONLY at a corroborated node i. The corrected node
+  // PW_i=PW_base_i*AFR_measured_i/AFR_target_i, bounded +/-20% at the node.
+  // Airflow proxy = PW_corrected_i*AFR_target_i.
+  const nodes=unique.map(x=>{
+    const rpm=Number(run.rpms[x.c]),tgt=Number(target[x.c]),pw=Number(base[x.c]);
+    const ratio=clamp(x.afr/tgt,1-CFG.maxPreviewPct/100,1+CFG.maxPreviewPct/100);
+    return {c:x.c,rpm,logAir:Math.log(pw*ratio*tgt)};
+  });
+  if(nodes.some((x,i)=>!Number.isFinite(x.rpm)||!Number.isFinite(x.logAir)||
+    (i>0&&x.rpm<=nodes[i-1].rpm)))return null;
+  const count=nodes.length,xs=nodes.map(x=>x.rpm),ys=nodes.map(x=>x.logAir);
+  const h=Array.from({length:count-1},(_,i)=>xs[i+1]-xs[i]);
+  const d=h.map((width,i)=>(ys[i+1]-ys[i])/width),m=Array(count).fill(0);
+  const endSlope=(h0,h1,d0,d1)=>{
+    let v=((2*h0+h1)*d0-h0*d1)/(h0+h1);
+    if(!d0||v*d0<=0)return 0;
+    if(d0*d1<0&&Math.abs(v)>3*Math.abs(d0))v=3*d0;
+    return v;
+  };
+  m[0]=endSlope(h[0],h[1],d[0],d[1]);
+  m[count-1]=endSlope(h[count-2],h[count-3],d[count-2],d[count-3]);
+  for(let i=1;i<count-1;i++){
+    if(d[i-1]*d[i]<=0)continue;
+    const w1=2*h[i]+h[i-1],w2=h[i]+2*h[i-1];
+    m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);
   }
-  const valid=base.map((v,c)=>Number.isFinite(Number(v))&&Number(v)>0&&
-    Number.isFinite(Number(target[c]))&&Number(target[c])>0&&!s.locked?.[r]?.[c]);
-  let protectedCells=0;
+  // Monotonicity-preserving cubic interpolation on measured RPM intervals.
+  // Outside measured RPM: boundary air proxy held constant only to give a
+  // visible estimate, NOT as a physical claim about engine airflow.
+  function logAirAt(rpm){
+    if(rpm<=xs[0])return ys[0];
+    if(rpm>=xs[count-1])return ys[count-1];
+    let i=0;while(i<count-2&&rpm>xs[i+1])i++;
+    const step=h[i],t=(rpm-xs[i])/step,t2=t*t,t3=t2*t;
+    return (2*t3-3*t2+1)*ys[i]+(t3-2*t2+t)*step*m[i]+
+           (-2*t3+3*t2)*ys[i+1]+(t3-t2)*step*m[i+1];
+  }
+  // NO reference to base[c] in calculating unobserved columns.
+  const valid=base.map((_,c)=>Number.isFinite(Number(target[c]))&&
+    Number(target[c])>0&&!s.locked?.[r]?.[c]);
+  const output=base.map((old,c)=>{
+    if(!valid[c])return old;
+    const rpm=Number(run.rpms[c]);
+    const guessed=Number.isFinite(rpm)?Math.exp(logAirAt(rpm))/Number(target[c]):NaN;
+    if(!Number.isFinite(guessed)||guessed<=0)return old;
+    return Number(clamp(guessed,.01,Number(s.maxMs)||131.07).toFixed(3));
+  });
+  // Identify original 15ms placeholder bands for diagnostics only.
+  // Their OLD values must not freeze or affect the new row forecast.
+  const placeholders=new Set();
   for(let c=1;c<n-3;c++){
-    const value=Number(base[c]),prev=Number(base[c-1]);
-    if(c<10||Math.abs(value-15)>.005||prev<=0||
-       Math.abs(value/prev-1)<.35)continue;
-    if([1,2,3].every(d=>Math.abs(Number(base[c+d])-value)<.005)){
-      for(let k=c;k<n&&Math.abs(Number(base[k])-value)<.005;k++){
-        if(valid[k])protectedCells++;
-        valid[k]=false;
-      }
-      break;
-    }
+    const v=Number(base[c]),previous=Number(base[c-1]);
+    if(c<10||Math.abs(v-15)>.005||previous<=0||
+       Math.abs(v/previous-1)<.35||
+       ![1,2,3].every(k=>Math.abs(Number(base[c+k])-v)<.005))continue;
+    for(let j=c;j<n&&Math.abs(Number(base[j])-v)<.005;j++)placeholders.add(j);
+    break;
   }
-  if(!valid[first]||!valid[last])return null;
-  const original=base.map(Number),want=original.map(()=>0);
-  const weight=original.map(()=>.70),anchorSet=new Set(unique.map(x=>x.c));
-  const low=Math.log(.8),high=Math.log(1.2);
-  // Model AFR correction factor, NOT the baseline PW shape.
-  // New PW = original PW * interpolated(measured AFR / target AFR).
-  const logCorrection=x=>Math.log(Number(x.afr)/Number(target[x.c]));
-  for(let c=0;c<n;c++){
-    if(!valid[c])continue;
-    let logK,attenuation=1;
-    if(c<first){
-      logK=logCorrection(unique[0]);
-      attenuation=Math.exp(-(first-c)/CFG.fullRowExteriorDecay);
-    }else if(c>last){
-      logK=logCorrection(unique[unique.length-1]);
-      attenuation=Math.exp(-(c-last)/CFG.fullRowExteriorDecay);
-    }else{
-      let j=1;while(j<unique.length-1&&c>unique[j].c)j++;
-      const p=unique[j-1],q=unique[j],t=(c-p.c)/(q.c-p.c);
-      logK=logCorrection(p)*(1-t)+logCorrection(q)*t;
-    }
-    want[c]=clamp(logK*attenuation,low,high);
-    weight[c]=anchorSet.has(c)?CFG.fullRowAnchorWeight:.70;
+  // Write safety: only between warm-confirmed nodes with short RPM gaps.
+  // Extrapolated columns NEVER enter the direct ECU write set.
+  const safeSpan=new Set();
+  for(let i=1;i<nodes.length;i++){
+    const x=nodes[i-1],y=nodes[i];
+    if(y.c-x.c<=CFG.rowMaxAnchorGap&&y.rpm-x.rpm<=CFG.rowMaxAnchorGap*500)
+      for(let c=x.c;c<=y.c;c++)safeSpan.add(c);
   }
-  // Smooth only the correction field, never the original injector map.
-  const out=want.map((v,c)=>valid[c]?v:0);
-  // Penalize second derivatives in log-PW, not absolute PW. Outlier base
-  // cells have low data confidence; confirmed anchors are strongly weighted.
-  const lambda=CFG.fullRowCurvatureWeight;
-  for(let iteration=0;iteration<95;iteration++){
-    const forward=(iteration%2===0);
-    for(let index=0;index<n;index++){
-      const c=forward?index:n-1-index;
-      if(!valid[c])continue;
-      let d=weight[c],numer=weight[c]*want[c];
-      for(let j=c-1;j<=c+1;j++){
-        if(j<1||j>=n-1||!valid[j-1]||!valid[j]||!valid[j+1])continue;
-        const coeff=j===c?-2:1;
-        const curvature=out[j-1]-2*out[j]+out[j+1];
-        d+=lambda*coeff*coeff;
-        numer-=lambda*coeff*(curvature-coeff*out[c]);
-      }
-      if(d>0)out[c]=clamp(numer/d,low,high);
-    }
-  }
-  const result=original.map((value,c)=>valid[c]?
-    Number(clamp(value*Math.exp(out[c]),0,Number(s.maxMs)||131.07).toFixed(3)):value);
-  const oldKinks=fullRowKinkCount(original,valid),newKinks=fullRowKinkCount(result,valid);
-  return {row:r,first,last,anchorSet,safeSpan,valid,output:result,
-    writeReady:writeReady&&newKinks<=oldKinks,oldKinks,newKinks,protected:protectedCells};
+  const oldKinks=fullRowKinkCount(base.map(Number),valid);
+  const newKinks=fullRowKinkCount(output.map(Number),valid);
+  return {row:r,first,last,anchorSet:new Set(nodes.map(x=>x.c)),
+    valid,output,safeSpan,placeholders,writeReady:warmQualified&&newKinks<=oldKinks,
+    oldKinks,newKinks,protected:placeholders.size,anchorCount:nodes.length};
 }
-
 function makePreview(s){
   if(!run)return;
   const base=run.base,rows=base.length-1,cols=base[0].length;
@@ -453,7 +444,7 @@ function makePreview(s){
       if(!result)continue;
       run.fullRowRows.add(r);
       run.fullRowMeta.rows++;
-      if(result.writeReady){run.fullRowWritableRows.add(r);run.fullRowMeta.writableRows++;}
+      let writeCellCount=0;
       run.fullRowMeta.oldKinks+=result.oldKinks;
       run.fullRowMeta.newKinks+=result.newKinks;
       run.fullRowMeta.protected+=result.protected;
@@ -473,20 +464,22 @@ function makePreview(s){
         const key=r+':'+c,
           exterior=c<result.first||c>result.last||!result.safeSpan.has(c);
         run.fullRowCells.add(key);run.fullRowMeta.changed++;
-        if(result.writeReady)run.fullRowWriteCells.add(key);
-        else run.fullRowMeta.unverified++;
-        if(exterior){
-          run.fullRowExtra.add(key);run.fullRowMeta.extrapolated++;
-          labels[r][c]='fullrow-extrapolated';
-        }else if(result.writeReady){
-          run.fullRowInterior.add(key);
-          run.rowApproved.add(key);run.rowTrial.add(key);
+        const eligible=result.writeReady&&!exterior&&!result.placeholders.has(c)&&
+          baseline>0&&Math.abs(value/baseline-1)<=CFG.maxPreviewPct/100+.001;
+        if(eligible){
+          run.fullRowWriteCells.add(key);writeCellCount++;
+          run.fullRowInterior.add(key);run.rowApproved.add(key);run.rowTrial.add(key);
           labels[r][c]=result.anchorSet.has(c)?'fullrow-anchor':'fullrow-interior';
           if(result.anchorSet.has(c))run.fullRowMeta.anchorCells++;
         }else{
-          labels[r][c]='fullrow-unverified';
+          run.fullRowMeta.unverified++;
+          if(exterior){
+            run.fullRowExtra.add(key);run.fullRowMeta.extrapolated++;
+            labels[r][c]='fullrow-extrapolated';
+          }else labels[r][c]='fullrow-unverified';
         }
       }
+      if(writeCellCount){run.fullRowWritableRows.add(r);run.fullRowMeta.writableRows++;}
     }
   }
   if(fullRowEnabled){
@@ -929,11 +922,11 @@ function ui(){
     ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
     ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
     ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
-    ' · hàng đủ 4 neo ẤM để ghi '+(run?.fullRowMeta?.writableRows||0)+
+    ' · hàng có 4 neo ẤM + đoạn ghi được '+(run?.fullRowMeta?.writableRows||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
     ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
-    ' · ô 15ms bảo vệ '+(run?.fullRowMeta?.protected||0)+
+    ' · ô 15ms KHÔNG làm nền '+(run?.fullRowMeta?.protected||0)+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
     ' · lần GHI ECU đã xác minh '+verifiedWrites;
   if(detail){
@@ -958,10 +951,11 @@ function ui(){
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
       'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG: cần 4 ô AFR/PW XANH tại 4 RPM khác nhau cùng TPS để DỰNG ĐƯỜNG XEM TRƯỚC, '+
-      'kể cả mẫu được thu khi ECT chưa đủ ấm. Chỉ khi có 4 neo ĐỦ ẤM cùng TPS mới cho xét GHI ECU. '+
-      'Ô tím là NGOẠI SUY hoặc CHƯA XÁC MINH, không có nghĩa đạt AFR mục tiêu. '+
-      'GHI ECU thường chỉ dùng vùng giữa neo; muốn GHI THỬ toàn hàng phải bật 2 công tắc, xác nhận riêng. '+
+      'SỬA CONG CẢ HÀNG: 4 ô AFR/PW XANH cùng TPS dựng mới toàn bộ 30 RPM. '+
+      'Chỉ dùng TGP nền của các ô đã đo, AFR ĐO và AFR mục tiêu để nội suy lượng khí ước tính. '+
+      'KHÔNG dùng TGP cũ ở các ô chưa chạy, kể cả dải 15ms. '+
+      'Ngoài vùng đo giữ mức khí ước tính tại neo biên: chỉ là NGOẠI SUY CHƯA XÁC MINH (ô tím). '+
+      'GHI ECU chỉ xét đoạn giữa 4+ neo ẤM, không ghi ngoại suy và không quá 20% MAP nền. '+
       'GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
@@ -992,7 +986,7 @@ function toggleFullRowMode(){
     try{bridge.refreshView()}catch(_e){}
   }
   reason=fullRowEnabled?
-    'SỬA CONG CẢ HÀNG BẬT: 4 ô AFR/PW xanh tại 4 RPM cùng TPS mới tạo đường XEM TRƯỚC; GHI ECU cần 4 ô đủ ấm.':
+    'SỬA CONG CẢ HÀNG BẬT: 4 neo xanh cùng TPS dựng lại đủ 30 RPM; ô ngoài neo CHỈ XEM.':
     'SỬA CONG CẢ HÀNG TẮT: chỉ nội suy trong đoạn RPM có dữ liệu.';
   ui();
 }
@@ -1011,18 +1005,21 @@ async function applyLocal(){
   if(bridge.live()?.recording){say('DỪNG GHI AFR rồi mới lưu MAP bù');return false;}
   if(!validRun())return false;
   const s=run,proposal=clone(s.preview),baseline=clone(s.base);
-  const unverified=s.spatial.previewOnly>0||s.spatial.eligible<2||
+  const modeledFullRow=fullRowEnabled&&s.fullRowMeta.rows>0;
+  const unverified=modeledFullRow||s.spatial.previewOnly>0||s.spatial.eligible<2||
     s.sensorDelayMs<=0||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
   const ok=await root.blinkConfirm('LƯU MAP BÙ VÀO BLINK · MAP NO.'+s.bank,
-    'Bù tối đa ±'+CFG.maxPreviewPct+'% cho '+s.estimated+' ô. '+
-    (unverified?'CẢNH BÁO: có dữ liệu chưa xác minh/ECT còn thấp. Đây chỉ là BẢN NHÁP.':
-      'Các vùng đủ điều kiện vẫn cần xác minh AFR thực tế.')+
-    '\n\nLưu chỉ đổi MAP trong Blink, KHÔNG GHI ECU. AFR cũ sẽ xóa tránh bù lặp. '+
-    'Muốn ghi ECU sau đó phải chủ động chọn THỜI GIAN PHUN → LƯU HIỆN TẠI.',
-    'LƯU VÀO BLINK','HỦY');
+    (modeledFullRow?
+      'BẢN NHÁP DỰNG MỚI '+s.fullRowMeta.rows+' HÀNG, '+s.estimated+
+      ' Ô từ 4+ neo/hàng. Ô chưa đo (kể cả vùng 15ms) có thể khác MAP gốc hơn 20%. ':
+      'Bù tối đa ±'+CFG.maxPreviewPct+'% cho '+s.estimated+' ô. ')+
+    (unverified?'ĐÂY CHỈ LÀ SUY LUẬN CHƯA ĐƯỢC KIỂM CHỨNG. ':'')+
+    '\n\nChỉ lưu vào BLINK, KHÔNG GHI ECU. Không sử dụng MAP chưa đo để chạy xe; '+
+    'cần kiểm tra độc lập cả dải RPM trước khi ghi ECU.',
+    'LƯU BẢN NHÁP','HỦY');
   if(!ok||!active||saving||run!==s||!validRun()||bridge.live()?.recording)return false;
   try{
-    bridge.applyLocal({bank:s.bank,baseline,proposal});
+    bridge.applyLocal({bank:s.bank,baseline,proposal,fullRowDraft:modeledFullRow});
     stop('ĐÃ LƯU MAP BÙ TRONG BLINK · CHƯA GHI ECU · phải kiểm tra lại');
     return true;
   }catch(e){say('Lưu MAP bù thất bại: '+String(e?.message||e));return false;}
@@ -1082,12 +1079,11 @@ async function saveToEcu(prepareTransport){
       'Đây là bản thử nghiệm, có thể dựa trên dữ liệu AFR/PW chưa được xác nhận khi máy đủ ấm. '+
       'ECT '+ect.toFixed(1)+'°C, AFR delay '+s.sensorDelayMs+'ms. '+
       'Sẽ ghi '+confirmed.included.length+' ô '+
-      (fullRowTrial?'CẢ HÀNG, bao gồm '+s.fullRowMeta.extrapolated+
-        ' ô NGOẠI SUY chưa đo':'GIỮA hai neo cùng TPS')+
+      (fullRowTrial?'GIỮA 4+ NEO ẤM (KHÔNG gồm ngoại suy)':'GIỮA neo cùng TPS')+
       ', giới hạn ±20%. '+
       (fullRowTrial?
         'CẢNH BÁO: 4 ô AFR/PW vẫn không chứng minh đúng lượng phun ở RPM chưa đo. '+
-        'Không thử ở tải lớn hoặc trên đường công cộng. Vùng 15ms bất thường sẽ giữ nguyên. ':
+        'Không thử ở tải lớn hoặc trên đường công cộng. Dải 15ms dự đoán KHÔNG ghi ECU. ':
         'KHÔNG đổi IDLE, ô khóa, RPM chưa đo hoặc đoạn MAP nền gãy. ')+
       '\n\n'+
       'CHỈ tiếp tục khi đã SAO LƯU MAP GỐC và thử trong điều kiện kiểm soát. '+
@@ -1102,7 +1098,7 @@ async function saveToEcu(prepareTransport){
   }
   saving=true;trialWriteAuthorized=trial;fullRowWriteAuthorized=fullRowTrial;
   reason=(trial?'ĐANG GHI THỬ ':'ĐANG GHI ')+'MAP BÙ TPS → ECU · '+confirmed.included.length+
-    (fullRowTrial?' ô CẢ HÀNG (có ngoại suy)':' ô giữa 2 neo')+
+    (fullRowTrial?' ô TRONG KHOẢNG NEO (ngoại suy KHÔNG ghi)':' ô trong vùng neo')+
     '; GHI AFR ON / SMART ON · xác minh 420 ô.';
   ui();
   let ok=false;
@@ -1139,7 +1135,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.151',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.152',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1209,10 +1205,11 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG dùng 4 ô AFR/PW xanh tại 4 RPM cùng TPS để XEM TRƯỚC (mẫu lạnh vẫn xem được). '+
-    'Để GHI ECU cần 4 neo ẤM được đối chiếu trên cùng TPS; toàn hàng chỉ là mô hình. '+
-    'GHI THỬ CẢ HÀNG cần bật hai công tắc, ECT từ 65°C và xác nhận riêng. '+
-    'KHÔNG áp dụng các vùng chưa đo. Kiểm chứng thực tế trước khi sử dụng trên động cơ.</small>';
+    'SỬA CONG CẢ HÀNG dùng 4 neo AFR/PW đã đối chiếu cùng TPS để dựng mới TOÀN BỘ 30 RPM, '+
+    'không lấy TGP cũ của ô chưa đo làm nền, kể cả vùng 15ms. '+
+    'Ngoài khoảng neo là NGOẠI SUY CHỈ XEM / BẢN NHÁP BLINK. '+
+    'GHI ECU chỉ xét ô giữa các neo ẤM, không ngoại suy, không vượt 20%, ECT từ 65°C. '+
+    'Phải đo xác minh thực tế trước khi dùng trên động cơ.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcTrialMode').addEventListener('click',toggleTrialMode);
@@ -1227,6 +1224,9 @@ root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,previe
   isTrialCellApproved:(r,c)=>saving&&trialWriteAuthorized&&(
     !!run?.rowTrial?.has(r+':'+c)||!!(fullRowWriteAuthorized&&run?.fullRowWriteCells?.has(r+':'+c))),
   isFullRowWriteAuthorized:()=>saving&&trialWriteAuthorized&&fullRowWriteAuthorized,
+  isFullRowMode:()=>active&&fullRowEnabled&&!saving&&!awaitingRebase,
+  isFullRowDraftCell:(r,c)=>active&&fullRowEnabled&&!saving&&!awaitingRebase&&
+    !!run?.fullRowCells?.has(r+':'+c),
   getStats:()=>({active,saving,awaitingRebase,trialWriteArmed,fullRowEnabled,verifiedWrites,raw,accepted,rejected,suspected,
     provisionalSamples,provisionalSkipped,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
     provisionalCells:run?.provisional.size||0,
