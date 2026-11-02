@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.147 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.148 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -17,7 +17,7 @@ const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.8
   spatialWarmEctC:65,spatialMaxPreviewPct:20,
   rowMaxAnchorGap:6,rowEdgeTaperCells:3,rowCurveGain:.9,
   rowHorizontalBlend:.12,rowVerticalBlend:.14,rowMaxLogStep:.0488,
-  rowKinkLogThreshold:.09});
+  rowKinkLogThreshold:.09,trialMinEctC:60});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
 function coord(axis,x,descending=false){
@@ -108,7 +108,7 @@ function filterAfr(w){
   return {ok:true,afr:median(core),support:core.length};
 }
 root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filterAfr});
-let active=false,saving=false,awaitingRebase=false,afrHoldUntil=0,rebaseAfterTime=0,verifiedWrites=0,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
+let active=false,saving=false,awaitingRebase=false,trialWriteArmed=false,trialWriteAuthorized=false,afrHoldUntil=0,rebaseAfterTime=0,verifiedWrites=0,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
 let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
 const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:0,
@@ -145,7 +145,7 @@ function startRun(){
   const s=getSnapshot();
   if(!s){say('Hãy kết nối, ĐỌC MAP ECU, xác minh TPS và AFR mục tiêu trước');return false;}
   if(s.autoIdle){say('Phải tắt TỰ LƯU MAP trước khi bật SMART');return false;}
-  saving=false;awaitingRebase=false;history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
+  saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
   diagnostics=emptyDiagnostics();
   provisionalSamples=provisionalSkipped=0;lastProvisionalUI=0;
   lastAccept=lastUI=0;
@@ -156,8 +156,8 @@ function startRun(){
       invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0,sensorClip:0},
     sensorDelayMs:clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500),lastSpatialEval:0,
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),
-    rowApproved:new Set(),rowMeta:{rows:0,segments:0,writeSegments:0,
-      inferred:0,approved:0,baseKinks:0},estimated:0};
+    rowApproved:new Set(),rowTrial:new Set(),rowMeta:{rows:0,segments:0,writeSegments:0,trialSegments:0,
+      inferred:0,approved:0,trialCells:0,baseKinks:0},estimated:0};
   return true;
 }
 function validRun(){
@@ -179,15 +179,16 @@ function validRun(){
 function makePreview(s){
   if(!run)return;
   const base=run.base,rows=base.length-1,cols=base[0].length;
-  run.rowApproved.clear();
+  run.rowApproved.clear();run.rowTrial.clear();
   const out=clone(base),labels=base.map(row=>row.map(()=>'none'));
   const curve=Array.from({length:rows},()=>Array(cols).fill(null));
   const approved=Array.from({length:rows},()=>Array(cols).fill(false));
+  const trial=Array.from({length:rows},()=>Array(cols).fill(false));
   const direct=Array.from({length:rows},()=>Array(cols).fill(false));
   const groupId=Array.from({length:rows},()=>Array(cols).fill(-1));
   const byRow=Array.from({length:rows},()=>[]);
-  const rowMeta={rows:0,segments:0,writeSegments:0,
-    inferred:0,approved:0,baseKinks:0};
+  const rowMeta={rows:0,segments:0,writeSegments:0,trialSegments:0,
+    inferred:0,approved:0,trialCells:0,baseKinks:0};
   const kinked=(r,start,end)=>{
     for(let c=start+1;c<end;c++){
       const x=Number(base[r][c-1]),y=Number(base[r][c]),z=Number(base[r][c+1]);
@@ -216,6 +217,7 @@ function makePreview(s){
       if(badBaseline)rowMeta.baseKinks++;
       for(let i=1;i<group.length;i++){
         rowMeta.segments++;
+        if(!badBaseline)rowMeta.trialSegments++;
         if(!badBaseline&&group[i-1].applicationSafe===true&&
           group[i].applicationSafe===true)rowMeta.writeSegments++;
       }
@@ -233,6 +235,7 @@ function makePreview(s){
         curve[r][c]=((1-t)*logP+t*logQ)*CFG.rowCurveGain*taper;
         approved[r][c]=!badBaseline&&p.applicationSafe===true&&
           q.applicationSafe===true;
+        trial[r][c]=!badBaseline;
         direct[r][c]=group.some(a=>a.v===c);
         groupId[r][c]=serial;
       }
@@ -314,6 +317,7 @@ function makePreview(s){
       if(Math.abs(value-original)<.001)continue;
       out[r][c]=value;
       editedRow=true;
+      if(trial[r][c]){run.rowTrial.add(r+':'+c);rowMeta.trialCells++;}
       if(approved[r][c]){
         labels[r][c]=direct[r][c]?'supported':'row-inferred';
         run.rowApproved.add(r+':'+c);
@@ -718,12 +722,17 @@ function preview(bank){return active&&run&&!saving&&!awaitingRebase&&Number(bank
 function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels[r]?.[c]||'none':'none';}
 function ui(){
   const button=get('smartPcToggle'),status=get('smartPcStatus'),stats=get('smartPcStats'),
-    detail=get('smartPcDiagnostics'),apply=get('smartPcApply');
+    detail=get('smartPcDiagnostics'),apply=get('smartPcApply'),trialButton=get('smartPcTrialMode');
   if(!button)return;
   button.textContent=saving?'⏳ SMART ĐANG GHI ECU':
     (active?'■ TẮT SMART MAP':'◆ BẬT SMART MAP (PC)');
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
+  if(trialButton){
+    trialButton.textContent=trialWriteArmed?'⚠ GHI THỬ ECU: BẬT':'GHI THỬ ECU: TẮT';
+    trialButton.disabled=!active||saving||awaitingRebase;
+    trialButton.classList.toggle('danger',trialWriteArmed);
+  }
   if(status)status.textContent=reason;
   const x=run?.spatial;
   if(stats)stats.textContent='AFR nhận '+raw+' · mẫu RAW ~ '+provisionalSamples+
@@ -740,6 +749,7 @@ function ui(){
     ' · đoạn đủ điều kiện GHI '+(run?.rowMeta?.writeSegments||0)+
     ' · ô NỘI SUY được duyệt '+(run?.rowMeta?.inferred||0)+
     ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
+    ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
     ' · lần GHI ECU đã xác minh '+verifiedWrites;
   if(detail){
@@ -763,6 +773,7 @@ function ui(){
       '(mỗi đoạn tối đa '+CFG.rowMaxAnchorGap*500+' RPM); không ngoại suy ngoài vùng đo. '+
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
+      'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
       'BẤM MAP ĐÃ BÙ → ECU một lần; GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
@@ -771,7 +782,7 @@ function ui(){
 }
 
 function stop(message){
-  active=false;saving=false;awaitingRebase=false;afrHoldUntil=0;rebaseAfterTime=0;
+  active=false;saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;afrHoldUntil=0;rebaseAfterTime=0;
   run=null;history=[];afrRing=[];
   reason=message||'SMART MAP đã tắt · không ghi ECU';
   ui();try{bridge.refreshView()}catch(_e){}
@@ -783,6 +794,14 @@ function toggle(){
   if(!bridge.disableAutoIdle()){run=null;say('Không tắt được TỰ LƯU; SMART không bật');return;}
   active=true;reason='SMART SPATIAL: lưu dấu AFR mọi lượt ga; đối chiếu ô kề + PW, chỉ đề xuất khi đủ chứng cứ.';
   ui();try{bridge.refreshView()}catch(_e){}
+}
+function toggleTrialMode(){
+  if(!active||saving||awaitingRebase)return;
+  trialWriteArmed=!trialWriteArmed;
+  reason=trialWriteArmed?
+    'CHẾ ĐỘ GHI THỬ ĐANG BẬT: chỉ bấm MAP ĐÃ BÙ → ECU khi đã sao lưu MAP gốc; ghi trong đoạn có 2 neo, xác nhận riêng.':
+    'CHẾ ĐỘ GHI THỬ ĐÃ TẮT: chỉ ghi các đoạn đủ điều kiện bình thường.';
+  ui();
 }
 async function applyLocal(){
   if(!active||!run||saving||!run.estimated){
@@ -807,13 +826,13 @@ async function applyLocal(){
     return true;
   }catch(e){say('Lưu MAP bù thất bại: '+String(e?.message||e));return false;}
 }
-// Entire measured RPM corridor may be written if BOTH bounding AFR/PW
-// anchor nodes in the SAME TPS row were independently corroborated when warm.
-// A one-off isolated node cannot create a spiky fuel correction.
-function trustedForEcu(){
-  if(!run||!run.rowApproved?.size)return null;
+// A TRIAL preview includes only RPM columns BETWEEN two corroborated AFR/PW
+// anchors in the same TPS row with a non-kinked base; no open-ended guesswork.
+function trustedForEcu({trial=false}={}){
+  const allowedCells=trial?run?.rowTrial:run?.rowApproved;
+  if(!run||!allowedCells?.size)return null;
   const out=clone(run.base),included=[];
-  for(const key of Array.from(run.rowApproved).sort((a,b)=>{
+  for(const key of Array.from(allowedCells).sort((a,b)=>{
     const [ra,ca]=a.split(':').map(Number),[rb,cb]=b.split(':').map(Number);
     return ra-rb||ca-cb;
   })){
@@ -832,30 +851,49 @@ function trustedForEcu(){
 // also drops AFR packets until the 420-cell verification has completed.
 async function saveToEcu(prepareTransport){
   if(!active||!run||saving||awaitingRebase||!run.estimated){
-    say('SMART chưa có MAP bù sẵn sàng để ghi ECU');return false;
+    say('SMART chưa có ô MAP bù để ghi ECU. Ghi AFR thêm cho đủ 2 neo cùng hàng TPS.');return false;
   }
   if(!validRun())return false;
-  const s=run,selected=trustedForEcu(),ect=Number(bridge.live()?.ect);
-  if(!selected||s.rowMeta.writeSegments<1||s.spatial.eligible<2||s.sensorDelayMs<=0||
-     !Number.isFinite(ect)||ect<CFG.spatialWarmEctC){
-    say('CHƯA GHI: cần ECT ≥65°C, AFR delay và ít nhất 2 neo CÙNG HÀNG TPS. SMART/GHI AFR vẫn ON.');
+  const s=run,trial=trialWriteArmed,selected=trustedForEcu({trial}),
+    ectValue=bridge.live()?.ect,ect=ectValue==null?NaN:Number(ectValue);
+  const minEct=trial?CFG.trialMinEctC:CFG.spatialWarmEctC;
+  const supported=trial?s.rowMeta.trialSegments>=1:
+    s.rowMeta.writeSegments>=1&&s.spatial.eligible>=2;
+  if(!selected||!supported||s.sensorDelayMs<=0||!Number.isFinite(ect)||ect<minEct){
+    say('CHƯA GHI ECU: cần 2 neo AFR/PW cùng TPS, delay AFR, MAP nền không gãy và ECT ≥'+
+      minEct+'°C. '+(trial?'GHI THỬ đã bật nhưng hiện không có đoạn đủ điều kiện.':'Có thể bật GHI THỬ nếu ECT 60–65°C.'));
     return false;
   }
-  const baseline=clone(s.base),confirmed=trustedForEcu();
+  const baseline=clone(s.base),confirmed=trustedForEcu({trial});
   if(!confirmed||confirmed.included.join('|')!==selected.included.join('|')||
      confirmed.proposal.some((row,r)=>row.some((v,c)=>v!==selected.proposal[r][c]))||
      !active||run!==s||!validRun())return false;
-  // A single intentional tap is the authorization. No second dialog.
-  saving=true;
-  reason='ĐANG GHI ĐƯỜNG BÙ TPS → ECU · '+confirmed.included.length+
-    ' ô trong các đoạn RPM đủ neo, gồm '+confirmed.interpolated+
-    ' ô nội suy; GHI AFR ON / SMART ON.';
+  // A NORMAL write remains one-click; a TRIAL write is additionally confirmed.
+  if(trial){
+    const warned=await root.blinkConfirm('⚠ GHI THỬ MAP BÙ VÀO ECU · NO.'+s.bank,
+      'Đây là bản thử nghiệm, có thể dựa trên dữ liệu AFR/PW chưa được xác nhận khi máy đủ ấm. '+
+      'ECT '+ect.toFixed(1)+'°C, AFR delay '+s.sensorDelayMs+'ms. '+
+      'Sẽ ghi '+confirmed.included.length+' ô giữa hai neo cùng TPS, giới hạn ±20%; '+
+      'KHÔNG đổi IDLE, ô khóa, RPM chưa đo hoặc đoạn MAP nền gãy.\n\n'+
+      'CHỈ tiếp tục khi đã SAO LƯU MAP GỐC và thử trong điều kiện kiểm soát. '+
+      'Blink sao lưu MAP nền trên trình duyệt, ghi ECU rồi ĐỌC LẠI 420/420 ô. '+
+      'SMART và GHI AFR vẫn ON, không tự ghi thêm.',
+      'TÔI ĐÃ SAO LƯU · GHI THỬ','HỦY');
+    if(!warned||!active||run!==s||saving||awaitingRebase||!validRun())return false;
+    const still=trustedForEcu({trial:true});
+    if(!still||still.included.join('|')!==confirmed.included.join('|')||
+       still.proposal.some((row,r)=>row.some((v,c)=>v!==confirmed.proposal[r][c]))||
+       !(Number(bridge.live()?.ect)>=CFG.trialMinEctC))return false;
+  }
+  saving=true;trialWriteAuthorized=trial;
+  reason=(trial?'ĐANG GHI THỬ ':'ĐANG GHI ')+'MAP BÙ TPS → ECU · '+confirmed.included.length+
+    ' ô giữa 2 neo; GHI AFR ON / SMART ON · xác minh 420 ô.';
   ui();
   let ok=false;
   try{
     ok=await bridge.writeSmartToEcu({
       bank:s.bank,baseline,proposal:confirmed.proposal,
-      approved:confirmed.included,prepareTransport
+      approved:confirmed.included,trialMode:trial,prepareTransport
     })===true;
     if(ok)verifiedWrites++;
     return ok;
@@ -864,17 +902,15 @@ async function saveToEcu(prepareTransport){
       ' · SMART vẫn ON, chờ ĐỌC HIỆN TẠI xác minh MAP.';
     return false;
   }finally{
-    // A partial or uncertain write may leave a changed ECU MAP. Never reuse
-    // previous correction evidence; wait for another verified MAP snapshot.
-    saving=false;awaitingRebase=true;
+    saving=false;trialWriteAuthorized=false;trialWriteArmed=false;awaitingRebase=true;
     const now=Number(root.performance?.now?.());
     rebaseAfterTime=Number.isFinite(now)?now:0;
     const holdMs=Math.max(1800,(s.sensorDelayMs||0)+1000);
     afrHoldUntil=rebaseAfterTime+holdMs;
     history=[];afrRing=[];recent=[];
     if(ok){
-      reason='ĐÃ GHI & ĐỌC LẠI 420/420 Ô · SMART ON, GHI AFR ON. '+
-        'Đang đợi LIVE mới; bỏ AFR '+(holdMs/1000).toFixed(1)+'s để tránh bù lặp.';
+      reason='ĐÃ GHI '+(trial?'THỬ ':'')+'& ĐỌC LẠI 420/420 · SMART/GHI AFR VẪN ON. '+
+        'Đợi LIVE mới, bỏ AFR cũ '+(holdMs/1000).toFixed(1)+'s.';
     }else if(!reason.startsWith('GHI SMART ECU LỖI')){
       reason='GHI ECU CHƯA XÁC MINH · SMART VẪN ON; chờ MAP hợp lệ rồi mới học tiếp.';
     }
@@ -887,7 +923,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.146',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.148',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -899,7 +935,7 @@ function exportLog(){
     spatialConfig:{minIndependentGapMs:CFG.spatialIndependentGapMs,
       minWarmECT:CFG.spatialWarmEctC,afrDelayMs:run.sensorDelayMs},
     spatialStats:run.spatial,rowCorrection:run.rowMeta,
-    rowApprovedCells:Array.from(run.rowApproved),
+    rowApprovedCells:Array.from(run.rowApproved),rowTrialCells:Array.from(run.rowTrial),
     spatialBuckets:Array.from(run.spatialBuckets.entries()),
     spatialConfirmed:Array.from(run.spatialConfirmed.entries()),
     pendingTrace:run.spatialPending,
@@ -922,6 +958,7 @@ function initUI(){
     '#smartPcStatus{flex:1 1 350px}#smartPcStats{flex:1 1 100%;color:#93cddf;font-size:11px}'+
     '#smartPcDiagnostics{flex:1 1 100%;color:#f3d3aa;font-size:11px;line-height:1.35}'+
     '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
+    '#smartPcTrialMode{background:#493325;color:#ffe8ba}#smartPcTrialMode.danger{background:#b85b13;color:#fff}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-inferred{outline:1px dashed #6bc8fa;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-row-inferred{outline:2px dashed #4fe2c6;outline-offset:-2px}'+
@@ -936,6 +973,7 @@ function initUI(){
   panel.id='smartPcPanel';
   panel.innerHTML='<button type="button" id="smartPcToggle">◆ BẬT SMART MAP (PC)</button>'+
     '<span id="smartPcStatus" role="status">SMART MAP mặc định tắt.</span>'+
+    '<button type="button" id="smartPcTrialMode">GHI THỬ ECU: TẮT</button>'+
     '<button type="button" id="smartPcApply" disabled>✓ LƯU MAP BÙ VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
     '<span id="smartPcStats">Chưa có mẫu</span>'+ 
@@ -946,23 +984,27 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'Cần kiểm chứng thực tế trước khi sử dụng trên động cơ.</small>';
+    'GHI THỬ ECU chỉ bật bằng nút riêng và cần xác nhận, ECT từ 60°C, hai neo cùng TPS; '+
+    'KHÔNG áp dụng các vùng chưa đo. Kiểm chứng thực tế trước khi sử dụng trên động cơ.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
+  get('smartPcTrialMode').addEventListener('click',toggleTrialMode);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
   get('smartPcExport').addEventListener('click',exportLog);
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
   measuredEstimate,pendingAfr,saveToEcu,isSaving:()=>saving,
-  getStats:()=>({active,saving,awaitingRebase,verifiedWrites,raw,accepted,rejected,suspected,
+  isTrialWriteAuthorized:()=>saving&&trialWriteAuthorized,
+  isTrialCellApproved:(r,c)=>saving&&trialWriteAuthorized&&!!run?.rowTrial?.has(r+':'+c),
+  getStats:()=>({active,saving,awaitingRebase,trialWriteArmed,verifiedWrites,raw,accepted,rejected,suspected,
     provisionalSamples,provisionalSkipped,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
     provisionalCells:run?.provisional.size||0,
     anchors:run?.anchors.size||0,estimated:run?.estimated||0,
     afrEstimates:run?.evidence.size||0,readyAnchors:readyAnchors(),
     diagnostics:{...diagnostics},
     spatial:run?{...run.spatial}:null,row:run?{...run.rowMeta}:null,
-    approvedCells:run?.rowApproved?.size||0,
+    approvedCells:run?.rowApproved?.size||0,trialCells:run?.rowTrial?.size||0,
     spatialBuckets:run?.spatialBuckets.size||0,
     corroborated:run?.spatialConfirmed.size||0,
     sensorDelayMs:run?.sensorDelayMs||0,reason})});
