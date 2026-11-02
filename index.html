@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.154' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.154: Chrome SMART steady AFR/PW calibrated VE 30-RPM draft
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.155' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.155: Chrome SMART steady AFR/PW calibrated VE 30-RPM draft
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-BLUE-VS-STABLE-VE-READINESS-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-THREE-BLUE-DRAFT-LOCK-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -4968,7 +4968,8 @@ const BLINK_SMART_DRAFT_STORAGE='blinkSmartLocalDraftV1-';
 function saveSmartLocalDraftGuard(bank,map,meta={}){
   if(!window.BLINK_PC_SMART_TUNE)return;
   try{localStorage.setItem(BLINK_SMART_DRAFT_STORAGE+bank,
-    JSON.stringify({bank,map,at:Date.now(),fullRowDraft:meta.fullRowDraft===true}));}
+    JSON.stringify({bank,map,at:Date.now(),fullRowDraft:meta.fullRowDraft===true,
+      lowConfidenceDraft:meta.lowConfidenceDraft===true}));}
   catch(e){console.warn('SMART draft guard store',e);}
 }
 function smartLocalDraftInfo(bank,map){
@@ -4989,9 +4990,19 @@ async function startFuelWrite(opts={}){
   // A whole-row LOCAL draft can differ arbitrarily from unsampled original
   // cells. Never allow an internal/automatic write to bypass the draft guard.
   const localDraft=smartLocalDraftInfo(state.activeMap,state.inject);
+  if(localDraft?.lowConfidenceDraft){
+    // User may save the three-BLUE-node forecast into Blink RAM, but it is
+    // not a defensible ECU write basis: block ALL fuel ECU write routes,
+    // including manually confirmed writes, while this draft remains active.
+    showEcuNotice('error','BẢN NHÁP 3 NEO CHƯA ỔN ĐỊNH · CHẶN GHI ECU',
+      'MAP này chỉ được lưu trong Blink từ 3 ô AFR/PW xanh chưa đủ ổn định. '+
+      'Không gửi tới ECU. Cần đo lại AFR/PW ổn định, tạo MAP mới đã xác minh trước khi ghi.',0);
+    return false;
+  }
   if(localDraft?.fullRowDraft&&(opts.skipConfirm||opts.autoIdle)){
-    showEcuNotice('error','MAP 4 NEO CHƯA XÁC MINH',
-      'Không ghi MAP ngoại suy bằng đường ghi tự động. Chỉ kiểm tra và ghi thủ công sau khi có dữ liệu đo độc lập.',0);
+    showEcuNotice('error','MAP ≥3 NEO CHƯA XÁC MINH',
+      'Không ghi MAP ngoại suy bằng đường ghi tự động. '+
+      'Chỉ xác minh AFR/PW thực tế và ghi thủ công sau khi đã xác nhận các vùng RPM suy luận.',0);
     return false;
   }
   // Any later MANUAL write still requires an explicit second warning.
@@ -4999,9 +5010,9 @@ async function startFuelWrite(opts={}){
     const ect=Number(state.live?.ect),cold=!Number.isFinite(ect)||ect<65;
     const full=localDraft.fullRowDraft===true;
     const approved=await blinkConfirm(
-      full?'CẢNH BÁO CAO: GHI MAP DỰ ĐOÁN 4 NEO':'CẢNH BÁO: GHI MAP BÙ NHÁP SMART',
+      full?'CẢNH BÁO CAO: GHI MAP DỰ ĐOÁN ≥3 NEO':'CẢNH BÁO: GHI MAP BÙ NHÁP SMART',
       (full?
-        'MAP này được dựng lại toàn bộ 30 ô trên mỗi hàng từ 4 neo. Ô RPM CHƯA ĐO có thể bị đổi nhiều hơn 20%, kể cả vùng 15ms cũ. Đây KHÔNG phải dữ liệu động cơ đã xác minh. ':
+        'MAP này được dựng lại 30 ô trên mỗi hàng từ ít nhất 3 neo. Ô RPM CHƯA ĐO có thể đổi hơn 20%, kể cả vùng 15ms cũ. Đây KHÔNG phải dữ liệu động cơ đã xác minh. ':
         'MAP bù này được lưu nháp từ SMART; số AFR/PW có thể chỉ là suy luận, bù thường giới hạn ±20%. ')+
       (cold?'ECT chưa đạt 65°C hoặc chưa rõ nhiệt độ đủ ổn định. ':'')+
       'Chỉ tiếp tục sau khi đã kiểm chứng AFR và thời gian phun trên động cơ bằng thiết bị đo độc lập. '+
@@ -7911,7 +7922,7 @@ window.blinkPcSmartBridge={
     if(!ok)state.pendingAfrClearMapNo=0;
     return ok===true;
   },
-  applyLocal({bank,baseline,proposal,fullRowDraft=false}){
+  applyLocal({bank,baseline,proposal,fullRowDraft=false,lowConfidenceDraft=false}){
     if(bank!==state.activeMap||state.recording||autoIdleSave.enabled||
       autoIdleSave.inFlight||state.ecuWriteQueued||
       window.BlinkRealProtocol?.manualIoActive||
@@ -7921,10 +7932,12 @@ window.blinkPcSmartBridge={
        !validMatrix(baseline)||!validMatrix(proposal)||!inspectFuelMap(state.inject).ok)
       throw new Error('MAP/ECU chưa xác thực hoặc dữ liệu chưa hợp lệ.');
     const max=fuelProtocolMaxMs();
-    // The user must explicitly confirm LOCAL-only draft after 4 corroborated
-    // anchors. This is NOT an ECU write or an exemption for unmodeled cells.
+    // The user confirms LOCAL-only staging from >=3 BLUE corroborated nodes.
+    // This does not send ECU commands, and a low-confidence BLUE draft remains
+    // BLOCKED from all manual and automatic ECU-write routes after staging.
     const fullRowLocalDraft=fullRowDraft===true&&window.BLINK_PC_SMART_TUNE&&
       window.BlinkPcSmartAutoTune?.isFullRowMode?.()===true;
+    const lowConfidenceLocalDraft=fullRowLocalDraft&&lowConfidenceDraft===true;
     for(let r=0;r<R;r++)for(let c=0;c<C;c++){
       if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
         throw new Error('MAP nền đã thay đổi. Không áp dụng bản suy luận cũ.');
@@ -7934,15 +7947,19 @@ window.blinkPcSmartBridge={
         if(Math.abs(n-old)>0.000001)throw new Error('SMART đã đụng ô IDLE/ô khóa AFR: '+r+','+c);
       }else if(old>0&&Math.abs(n/old-1)>0.201&&
         !(fullRowLocalDraft&&window.BlinkPcSmartAutoTune?.isFullRowDraftCell?.(r,c)))
-        throw new Error('SMART vượt 20% ngoài ô dự đoán 4 neo: '+r+','+c);
+        throw new Error('SMART vượt 20% ngoài ô dự đoán ≥3 neo: '+r+','+c);
     }
     state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
-    saveSmartLocalDraftGuard(bank,state.inject,{fullRowDraft:fullRowLocalDraft});
+    saveSmartLocalDraftGuard(bank,state.inject,{
+      fullRowDraft:fullRowLocalDraft,lowConfidenceDraft:lowConfidenceLocalDraft});
     state.measured=blankMatrix(null);state.counts=blankMatrix(0);
     afrResetTargetLocks(bank);state.lastCellKey='';
     render();saveSoon();
     showEcuNotice('info','MAP BÙ ĐÃ LƯU TRONG BLINK · CHƯA GHI ECU',
-      'Đã lưu BẢN NHÁP vào Blink; ECU KHÔNG thay đổi. Những ô chưa chạy, đặc biệt dải RPM cao trước đây 15ms, là ước tính từ 4 neo chứ KHÔNG phải số đo. Cần kiểm tra độc lập trước khi ghi ECU.',6500);
+      lowConfidenceLocalDraft?
+        'Đã lưu bản nháp từ >=3 ô AFR/PW xanh cùng TPS. ECU KHÔNG đổi; bản nháp CHƯA ỔN ĐỊNH và BỊ CHẶN GHI ECU.':
+        'Đã lưu bản nháp từ >=3 ô AFR/PW cùng TPS. Vùng RPM chưa đo/15ms là mô hình, ECU KHÔNG đổi; cần xác minh AFR thực tế trước khi ghi.',
+      6500);
     return true;
   }
 };
