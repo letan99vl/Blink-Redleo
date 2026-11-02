@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.143' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.143: Chrome PC SMART spatial unbounded AFR-error preview, guarded apply
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.144' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.144: Chrome SMART 20% preview, staged Blink save, explicit verified ECU write
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-PREVIEW-OVER-18PCT-WITH-APPLY-GUARD-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-20PCT-MANUAL-SAVE-420-READBACK-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -5268,9 +5268,9 @@ async function writeCurrentFuelMap(){
 
 async function applyCorrectedAndWrite(options={}){
   if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
-    showEcuNotice('info','SMART MAP CHỈ XEM TRƯỚC',
-      'Bản suy luận chưa được kiểm chứng trên ECU. DỪNG GHI AFR và dùng ÁP DỤNG VÀO BLINK trước; không gửi MAP SMART trực tiếp từ nút này.',5000);
-    return false;
+    // Keep the existing confirmation-first REAL BLE I/O owner.
+    // The SMART engine approves only corroborated warm cells and verifies 420.
+    return await window.BlinkPcSmartAutoTune.saveToEcu(options.prepareTransport);
   }
   if(autoIdleSave.inFlight&&!options.autoIdle){
     showEcuNotice('info','AUTO TUNER ĐANG LƯU','Đợi ghi ECU và đọc lại 420 ô hoàn tất trước khi bấm LƯU MAP ĐÃ BÙ bằng tay.',4000);
@@ -7782,6 +7782,48 @@ window.blinkPcSmartBridge={
       td.title=overlay.title;
     }
   },
+  async writeSmartToEcu({bank,baseline,proposal,observed,prepareTransport}){
+    // Manually confirmed Smart correction ONLY. This method reuses the existing
+    // V8/V9+/Ultra protocol writer + 420-cell verification and rollback.
+    if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.()||
+       bank!==state.activeMap||state.recording||state.threeRun.active||
+       autoIdleSave.enabled||autoIdleSave.inFlight||state.ecuWriteQueued||
+       !state.ecuConnected||fuelMapSyncUnknown(bank)||!blinkAutoTuneTpsSafe()||
+       !Array.isArray(observed)||!observed.length||
+       !validMatrix(baseline)||!validMatrix(proposal)||!inspectFuelMap(state.inject).ok)
+      throw new Error('MAP ECU chưa đủ điều kiện hoặc dữ liệu chưa sẵn sàng.');
+    if(!(Number(state.live.ect)>=65))throw new Error('ECT chưa đủ 65°C để gửi SMART MAP ECU.');
+    const allowed=new Set(observed),maxMs=fuelProtocolMaxMs();
+    let changed=0;
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      const old=Number(baseline[r][c]),current=Number(state.inject[r][c]),next=Number(proposal[r][c]);
+      if(!Number.isFinite(next)||next<0||next>maxMs||!Object.is(old,current))
+        throw new Error('MAP gốc đổi hoặc giá trị lỗi tại '+r+','+c);
+      const touched=Math.abs(next-old)>0.000001;
+      if(touched&&(!allowed.has(r+':'+c)||r===R-1||
+          afrTargetLockActive(r,c)||old<=0||Math.abs(next/old-1)>.201))
+        throw new Error('Ô SMART chưa được xác minh hoặc vượt ±20% tại '+r+','+c);
+      if(touched)changed++;
+    }
+    if(!changed)throw new Error('Không có ô SMART đủ điều kiện để ghi ECU.');
+    // REAL I/O starts only after the separate user confirmation.
+    if(typeof prepareTransport==='function')await prepareTransport();
+    if(bank!==state.activeMap||state.recording||state.threeRun.active||
+       autoIdleSave.inFlight||!state.ecuConnected||fuelMapSyncUnknown(bank)||
+       !blinkAutoTuneTpsSafe()||!(Number(state.live.ect)>=65))
+      throw new Error('MAP/ECU hoặc nhiệt độ đã đổi khi chờ ghi; chưa gửi lệnh.');
+    for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+      if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
+        throw new Error('MAP gốc thay đổi trong khi chờ giao tiếp ECU.');
+    }
+    state.inject=proposal.map(row=>row.slice());
+    state.pendingAfrClearMapNo=bank;
+    saveSoon();
+    if(state.tab==='inject'||state.tab==='corrected')render();
+    const ok=await startFuelWrite({skipConfirm:true,rollbackMap:baseline,verifyReadback:true});
+    if(!ok)state.pendingAfrClearMapNo=0;
+    return ok===true;
+  },
   applyLocal({bank,baseline,proposal}){
     if(bank!==state.activeMap||state.recording||autoIdleSave.enabled||
       autoIdleSave.inFlight||state.ecuWriteQueued||
@@ -7799,15 +7841,15 @@ window.blinkPcSmartBridge={
       if(!Number.isFinite(n)||n<0||n>max)throw new Error('Thời gian phun vượt giới hạn ở '+r+','+c);
       if(r===R-1||afrTargetLockActive(r,c)){
         if(Math.abs(n-old)>0.000001)throw new Error('SMART đã đụng ô IDLE/ô khóa AFR: '+r+','+c);
-      }else if(old>0&&Math.abs(n/old-1)>0.071)
-        throw new Error('SMART vượt giới hạn thay đổi 7%: '+r+','+c);
+      }else if(old>0&&Math.abs(n/old-1)>0.201)
+        throw new Error('SMART vượt giới hạn thay đổi 20%: '+r+','+c);
     }
     state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
     state.measured=blankMatrix(null);state.counts=blankMatrix(0);
     afrResetTargetLocks(bank);state.lastCellKey='';
     render();saveSoon();
-    showEcuNotice('info','MAP HỌC ĐÃ ÁP DỤNG TRONG BLINK',
-      'Chưa ghi ECU. Dữ liệu AFR cũ đã xóa để tránh áp dụng mức bù hai lần. Cần kiểm tra MAP rồi mới chủ động ghi ECU và đo xác minh lại.',6500);
+    showEcuNotice('info','MAP BÙ ĐÃ LƯU TRONG BLINK · CHƯA GHI ECU',
+      'Đã cập nhật MAP phun trong Blink và xóa AFR cũ tránh bù lặp. Đây có thể là bản nháp chưa xác minh: cần kiểm tra kỹ trước khi chọn THỜI GIAN PHUN → LƯU HIỆN TẠI để gửi ECU.',6500);
     return true;
   }
 };
