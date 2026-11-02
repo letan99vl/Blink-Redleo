@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.143 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.144 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -9,12 +9,12 @@ const bridge=root.blinkPcSmartBridge,doc=root.document;
 if(!pc||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
   minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,
-  maxPreviewPct:7,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2,
+  maxPreviewPct:20,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2,
   provisionalLiveMaxAge:450,provisionalAfrRange:2.8,provisionalCornerWeight:0.10,
   spatialMaxPerCell:36,spatialIndependentGapMs:850,spatialRatioTolerance:0.10,
   spatialPwTolerance:0.22,spatialNeighborRatioTolerance:0.12,
   spatialNeighborPwTolerance:0.25,spatialPendingMs:900,
-  spatialWarmEctC:65,spatialMaxPreviewPct:7});
+  spatialWarmEctC:65,spatialMaxPreviewPct:20});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
 function coord(axis,x,descending=false){
@@ -105,7 +105,7 @@ function filterAfr(w){
   return {ok:true,afr:median(core),support:core.length};
 }
 root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filterAfr});
-let active=false,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
+let active=false,saving=false,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
 let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
 const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:0,
@@ -142,7 +142,7 @@ function startRun(){
   const s=getSnapshot();
   if(!s){say('Hãy kết nối, ĐỌC MAP ECU, xác minh TPS và AFR mục tiêu trước');return false;}
   if(s.autoIdle){say('Phải tắt TỰ LƯU MAP trước khi bật SMART');return false;}
-  history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
+  saving=false;history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
   diagnostics=emptyDiagnostics();
   provisionalSamples=provisionalSkipped=0;lastProvisionalUI=0;
   lastAccept=lastUI=0;
@@ -533,6 +533,7 @@ function addPoint(center,afr,point){
   ui();
 }
 function onLive(info){
+  if(saving)return;
   if(!active||!run||!info||![info.t,info.tps,info.rpm].every(Number.isFinite))return;
   if(!validRun())return;
   const p={t:info.t,bank:Number(info.bank),tps:info.tps,rpm:info.rpm,
@@ -544,6 +545,7 @@ function onLive(info){
   if(p.t-lastUI>900){lastUI=p.t;ui();}
 }
 function onAfr(info){
+  if(saving)return true;
   if(!active||!run)return false;
   const t=Number(info?.t),afr=Number(info?.afr);
   if(!Number.isFinite(t)||!Number.isFinite(afr))return true;
@@ -599,17 +601,16 @@ function ui(){
       ' · '+ectLabel+
       (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
         ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
-      ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng luôn giới hạn ±7%. '+
+      ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng giới hạn ±20%. '+
       'Mẫu chưa đủ điều kiện không thể ÁP DỤNG VÀO BLINK; ECU không tự ghi.';
   }
-  if(apply)apply.disabled=!active||!run||!!bridge.live()?.recording||
-    run.spatial.eligible<2||run.spatial.previewOnly>0||
-    run.sensorDelayMs<=0||!run.estimated||
-    !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
+  // Local staging is operator-confirmed and NEVER a background ECU write.
+  if(apply)apply.disabled=!active||!run||saving||
+    !!bridge.live()?.recording||!run.estimated;
 }
 
 function stop(message){
-  active=false;run=null;history=[];afrRing=[];
+  active=false;saving=false;run=null;history=[];afrRing=[];
   reason=message||'SMART MAP đã tắt · không ghi ECU';
   ui();try{bridge.refreshView()}catch(_e){}
 }
@@ -621,34 +622,90 @@ function toggle(){
   ui();try{bridge.refreshView()}catch(_e){}
 }
 async function applyLocal(){
-  if(!active||!run||run.estimated<1||run.spatial.eligible<2||
-     run.spatial.previewOnly>0||run.sensorDelayMs<=0||
-     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC)){
-    say('Chưa đủ 2 vùng tin cậy, độ trễ AFR hoặc nhiệt độ ECT để áp dụng vào Blink');return;
+  if(!active||!run||saving||!run.estimated){
+    say('Chưa có MAP bù để lưu vào Blink');return false;
   }
-  if(bridge.live()?.recording){say('Hãy DỪNG GHI AFR trước khi áp dụng');return;}
-  if(!validRun())return;
+  if(bridge.live()?.recording){say('DỪNG GHI AFR rồi mới lưu MAP bù');return false;}
+  if(!validRun())return false;
   const s=run,proposal=clone(s.preview),baseline=clone(s.base);
-  const ok=await root.blinkConfirm('SMART MAP · ÁP DỤNG CỤC BỘ',
-    'MAP No.'+s.bank+': '+s.estimated+' ô đề xuất, giới hạn ±'+CFG.maxPreviewPct+
-    '%/lượt. Chỉ đổi MAP trong Blink, KHÔNG ghi ECU.\n\n'+
-    'Phải kiểm tra và đo xác minh lại sau khi áp dụng. AFR đo cũ sẽ xóa để tránh bù lặp.',
-    'ÁP DỤNG BLINK','HỦY');
-  if(!ok||!active||run!==s||!validRun()||bridge.live()?.recording||
-     s.spatial.eligible<2||s.spatial.previewOnly>0||s.sensorDelayMs<=0||
-     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC))return;
+  const unverified=s.spatial.previewOnly>0||s.spatial.eligible<2||
+    s.sensorDelayMs<=0||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
+  const ok=await root.blinkConfirm('LƯU MAP BÙ VÀO BLINK · MAP NO.'+s.bank,
+    'Bù tối đa ±'+CFG.maxPreviewPct+'% cho '+s.estimated+' ô. '+
+    (unverified?'CẢNH BÁO: có dữ liệu chưa xác minh/ECT còn thấp. Đây chỉ là BẢN NHÁP.':
+      'Các vùng đủ điều kiện vẫn cần xác minh AFR thực tế.')+
+    '\n\nLưu chỉ đổi MAP trong Blink, KHÔNG GHI ECU. AFR cũ sẽ xóa tránh bù lặp. '+
+    'Muốn ghi ECU sau đó phải chủ động chọn THỜI GIAN PHUN → LƯU HIỆN TẠI.',
+    'LƯU VÀO BLINK','HỦY');
+  if(!ok||!active||saving||run!==s||!validRun()||bridge.live()?.recording)return false;
   try{
     bridge.applyLocal({bank:s.bank,baseline,proposal});
-    stop('ĐÃ ÁP DỤNG VÀO BLINK · KHÔNG GHI ECU · phải xác minh lại!');
-  }catch(e){say('Áp dụng thất bại: '+String(e?.message||e));}
+    stop('ĐÃ LƯU MAP BÙ TRONG BLINK · CHƯA GHI ECU · phải kiểm tra lại');
+    return true;
+  }catch(e){say('Lưu MAP bù thất bại: '+String(e?.message||e));return false;}
 }
+// Direct ECU save uses only corroborated warm cells, not adjacent extrapolations.
+// An explicit confirmation is required and the real writer verifies 420 cells.
+function trustedForEcu(){
+  if(!run)return null;
+  const out=clone(run.base),included=[];
+  for(const [key,x] of run.spatialConfirmed){
+    if(!x.fuelEligible||x.r>=run.base.length-1)continue;
+    const [r,c]=key.split(':').map(Number);
+    if(run.labels[r]?.[c]==='locked')continue;
+    const value=Number(run.preview[r]?.[c]);
+    if(!Number.isFinite(value))continue;
+    if(Math.abs(value-Number(run.base[r][c]))>.001){
+      out[r][c]=value;included.push(key);
+    }
+  }
+  return included.length?{proposal:out,included}:null;
+}
+async function saveToEcu(prepareTransport){
+  if(!active||!run||saving||!run.estimated){say('Chưa có MAP bù để ghi ECU');return false;}
+  if(bridge.live()?.recording){say('DỪNG GHI AFR trước khi lưu ECU');return false;}
+  if(!validRun())return false;
+  const s=run,selected=trustedForEcu(),ect=Number(bridge.live()?.ect);
+  if(!selected||s.spatial.eligible<2||s.sensorDelayMs<=0||
+     !Number.isFinite(ect)||ect<CFG.spatialWarmEctC){
+    say('CHƯA GHI ECU: ECT cần ≥65°C, AFR delay và ít nhất 2 vùng xác minh. Có thể LƯU VÀO BLINK.');
+    return false;
+  }
+  const baseline=clone(s.base);
+  const ok=await root.blinkConfirm('GHI SMART MAP BÙ VÀO ECU · NO.'+s.bank,
+    'Sẽ ghi '+selected.included.length+' ô đã đối chiếu đủ điều kiện; bù tối đa ±'+
+    CFG.maxPreviewPct+'%. '+Math.max(0,s.estimated-selected.included.length)+
+    ' ô chỉ suy luận sẽ KHÔNG ghi.\n\nĐây là thay đổi lượng phun thật. '+
+    'Chỉ tiếp tục khi wideband, độ trễ AFR và MAP nền đã được kiểm tra. '+
+    'Blink sẽ đọc lại toàn bộ 420 ô; nếu không khớp sẽ khóa ghi lại.',
+    'GHI ECU & XÁC MINH','HỦY');
+  if(!ok||!active||saving||run!==s||bridge.live()?.recording||!validRun())return false;
+  const check=trustedForEcu();
+  if(!check||check.included.join('|')!==selected.included.join('|')||
+     check.proposal.some((row,r)=>row.some((v,c)=>v!==selected.proposal[r][c]))||
+     s.spatial.eligible<2||s.sensorDelayMs<=0||
+     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC))return false;
+  saving=true;
+  try{
+    const result=await bridge.writeSmartToEcu({
+      bank:s.bank,baseline,proposal:check.proposal,
+      observed:check.included,prepareTransport
+    });
+    if(result)stop('ĐÃ GHI MAP BÙ VÀO ECU · XÁC MINH 420/420 Ô THÀNH CÔNG');
+    else say('GHI SMART MAP CHƯA XÁC MINH: hãy ĐỌC HIỆN TẠI trước khi làm tiếp.',true);
+    return result===true;
+  }catch(e){
+    say('LƯU MAP BÙ ECU BỊ DỪNG: '+String(e?.message||e),true);return false;
+  }finally{saving=false;}
+}
+
 function exportLog(){
   if(!run)return;
   const anchors=Array.from(run.anchors.entries()).map(([cell,a])=>({
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.143',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.144',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -695,15 +752,15 @@ function initUI(){
   panel.id='smartPcPanel';
   panel.innerHTML='<button type="button" id="smartPcToggle">◆ BẬT SMART MAP (PC)</button>'+
     '<span id="smartPcStatus" role="status">SMART MAP mặc định tắt.</span>'+
-    '<button type="button" id="smartPcApply" disabled>✓ ÁP DỤNG VÀO BLINK</button>'+
+    '<button type="button" id="smartPcApply" disabled>✓ LƯU MAP BÙ VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
     '<span id="smartPcStats">Chưa có mẫu</span>'+ 
     '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
     '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
     'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: nhiều lượt được đối chiếu AFR/PW ô kề, vẫn là suy luận. '+
-    'Không lọc 7 mẫu/1,1s khi thu; ô đủ đối chiếu có thể lên MAP XEM TRƯỚC ngay cả khi ECT thấp '+
-    'hoặc lệch AFR quá 18%. Chỉ ÁP DỤNG khi toàn bộ đề xuất đã đạt điều kiện ECT ấm, delay, PW và cảm biến. '+
-    'Tối đa ±7% mỗi lượt; KHÔNG tự ghi ECU. Độ trễ AFR chỉnh trong CÀI ĐẶT.</small>';
+    'Không lọc 7 mẫu/1,1s khi thu; giới hạn bù ±20% mỗi lượt. Sau DỪNG GHI AFR, '+
+    'có thể LƯU bản nháp vào Blink. MAP ĐÃ BÙ → ECU chỉ gửi ô đã xác minh khi ECT ấm, '+
+    'độ trễ hợp lệ và có xác nhận, sau đó đọc lại 420 ô. KHÔNG tự ghi ECU.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
@@ -711,7 +768,7 @@ function initUI(){
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
-  measuredEstimate,pendingAfr,getStats:()=>({active,raw,accepted,rejected,suspected,
+  measuredEstimate,pendingAfr,saveToEcu,getStats:()=>({active,saving,raw,accepted,rejected,suspected,
     provisionalSamples,provisionalSkipped,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
     provisionalCells:run?.provisional.size||0,
     anchors:run?.anchors.size||0,estimated:run?.estimated||0,
