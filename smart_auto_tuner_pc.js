@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.152 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.153 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -196,91 +196,65 @@ function fullRowKinkCount(values,valid){
   return count;
 }
 function fullRowProposals(r,s){
-  const base=run.base[r],target=run.target[r],n=base.length;
-  // Four independent BLUE AFR/PW anchor cells at DISTINCT RPMs in THIS TPS row.
-  const pool=Array.from(run.spatialConfirmed.values()).filter(x=>
-    x.previewEligible===true&&x.r===r&&Number.isInteger(x.c)&&
-    x.c>=0&&x.c<n&&Number.isFinite(x.afr)&&x.afr>CFG.minAfr&&x.afr<CFG.maxAfr&&
-    Number(base[x.c])>0&&Number(target[x.c])>0&&!s.locked?.[r]?.[x.c])
-    .sort((a,b)=>a.c-b.c);
-  const dedupe=xs=>{const out=[];for(const x of xs)
-    if(!out.length||x.c!==out[out.length-1].c)out.push(x);return out;};
-  const warm=dedupe(pool.filter(x=>x.fuelEligible===true));
-  const warmQualified=warm.length>=CFG.fullRowMinAnchors;
-  const unique=warmQualified?warm:dedupe(pool);
-  if(unique.length<CFG.fullRowMinAnchors||!(run.sensorDelayMs>0))return null;
-  const first=unique[0].c,last=unique[unique.length-1].c;
-  // PW_i is used ONLY at a corroborated node i. The corrected node
-  // PW_i=PW_base_i*AFR_measured_i/AFR_target_i, bounded +/-20% at the node.
-  // Airflow proxy = PW_corrected_i*AFR_target_i.
-  const nodes=unique.map(x=>{
-    const rpm=Number(run.rpms[x.c]),tgt=Number(target[x.c]),pw=Number(base[x.c]);
-    const ratio=clamp(x.afr/tgt,1-CFG.maxPreviewPct/100,1+CFG.maxPreviewPct/100);
-    return {c:x.c,rpm,logAir:Math.log(pw*ratio*tgt)};
-  });
-  if(nodes.some((x,i)=>!Number.isFinite(x.rpm)||!Number.isFinite(x.logAir)||
-    (i>0&&x.rpm<=nodes[i-1].rpm)))return null;
-  const count=nodes.length,xs=nodes.map(x=>x.rpm),ys=nodes.map(x=>x.logAir);
-  const h=Array.from({length:count-1},(_,i)=>xs[i+1]-xs[i]);
-  const d=h.map((width,i)=>(ys[i+1]-ys[i])/width),m=Array(count).fill(0);
-  const endSlope=(h0,h1,d0,d1)=>{
-    let v=((2*h0+h1)*d0-h0*d1)/(h0+h1);
-    if(!d0||v*d0<=0)return 0;
-    if(d0*d1<0&&Math.abs(v)>3*Math.abs(d0))v=3*d0;
-    return v;
-  };
-  m[0]=endSlope(h[0],h[1],d[0],d[1]);
-  m[count-1]=endSlope(h[count-2],h[count-3],d[count-2],d[count-3]);
-  for(let i=1;i<count-1;i++){
-    if(d[i-1]*d[i]<=0)continue;
-    const w1=2*h[i]+h[i-1],w2=h[i]+2*h[i-1];
-    m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);
+  // Same VE/airmass injector physics as fx TINH MAP PHUN NEN, not a visual
+  // straight-line or an artificial 1/RPM decrease.
+  const math=root.BlinkFuelModelMath;
+  if(typeof math?.calculateStableFuelRow!=='function'){
+    run.fullRowMeta.lastError='Chưa tải công thức ƒx TÍNH MAP NỀN.';return null;
   }
-  // Monotonicity-preserving cubic interpolation on measured RPM intervals.
-  // Outside measured RPM: boundary air proxy held constant only to give a
-  // visible estimate, NOT as a physical claim about engine airflow.
-  function logAirAt(rpm){
-    if(rpm<=xs[0])return ys[0];
-    if(rpm>=xs[count-1])return ys[count-1];
-    let i=0;while(i<count-2&&rpm>xs[i+1])i++;
-    const step=h[i],t=(rpm-xs[i])/step,t2=t*t,t3=t2*t;
-    return (2*t3-3*t2+1)*ys[i]+(t3-2*t2+t)*step*m[i]+
-           (-2*t3+3*t2)*ys[i+1]+(t3-t2)*step*m[i+1];
+  let settings=null;
+  try{
+    const saved=root.localStorage?.getItem('blinkFuelModelSettingsV1');
+    if(saved)settings=JSON.parse(saved);
+  }catch(_e){}
+  if(!settings){
+    run.fullRowMeta.lastError='Nhập thông số động cơ/kim/áp/deadtime ở ƒx TÍNH MAP NỀN, bấm TÍNH & XEM TRƯỚC để lưu.';
+    return null;
   }
-  // NO reference to base[c] in calculating unobserved columns.
-  const valid=base.map((_,c)=>Number.isFinite(Number(target[c]))&&
-    Number(target[c])>0&&!s.locked?.[r]?.[c]);
-  const output=base.map((old,c)=>{
-    if(!valid[c])return old;
-    const rpm=Number(run.rpms[c]);
-    const guessed=Number.isFinite(rpm)?Math.exp(logAirAt(rpm))/Number(target[c]):NaN;
-    if(!Number.isFinite(guessed)||guessed<=0)return old;
-    return Number(clamp(guessed,.01,Number(s.maxMs)||131.07).toFixed(3));
-  });
-  // Identify original 15ms placeholder bands for diagnostics only.
-  // Their OLD values must not freeze or affect the new row forecast.
+  const base=run.base[r],target=run.target[r];
+  const rows=Array.from(run.spatialConfirmed.values()).filter(x=>
+    x.r===r&&x.previewEligible===true&&x.stableForVe===true&&
+    Number.isInteger(x.c)&&x.c>=0&&x.c<base.length&&!s.locked?.[r]?.[x.c]&&
+    Number.isFinite(x.livePw)&&x.livePw>0&&
+    Number.isFinite(x.liveRpm)&&x.liveRpm>=500&&
+    Number.isFinite(x.observedAfr)&&x.observedAfr>CFG.minAfr&&
+    Number.isFinite(x.liveTps)&&x.liveTps>=0).sort((a,b)=>a.c-b.c);
+  const dedup=[];
+  for(const x of rows)if(!dedup.length||dedup[dedup.length-1].c!==x.c)dedup.push(x);
+  if(dedup.length<CFG.fullRowMinAnchors)return null;
+  let predicted;
+  try{
+    predicted=math.calculateStableFuelRow(settings,{
+      tps:Number(run.tps[r]),rpms:run.rpms,targets:target,
+      readings:dedup.map(x=>({c:x.c,tps:x.liveTps,rpm:x.liveRpm,
+        afr:x.observedAfr,pw:x.livePw})),
+      maxMs:Number(s.maxMs)||131.07
+    });
+  }catch(e){run.fullRowMeta.lastError=String(e?.message||e);return null;}
+  if(predicted.aboveDuty){
+    run.fullRowMeta.lastError='SMART VE: '+predicted.aboveDuty+
+      ' ô duty >80%, kiểm tra kim/số lần phun/áp suất.';
+    return null;
+  }
+  const valid=base.map((_,c)=>!s.locked?.[r]?.[c]&&Number(target[c])>0);
+  const output=base.map((old,c)=>valid[c]?predicted.output[c]:old);
+  // Detect existing 15ms placeholders ONLY for diagnostics, never as input.
   const placeholders=new Set();
-  for(let c=1;c<n-3;c++){
-    const v=Number(base[c]),previous=Number(base[c-1]);
-    if(c<10||Math.abs(v-15)>.005||previous<=0||
-       Math.abs(v/previous-1)<.35||
-       ![1,2,3].every(k=>Math.abs(Number(base[c+k])-v)<.005))continue;
-    for(let j=c;j<n&&Math.abs(Number(base[j])-v)<.005;j++)placeholders.add(j);
+  for(let c=1;c<base.length-3;c++){
+    const v=Number(base[c]),prev=Number(base[c-1]);
+    if(c<10||Math.abs(v-15)>.005||!(prev>0)||Math.abs(v/prev-1)<.35||
+      ![1,2,3].every(k=>Math.abs(Number(base[c+k])-v)<.005))continue;
+    for(let k=c;k<base.length&&Math.abs(Number(base[k])-v)<.005;k++)placeholders.add(k);
     break;
   }
-  // Write safety: only between warm-confirmed nodes with short RPM gaps.
-  // Extrapolated columns NEVER enter the direct ECU write set.
-  const safeSpan=new Set();
-  for(let i=1;i<nodes.length;i++){
-    const x=nodes[i-1],y=nodes[i];
-    if(y.c-x.c<=CFG.rowMaxAnchorGap&&y.rpm-x.rpm<=CFG.rowMaxAnchorGap*500)
-      for(let c=x.c;c<=y.c;c++)safeSpan.add(c);
-  }
+  run.fullRowMeta.calibrated=(run.fullRowMeta.calibrated||0)+predicted.anchorCount;
   const oldKinks=fullRowKinkCount(base.map(Number),valid);
   const newKinks=fullRowKinkCount(output.map(Number),valid);
-  return {row:r,first,last,anchorSet:new Set(nodes.map(x=>x.c)),
-    valid,output,safeSpan,placeholders,writeReady:warmQualified&&newKinks<=oldKinks,
-    oldKinks,newKinks,protected:placeholders.size,anchorCount:nodes.length};
+  // All modeled full-row cells are preview/local draft, never direct ECU write.
+  return {row:r,first:predicted.first,last:predicted.last,
+    anchorSet:new Set(predicted.nodes.map(x=>x.c)),safeSpan:new Set(),
+    valid,output,placeholders,writeReady:false,
+    oldKinks,newKinks,protected:placeholders.size};
 }
 function makePreview(s){
   if(!run)return;
@@ -633,6 +607,13 @@ function spatialCellAssessment(key){
     Math.abs(Math.log(x.pwFactor/centerPw))<=CFG.spatialPwTolerance);
   if(agrees.length<2)return {ok:false,kind:'local-conflict'};
   const ratio=median(agrees.map(x=>x.ratio)),pw=median(agrees.map(x=>x.pwFactor));
+  const livePw=median(agrees.map(x=>x.pw)),liveRpm=median(agrees.map(x=>x.rpm)),
+    liveTps=median(agrees.map(x=>x.tps)),observedAfr=median(agrees.map(x=>x.afr));
+  const span=a=>Math.max(...a)-Math.min(...a);
+  const stableReading=agrees.length>=2&&
+    span(agrees.map(x=>x.afr))<=.55&&
+    span(agrees.map(x=>x.pw))/Math.max(.05,livePw)<=.14&&
+    span(agrees.map(x=>x.rpm))<=500&&span(agrees.map(x=>x.tps))<=2.5;
   const [r,c]=key.split(':').map(Number);
   const near=[];
   for(let dr=-1;dr<=1;dr++)for(let dc=-2;dc<=2;dc++){
@@ -667,6 +648,7 @@ function spatialCellAssessment(key){
   // Large differences are still capped to +/-7% of fuel change per pass.
   const previewEligible=r!==run.tps.length-1&&run.sensorDelayMs>0&&!nearFloor;
   const fuelEligible=previewEligible&&localWarm&&neighborsWarm;
+  const stableForVe=previewEligible&&localWarm&&stableReading;
   const noteLabel=nearFloor?'AFR sát đáy thang đo, nghi kẹp cảm biến':
     (!run.sensorDelayMs?'Chưa cài độ trễ AFR':
      (!localWarm?'ECT chưa ấm: CHỈ XEM TRƯỚC':
@@ -674,6 +656,7 @@ function spatialCellAssessment(key){
        'Đã đối chiếu PW và AFR các ô')));
   return {ok:true,kind:'corroborated',afr,n:agrees.length,neighbors:near.length,
     ratio:spatialRatio,pwFactor:pw,previewEligible,fuelEligible,
+    stableForVe,livePw,liveRpm,liveTps,observedAfr,
     errorPct:(spatialRatio-1)*100,note:noteLabel,
     inputCount:bucket.count,r,c};
 }
@@ -980,6 +963,7 @@ function toggle(){
 function toggleFullRowMode(){
   if(!active||saving||awaitingRebase||!run)return;
   fullRowEnabled=!fullRowEnabled;
+  if(fullRowEnabled)trialWriteArmed=false;
   const snapshot=getSnapshot();
   if(snapshot&&validRun()){
     makePreview(snapshot);
@@ -992,6 +976,7 @@ function toggleFullRowMode(){
 }
 function toggleTrialMode(){
   if(!active||saving||awaitingRebase)return;
+  if(fullRowEnabled){say('GHI THỬ ECU bị khóa với MAP VE cả hàng.');return;}
   trialWriteArmed=!trialWriteArmed;
   reason=trialWriteArmed?
     'CHẾ ĐỘ GHI THỬ ĐANG BẬT: chỉ bấm MAP ĐÃ BÙ → ECU khi đã sao lưu MAP gốc; ghi trong đoạn có 2 neo, xác nhận riêng.':
@@ -1051,6 +1036,10 @@ function trustedForEcu({trial=false}={}){
 // or disabling SMART. Manual BLE I/O suspends LIVE 0x69 internally; isSaving()
 // also drops AFR packets until the 420-cell verification has completed.
 async function saveToEcu(prepareTransport){
+  if(fullRowEnabled){
+    say('KHÔNG GHI ECU: VE toàn hàng là mô hình; phải đo kiểm AFR/PW thực tế trước.');
+    return false;
+  }
   if(!active||!run||saving||awaitingRebase||!run.estimated){
     say('SMART chưa có ô MAP bù để ghi ECU. Chế độ cả hàng cần 4 neo xanh cùng TPS.');return false;
   }
@@ -1135,7 +1124,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.152',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.153',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
