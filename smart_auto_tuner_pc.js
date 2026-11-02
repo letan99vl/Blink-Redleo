@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.142 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.143 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -149,7 +149,7 @@ function startRun(){
   run={bank:s.bank,identity:s.identity,key:keyOf(s),base:clone(s.map),target:clone(s.target),
     tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),evidence:new Map(),provisional:new Map(),
     spatialBuckets:new Map(),spatialConfirmed:new Map(),spatialPending:[],
-    spatial:{assigned:0,waiting:0,conflicts:0,corroborated:0,eligible:0,missingTrace:0,
+    spatial:{assigned:0,waiting:0,conflicts:0,corroborated:0,eligible:0,visual:0,previewOnly:0,missingTrace:0,
       invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0,sensorClip:0},
     sensorDelayMs:clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500),lastSpatialEval:0,
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
@@ -183,7 +183,7 @@ function makePreview(s){
       if(d>5.8)continue;
       const w=Math.exp(-d*.72)*Math.min(1,a.n/4);
       total+=w;sum+=w*(a.logSum/a.n);nearest=Math.min(nearest,d);
-      if(d<.13&&a.n>=3)localGood=true;
+      if(d<.13&&a.n>=3&&a.applicationSafe===true)localGood=true;
     }
     if(total<CFG.minWeight||nearest>3.8)continue;
     const logK=clamp(sum/(total+.45),Math.log(1-CFG.maxPreviewPct/100),Math.log(1+CFG.maxPreviewPct/100));
@@ -361,23 +361,25 @@ function spatialCellAssessment(key){
   // crossing multiple cells, is evidence of sensor clipping, not certainty.
   const nearFloor=afr<=10.5 && near.length>=2 &&
     Math.max(...agrees.map(x=>x.afr))-Math.min(...agrees.map(x=>x.afr))<.035;
-  const safeError=Math.abs(spatialRatio-1)<=CFG.maxRelError;
-  const fuelEligible=r!==run.tps.length-1&&localWarm&&neighborsWarm&&
-    run.sensorDelayMs>0&&safeError&&!nearFloor;
+  // No absolute AFR-vs-target percentage cutoff for the EXPERIMENTAL preview.
+  // Large differences are still capped to +/-7% of fuel change per pass.
+  const previewEligible=r!==run.tps.length-1&&run.sensorDelayMs>0&&!nearFloor;
+  const fuelEligible=previewEligible&&localWarm&&neighborsWarm;
   const noteLabel=nearFloor?'AFR sát đáy thang đo, nghi kẹp cảm biến':
-    (!localWarm?'ECT chưa đủ ấm/thiếu mẫu ấm':
-     (!run.sensorDelayMs?'Chưa cài độ trễ AFR':
-      (!neighborsWarm?'Chưa đủ láng giềng khi máy ấm':
-       (!safeError?'AFR quá lệch mục tiêu':'Đã đối chiếu PW và AFR các ô'))));
+    (!run.sensorDelayMs?'Chưa cài độ trễ AFR':
+     (!localWarm?'ECT chưa ấm: CHỈ XEM TRƯỚC':
+      (!neighborsWarm?'Thiếu ô lân cận khi máy ấm: CHỈ XEM TRƯỚC':
+       'Đã đối chiếu PW và AFR các ô')));
   return {ok:true,kind:'corroborated',afr,n:agrees.length,neighbors:near.length,
-    ratio:spatialRatio,pwFactor:pw,fuelEligible,note:noteLabel,
+    ratio:spatialRatio,pwFactor:pw,previewEligible,fuelEligible,
+    errorPct:(spatialRatio-1)*100,note:noteLabel,
     inputCount:bucket.count,r,c};
 }
 function recalculateSpatial(t){
   if(!active||!run)return;
   const previous=run.spatialConfirmed,oldPreview=run.preview;
   const next=new Map(),newAnchors=new Map();
-  let waiting=0,conflicts=0,eligible=0,cold=0,noDelay=0,sensorClip=0;
+  let waiting=0,conflicts=0,eligible=0,visual=0,previewOnly=0,cold=0,noDelay=0,sensorClip=0;
   for(const key of run.spatialBuckets.keys()){
     const x=spatialCellAssessment(key);
     if(!x.ok){
@@ -390,15 +392,16 @@ function recalculateSpatial(t){
     if(!x.fuelEligible){
       if(x.note.includes('ECT'))cold++;
       if(!run.sensorDelayMs)noDelay++;
-      continue;
-    }
-    eligible++;
+    }else eligible++;
+    if(!x.previewEligible)continue;
+    visual++;
+    if(!x.fuelEligible)previewOnly++;
     const nearTarget=Math.abs(x.afr-Number(run.target[x.r][x.c]))<=.3;
     const k=nearTarget?0:Math.log(x.ratio);
     // The old spatial-Gaussian preview remains bounded +/-7% per pass;
     // each supported cell is an anchor with >=2 truly separated observations.
     const n=Math.min(6,x.n+Math.min(2,x.neighbors));
-    newAnchors.set(key,{u:x.r,v:x.c,n,logSum:k*n,
+    newAnchors.set(key,{u:x.r,v:x.c,n,logSum:k*n,applicationSafe:x.fuelEligible,
       afrSum:x.afr*n,targetSum:Number(run.target[x.r][x.c])*n});
   }
   run.spatialConfirmed=next;
@@ -407,6 +410,8 @@ function recalculateSpatial(t){
   run.spatial.conflicts=conflicts;
   run.spatial.corroborated=next.size;
   run.spatial.eligible=eligible;
+  run.spatial.visual=visual;
+  run.spatial.previewOnly=previewOnly;
   run.spatial.cold=cold;
   run.spatial.noDelay=noDelay;
   run.spatial.sensorClip=sensorClip;
@@ -430,8 +435,8 @@ function recalculateSpatial(t){
   }
   run.spatial.lastPreviewCount=run.estimated;
   run.lastSpatialEval=t;
-  reason=next.size?('Đối chiếu '+next.size+' vùng AFR/PW; '+
-    eligible+' vùng đủ điều kiện xem trước, KHÔNG tự ghi ECU'):
+  reason=next.size?('Đối chiếu '+next.size+' vùng AFR/PW · '+visual+
+    ' vùng gợi ý thử · '+previewOnly+' vùng CHỈ XEM TRƯỚC · ECU KHÔNG đổi'):
     'Đang gom nhiều lượt đi qua và so PW/AFR ô lân cận; chỉ hiển thị ~AFR';
   ui();
 }
@@ -576,14 +581,16 @@ function ui(){
     ' · ô so khớp ≈ '+(x?.corroborated||0)+
     ' · ô chờ '+(x?.waiting||0)+
     ' · ô mâu thuẫn '+(x?.conflicts||0)+
-    ' · vùng đủ điều kiện đề xuất '+(x?.eligible||0)+
-    ' · ô MAP đề xuất '+(run?.estimated||0);
+    ' · vùng đề xuất THỬ '+(x?.visual||0)+
+    ' · vùng đủ điều kiện ÁP DỤNG '+(x?.eligible||0)+
+    ' · vùng CHỈ XEM '+(x?.previewOnly||0)+
+    ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(run?.estimated||0);
   if(detail){
     const ectValue=bridge.live()?.ect;
     const ect=ectValue==null?NaN:Number(ectValue);
     const ectLabel=Number.isFinite(ect)?
-      ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?' (máy chưa ấm, không học bù)':'')):
-      'ECT chưa có (chưa học bù)';
+      ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?' (máy chưa ấm: chỉ xem trước, khóa áp dụng)':'')):
+      'ECT chưa có (chỉ xem trước, khóa áp dụng)';
     detail.textContent='ĐỐI CHIẾU TOÀN MAP: AFR/mục tiêu + PW thực/map phun gốc + ô kề, ≥2 lần ghi cách nhau '+
       CFG.spatialIndependentGapMs+'ms; không bắt giữ ga 1,1s hoặc gom 7 AFR. '+
       'Chờ ghép LIVE '+(run?.spatialPending.length||0)+
@@ -594,10 +601,12 @@ function ui(){
       ' · '+ectLabel+
       (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
         ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
-      ' · So khớp không có nghĩa biết chắc AFR thật/ảo. KHÔNG tự ghi ECU.';
+      ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng luôn giới hạn ±7%. '+
+      'Mẫu chưa đủ điều kiện không thể ÁP DỤNG VÀO BLINK; ECU không tự ghi.';
   }
   if(apply)apply.disabled=!active||!run||!!bridge.live()?.recording||
-    run.spatial.eligible<2||run.sensorDelayMs<=0||!run.estimated||
+    run.spatial.eligible<2||run.spatial.previewOnly>0||
+    run.sensorDelayMs<=0||!run.estimated||
     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
 }
 
@@ -615,7 +624,8 @@ function toggle(){
 }
 async function applyLocal(){
   if(!active||!run||run.estimated<1||run.spatial.eligible<2||
-     run.sensorDelayMs<=0||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC)){
+     run.spatial.previewOnly>0||run.sensorDelayMs<=0||
+     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC)){
     say('Chưa đủ 2 vùng tin cậy, độ trễ AFR hoặc nhiệt độ ECT để áp dụng vào Blink');return;
   }
   if(bridge.live()?.recording){say('Hãy DỪNG GHI AFR trước khi áp dụng');return;}
@@ -627,7 +637,7 @@ async function applyLocal(){
     'Phải kiểm tra và đo xác minh lại sau khi áp dụng. AFR đo cũ sẽ xóa để tránh bù lặp.',
     'ÁP DỤNG BLINK','HỦY');
   if(!ok||!active||run!==s||!validRun()||bridge.live()?.recording||
-     s.spatial.eligible<2||s.sensorDelayMs<=0||
+     s.spatial.eligible<2||s.spatial.previewOnly>0||s.sensorDelayMs<=0||
      !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC))return;
   try{
     bridge.applyLocal({bank:s.bank,baseline,proposal});
@@ -640,10 +650,11 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.142',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.143',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
-      fuelEligibleCells:run.spatial.eligible,previewCells:run.estimated,
+      fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
+      previewOnlyCells:run.spatial.previewOnly,previewCells:run.estimated,
       readyAnchors:readyAnchors()},
     base:run.base,target:run.target,proposedMap:run.preview,anchors,
     evidence:Array.from(run.evidence.entries()),
@@ -692,8 +703,9 @@ function initUI(){
     '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
     '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
     'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: nhiều lượt được đối chiếu AFR/PW ô kề, vẫn là suy luận. '+
-    'Không có lọc 7 mẫu/1,1s khi thu; chỉ vùng đủ bằng chứng, ECT ấm và AFR delay mới lên MAP xem trước. '+
-    'MAP ĐÃ BÙ chỉ xem trước, KHÔNG tự ghi ECU. Độ trễ AFR chỉnh trong CÀI ĐẶT.</small>';
+    'Không lọc 7 mẫu/1,1s khi thu; ô đủ đối chiếu có thể lên MAP XEM TRƯỚC ngay cả khi ECT thấp '+
+    'hoặc lệch AFR quá 18%. Chỉ ÁP DỤNG khi toàn bộ đề xuất đã đạt điều kiện ECT ấm, delay, PW và cảm biến. '+
+    'Tối đa ±7% mỗi lượt; KHÔNG tự ghi ECU. Độ trễ AFR chỉnh trong CÀI ĐẶT.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
