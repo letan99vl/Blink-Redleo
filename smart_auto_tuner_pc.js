@@ -1116,7 +1116,7 @@ async function saveToEcu(prepareTransport){
     return false;
   }
   if(!active||!run||saving||awaitingRebase||!run.estimated){
-    say('SMART chưa có ô MAP bù để ghi ECU. Chế độ cả hàng cần 4 neo xanh cùng TPS.');return false;
+    say('SMART chưa có ô MAP bù để ghi ECU. Chế độ VE cả hàng 3 neo chỉ cho phép lưu nháp Blink, không ghi ECU.');return false;
   }
   if(!validRun())return false;
   const s=run,trial=trialWriteArmed,
@@ -1130,7 +1130,7 @@ async function saveToEcu(prepareTransport){
     (s.rowMeta.writeSegments>=1||s.fullRowInterior.size>=2)&&s.spatial.eligible>=2;
   if(!selected||!supported||s.sensorDelayMs<=0||!Number.isFinite(ect)||ect<minEct){
     say('CHƯA GHI ECU: cần 2 neo AFR/PW cùng TPS, delay AFR, MAP nền không gãy và ECT ≥'+
-      minEct+'°C. '+(fullRowEnabled?'Hàng xem trước từ 4 ô xanh chưa chắc đủ 4 neo ẤM để ghi ECU.':trial?'GHI THỬ đã bật nhưng chưa đủ điều kiện.':'Có thể bật GHI THỬ nếu ECT 60–65°C.'));
+      minEct+'°C. '+(fullRowEnabled?'Hàng VE từ 3 ô xanh chỉ được lưu nháp Blink; ghi ECU trực tiếp vẫn khóa.':trial?'GHI THỬ đã bật nhưng chưa đủ điều kiện.':'Có thể bật GHI THỬ nếu ECT 60–65°C.'));
     return false;
   }
   const baseline=clone(s.base),confirmed=trustedForEcu({trial});
@@ -1146,7 +1146,7 @@ async function saveToEcu(prepareTransport){
       (fullRowTrial?'GIỮA 4+ NEO ẤM (KHÔNG gồm ngoại suy)':'GIỮA neo cùng TPS')+
       ', giới hạn ±20%. '+
       (fullRowTrial?
-        'CẢNH BÁO: 4 ô AFR/PW vẫn không chứng minh đúng lượng phun ở RPM chưa đo. '+
+        'CẢNH BÁO: 3 ô AFR/PW không chứng minh đúng lượng phun ở RPM chưa đo. '+
         'Không thử ở tải lớn hoặc trên đường công cộng. Dải 15ms dự đoán KHÔNG ghi ECU. ':
         'KHÔNG đổi IDLE, ô khóa, RPM chưa đo hoặc đoạn MAP nền gãy. ')+
       '\n\n'+
