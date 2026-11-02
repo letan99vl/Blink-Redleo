@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.146 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.147 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -14,7 +14,10 @@ const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.8
   spatialMaxPerCell:36,spatialIndependentGapMs:850,spatialRatioTolerance:0.10,
   spatialPwTolerance:0.22,spatialNeighborRatioTolerance:0.12,
   spatialNeighborPwTolerance:0.25,spatialPendingMs:900,
-  spatialWarmEctC:65,spatialMaxPreviewPct:20});
+  spatialWarmEctC:65,spatialMaxPreviewPct:20,
+  rowMaxAnchorGap:6,rowEdgeTaperCells:3,rowCurveGain:.9,
+  rowHorizontalBlend:.12,rowVerticalBlend:.14,rowMaxLogStep:.0488,
+  rowKinkLogThreshold:.09});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
 function coord(axis,x,descending=false){
@@ -152,7 +155,9 @@ function startRun(){
     spatial:{assigned:0,waiting:0,conflicts:0,corroborated:0,eligible:0,visual:0,previewOnly:0,missingTrace:0,
       invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0,sensorClip:0},
     sensorDelayMs:clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500),lastSpatialEval:0,
-    preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
+    preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),
+    rowApproved:new Set(),rowMeta:{rows:0,segments:0,writeSegments:0,
+      inferred:0,approved:0,baseKinks:0},estimated:0};
   return true;
 }
 function validRun(){
@@ -166,35 +171,163 @@ function validRun(){
   }
   return true;
 }
+// Entire-row SHAPE-PRESERVING fuel correction within measured RPM brackets.
+// A TPS row needs >=2 independent AFR/PW-confirmed anchors. Interpolate the
+// LOG of AFR/target instead of PW; retaining the stock PW(RPM,TPS) base shape.
+// No extrapolation beyond corroborated anchor brackets. Two warm + valid
+// anchor endpoints authorize the interior RPM cells for deliberate ECU write.
 function makePreview(s){
-  const anchors=Array.from(run.anchors.values()),base=run.base;
+  if(!run)return;
+  const base=run.base,rows=base.length-1,cols=base[0].length;
+  run.rowApproved.clear();
   const out=clone(base),labels=base.map(row=>row.map(()=>'none'));
-  let changed=0;
-  for(let r=0;r<base.length-1;r++)for(let c=0;c<base[r].length;c++){
-    // Spatial preview may change ONLY cells actually visited by a TRACE or RAW AFR.
-    // Never alter unobserved regions simply because a distant anchor exists.
-    if(run.spatialBuckets&&!run.spatialBuckets.has(r+':'+c)&&!run.provisional.has(r+':'+c))continue;
-    const original=Number(base[r][c]);
-    if(original<=0||s.locked?.[r]?.[c]){labels[r][c]='locked';continue;}
-    let total=0,sum=0,nearest=Infinity,localGood=false;
-    for(const a of anchors){
-      if(a.n<2)continue;
-      const dy=(r-a.u)/1.45,dx=(c-a.v)/2.3,d=dy*dy+dx*dx;
-      if(d>5.8)continue;
-      const w=Math.exp(-d*.72)*Math.min(1,a.n/4);
-      total+=w;sum+=w*(a.logSum/a.n);nearest=Math.min(nearest,d);
-      if(d<.13&&a.n>=3&&a.applicationSafe===true)localGood=true;
+  const curve=Array.from({length:rows},()=>Array(cols).fill(null));
+  const approved=Array.from({length:rows},()=>Array(cols).fill(false));
+  const direct=Array.from({length:rows},()=>Array(cols).fill(false));
+  const groupId=Array.from({length:rows},()=>Array(cols).fill(-1));
+  const byRow=Array.from({length:rows},()=>[]);
+  const rowMeta={rows:0,segments:0,writeSegments:0,
+    inferred:0,approved:0,baseKinks:0};
+  const kinked=(r,start,end)=>{
+    for(let c=start+1;c<end;c++){
+      const x=Number(base[r][c-1]),y=Number(base[r][c]),z=Number(base[r][c+1]);
+      if(x<=0||y<=0||z<=0)return true;
+      const left=Math.log(y/x),right=Math.log(z/y);
+      if(left*right<0&&Math.min(Math.abs(left),Math.abs(right))>CFG.rowKinkLogThreshold)
+        return true;
     }
-    if(total<CFG.minWeight||nearest>3.8)continue;
-    const logK=clamp(sum/(total+.45),Math.log(1-CFG.maxPreviewPct/100),Math.log(1+CFG.maxPreviewPct/100));
-    const next=clamp(original*Math.exp(logK),0,Number(s.maxMs)||131.07);
-    if(Math.abs(next-original)<.001)continue;
-    out[r][c]=Number(next.toFixed(3));
-    labels[r][c]=localGood?'supported':'estimated';changed++;
+    return false;
+  };
+  for(const a of run.anchors.values()){
+    const r=Number(a.u),c=Number(a.v);
+    if(!Number.isInteger(r)||r<0||r>=rows||!Number.isInteger(c)||c<0||
+       c>=cols||a.n<2||!Number.isFinite(a.logSum/a.n)||Number(base[r][c])<=0||
+       s.locked?.[r]?.[c])continue;
+    byRow[r].push(a);
   }
-  run.preview=out;run.labels=labels;run.estimated=changed;
+  for(let r=0;r<rows;r++){
+    const nodes=byRow[r].sort((a,b)=>a.v-b.v);
+    if(nodes.length<2)continue;
+    let group=[],serial=0;
+    const emit=()=>{
+      if(group.length<2)return;
+      const first=group[0].v,last=group[group.length-1].v;
+      const badBaseline=kinked(r,first,last);
+      if(badBaseline)rowMeta.baseKinks++;
+      for(let i=1;i<group.length;i++){
+        rowMeta.segments++;
+        if(!badBaseline&&group[i-1].applicationSafe===true&&
+          group[i].applicationSafe===true)rowMeta.writeSegments++;
+      }
+      for(let c=first;c<=last;c++){
+        if(s.locked?.[r]?.[c]||Number(base[r][c])<=0)continue;
+        let right=1;
+        while(right<group.length-1&&c>group[right].v)right++;
+        const p=group[right-1],q=group[right];
+        const t=clamp((c-p.v)/(q.v-p.v),0,1);
+        const logP=p.logSum/p.n,logQ=q.logSum/q.n;
+        // Smoothly fade corrections near the ends of the measured RPM span;
+        // unmeasured columns outside the span remain identical to MAP base.
+        const taper=Math.min(1,(c-first+1)/CFG.rowEdgeTaperCells,
+                              (last-c+1)/CFG.rowEdgeTaperCells);
+        curve[r][c]=((1-t)*logP+t*logQ)*CFG.rowCurveGain*taper;
+        approved[r][c]=!badBaseline&&p.applicationSafe===true&&
+          q.applicationSafe===true;
+        direct[r][c]=group.some(a=>a.v===c);
+        groupId[r][c]=serial;
+      }
+      serial++;
+    };
+    for(const a of nodes){
+      if(!group.length){group=[a];continue;}
+      const prev=group[group.length-1],gap=a.v-prev.v;
+      let blocked=gap<1||gap>CFG.rowMaxAnchorGap;
+      if(!blocked)for(let c=prev.v;c<=a.v;c++){
+        if(s.locked?.[r]?.[c]||Number(base[r][c])<=0){blocked=true;break;}
+      }
+      if(blocked){emit();group=[a];}else group.push(a);
+    }
+    emit();
+  }
+  // Smooth factor changes within the same supported span only. Never smooth
+  // or modify the original PW directly, and do not invent unmeasured RPM rows.
+  const horizontal=curve.map((row,r)=>row.map((v,c)=>{
+    if(v===null)return null;
+    const left=c>0&&groupId[r][c-1]===groupId[r][c]?curve[r][c-1]:0;
+    const right=c+1<cols&&groupId[r][c+1]===groupId[r][c]?curve[r][c+1]:0;
+    return (1-2*CFG.rowHorizontalBlend)*v+
+      CFG.rowHorizontalBlend*(left+right);
+  }));
+  const linked=horizontal.map((row,r)=>row.map((v,c)=>{
+    if(v===null)return null;
+    const neighbors=[];
+    for(const rr of [r-1,r+1]){
+      if(rr<0||rr>=rows)continue;
+      const other=horizontal[rr][c];
+      if(other!==null&&Math.abs(other-v)<=.12)neighbors.push(other);
+    }
+    if(!neighbors.length)return v;
+    return (1-CFG.rowVerticalBlend)*v+
+      CFG.rowVerticalBlend*(neighbors.reduce((a,b)=>a+b,0)/neighbors.length);
+  }));
+  // Restrict adjacent corrections to a small extra log-PW gradient and avoid
+  // introducing a new slope inversion where the original MAP was monotonic.
+  const low=Math.log(1-CFG.maxPreviewPct/100),high=Math.log(1+CFG.maxPreviewPct/100);
+  const constrained=Array.from({length:rows},()=>Array(cols).fill(null));
+  for(let r=0;r<rows;r++){
+    let editedRow=false;
+    for(let c=0;c<cols;c++){
+      const k0=linked[r][c];
+      if(k0===null)continue;
+      let k=clamp(k0,low,high);
+      // Guard each end of an observed span against the untouched baseline
+      // immediately OUTSIDE it. Without this the very first corrected cell
+      // may invert slope relative to the previous unobserved RPM column.
+      if(c>0&&groupId[r][c]!==groupId[r][c-1]){
+        const d=Math.log(Number(base[r][c])/Number(base[r][c-1]));
+        if(d<-.004)k=Math.min(k,-d-.001);
+        if(d>.004)k=Math.max(k,-d+.001);
+      }
+      if(c>0&&groupId[r][c]===groupId[r][c-1]&&
+         constrained[r][c-1]!==null){
+        // Use the ACTUALLY CONSTRAINED previous cell, not its unbounded
+        // neighbor estimate. Otherwise a 2.75 -> 1.87 -> 2.32-style
+        // inversion can survive even though each individual step was tested.
+        const previous=constrained[r][c-1];
+        const deltaBase=Math.log(Number(base[r][c])/Number(base[r][c-1]));
+        let minK=previous-CFG.rowMaxLogStep,maxK=previous+CFG.rowMaxLogStep;
+        if(deltaBase<-.01)maxK=Math.min(maxK,previous-deltaBase-.001);
+        if(deltaBase>.01)minK=Math.max(minK,previous-deltaBase+.001);
+        if(minK<=maxK)k=clamp(k,minK,maxK);
+      }
+      // The last measured column must also join the untouched column on its
+      // right without introducing a NEW peak or trough.
+      if(c+1<cols&&groupId[r][c]!==groupId[r][c+1]){
+        const d=Math.log(Number(base[r][c+1])/Number(base[r][c]));
+        if(d<-.004)k=Math.max(k,d+.001);
+        if(d>.004)k=Math.min(k,d-.001);
+      }
+      k=clamp(k,low,high);
+      constrained[r][c]=k;
+      const original=Number(base[r][c]);
+      const value=Number(clamp(original*Math.exp(k),0,Number(s.maxMs)||131.07).toFixed(3));
+      if(Math.abs(value-original)<.001)continue;
+      out[r][c]=value;
+      editedRow=true;
+      if(approved[r][c]){
+        labels[r][c]=direct[r][c]?'supported':'row-inferred';
+        run.rowApproved.add(r+':'+c);
+        rowMeta.approved++;
+        if(!direct[r][c])rowMeta.inferred++;
+      }else labels[r][c]='estimated';
+    }
+    if(editedRow)rowMeta.rows++;
+  }
+  run.preview=out;
+  run.labels=labels;
+  run.estimated=out.reduce((n,row,r)=>n+row.filter((v,c)=>v!==base[r][c]).length,0);
+  run.rowMeta=rowMeta;
 }
-
 // VIEW-ONLY AFR accumulation for 1, 2 or 4 neighbor cells when a stable
 // operating point lies BETWEEN RPM/TPS axes. Every candidate gets a ~ marker;
 // these are *inferred* AFR values and are never stored as ECU-measured AFR.
@@ -468,7 +601,14 @@ function appendSpatialSample(s,p){
   if(s.t-run.lastSpatialEval>=450)recalculateSpatial(s.t);
 }
 function flushSpatialSamples(now){
-  if(!active||!run||!run.spatialPending.length)return;
+  if(!active||!run)return;
+  // When the final AFR has already been time-matched, the queue may be empty.
+  // Still recompute the row field from recently added spatial buckets on LIVE.
+  // Otherwise completed sweeps can leave the last TPS rows visually stale.
+  if(!run.spatialPending.length){
+    if(now-run.lastSpatialEval>=600&&run.spatialBuckets.size)recalculateSpatial(now);
+    return;
+  }
   const remain=[];
   for(const s of run.spatialPending){
     const matched=findTrace(history,s.when);
@@ -595,6 +735,11 @@ function ui(){
     ' · vùng đề xuất THỬ '+(x?.visual||0)+
     ' · vùng đủ điều kiện ÁP DỤNG '+(x?.eligible||0)+
     ' · vùng CHỈ XEM '+(x?.previewOnly||0)+
+    ' · hàng TPS bù '+(run?.rowMeta?.rows||0)+
+    ' · đoạn RPM có 2 neo '+(run?.rowMeta?.segments||0)+
+    ' · đoạn đủ điều kiện GHI '+(run?.rowMeta?.writeSegments||0)+
+    ' · ô NỘI SUY được duyệt '+(run?.rowMeta?.inferred||0)+
+    ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
     ' · lần GHI ECU đã xác minh '+verifiedWrites;
   if(detail){
@@ -614,8 +759,11 @@ function ui(){
       (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
         ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
       ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng giới hạn ±20%. '+
-      'BẤM MAP ĐÃ BÙ → ECU để ghi 1 lần; không cần tắt GHI AFR hoặc SMART. '+
-      'Trong khi truyền sẽ tạm bỏ mẫu, đọc lại ECU 420/420 rồi tự học MAP mới.';
+      'BÙ THEO ĐƯỜNG CONG CẢ HÀNG TPS: nội suy chỉ GIỮA 2 neo AFR/PW đã đối chiếu '+
+      '(mỗi đoạn tối đa '+CFG.rowMaxAnchorGap*500+' RPM); không ngoại suy ngoài vùng đo. '+
+      'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
+      'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
+      'BẤM MAP ĐÃ BÙ → ECU một lần; GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
   if(apply)apply.disabled=!active||!run||saving||awaitingRebase||
@@ -659,22 +807,25 @@ async function applyLocal(){
     return true;
   }catch(e){say('Lưu MAP bù thất bại: '+String(e?.message||e));return false;}
 }
-// Direct ECU save uses only corroborated warm cells, not adjacent extrapolations.
-// An explicit confirmation is required and the real writer verifies 420 cells.
+// Entire measured RPM corridor may be written if BOTH bounding AFR/PW
+// anchor nodes in the SAME TPS row were independently corroborated when warm.
+// A one-off isolated node cannot create a spiky fuel correction.
 function trustedForEcu(){
-  if(!run)return null;
+  if(!run||!run.rowApproved?.size)return null;
   const out=clone(run.base),included=[];
-  for(const [key,x] of run.spatialConfirmed){
-    if(!x.fuelEligible||x.r>=run.base.length-1)continue;
+  for(const key of Array.from(run.rowApproved).sort((a,b)=>{
+    const [ra,ca]=a.split(':').map(Number),[rb,cb]=b.split(':').map(Number);
+    return ra-rb||ca-cb;
+  })){
     const [r,c]=key.split(':').map(Number);
-    if(run.labels[r]?.[c]==='locked')continue;
-    const value=Number(run.preview[r]?.[c]);
-    if(!Number.isFinite(value))continue;
-    if(Math.abs(value-Number(run.base[r][c]))>.001){
-      out[r][c]=value;included.push(key);
-    }
+    if(r>=run.base.length-1||run.labels[r]?.[c]==='locked')continue;
+    const value=Number(run.preview[r]?.[c]),baseline=Number(run.base[r]?.[c]);
+    if(!Number.isFinite(value)||!Number.isFinite(baseline)||baseline<=0||
+       Math.abs(value/baseline-1)>CFG.maxPreviewPct/100+.001)continue;
+    if(Math.abs(value-baseline)>.001){out[r][c]=value;included.push(key);}
   }
-  return included.length?{proposal:out,included}:null;
+  return included.length?{proposal:out,included,interpolated:included.filter(key=>
+    run.labels[Number(key.split(':')[0])]?.[Number(key.split(':')[1])]==='row-inferred').length}:null;
 }
 // Single button press starts a verified ECU write without stopping GHI AFR
 // or disabling SMART. Manual BLE I/O suspends LIVE 0x69 internally; isSaving()
@@ -685,9 +836,9 @@ async function saveToEcu(prepareTransport){
   }
   if(!validRun())return false;
   const s=run,selected=trustedForEcu(),ect=Number(bridge.live()?.ect);
-  if(!selected||s.spatial.eligible<2||s.sensorDelayMs<=0||
+  if(!selected||s.rowMeta.writeSegments<1||s.spatial.eligible<2||s.sensorDelayMs<=0||
      !Number.isFinite(ect)||ect<CFG.spatialWarmEctC){
-    say('CHƯA GHI: cần ECT ≥65°C, AFR delay và ≥2 vùng đối chiếu. SMART/GHI AFR vẫn ON.');
+    say('CHƯA GHI: cần ECT ≥65°C, AFR delay và ít nhất 2 neo CÙNG HÀNG TPS. SMART/GHI AFR vẫn ON.');
     return false;
   }
   const baseline=clone(s.base),confirmed=trustedForEcu();
@@ -696,13 +847,15 @@ async function saveToEcu(prepareTransport){
      !active||run!==s||!validRun())return false;
   // A single intentional tap is the authorization. No second dialog.
   saving=true;
-  reason='ĐANG GHI MAP ĐÃ BÙ → ECU · tạm bỏ qua mẫu AFR/LIVE, GHI AFR ON và SMART ON.';
+  reason='ĐANG GHI ĐƯỜNG BÙ TPS → ECU · '+confirmed.included.length+
+    ' ô trong các đoạn RPM đủ neo, gồm '+confirmed.interpolated+
+    ' ô nội suy; GHI AFR ON / SMART ON.';
   ui();
   let ok=false;
   try{
     ok=await bridge.writeSmartToEcu({
       bank:s.bank,baseline,proposal:confirmed.proposal,
-      observed:confirmed.included,prepareTransport
+      approved:confirmed.included,prepareTransport
     })===true;
     if(ok)verifiedWrites++;
     return ok;
@@ -745,7 +898,8 @@ function exportLog(){
     provisional:Array.from(run.provisional.entries()),
     spatialConfig:{minIndependentGapMs:CFG.spatialIndependentGapMs,
       minWarmECT:CFG.spatialWarmEctC,afrDelayMs:run.sensorDelayMs},
-    spatialStats:run.spatial,
+    spatialStats:run.spatial,rowCorrection:run.rowMeta,
+    rowApprovedCells:Array.from(run.rowApproved),
     spatialBuckets:Array.from(run.spatialBuckets.entries()),
     spatialConfirmed:Array.from(run.spatialConfirmed.entries()),
     pendingTrace:run.spatialPending,
@@ -770,6 +924,7 @@ function initUI(){
     '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-inferred{outline:1px dashed #6bc8fa;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-supported{outline:2px solid #38e2a7;outline-offset:-2px}'+
+    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-row-inferred{outline:2px dashed #4fe2c6;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-afr-estimated{'+
     'color:#c3e8ff!important;background:rgba(15,92,126,.30)!important;'+
     'outline:1px dashed rgba(88,197,246,.75);outline-offset:-2px;font-style:italic}'+
@@ -787,10 +942,11 @@ function initUI(){
     '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
     '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
     'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: nhiều lượt được đối chiếu AFR/PW ô kề, vẫn là suy luận. '+
-    'Không lọc 7 mẫu/1,1s khi thu; giới hạn bù ±20% mỗi lượt. Sau DỪNG GHI AFR, '+
-    'có thể LƯU bản nháp vào Blink. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi các ô đủ điều kiện, '+
-    'tự tạm giữ AFR/LIVE qua BLE, đọc lại 420 ô và học lượt mới. '+
-    'GHI AFR và SMART vẫn ON; KHÔNG tự lưu nếu chưa bấm.</small>';
+    'Không lọc 7 mẫu/1,1s khi thu; ±20% mỗi lượt. BÙ theo cả đoạn hàng TPS giữa ≥2 neo '+
+    'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
+    'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
+    'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
+    'Cần kiểm chứng thực tế trước khi sử dụng trên động cơ.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
@@ -805,7 +961,8 @@ root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,previe
     anchors:run?.anchors.size||0,estimated:run?.estimated||0,
     afrEstimates:run?.evidence.size||0,readyAnchors:readyAnchors(),
     diagnostics:{...diagnostics},
-    spatial:run?{...run.spatial}:null,
+    spatial:run?{...run.spatial}:null,row:run?{...run.rowMeta}:null,
+    approvedCells:run?.rowApproved?.size||0,
     spatialBuckets:run?.spatialBuckets.size||0,
     corroborated:run?.spatialConfirmed.size||0,
     sensorDelayMs:run?.sensorDelayMs||0,reason})});
