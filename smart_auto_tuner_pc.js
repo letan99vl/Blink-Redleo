@@ -188,9 +188,9 @@ function validRun(){
 // Full-row VE fuel prediction: at least 3 independently corroborated
 // LIVE AFR/PW measurements at different RPMs on the SAME TPS row.
 // The model predicts all 30 RPM columns, including old 15.00ms placeholders.
-// Direct ECU write is a separate, LIMITED action: >=3 WARM-STABLE nodes
-// and only bounded measured RPM brackets, never outside/extrapolated cells,
-// never a suspicious original 15ms plateau, and <=20% per original cell.
+// An explicit one-tap MAP DA BU -> ECU writes all changed VE cells from
+// rows modeled by >=3 BLUE nodes, including unmeasured extrapolation.
+// This does NOT prove AFR or fuel safety on a real engine.
 // Source/live AFR validation and readback do not establish safe road fueling.
 function fullRowKinkCount(values,valid){
   let count=0;
@@ -998,8 +998,11 @@ function ui(){
     const ectValue=bridge.live()?.ect;
     const ect=ectValue==null?NaN:Number(ectValue);
     const ectLabel=Number.isFinite(ect)?
-      ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?' (máy chưa ấm: chỉ xem trước, khóa áp dụng)':'')):
-      'ECT chưa có (chỉ xem trước, khóa áp dụng)';
+      ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?
+        (fullRowEnabled?' (chưa ấm: VE ngoại suy rủi ro cao, vẫn cho phép ghi tay)':
+          ' (máy chưa ấm: chỉ xem trước, khóa áp dụng)'):'')):
+      (fullRowEnabled?'ECT chưa có (MAP VE chưa xác minh AFR)':
+        'ECT chưa có (chỉ xem trước, khóa áp dụng)');
     detail.textContent='ĐỐI CHIẾU TOÀN MAP: AFR/mục tiêu + PW thực/map phun gốc + ô kề, ≥2 lần ghi cách nhau '+
       CFG.spatialIndependentGapMs+'ms; không bắt giữ ga 1,1s hoặc gom 7 AFR. '+
       'Chờ ghép LIVE '+(run?.spatialPending.length||0)+
@@ -1010,21 +1013,24 @@ function ui(){
       ' · '+ectLabel+
       (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
         ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
-      ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng giới hạn ±20%. '+
-      'BÙ THEO ĐƯỜNG CONG CẢ HÀNG TPS: nội suy chỉ GIỮA 2 neo AFR/PW đã đối chiếu '+
-      '(mỗi đoạn tối đa '+CFG.rowMaxAnchorGap*500+' RPM); không ngoại suy ngoài vùng đo. '+
-      'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
-      'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
-      'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG (VE): từ 3 ô XANH AFR/PW ở 3 RPM cùng TPS có thể DỰNG VÀ LƯU BẢN NHÁP trong Blink. '+
-      'Ba neo PW LIVE + AFR ỔN ĐỊNH khi máy ấm cho mô hình đáng tin cậy hơn; chưa ổn định phải cảnh báo riêng. '+
+      (fullRowEnabled?
+        ' · VE 3 neo XANH: bấm MAP ĐÃ BÙ → ECU một lần để ghi các ô đã dựng, '+
+        'bao gồm ô RPM chưa đo, dải 15ms cũ và thay đổi trên ±20%. '+
+        'Không tự ghi; ước tính AFR có thể sai nguy hiểm khi máy đang chạy. ':
+        ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng giới hạn ±20%. '+
+        'Chế độ thường chỉ nội suy GIỮA hai neo cùng TPS, không ngoại suy. '+
+        'GHI THỬ vẫn theo giới hạn ECT và công thức cũ. ')+
+      'SỬA CONG CẢ HÀNG (VE): 3 ô XANH AFR/PW ở 3 RPM cùng TPS dựng đủ 30 ô RPM. '+
+      'Có thể ghi trực tiếp vào ECU bằng MỘT lần bấm MAP ĐÃ BÙ → ECU, GHI AFR giữ ON. '+
+      'Mẫu chưa ổn định vẫn bị coi là dự đoán nguy cơ cao. '+
       'Dùng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
       'Nội suy hệ số hiệu chỉnh VE theo RPM, ngoại suy về VE nền, rồi tính TGP bằng AFR MỤC TIÊU từng cột. '+
       'Không ép TGP giảm tuyến tính và KHÔNG lấy thời gian phun cũ của ô chưa đo/15ms làm nền. '+
       'Cần nhập và lưu thông số piston/dên/kim/áp/deadtime/số xung trong ƒx trước khi dựng VE. '+
-      'GHI MAP ĐÃ BÙ → ECU chỉ ghi đoạn trong khoảng ≥3 neo PW/AFR ỔN ĐỊNH, mỗi ô giới hạn ±20%; '+ 
-      'không tự ghi. Đường VE gồm RPM CHƯA ĐO nên có nguy cơ sai AFR, nóng máy hoặc hỏng động cơ. '+
-      'GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
+      'MAP VE ghi cả ô NGOẠI SUY, không ép giảm tuyến tính, không cần tắt GHI AFR/ECT đủ ấm, '+
+      'không có bước xác nhận thứ hai. Đây là chức năng ghi tay rủi ro cao. '+
+      'ECU phải được sao lưu MAP gốc, không ghi chồng lệnh, đọc lại 420 ô. '+
+      'Đọc lại KHÔNG chứng minh AFR an toàn.';
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
   if(apply)apply.disabled=!active||!run||saving||awaitingRebase||
@@ -1126,10 +1132,8 @@ function trustedForEcu({trial=false}={}){
 // Single button press starts a verified ECU write without stopping GHI AFR
 // or disabling SMART. Manual BLE I/O suspends LIVE 0x69 internally; isSaving()
 // also drops AFR packets until the 420-cell verification has completed.
-// Explicit high-risk, manual-only write of the complete VE-modeled TPS rows.
-// 3 corroborated BLUE nodes are sufficient to MODEL, not to prove mixture.
-// Two user confirmations, warm ECT, stopped AFR, snapshot match, local backup
-// and full 420/420 ECU readback are mandatory. No automatic write path.
+// Explicit high-risk writer; ONE user tap, no automatic write, no
+// recording toggle, original map backup + 420/420 readback remain mandatory.
 // PB3.79.157 ONE USER TAP: all shown corrected VE-row cells from >=3
 // corroborated BLUE AFR/PW nodes are sent to the current ECU. This includes
 // unmeasured RPM extrapolation and may cause a dangerous fuel mixture.
@@ -1371,12 +1375,12 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG: 3 ô XANH ở 3 RPM cùng TPS dựng đủ 30 ô và được LƯU NHÁP BLINK. '+
-    'Ô chưa đủ ổn định sẽ được gắn cờ MỨC TIN CẬY THẤP và CHẶN GHI ECU. '+
+    'SỬA CONG CẢ HÀNG: 3 ô XANH ở 3 RPM cùng TPS dựng đủ 30 ô; một lần bấm MAP ĐÃ BÙ → ECU sẽ GHI mọi ô bù của hàng đã dựng. '+
+    'Kể cả ô chưa chạy và vùng thay đổi >20% sẽ được ghi; rủi ro AFR thực tế có thể nghiêm trọng. '+
     'Dùng cùng công thức ƒx TÍNH MAP NỀN với thông số động cơ/kim đã lưu để dựng cả 30 RPM. '+
     'Không dùng TGP cũ ô chưa chạy, kể cả 15ms; không ép tuyến tính giảm. '+
-    'Ngoài vùng đo là NGOẠI SUY. Có thể LƯU NHÁP Blink hoặc chủ động bấm MAP ĐÃ BÙ → ECU khi đã DỪNG GHI AFR; '+
-    'ghi cần hai xác nhận, sao lưu MAP gốc, ECT ≥65°C và đọc lại 420 ô. KHÔNG TỰ GHI. '+
+    'Ngoài vùng đo là NGOẠI SUY, nếu bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô dự đoán. KHÔNG cần tắt GHI AFR. '+
+    'Blink tạm bỏ mẫu trong lúc ghi/đọc lại, sao lưu MAP gốc và kiểm tra 420 ô; KHÔNG tự động ghi. '+
     'Phải xác minh AFR thật trên động cơ trước khi sử dụng.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
