@@ -878,8 +878,9 @@ function ui(){
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
   if(trialButton){
-    trialButton.textContent=trialWriteArmed?'⚠ GHI THỬ ECU: BẬT':'GHI THỬ ECU: TẮT';
-    trialButton.disabled=!active||saving||awaitingRebase;
+    trialButton.textContent=fullRowEnabled?'GHI THỬ ECU: KHÓA (VE DỰ ĐOÁN)':
+      (trialWriteArmed?'⚠ GHI THỬ ECU: BẬT':'GHI THỬ ECU: TẮT');
+    trialButton.disabled=!active||saving||awaitingRebase||fullRowEnabled;
     trialButton.classList.toggle('danger',trialWriteArmed);
   }
   if(curveButton){
@@ -905,11 +906,13 @@ function ui(){
     ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
     ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
     ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
-    ' · hàng có 4 neo ẤM + đoạn ghi được '+(run?.fullRowMeta?.writableRows||0)+
+    ' · hàng VE đủ 4 neo ổn định '+(run?.fullRowMeta?.rows||0)+
+    ' · neo VE từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
     ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
     ' · ô 15ms KHÔNG làm nền '+(run?.fullRowMeta?.protected||0)+
+    (fullRowEnabled&&run?.fullRowMeta?.lastError?' · VE đang chờ: '+run.fullRowMeta.lastError:'')+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
     ' · lần GHI ECU đã xác minh '+verifiedWrites;
   if(detail){
@@ -934,11 +937,12 @@ function ui(){
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
       'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG: 4 ô AFR/PW XANH cùng TPS dựng mới toàn bộ 30 RPM. '+
-      'Chỉ dùng TGP nền của các ô đã đo, AFR ĐO và AFR mục tiêu để nội suy lượng khí ước tính. '+
-      'KHÔNG dùng TGP cũ ở các ô chưa chạy, kể cả dải 15ms. '+
-      'Ngoài vùng đo giữ mức khí ước tính tại neo biên: chỉ là NGOẠI SUY CHƯA XÁC MINH (ô tím). '+
-      'GHI ECU chỉ xét đoạn giữa 4+ neo ẤM, không ghi ngoại suy và không quá 20% MAP nền. '+
+      'SỬA CONG CẢ HÀNG (VE): từ ít nhất 4 vị trí RPM có AFR + PW LIVE ổn định khi ECT đủ ấm trên CÙNG TPS, '+
+      'suy VE theo đúng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
+      'Nội suy hệ số hiệu chỉnh VE theo RPM, ngoại suy về VE nền, rồi tính TGP bằng AFR MỤC TIÊU từng cột. '+
+      'Không ép TGP giảm tuyến tính và KHÔNG lấy thời gian phun cũ của ô chưa đo/15ms làm nền. '+
+      'Cần nhập và lưu thông số piston/dên/kim/áp/deadtime/số xung trong ƒx trước khi dựng VE. '+
+      'Toàn hàng VE chỉ XEM/LƯU NHÁP BLINK; GHI ECU trực tiếp bị KHÓA. '+
       'GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
@@ -970,7 +974,7 @@ function toggleFullRowMode(){
     try{bridge.refreshView()}catch(_e){}
   }
   reason=fullRowEnabled?
-    'SỬA CONG CẢ HÀNG BẬT: 4 neo xanh cùng TPS dựng lại đủ 30 RPM; ô ngoài neo CHỈ XEM.':
+    'SỬA CONG CẢ HÀNG: 4 AFR/PW LIVE ổn định cùng TPS → VE theo ƒx TÍNH MAP NỀN → 30 RPM; chỉ XEM/LƯU NHÁP.':
     'SỬA CONG CẢ HÀNG TẮT: chỉ nội suy trong đoạn RPM có dữ liệu.';
   ui();
 }
@@ -995,8 +999,8 @@ async function applyLocal(){
     s.sensorDelayMs<=0||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
   const ok=await root.blinkConfirm('LƯU MAP BÙ VÀO BLINK · MAP NO.'+s.bank,
     (modeledFullRow?
-      'BẢN NHÁP DỰNG MỚI '+s.fullRowMeta.rows+' HÀNG, '+s.estimated+
-      ' Ô từ 4+ neo/hàng. Ô chưa đo (kể cả vùng 15ms) có thể khác MAP gốc hơn 20%. ':
+      'BẢN NHÁP VE từ PW LIVE/AFR ổn định: '+s.fullRowMeta.rows+' HÀNG, '+s.estimated+
+      ' Ô. Những RPM chưa đo/15ms có thể khác MAP gốc hơn 20%, cần xác minh thực tế. ':
       'Bù tối đa ±'+CFG.maxPreviewPct+'% cho '+s.estimated+' ô. ')+
     (unverified?'ĐÂY CHỈ LÀ SUY LUẬN CHƯA ĐƯỢC KIỂM CHỨNG. ':'')+
     '\n\nChỉ lưu vào BLINK, KHÔNG GHI ECU. Không sử dụng MAP chưa đo để chạy xe; '+
@@ -1124,7 +1128,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.153',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.153',algorithm:'STABLE-LIVE-AFR-PW-SHARED-VE-PHYSICS',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1194,11 +1198,11 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG dùng 4 neo AFR/PW đã đối chiếu cùng TPS để dựng mới TOÀN BỘ 30 RPM, '+
-    'không lấy TGP cũ của ô chưa đo làm nền, kể cả vùng 15ms. '+
-    'Ngoài khoảng neo là NGOẠI SUY CHỈ XEM / BẢN NHÁP BLINK. '+
-    'GHI ECU chỉ xét ô giữa các neo ẤM, không ngoại suy, không vượt 20%, ECT từ 65°C. '+
-    'Phải đo xác minh thực tế trước khi dùng trên động cơ.</small>';
+    'SỬA CONG CẢ HÀNG lấy ít nhất 4 ô có AFR/PW LIVE đã đo ổn định khi máy ấm cùng TPS để suy VE. '+
+    'Dùng cùng công thức ƒx TÍNH MAP NỀN với thông số động cơ/kim đã lưu để dựng cả 30 RPM. '+
+    'Không dùng TGP cũ ô chưa chạy, kể cả 15ms; không ép tuyến tính giảm. '+
+    'Ngoài vùng đo là NGOẠI SUY. Chỉ XEM/LƯU NHÁP BLINK; GHI THỬ/ GHI ECU trực tiếp bị KHÓA trong chế độ này. '+
+    'Phải xác minh AFR thật trên động cơ trước khi sử dụng.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   get('smartPcTrialMode').addEventListener('click',toggleTrialMode);
