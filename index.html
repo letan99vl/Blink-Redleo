@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.147' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.147: Chrome SMART row-wide shape-preserving AFR/PW tune; verified corridor writes
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.148' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.148: Chrome SMART optional confirmed trial ECU save, same 420-cell readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-ROW-SHAPE-WRITE-420-VERIFY-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-TRIAL-SAVE-AFR-ON-420-VERIFY-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -7819,7 +7819,7 @@ window.blinkPcSmartBridge={
       td.title=overlay.title;
     }
   },
-  async writeSmartToEcu({bank,baseline,proposal,approved,prepareTransport}){
+  async writeSmartToEcu({bank,baseline,proposal,approved,trialMode=false,prepareTransport}){
     // ONE deliberate MAP ĐÃ BÙ tap. SMART freezes AFR/TRACE samples during
     // BLE manual I/O; the original ECU writer verifies 420/420 cells.
     if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.()||
@@ -7830,7 +7830,11 @@ window.blinkPcSmartBridge={
        !Array.isArray(approved)||!approved.length||
        !validMatrix(baseline)||!validMatrix(proposal)||!inspectFuelMap(state.inject).ok)
       throw new Error('MAP ECU chưa đủ điều kiện hoặc dữ liệu chưa sẵn sàng.');
-    if(!(Number(state.live.ect)>=65))throw new Error('ECT chưa đủ 65°C để gửi SMART MAP ECU.');
+    const minSmartEct=trialMode?60:65;
+    if(trialMode&&!window.BlinkPcSmartAutoTune?.isTrialWriteAuthorized?.())
+      throw new Error('Chưa xác nhận chế độ GHI THỬ ECU.');
+    if(!(Number(state.live.ect)>=minSmartEct))
+      throw new Error('ECT chưa đủ '+minSmartEct+'°C để gửi MAP BÙ '+(trialMode?'THỬ':'SMART')+'.');
     // "approved" contains confirmed anchor cells PLUS bounded interpolation
     // BETWEEN independently corroborated, warm same-row RPM anchors only.
     const allowed=new Set(approved),maxMs=fuelProtocolMaxMs();
@@ -7840,14 +7844,27 @@ window.blinkPcSmartBridge={
       if(!Number.isFinite(next)||next<0||next>maxMs||!Object.is(old,current))
         throw new Error('MAP gốc đổi hoặc giá trị lỗi tại '+r+','+c);
       const touched=Math.abs(next-old)>0.000001;
-      if(touched&&(!allowed.has(r+':'+c)||r===R-1||
-          afrTargetLockActive(r,c)||old<=0||Math.abs(next/old-1)>.201))
+      if(touched&&(!allowed.has(r+':'+c)||
+          (trialMode&&!window.BlinkPcSmartAutoTune?.isTrialCellApproved?.(r,c))||
+          r===R-1||afrTargetLockActive(r,c)||old<=0||Math.abs(next/old-1)>.201))
         throw new Error('Ô SMART chưa được xác minh hoặc vượt ±20% tại '+r+','+c);
       if(touched)changed++;
     }
     if(!changed)throw new Error('Không có đoạn TPS/RPM đủ neo để ghi ECU.');
     if(changed!==allowed.size)
       throw new Error('Danh sách ô nội suy được duyệt không khớp MAP đề xuất.');
+    // Preserve the original map in local browser before any experimental I/O.
+    // If persistent storage fails, fail closed: do NOT write ECU.
+    if(trialMode){
+      const backup={bank,at:new Date().toISOString(),source:'SMART TEST PB3.79.148',
+        identity:window.BlinkRealProtocol?.handshake?.ident||null,
+        original:baseline.map(row=>row.slice()),proposed:proposal.map(row=>row.slice())};
+      const originalBackup=JSON.stringify(backup),key='blinkSmartTrialBackupV1-map-'+bank;
+      try{
+        localStorage.setItem(key,originalBackup);
+        if(localStorage.getItem(key)!==originalBackup)throw new Error('Backup mismatch');
+      }catch(e){throw new Error('Không lưu được MAP GỐC dự phòng; KHÔNG GHI THỬ ECU.');}
+    }
     // The real BLE single-flight owner must reserve ECU transport before any
     // map bytes are changed. A missing or nested reservation is NOT a writer.
     if(typeof prepareTransport!=='function')
@@ -7858,7 +7875,8 @@ window.blinkPcSmartBridge={
     if(bank!==state.activeMap||!window.BlinkPcSmartAutoTune?.isSaving?.()||
        state.threeRun.active||autoIdleSave.inFlight||!state.ecuConnected||
        fuelMapSyncUnknown(bank)||!blinkAutoTuneTpsSafe()||
-       !(Number(state.live.ect)>=65))
+       !(Number(state.live.ect)>=minSmartEct)||
+       (trialMode&&!window.BlinkPcSmartAutoTune?.isTrialWriteAuthorized?.()))
       throw new Error('MAP/ECU hoặc nhiệt độ đã đổi khi chờ ghi; chưa gửi lệnh.');
     for(let r=0;r<R;r++)for(let c=0;c<C;c++){
       if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
