@@ -4965,35 +4965,48 @@ window.blinkAlert=blinkAlert;
 // Chrome SMART local draft guard survives a page reload. A local draft is
 // not equivalent to an ECU-verified fuel table, even if it looks like one.
 const BLINK_SMART_DRAFT_STORAGE='blinkSmartLocalDraftV1-';
-function saveSmartLocalDraftGuard(bank,map){
+function saveSmartLocalDraftGuard(bank,map,meta={}){
   if(!window.BLINK_PC_SMART_TUNE)return;
   try{localStorage.setItem(BLINK_SMART_DRAFT_STORAGE+bank,
-    JSON.stringify({bank,map,at:Date.now()}));}catch(e){console.warn('SMART draft guard store',e);}
+    JSON.stringify({bank,map,at:Date.now(),fullRowDraft:meta.fullRowDraft===true}));}
+  catch(e){console.warn('SMART draft guard store',e);}
 }
-function isSmartLocalDraftMap(bank,map){
-  if(!window.BLINK_PC_SMART_TUNE)return false;
+function smartLocalDraftInfo(bank,map){
+  if(!window.BLINK_PC_SMART_TUNE)return null;
   try{
     const item=JSON.parse(localStorage.getItem(BLINK_SMART_DRAFT_STORAGE+bank)||'null');
-    return item?.bank===bank&&JSON.stringify(item.map)===JSON.stringify(map);
-  }catch(_e){return false;}
+    return item?.bank===bank&&JSON.stringify(item.map)===JSON.stringify(map)?item:null;
+  }catch(_e){return null;}
+}
+function isSmartLocalDraftMap(bank,map){
+  return !!smartLocalDraftInfo(bank,map);
 }
 function clearSmartLocalDraftGuard(bank){
   try{localStorage.removeItem(BLINK_SMART_DRAFT_STORAGE+bank);}catch(_e){}
 }
 
 async function startFuelWrite(opts={}){
-  // SMART staging in Blink RAM is allowed even with cold/unverified AFR.
-  // But any subsequent MANUAL ECU write from that staged map requires a
-  // second explicit confirmation and full 420-cell ECU readback.
-  if(!opts.skipConfirm&&!opts.autoIdle&&isSmartLocalDraftMap(state.activeMap,state.inject)){
+  // A whole-row LOCAL draft can differ arbitrarily from unsampled original
+  // cells. Never allow an internal/automatic write to bypass the draft guard.
+  const localDraft=smartLocalDraftInfo(state.activeMap,state.inject);
+  if(localDraft?.fullRowDraft&&(opts.skipConfirm||opts.autoIdle)){
+    showEcuNotice('error','MAP 4 NEO CHƯA XÁC MINH',
+      'Không ghi MAP ngoại suy bằng đường ghi tự động. Chỉ kiểm tra và ghi thủ công sau khi có dữ liệu đo độc lập.',0);
+    return false;
+  }
+  // Any later MANUAL write still requires an explicit second warning.
+  if(!opts.skipConfirm&&!opts.autoIdle&&localDraft){
     const ect=Number(state.live?.ect),cold=!Number.isFinite(ect)||ect<65;
-    const approved=await blinkConfirm('CẢNH BÁO: GHI MAP BÙ NHÁP SMART',
-      'MAP bù này được lưu nháp từ SMART Auto Tuner, có thể chứa AFR/PW suy luận. '+
-      'Giới hạn bù ±20% và dữ liệu CHƯA được xác minh trên động cơ. '+
-      (cold?'ECT chưa đạt 65°C: bù làm nóng có thể khiến AFR sai. ':'')+
-      'Chỉ ghi ECU khi đã chủ động kiểm chứng AFR, cảm biến và MAP nền. '+
-      'Blink sẽ ĐỌC LẠI đủ 420 ô sau ghi; nếu không xác nhận được sẽ khóa ghi lại.',
-      'GHI ECU VÀ KIỂM TRA','HỦY');
+    const full=localDraft.fullRowDraft===true;
+    const approved=await blinkConfirm(
+      full?'CẢNH BÁO CAO: GHI MAP DỰ ĐOÁN 4 NEO':'CẢNH BÁO: GHI MAP BÙ NHÁP SMART',
+      (full?
+        'MAP này được dựng lại toàn bộ 30 ô trên mỗi hàng từ 4 neo. Ô RPM CHƯA ĐO có thể bị đổi nhiều hơn 20%, kể cả vùng 15ms cũ. Đây KHÔNG phải dữ liệu động cơ đã xác minh. ':
+        'MAP bù này được lưu nháp từ SMART; số AFR/PW có thể chỉ là suy luận, bù thường giới hạn ±20%. ')+
+      (cold?'ECT chưa đạt 65°C hoặc chưa rõ nhiệt độ đủ ổn định. ':'')+
+      'Chỉ tiếp tục sau khi đã kiểm chứng AFR và thời gian phun trên động cơ bằng thiết bị đo độc lập. '+
+      'ĐỌC LẠI 420 ô chỉ xác nhận đã ghi dữ liệu, KHÔNG xác nhận MAP an toàn hoặc AFR đạt mục tiêu.',
+      'TÔI ĐÃ KIỂM CHỨNG · GHI ECU','HỦY');
     if(!approved)return false;
     opts={...opts,verifyReadback:true};
   }
@@ -7924,7 +7937,7 @@ window.blinkPcSmartBridge={
         throw new Error('SMART vượt 20% ngoài ô dự đoán 4 neo: '+r+','+c);
     }
     state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
-    saveSmartLocalDraftGuard(bank,state.inject);
+    saveSmartLocalDraftGuard(bank,state.inject,{fullRowDraft:fullRowLocalDraft});
     state.measured=blankMatrix(null);state.counts=blankMatrix(0);
     afrResetTargetLocks(bank);state.lastCellKey='';
     render();saveSoon();
