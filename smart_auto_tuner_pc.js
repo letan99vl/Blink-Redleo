@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.156 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.157 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -928,10 +928,10 @@ function veReadinessMessage(){
   if(!setting)
     return 'CHƯA CÓ THÔNG SỐ MÁY/KIM: vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập và kiểm tra thông số thực, bấm TÍNH & XEM TRƯỚC rồi bật lại SMART. '+short;
   if(rows){
-    return 'ĐÃ DỰNG '+rows+' HÀNG VE · '+previewOnly+
-      ' hàng XANH CHƯA ỔN ĐỊNH (chỉ LƯU NHÁP) · '+
-      (run.fullRowWriteCells.size||0)+' ô đủ 3 NEO ẤM / GIỚI HẠN 20% được phép GHI ECU. '+
-      (short||'')+' · Ô tím ngoài khoảng đo là ngoại suy, KHÔNG GHI ECU.';
+    return 'ĐÃ DỰNG '+rows+' HÀNG VE / '+run.fullRowCells.size+
+      ' ô sẽ GHI ECU 1 LẦN, kể cả RPM NGOẠI SUY; '+previewOnly+
+      ' hàng XANH chưa ổn định, AFR chưa kiểm chứng. '+(short||'')+
+      ' · GHI AFR vẫn ON; đọc lại 420 ô sau ghi.';
   }
   if(run.fullRowMeta?.lastError)
     return 'CHƯA DỰNG: '+run.fullRowMeta.lastError+' · '+short;
@@ -985,11 +985,11 @@ function ui(){
     ' · hàng VE từ ≥3 neo cùng TPS '+(run?.fullRowMeta?.rows||0)+
     ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
     ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
-    ' · ô VE giữa neo đủ điều kiện GHI '+(run?.fullRowWriteCells?.size||0)+
+    ' · ô VE có thể GHI 1 CHẠM '+(run?.fullRowCells?.size||0)+
     ' · hàng VE từ ô XANH chưa ổn định '+(run?.fullRowMeta?.previewOnlyRows||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
-    ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
+    ' · ô NGOẠI SUY chưa đo (sẽ ghi nếu bấm ECU) '+(run?.fullRowMeta?.extrapolated||0)+
     ' · ô 15ms KHÔNG làm nền '+(run?.fullRowMeta?.protected||0)+
     (fullRowEnabled&&run?.fullRowMeta?.lastError?' · VE đang chờ: '+run.fullRowMeta.lastError:'')+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
@@ -1056,7 +1056,7 @@ function toggleFullRowMode(){
     try{bridge.refreshView()}catch(_e){}
   }
   reason=fullRowEnabled?
-    'SỬA CONG CẢ HÀNG: 3 ô xanh dựng 30 RPM để XEM; MAP ĐÃ BÙ → ECU chỉ ghi trong khoảng 3 neo ẤM ỔN ĐỊNH, ≤20%; ngoài vùng chỉ XEM/LƯU NHÁP.':
+    'SỬA CONG CẢ HÀNG: 3 ô XANH cùng TPS dựng 30 RPM. Nhấn MAP ĐÃ BÙ → ECU 1 LẦN để ghi mọi ô bù đã hiện (kể cả ngoại suy); GHI AFR vẫn ON.':
     'SỬA CONG CẢ HÀNG TẮT: chỉ nội suy trong đoạn RPM có dữ liệu.';
   ui();
 }
@@ -1130,114 +1130,87 @@ function trustedForEcu({trial=false}={}){
 // 3 corroborated BLUE nodes are sufficient to MODEL, not to prove mixture.
 // Two user confirmations, warm ECT, stopped AFR, snapshot match, local backup
 // and full 420/420 ECU readback are mandatory. No automatic write path.
+// PB3.79.157 ONE USER TAP: all shown corrected VE-row cells from >=3
+// corroborated BLUE AFR/PW nodes are sent to the current ECU. This includes
+// unmeasured RPM extrapolation and may cause a dangerous fuel mixture.
+// Do not auto-write. Keep physical table limits, lock/identity validation,
+// original-map backup, exclusive BLE transport and 420-cell readback.
 async function saveFullRowToEcu(prepareTransport){
-  if(!active||!fullRowEnabled||!run||saving||awaitingRebase||!run.estimated||
-     run.fullRowMeta.rows<1||run.fullRowWriteCells.size<1){
-    say('Chưa có ba neo PW/AFR ấm ổn định cùng TPS để GHI ECU.');return false;
-  }
-  if(bridge.live()?.recording){
-    say('DỪNG GHI AFR trước khi ghi MAP VE dự đoán vào ECU.');return false;
-  }
-  if(!validRun())return false;
-  const s=run,ect=Number(bridge.live()?.ect);
-  if(!Number.isFinite(ect)||ect<CFG.spatialWarmEctC||!(s.sensorDelayMs>0)){
-    say('CHƯA GHI: cần ECT ≥65°C và AFR delay đã cấu hình; không ghi MAP VE khi máy lạnh.');return false;
+  if(!active||!fullRowEnabled||!run||saving||awaitingRebase||
+     run.fullRowRows.size<1||run.fullRowCells.size<1){
+    say('CHƯA GHI: chưa dựng được hàng TPS từ 3 ô AFR/PW XANH.');return false;
   }
   if(typeof prepareTransport!=='function'){
-    say('CHƯA GHI: không có phiên giao tiếp ECU REAL độc quyền.');return false;
+    say('CHƯA GHI: cần luồng ECU REAL độc quyền.');return false;
   }
-  const baseline=clone(s.base),proposal=clone(s.base);
-  const approved=Array.from(s.fullRowWriteCells).sort((a,b)=>{
+  if(!validRun())return false;
+  const snap=getSnapshot(),s=run;
+  if(!snap||Number(snap.bank)!==Number(s.bank)||keyOf(snap)!==s.key){
+    say('MAP/ECU đã đổi: hủy ghi bản dự đoán cũ.');return false;
+  }
+  const max=Number(snap.maxMs);
+  if(!Number.isFinite(max)||max<=0)return false;
+  const baseline=clone(s.base),proposal=clone(s.base),approved=[],writtenRows=new Set();
+  const keys=Array.from(s.fullRowCells).sort((a,b)=>{
     const [ra,ca]=a.split(':').map(Number),[rb,cb]=b.split(':').map(Number);
     return ra-rb||ca-cb;
   });
-  // Only physically bounded measured-bracket cells; do not write the 30
-  // inferred cells shown on screen. Leave every other ECU cell unchanged.
-  for(const key of approved){
-    const [r,c]=key.split(':').map(Number);
-    if(!s.fullRowInterior.has(key)||!s.fullRowWriteCells.has(key))
-      {say('Ô VE không thuộc khoảng neo ổn định.');return false;}
-    proposal[r][c]=s.preview[r][c];
+  for(const key of keys){
+    const a=key.split(':').map(Number),r=a[0],c=a[1];
+    if(a.length!==2||!Number.isInteger(r)||!Number.isInteger(c)||
+       r<0||r>=baseline.length-1||c<0||c>=baseline[r].length||
+       !s.fullRowRows.has(r)||snap.locked?.[r]?.[c]||
+       s.labels[r]?.[c]==='locked'){
+      say('Hủy ghi: ô VE ngoài hàng TPS hoặc bị KHÓA AFR: '+key);return false;
+    }
+    const old=Number(baseline[r][c]),next=Number(s.preview[r]?.[c]);
+    if(!(old>0)||!Number.isFinite(next)||next<=0||next>max){
+      say('Hủy ghi: thời gian phun vượt giới hạn protocol tại '+key);return false;
+    }
+    if(Math.abs(next-old)<=.000001)continue;
+    proposal[r][c]=next;approved.push(key);writtenRows.add(r);
   }
-  const allowed=new Set(approved);
-  let changed=0;
-  for(let r=0;r<baseline.length;r++)for(let c=0;c<baseline[r].length;c++){
-    const old=Number(baseline[r][c]),next=Number(proposal[r][c]);
-    const diff=Math.abs(next-old)>0.000001;
-    if(!Number.isFinite(next)||next<0||next>131.07||
-       (diff&&(!allowed.has(r+':'+c)||r===baseline.length-1)))
-    {say('MAP VE có ô ngoài danh sách dự đoán hoặc giá trị sai; hủy ghi.');return false;}
-    if(diff)changed++;
+  if(!approved.length||approved.length!==s.fullRowCells.size){
+    say('Danh sách ô VE không khớp MAP ĐÃ BÙ; chưa gửi ECU.');return false;
   }
-  if(changed!==approved.length||!changed){
-    say('MAP VE không khớp danh sách các ô được dựng; chưa gửi ECU.');return false;
-  }
-  const unsafeRows=Number(s.fullRowMeta.previewOnlyRows)||0;
-  const extrapolated=Number(s.fullRowMeta.extrapolated)||0;
-  const first=await root.blinkConfirm('CẢNH BÁO: MAP VE 3 NEO · CHỈ ĐOẠN ĐÃ XÁC MINH',
-    'Bảng này chỉ có tối thiểu 3 điểm AFR/PW đã đối chiếu mỗi hàng; '+
-    (unsafeRows?unsafeRows+' hàng CHƯA ĐỦ ỔN ĐỊNH. ':'')+
-    extrapolated+' ô ngoài khoảng RPM đã đo là NGOẠI SUY. '+
-    'Ghi sai MAP có thể khiến hỗn hợp quá nghèo/giàu; các vùng RPM chưa đo/15ms sẽ KHÔNG được ghi. '+
-    'ECU chưa thay đổi. Chỉ tiếp tục khi bạn đã sao lưu và kiểm tra MAP, '+
-    'chuẩn bị kiểm chứng AFR trên băng thử; KHÔNG thử tải lớn trên đường.',
-    'ĐÃ HIỂU RỦI RO · TIẾP','HỦY');
-  if(!first||!active||run!==s||saving||!fullRowEnabled||!validRun())return false;
-  const second=await root.blinkConfirm('XÁC NHẬN GHI THỰC SỰ VÀO ECU · MAP NO.'+s.bank,
-    'Sẽ GHI '+changed+' ô trong khoảng 3 neo ỔN ĐỊNH trên '+s.fullRowMeta.rows+
-    ' hàng TPS (KHÔNG gồm RPM ngoại suy), ECT '+ect.toFixed(1)+'°C. '+
-    'Blink bắt buộc lưu bản sao MAP gốc vào trình duyệt TRƯỚC KHI ghi, '+
-    'dùng giao thức ECU đang kết nối và ĐỌC LẠI đủ 420 ô sau ghi. '+
-    'ĐỌC LẠI CHỈ kiểm tra dữ liệu đã ghi đúng, KHÔNG chứng minh AFR an toàn. '+
-    'Bạn xác nhận đây là thao tác thủ công có rủi ro trên động cơ thật.',
-    'TÔI XÁC NHẬN · GHI ECU','KHÔNG GHI');
-  if(!second||!active||run!==s||saving||!fullRowEnabled||!validRun()||
-     bridge.live()?.recording||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC)||
-     approved.some(key=>!s.fullRowWriteCells.has(key)||!s.fullRowInterior.has(key))||
-     approved.length!==s.fullRowWriteCells.size||
-     approved.some(key=>{
-       const [r,c]=key.split(':').map(Number);
-       return Number(s.preview[r][c])!==Number(proposal[r][c]);
-     })){
-    return false;
-  }
+  // Recording remains ON. SMART onAfr/onLive suppress samples while saving;
+  // REAL ECU I/O owns a single-flight transport and pauses 0x69 internally.
   saving=true;trialWriteAuthorized=true;fullRowWriteAuthorized=true;
   fullRowExplicitAuthorized=true;
-  reason='ĐANG GHI MAP VE 3 NEO · '+changed+
-    ' ô vào ECU, bắt buộc sao lưu và ĐỌC LẠI 420 ô...';
+  const recording=!!bridge.live()?.recording;
+  reason='ĐANG GHI '+approved.length+' Ô VE / '+writtenRows.size+
+    ' HÀNG TPS · NGOẠI SUY CŨNG GHI · GHI AFR '+(recording?'ON':'OFF')+
+    ' · SAO LƯU GỐC, XÁC MINH 420 Ô';
   ui();
   let ok=false;
   try{
     ok=await bridge.writeSmartToEcu({
-      bank:s.bank,baseline,proposal,approved,
-      trialMode:true,fullRowMode:true,fullRowExplicit:true,
-      lowConfidence:unsafeRows>0,prepareTransport
+      bank:s.bank,baseline,proposal,approved,trialMode:true,
+      fullRowMode:true,fullRowExplicit:true,
+      lowConfidence:s.fullRowMeta.previewOnlyRows>0,prepareTransport
     })===true;
     if(ok)verifiedWrites++;
     return ok;
   }catch(e){
-    reason='GHI MAP VE LỖI: '+String(e?.message||e)+
-      '. Nếu ECU không xác định được MAP, phải ĐỌC HIỆN TẠI trước thao tác khác.';
-    return false;
+    reason='LỖI GHI VE: '+String(e?.message||e)+
+      ' · Phải ĐỌC HIỆN TẠI trước khi ghi lại.';return false;
   }finally{
     saving=false;trialWriteAuthorized=false;fullRowWriteAuthorized=false;
     fullRowExplicitAuthorized=false;trialWriteArmed=false;awaitingRebase=true;
     const now=Number(root.performance?.now?.());
     rebaseAfterTime=Number.isFinite(now)?now:0;
-    const holdMs=Math.max(1800,(s.sensorDelayMs||0)+1000);
-    afrHoldUntil=rebaseAfterTime+holdMs;
+    afrHoldUntil=rebaseAfterTime+Math.max(1800,(s.sensorDelayMs||0)+1000);
     history=[];afrRing=[];recent=[];
     if(ok){
-      reason='ĐÃ GHI MAP VE VÀ ĐỌC LẠI 420/420 Ô KHỚP. '+
-        'DỮ LIỆU TRUYỀN ĐÃ XÁC MINH, AFR CHƯA XÁC MINH. '+
-        'Cần kiểm tra AFR thực tế trên băng thử trước khi sử dụng.';
-    }else if(!reason.startsWith('GHI MAP VE LỖI')){
-      reason='MAP VE GHI ECU CHƯA XÁC MINH · ĐỌC HIỆN TẠI và kiểm tra MAP gốc.';
+      reason='GHI '+approved.length+' Ô VE / '+writtenRows.size+
+        ' HÀNG · READBACK 420/420 KHỚP · GHI AFR '+(recording?'VẪN ON':'OFF')+
+        ' · DỮ LIỆU NGOẠI SUY CHƯA KIỂM CHỨNG AFR.';
+    }else if(!reason.startsWith('LỖI GHI VE')){
+      reason='GHI VE CHƯA XÁC MINH · ĐỌC HIỆN TẠI trước khi tiếp tục.';
     }
     ui();try{bridge.refreshView()}catch(_e){}
   }
 }
-
 async function saveToEcu(prepareTransport){
   if(fullRowEnabled)return saveFullRowToEcu(prepareTransport);
   if(!active||!run||saving||awaitingRebase||!run.estimated){
@@ -1324,7 +1297,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.156',algorithm:'THREE-BLUE-AFR-PW-VE-LOCAL-ONLY',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.157',algorithm:'THREE-BLUE-AFR-PW-VE-LOCAL-ONLY',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1418,7 +1391,7 @@ root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,previe
   isTrialWriteAuthorized:()=>saving&&trialWriteAuthorized,
   isTrialCellApproved:(r,c)=>saving&&trialWriteAuthorized&&(
     !!run?.rowTrial?.has(r+':'+c)||
-    !!(fullRowWriteAuthorized&&fullRowExplicitAuthorized&&run?.fullRowWriteCells?.has(r+':'+c))||
+    !!(fullRowWriteAuthorized&&fullRowExplicitAuthorized&&run?.fullRowCells?.has(r+':'+c))||
     !!(fullRowWriteAuthorized&&!fullRowExplicitAuthorized&&run?.fullRowWriteCells?.has(r+':'+c))),
   isFullRowWriteAuthorized:()=>saving&&trialWriteAuthorized&&fullRowWriteAuthorized&&fullRowExplicitAuthorized,
   isFullRowMode:()=>active&&fullRowEnabled&&!saving&&!awaitingRebase,
