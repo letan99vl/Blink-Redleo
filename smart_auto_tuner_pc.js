@@ -1193,9 +1193,12 @@ async function saveFullRowToEcu(prepareTransport){
     'TÔI XÁC NHẬN · GHI ECU','KHÔNG GHI');
   if(!second||!active||run!==s||saving||!fullRowEnabled||!validRun()||
      bridge.live()?.recording||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC)||
-     approved.some(key=>!s.fullRowWriteCells.has(key))||
+     approved.some(key=>!s.fullRowWriteCells.has(key)||!s.fullRowInterior.has(key))||
      approved.length!==s.fullRowWriteCells.size||
-     s.preview.some((row,r)=>row.some((v,c)=>Number(v)!==Number(proposal[r][c])))){
+     approved.some(key=>{
+       const [r,c]=key.split(':').map(Number);
+       return Number(s.preview[r][c])!==Number(proposal[r][c]);
+     })){
     return false;
   }
   saving=true;trialWriteAuthorized=true;fullRowWriteAuthorized=true;
