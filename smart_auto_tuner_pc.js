@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.149 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.150 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -159,8 +159,9 @@ function startRun(){
       invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0,sensorClip:0},
     sensorDelayMs:clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500),lastSpatialEval:0,
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),
-    rowApproved:new Set(),rowTrial:new Set(),fullRowCells:new Set(),fullRowInterior:new Set(),fullRowExtra:new Set(),
-    fullRowRows:new Set(),fullRowMeta:{rows:0,calculated:0,changed:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0},
+    rowApproved:new Set(),rowTrial:new Set(),fullRowCells:new Set(),fullRowWriteCells:new Set(),fullRowInterior:new Set(),fullRowExtra:new Set(),
+    fullRowRows:new Set(),fullRowWritableRows:new Set(),
+    fullRowMeta:{rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0},
     rowMeta:{rows:0,segments:0,writeSegments:0,trialSegments:0,
       inferred:0,approved:0,trialCells:0,baseKinks:0},estimated:0};
   return true;
@@ -196,13 +197,25 @@ function fullRowKinkCount(values,valid){
 }
 function fullRowProposals(r,s){
   const base=run.base[r],target=run.target[r],n=base.length;
-  const nodes=Array.from(run.spatialConfirmed.values()).filter(x=>
-    x.fuelEligible===true&&x.r===r&&Number.isInteger(x.c)&&
+  // BLUE AFR/PW cells are independently corroborated but may have been
+  // recorded before the engine was warm. Two BLUE cells on the same TPS row
+  // are sufficient to PREVIEW a modeled fuel curve; ECU writing still needs
+  // two verified WARM endpoints on that same row.
+  const visual=Array.from(run.spatialConfirmed.values()).filter(x=>
+    x.previewEligible===true&&x.r===r&&Number.isInteger(x.c)&&
     Number.isFinite(x.afr)&&x.afr>CFG.minAfr&&x.afr<CFG.maxAfr&&
     Number(base[x.c])>0&&Number(target[x.c])>0&&
     !s.locked?.[r]?.[x.c]).sort((a,b)=>a.c-b.c);
-  const unique=[];
-  for(const x of nodes)if(!unique.length||unique[unique.length-1].c!==x.c)unique.push(x);
+  const dedupe=nodes=>{
+    const unique=[];
+    for(const x of nodes)if(!unique.length||unique[unique.length-1].c!==x.c)unique.push(x);
+    return unique;
+  };
+  const warm=dedupe(visual.filter(x=>x.fuelEligible===true));
+  const writeReady=warm.length>=2;
+  // If enough warm cells exist, the VERY SAME anchors drive the preview and
+  // the eligible ECU write. Blue-only evidence is never silently promoted.
+  const unique=writeReady?warm:dedupe(visual);
   if(unique.length<2||!(run.sensorDelayMs>0))return null;
   const first=unique[0].c,last=unique[unique.length-1].c;
   // An RPM bracket beyond 6 steps (3000RPM) is a MODEL ONLY.
@@ -301,7 +314,7 @@ function fullRowProposals(r,s){
   }
   const result=original.map((value,c)=>valid[c]?
     Number(clamp(Math.exp(out[c]),0,Number(s.maxMs)||131.07).toFixed(3)):value);
-  return {row:r,first,last,anchorSet,safeSpan,valid,output:result,
+  return {row:r,first,last,anchorSet,safeSpan,valid,output:result,writeReady,
     oldKinks:fullRowKinkCount(original,valid),
     newKinks:fullRowKinkCount(result,valid),protected:protectedCells};
 }
@@ -310,8 +323,8 @@ function makePreview(s){
   if(!run)return;
   const base=run.base,rows=base.length-1,cols=base[0].length;
   run.rowApproved.clear();run.rowTrial.clear();
-  run.fullRowCells.clear();run.fullRowInterior.clear();run.fullRowExtra.clear();run.fullRowRows.clear();
-  run.fullRowMeta={rows:0,calculated:0,changed:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0};
+  run.fullRowCells.clear();run.fullRowWriteCells.clear();run.fullRowInterior.clear();run.fullRowExtra.clear();run.fullRowRows.clear();run.fullRowWritableRows.clear();
+  run.fullRowMeta={rows:0,writableRows:0,calculated:0,changed:0,unverified:0,extrapolated:0,protected:0,anchorCells:0,oldKinks:0,newKinks:0};
   const out=clone(base),labels=base.map(row=>row.map(()=>'none'));
   const curve=Array.from({length:rows},()=>Array(cols).fill(null));
   const approved=Array.from({length:rows},()=>Array(cols).fill(false));
@@ -465,6 +478,7 @@ function makePreview(s){
       if(!result)continue;
       run.fullRowRows.add(r);
       run.fullRowMeta.rows++;
+      if(result.writeReady){run.fullRowWritableRows.add(r);run.fullRowMeta.writableRows++;}
       run.fullRowMeta.oldKinks+=result.oldKinks;
       run.fullRowMeta.newKinks+=result.newKinks;
       run.fullRowMeta.protected+=result.protected;
@@ -484,14 +498,18 @@ function makePreview(s){
         const key=r+':'+c,
           exterior=c<result.first||c>result.last||!result.safeSpan.has(c);
         run.fullRowCells.add(key);run.fullRowMeta.changed++;
+        if(result.writeReady)run.fullRowWriteCells.add(key);
+        else run.fullRowMeta.unverified++;
         if(exterior){
           run.fullRowExtra.add(key);run.fullRowMeta.extrapolated++;
           labels[r][c]='fullrow-extrapolated';
-        }else{
+        }else if(result.writeReady){
           run.fullRowInterior.add(key);
           run.rowApproved.add(key);run.rowTrial.add(key);
           labels[r][c]=result.anchorSet.has(c)?'fullrow-anchor':'fullrow-interior';
           if(result.anchorSet.has(c))run.fullRowMeta.anchorCells++;
+        }else{
+          labels[r][c]='fullrow-unverified';
         }
       }
     }
@@ -933,8 +951,10 @@ function ui(){
     ' · ô NỘI SUY được duyệt '+(run?.rowMeta?.inferred||0)+
     ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
     ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
-    ' · hàng SỬA CONG TOÀN DẢI '+(run?.fullRowMeta?.rows||0)+
+    ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
+    ' · hàng đủ 2 neo ẤM để ghi '+(run?.fullRowMeta?.writableRows||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
+    ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
     ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
     ' · ô 15ms bảo vệ '+(run?.fullRowMeta?.protected||0)+
     ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
@@ -961,8 +981,9 @@ function ui(){
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
       'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG: hai ô AFR/PW đủ tin cậy cùng TPS cho phép tạo đường cong toàn dải; '+
-      'ô tím là NGOẠI SUY CHƯA ĐO, không có nghĩa đã đạt AFR mục tiêu. '+
+      'SỬA CONG CẢ HÀNG: chỉ cần 2 ô AFR/PW XANH đã đối chiếu cùng TPS để DỰNG ĐƯỜNG XEM TRƯỚC, '+
+      'kể cả mẫu được thu khi ECT chưa đủ ấm. Chỉ khi có 2 neo ĐỦ ẤM cùng TPS mới cho xét GHI ECU. '+
+      'Ô tím là NGOẠI SUY hoặc CHƯA XÁC MINH, không có nghĩa đạt AFR mục tiêu. '+
       'GHI ECU thường chỉ dùng vùng giữa neo; muốn GHI THỬ toàn hàng phải bật 2 công tắc, xác nhận riêng. '+
       'GHI AFR và SMART vẫn ON; đọc lại đủ 420 ô.';
   }
@@ -994,7 +1015,7 @@ function toggleFullRowMode(){
     try{bridge.refreshView()}catch(_e){}
   }
   reason=fullRowEnabled?
-    'SỬA CONG CẢ HÀNG BẬT: hai ô AFR/PW xanh cùng TPS dựng đường bù 30 RPM; các ô chưa đo có dấu tím.':
+    'SỬA CONG CẢ HÀNG BẬT: 2 ô AFR/PW xanh cùng TPS tạo đường XEM TRƯỚC; GHI ECU cần 2 ô được xác minh đủ ấm.':
     'SỬA CONG CẢ HÀNG TẮT: chỉ nội suy trong đoạn RPM có dữ liệu.';
   ui();
 }
@@ -1035,8 +1056,7 @@ function trustedForEcu({trial=false}={}){
   // Experimental full-row opt-in includes explicitly marked extrapolated
   // cells; the normal one-click route never includes them.
   const allowedCells=trial&&fullRowEnabled?
-    new Set([...(run?.rowTrial||[]),...(run?.fullRowCells||[])]):
-    trial?run?.rowTrial:run?.rowApproved;
+    run?.fullRowWriteCells:trial?run?.rowTrial:run?.rowApproved;
   if(!run||!allowedCells?.size)return null;
   const out=clone(run.base),included=[];
   for(const key of Array.from(allowedCells).sort((a,b)=>{
@@ -1062,17 +1082,17 @@ async function saveToEcu(prepareTransport){
   }
   if(!validRun())return false;
   const s=run,trial=trialWriteArmed,
-    fullRowTrial=trial&&fullRowEnabled&&run.fullRowMeta.rows>0,
+    fullRowTrial=trial&&fullRowEnabled,
     selected=trustedForEcu({trial}),
     ectValue=bridge.live()?.ect,ect=ectValue==null?NaN:Number(ectValue);
   const minEct=fullRowTrial?CFG.spatialWarmEctC:
     trial?CFG.trialMinEctC:CFG.spatialWarmEctC;
-  const supported=fullRowTrial?s.fullRowMeta.rows>=1:
+  const supported=fullRowTrial?s.fullRowMeta.writableRows>=1:
     trial?s.rowMeta.trialSegments>=1:
     (s.rowMeta.writeSegments>=1||s.fullRowInterior.size>=2)&&s.spatial.eligible>=2;
   if(!selected||!supported||s.sensorDelayMs<=0||!Number.isFinite(ect)||ect<minEct){
     say('CHƯA GHI ECU: cần 2 neo AFR/PW cùng TPS, delay AFR, MAP nền không gãy và ECT ≥'+
-      minEct+'°C. '+(fullRowEnabled?'SỬA CONG CẢ HÀNG cần hai ô xanh ĐỦ ẤM cùng một TPS.':trial?'GHI THỬ đã bật nhưng chưa đủ điều kiện.':'Có thể bật GHI THỬ nếu ECT 60–65°C.'));
+      minEct+'°C. '+(fullRowEnabled?'Hàng xem trước từ 2 ô xanh chưa phải hàng đủ 2 neo ẤM để ghi ECU.':trial?'GHI THỬ đã bật nhưng chưa đủ điều kiện.':'Có thể bật GHI THỬ nếu ECT 60–65°C.'));
     return false;
   }
   const baseline=clone(s.base),confirmed=trustedForEcu({trial});
@@ -1142,7 +1162,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.149',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.150',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1155,7 +1175,8 @@ function exportLog(){
       minWarmECT:CFG.spatialWarmEctC,afrDelayMs:run.sensorDelayMs},
     spatialStats:run.spatial,rowCorrection:run.rowMeta,
     rowApprovedCells:Array.from(run.rowApproved),rowTrialCells:Array.from(run.rowTrial),
-    fullRowCells:Array.from(run.fullRowCells),fullRowExtrapolated:Array.from(run.fullRowExtra),
+    fullRowCells:Array.from(run.fullRowCells),fullRowWriteCells:Array.from(run.fullRowWriteCells),
+    fullRowExtrapolated:Array.from(run.fullRowExtra),
     fullRowMeta:run.fullRowMeta,
     spatialBuckets:Array.from(run.spatialBuckets.entries()),
     spatialConfirmed:Array.from(run.spatialConfirmed.entries()),
@@ -1182,6 +1203,7 @@ function initUI(){
     '#smartPcTrialMode{background:#493325;color:#ffe8ba}#smartPcTrialMode.danger{background:#b85b13;color:#fff}'+
     '#smartPcFullRowMode{background:#164450;color:#d6ffff}#smartPcFullRowMode.danger{background:#076d82;color:#fff}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-outside{outline:2px dashed #a657ee;outline-offset:-2px}'+
+    '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-unverified{outline:2px dashed #c478ef;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-interior{outline:2px dashed #18e5cd;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-anchor{outline:2px solid #00e6ad;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-inferred{outline:1px dashed #6bc8fa;outline-offset:-2px}'+
@@ -1210,7 +1232,8 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG cần hai ô AFR/PW đủ ấm cùng TPS: toàn hàng là MÔ HÌNH, không phải AFR đo thật. '+
+    'SỬA CONG CẢ HÀNG dùng hai ô AFR/PW xanh cùng TPS để XEM TRƯỚC (mẫu lạnh vẫn xem được). '+
+    'Để GHI ECU cần hai neo ẤM được đối chiếu trên cùng TPS; toàn hàng chỉ là mô hình. '+
     'GHI THỬ CẢ HÀNG cần bật hai công tắc, ECT từ 65°C và xác nhận riêng. '+
     'KHÔNG áp dụng các vùng chưa đo. Kiểm chứng thực tế trước khi sử dụng trên động cơ.</small>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
@@ -1225,7 +1248,7 @@ root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,previe
   measuredEstimate,pendingAfr,saveToEcu,isSaving:()=>saving,
   isTrialWriteAuthorized:()=>saving&&trialWriteAuthorized,
   isTrialCellApproved:(r,c)=>saving&&trialWriteAuthorized&&(
-    !!run?.rowTrial?.has(r+':'+c)||!!(fullRowWriteAuthorized&&run?.fullRowCells?.has(r+':'+c))),
+    !!run?.rowTrial?.has(r+':'+c)||!!(fullRowWriteAuthorized&&run?.fullRowWriteCells?.has(r+':'+c))),
   isFullRowWriteAuthorized:()=>saving&&trialWriteAuthorized&&fullRowWriteAuthorized,
   getStats:()=>({active,saving,awaitingRebase,trialWriteArmed,fullRowEnabled,verifiedWrites,raw,accepted,rejected,suspected,
     provisionalSamples,provisionalSkipped,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
