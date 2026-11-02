@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.145' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.145: Chrome SMART 20% save, protects local draft write with mandatory 420 readback
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.146' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.146: Chrome SMART one-tap ECU write while AFR/SMART stay ON, verified new-map rebase
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-20PCT-DRAFT-CONFIRM-420-READBACK-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-ONE-TAP-AFR-ON-READBACK-REBASE-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -3590,7 +3590,8 @@ function correctedMatrix(){
   // may transmit this estimate without the separate local application step.
   if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
     const proposal=window.BlinkPcSmartAutoTune.preview(state.activeMap);
-    if(proposal)return proposal;
+    // No stale pre-write AFR corrections while SMART is awaiting a new baseline.
+    return proposal||cloneMatrix(state.inject);
   }
   return correctedFrom(state.inject,state.measured,state.target,state.cal.limitPct);
 }
@@ -7818,10 +7819,11 @@ window.blinkPcSmartBridge={
     }
   },
   async writeSmartToEcu({bank,baseline,proposal,observed,prepareTransport}){
-    // Manually confirmed Smart correction ONLY. This method reuses the existing
-    // V8/V9+/Ultra protocol writer + 420-cell verification and rollback.
+    // ONE deliberate MAP ĐÃ BÙ tap. SMART freezes AFR/TRACE samples during
+    // BLE manual I/O; the original ECU writer verifies 420/420 cells.
     if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.()||
-       bank!==state.activeMap||state.recording||state.threeRun.active||
+       !window.BlinkPcSmartAutoTune?.isSaving?.()||
+       bank!==state.activeMap||state.threeRun.active||
        autoIdleSave.enabled||autoIdleSave.inFlight||state.ecuWriteQueued||
        !state.ecuConnected||fuelMapSyncUnknown(bank)||!blinkAutoTuneTpsSafe()||
        !Array.isArray(observed)||!observed.length||
@@ -7841,11 +7843,17 @@ window.blinkPcSmartBridge={
       if(touched)changed++;
     }
     if(!changed)throw new Error('Không có ô SMART đủ điều kiện để ghi ECU.');
-    // REAL I/O starts only after the separate user confirmation.
-    if(typeof prepareTransport==='function')await prepareTransport();
-    if(bank!==state.activeMap||state.recording||state.threeRun.active||
-       autoIdleSave.inFlight||!state.ecuConnected||fuelMapSyncUnknown(bank)||
-       !blinkAutoTuneTpsSafe()||!(Number(state.live.ect)>=65))
+    // The real BLE single-flight owner must reserve ECU transport before any
+    // map bytes are changed. A missing or nested reservation is NOT a writer.
+    if(typeof prepareTransport!=='function')
+      throw new Error('Luồng MAP ECU REAL chưa được dành riêng; chưa gửi lệnh.');
+    const reservation=await prepareTransport();
+    if(reservation?.nested)
+      throw new Error('Có thao tác MAP ECU khác đang giữ đường truyền. Chưa ghi.');
+    if(bank!==state.activeMap||!window.BlinkPcSmartAutoTune?.isSaving?.()||
+       state.threeRun.active||autoIdleSave.inFlight||!state.ecuConnected||
+       fuelMapSyncUnknown(bank)||!blinkAutoTuneTpsSafe()||
+       !(Number(state.live.ect)>=65))
       throw new Error('MAP/ECU hoặc nhiệt độ đã đổi khi chờ ghi; chưa gửi lệnh.');
     for(let r=0;r<R;r++)for(let c=0;c<C;c++){
       if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
