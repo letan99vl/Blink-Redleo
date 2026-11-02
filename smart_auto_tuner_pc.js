@@ -8,7 +8,7 @@ const pc=/Windows NT|Win64|Win32/i.test(ua)&&/Chrome\/\d+/i.test(ua)&&
 const bridge=root.blinkPcSmartBridge,doc=root.document;
 if(!pc||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
-  minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,maxRelError:0.18,
+  minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,
   maxPreviewPct:7,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2,
   provisionalLiveMaxAge:450,provisionalAfrRange:2.8,provisionalCornerWeight:0.10,
   spatialMaxPerCell:36,spatialIndependentGapMs:850,spatialRatioTolerance:0.10,
@@ -497,9 +497,7 @@ function addPoint(center,afr,point){
   if(u===null||v===null){note('outsideAxis');say('Ngoài vùng TPS/RPM có thể học');return;}
   const target=sample2D(run.target,u,v);
   if(!Number.isFinite(target)||target<9||target>18){note('targetInvalid');say('AFR mục tiêu ở vùng này không hợp lệ');return;}
-  if(Math.abs(afr/target-1)>CFG.maxRelError){
-    note('errorLarge');say('AFR quá lệch mục tiêu: dừng học, kiểm tra bỏ lửa/thiếu dư xăng',true);return;
-  }
+  // Legacy helper is inactive in SPATIAL mode. No AFR/target % veto.
   if(center.t-lastAccept<CFG.minPointGap){note('spacing');return;}
   const near=Math.abs(afr-target)<=.3;
   const logK=near?0:Math.log(afr/target);
