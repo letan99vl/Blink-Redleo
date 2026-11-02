@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.144' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.144: Chrome SMART 20% preview, staged Blink save, explicit verified ECU write
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.145' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.145: Chrome SMART 20% save, protects local draft write with mandatory 420 readback
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-20PCT-MANUAL-SAVE-420-READBACK-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-20PCT-DRAFT-CONFIRM-420-READBACK-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -4956,7 +4956,41 @@ window.blinkConfirm=blinkConfirm;
 window.blinkPrompt=blinkPrompt;
 window.blinkAlert=blinkAlert;
 
+// Chrome SMART local draft guard survives a page reload. A local draft is
+// not equivalent to an ECU-verified fuel table, even if it looks like one.
+const BLINK_SMART_DRAFT_STORAGE='blinkSmartLocalDraftV1-';
+function saveSmartLocalDraftGuard(bank,map){
+  if(!window.BLINK_PC_SMART_TUNE)return;
+  try{localStorage.setItem(BLINK_SMART_DRAFT_STORAGE+bank,
+    JSON.stringify({bank,map,at:Date.now()}));}catch(e){console.warn('SMART draft guard store',e);}
+}
+function isSmartLocalDraftMap(bank,map){
+  if(!window.BLINK_PC_SMART_TUNE)return false;
+  try{
+    const item=JSON.parse(localStorage.getItem(BLINK_SMART_DRAFT_STORAGE+bank)||'null');
+    return item?.bank===bank&&JSON.stringify(item.map)===JSON.stringify(map);
+  }catch(_e){return false;}
+}
+function clearSmartLocalDraftGuard(bank){
+  try{localStorage.removeItem(BLINK_SMART_DRAFT_STORAGE+bank);}catch(_e){}
+}
+
 async function startFuelWrite(opts={}){
+  // SMART staging in Blink RAM is allowed even with cold/unverified AFR.
+  // But any subsequent MANUAL ECU write from that staged map requires a
+  // second explicit confirmation and full 420-cell ECU readback.
+  if(!opts.skipConfirm&&!opts.autoIdle&&isSmartLocalDraftMap(state.activeMap,state.inject)){
+    const ect=Number(state.live?.ect),cold=!Number.isFinite(ect)||ect<65;
+    const approved=await blinkConfirm('CẢNH BÁO: GHI MAP BÙ NHÁP SMART',
+      'MAP bù này được lưu nháp từ SMART Auto Tuner, có thể chứa AFR/PW suy luận. '+
+      'Giới hạn bù ±20% và dữ liệu CHƯA được xác minh trên động cơ. '+
+      (cold?'ECT chưa đạt 65°C: bù làm nóng có thể khiến AFR sai. ':'')+
+      'Chỉ ghi ECU khi đã chủ động kiểm chứng AFR, cảm biến và MAP nền. '+
+      'Blink sẽ ĐỌC LẠI đủ 420 ô sau ghi; nếu không xác nhận được sẽ khóa ghi lại.',
+      'GHI ECU VÀ KIỂM TRA','HỦY');
+    if(!approved)return false;
+    opts={...opts,verifyReadback:true};
+  }
   if(window.BlinkFuelAnchorUI?.isPreview?.()){
     showEcuNotice('info','ĐANG XEM TRƯỚC NỘI SUY','Bấm ÁP DỤNG hoặc HỦY XEM trước khi LƯU MAP vào ECU. Xem trước chưa thay đổi thời gian phun.',4000);
     return false;
@@ -5716,6 +5750,7 @@ function clearMeasuredAfterCorrectedWrite(mapNo){
   return true;
 }
 function onFuelWriteVerified(mapNo){
+  if(isSmartLocalDraftMap(mapNo,state.inject))clearSmartLocalDraftGuard(mapNo);
   if(!state.threeRun.active)clearMeasuredAfterCorrectedWrite(mapNo);
   const tr=state.threeRun;if(!tr.active||tr.phase!=='writing'||mapNo!==tr.mapNo)return;
   if(tr.cancelRequested){resetThreeRunCancelled('GHI ACK OK · ĐÃ HỦY PHIÊN 3 LƯỢT');return;}
@@ -7845,6 +7880,7 @@ window.blinkPcSmartBridge={
         throw new Error('SMART vượt giới hạn thay đổi 20%: '+r+','+c);
     }
     state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
+    saveSmartLocalDraftGuard(bank,state.inject);
     state.measured=blankMatrix(null);state.counts=blankMatrix(0);
     afrResetTargetLocks(bank);state.lastCellKey='';
     render();saveSoon();
