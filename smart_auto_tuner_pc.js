@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.154 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.155 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -18,7 +18,7 @@ const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.8
   rowMaxAnchorGap:6,rowEdgeTaperCells:3,rowCurveGain:.9,
   rowHorizontalBlend:.12,rowVerticalBlend:.14,rowMaxLogStep:.0488,
   rowKinkLogThreshold:.09,trialMinEctC:60,
-  fullRowMinAnchors:4,fullRowCurvatureWeight:2.8,fullRowAnchorWeight:16,
+  fullRowMinAnchors:3,fullRowCurvatureWeight:2.8,fullRowAnchorWeight:16,
   fullRowExteriorDecay:6});
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),get=id=>doc.getElementById(id);
 const median=vs=>{const a=vs.slice().sort((x,y)=>x-y),n=a.length;return n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2;};
@@ -220,8 +220,9 @@ function fullRowProposals(r,s){
   }
   const base=run.base[r],target=run.target[r];
   // Two confidence tiers:
-  // 4+ warm, steady LIVE observations = calibrated VE row / local draft.
-  // 4+ blue corroborated observations = VISUAL-ONLY preliminary VE row.
+  // 3+ warm, steady LIVE nodes = calibrated VE row / local draft.
+  // 3+ corroborated BLUE nodes = low-confidence VE row, also allowed to
+  // stage LOCALLY after an explicit warning, never direct ECU writing.
   // BLUE means repeated spatial AFR/PW corroboration, NOT proof that fuel
   // injection has stabilized. Do not silently treat BLUE as write-safe.
   const rows=Array.from(run.spatialConfirmed.values()).filter(x=>
@@ -916,12 +917,12 @@ function veReadinessMessage(){
     return 'CHƯA CÓ THÔNG SỐ MÁY/KIM: vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập và kiểm tra thông số thực, bấm TÍNH & XEM TRƯỚC rồi bật lại SMART. '+short;
   if(rows){
     return 'ĐÃ DỰNG '+rows+' HÀNG VE · '+previewOnly+
-      ' hàng từ ô XANH CHỈ XEM, chưa đủ ổn định để LƯU NHÁP. '+
+      ' hàng từ ô XANH CHƯA ỔN ĐỊNH: ĐƯỢC LƯU NHÁP TRONG BLINK, CHẶN GHI ECU. '+
       (short||'')+' · Ô tím ngoài khoảng đo là ngoại suy, KHÔNG GHI ECU.';
   }
   if(run.fullRowMeta?.lastError)
     return 'CHƯA DỰNG: '+run.fullRowMeta.lastError+' · '+short;
-  return 'CHỜ 4 Ô XANH CÙNG TPS để DỰNG XEM; LƯU NHÁP cần 4 neo AFR/PW LIVE ỔN ĐỊNH khi ECT đủ 65°C. '+(short||'Chưa đủ dữ liệu AFR/PW.');
+  return 'CHỜ 3 Ô XANH CÙNG TPS để DỰNG VÀ LƯU NHÁP (không ghi ECU). 3 neo AFR/PW ỔN ĐỊNH khi máy ấm sẽ tăng độ tin cậy. '+(short||'Chưa đủ dữ liệu AFR/PW.');
 }
 function preview(bank){return active&&run&&!saving&&!awaitingRebase&&Number(bank)===run.bank?run.preview:null;}
 function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels[r]?.[c]||'none':'none';}
@@ -968,7 +969,7 @@ function ui(){
     ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
     ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
     ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
-    ' · hàng VE đủ 4 neo ổn định '+(run?.fullRowMeta?.rows||0)+
+    ' · hàng VE từ ≥3 neo cùng TPS '+(run?.fullRowMeta?.rows||0)+
     ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
     ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
     ' · hàng VE từ ô XANH chưa ổn định '+(run?.fullRowMeta?.previewOnlyRows||0)+
@@ -1001,8 +1002,8 @@ function ui(){
       'Cảnh báo MAP nền gãy '+(run?.rowMeta?.baseKinks||0)+' đoạn (không tự ghi). '+
       'Ô viền xanh đứt: nội suy trong đoạn đủ neo, được ghi khi ECT ấm. '+
       'GHI THỬ ECU chỉ cho đoạn có 2 neo, không gãy MAP nền, ECT ≥'+CFG.trialMinEctC+'°C và xác nhận riêng. '+
-      'SỬA CONG CẢ HÀNG (VE): từ 4 ô XANH AFR/PW có thể DỰNG XEM THỬ; '+
-      'chỉ 4 neo PW LIVE + AFR đủ ổn định, khi máy ấm, mới được lưu BẢN NHÁP Blink. '+
+      'SỬA CONG CẢ HÀNG (VE): từ 3 ô XANH AFR/PW ở 3 RPM cùng TPS có thể DỰNG VÀ LƯU BẢN NHÁP trong Blink. '+
+      'Ba neo PW LIVE + AFR ỔN ĐỊNH khi máy ấm cho mô hình đáng tin cậy hơn; chưa ổn định phải cảnh báo riêng. '+
       'Dùng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
       'Nội suy hệ số hiệu chỉnh VE theo RPM, ngoại suy về VE nền, rồi tính TGP bằng AFR MỤC TIÊU từng cột. '+
       'Không ép TGP giảm tuyến tính và KHÔNG lấy thời gian phun cũ của ô chưa đo/15ms làm nền. '+
@@ -1012,8 +1013,7 @@ function ui(){
   }
   // Local staging is operator-confirmed and NEVER a background ECU write.
   if(apply)apply.disabled=!active||!run||saving||awaitingRebase||
-    !!bridge.live()?.recording||!run.estimated||
-    (fullRowEnabled&&run.fullRowMeta.previewOnlyRows>0);
+    !!bridge.live()?.recording||!run.estimated;
 }
 
 function stop(message){
@@ -1040,7 +1040,7 @@ function toggleFullRowMode(){
     try{bridge.refreshView()}catch(_e){}
   }
   reason=fullRowEnabled?
-    'SỬA CONG CẢ HÀNG: 4 AFR/PW LIVE ổn định cùng TPS → VE theo ƒx TÍNH MAP NỀN → 30 RPM; chỉ XEM/LƯU NHÁP.':
+    'SỬA CONG CẢ HÀNG: 3 ô XANH ở 3 RPM cùng TPS → VE theo ƒx → 30 RPM; CHỈ LƯU BLINK, KHÔNG GHI ECU.':
     'SỬA CONG CẢ HÀNG TẮT: chỉ nội suy trong đoạn RPM có dữ liệu.';
   ui();
 }
@@ -1058,28 +1058,28 @@ async function applyLocal(){
     say('Chưa có MAP bù để lưu vào Blink');return false;
   }
   if(bridge.live()?.recording){say('DỪNG GHI AFR rồi mới lưu MAP bù');return false;}
-  if(fullRowEnabled&&run.fullRowMeta.previewOnlyRows>0){
-    say('CHỈ XEM: còn '+run.fullRowMeta.previewOnlyRows+
-      ' hàng VE dựng từ 4 ô xanh nhưng chưa có đủ 4 neo PW/AFR ỔN ĐỊNH. Chưa thể lưu bản nháp.');
-    return false;
-  }
   if(!validRun())return false;
   const s=run,proposal=clone(s.preview),baseline=clone(s.base);
   const modeledFullRow=fullRowEnabled&&s.fullRowMeta.rows>0;
+  const lowConfidenceDraft=modeledFullRow&&s.fullRowMeta.previewOnlyRows>0;
   const unverified=modeledFullRow||s.spatial.previewOnly>0||s.spatial.eligible<2||
     s.sensorDelayMs<=0||!(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC);
   const ok=await root.blinkConfirm('LƯU MAP BÙ VÀO BLINK · MAP NO.'+s.bank,
     (modeledFullRow?
-      'BẢN NHÁP VE từ PW LIVE/AFR ổn định: '+s.fullRowMeta.rows+' HÀNG, '+s.estimated+
-      ' Ô. Những RPM chưa đo/15ms có thể khác MAP gốc hơn 20%, cần xác minh thực tế. ':
+      'BẢN NHÁP VE từ ít nhất 3 ô XANH cùng TPS: '+s.fullRowMeta.rows+
+      ' hàng, '+s.estimated+' ô dự đoán. ':
       'Bù tối đa ±'+CFG.maxPreviewPct+'% cho '+s.estimated+' ô. ')+
-    (unverified?'ĐÂY CHỈ LÀ SUY LUẬN CHƯA ĐƯỢC KIỂM CHỨNG. ':'')+
-    '\n\nChỉ lưu vào BLINK, KHÔNG GHI ECU. Không sử dụng MAP chưa đo để chạy xe; '+
-    'cần kiểm tra độc lập cả dải RPM trước khi ghi ECU.',
-    'LƯU BẢN NHÁP','HỦY');
+    (lowConfidenceDraft?
+      'CẢNH BÁO: '+s.fullRowMeta.previewOnlyRows+
+      ' hàng chỉ có AFR/PW đối chiếu, CHƯA đủ ổn định để xác nhận lượng phun. '+
+      'Chỉ được LƯU NHÁP BLINK; bản này sẽ bị CHẶN GHI ECU. ':
+      (unverified?'ĐÂY LÀ MÔ HÌNH CHƯA KIỂM CHỨNG TOÀN DẢI RPM. ':''))+
+    '\n\nÔ chưa đo và dải 15ms có thể khác MAP gốc nhiều hơn 20%. '+
+    'Không ghi ECU, không sử dụng bản nháp này để chạy xe khi chưa đo AFR độc lập.',
+    'CHỈ LƯU NHÁP BLINK','HỦY');
   if(!ok||!active||saving||run!==s||!validRun()||bridge.live()?.recording)return false;
   try{
-    bridge.applyLocal({bank:s.bank,baseline,proposal,fullRowDraft:modeledFullRow});
+    bridge.applyLocal({bank:s.bank,baseline,proposal,fullRowDraft:modeledFullRow,lowConfidenceDraft});
     stop('ĐÃ LƯU MAP BÙ TRONG BLINK · CHƯA GHI ECU · phải kiểm tra lại');
     return true;
   }catch(e){say('Lưu MAP bù thất bại: '+String(e?.message||e));return false;}
@@ -1199,7 +1199,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.154',algorithm:'STABLE-LIVE-AFR-PW-SHARED-VE-PHYSICS',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.155',algorithm:'THREE-BLUE-AFR-PW-VE-LOCAL-ONLY',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1273,7 +1273,8 @@ function initUI(){
     'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
     'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
     'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG: 4 ô XANH cùng TPS dựng XEM THỬ VE; 4 ô PW LIVE/AFR thật sự ổn định, đủ ấm mới có thể lưu nháp Blink. '+
+    'SỬA CONG CẢ HÀNG: 3 ô XANH ở 3 RPM cùng TPS dựng đủ 30 ô và được LƯU NHÁP BLINK. '+
+    'Ô chưa đủ ổn định sẽ được gắn cờ MỨC TIN CẬY THẤP và CHẶN GHI ECU. '+
     'Dùng cùng công thức ƒx TÍNH MAP NỀN với thông số động cơ/kim đã lưu để dựng cả 30 RPM. '+
     'Không dùng TGP cũ ô chưa chạy, kể cả 15ms; không ép tuyến tính giảm. '+
     'Ngoài vùng đo là NGOẠI SUY. Chỉ XEM/LƯU NHÁP BLINK; GHI THỬ/ GHI ECU trực tiếp bị KHÓA trong chế độ này. '+
