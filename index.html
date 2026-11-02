@@ -7848,6 +7848,10 @@ window.blinkPcSmartBridge={
     }
   },
   async writeSmartToEcu({bank,baseline,proposal,approved,trialMode=false,fullRowMode=false,prepareTransport}){
+    // Never authorize writing when Blink's base map is itself an unverified
+    // full-row local draft. Require a fresh ECU read before physical writing.
+    if(smartLocalDraftInfo(bank,baseline)?.fullRowDraft)
+      throw new Error('MAP nền đang là BẢN NHÁP VE trong Blink: phải ĐỌC HIỆN TẠI từ ECU trước khi GHI SMART.');
     // ONE deliberate MAP ĐÃ BÙ tap. SMART freezes AFR/TRACE samples during
     // BLE manual I/O; the original ECU writer verifies 420/420 cells.
     if(!window.BLINK_PC_SMART_TUNE||!window.BlinkPcSmartAutoTune?.isActive?.()||
