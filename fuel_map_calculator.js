@@ -179,7 +179,89 @@
     return {params:p,cc:displacement,rho,flow,injectorMgPerMs,lambda,actualE10Afr,
       effective,command,output,airMassMg,veGrid,candidate,updated,min,max,maxDuty,aboveDuty,maxVe,extrapolated,usedCalibrations};
   }
-  root.BlinkFuelModelMath=Object.freeze({calculate,validate,inferVe,baseVe,interpolate:interp,referenceMs:photoRegionalMs,referenceTps:PHOTO_TPS.slice(),referenceRpmMin:PHOTO_RPM_MIN,referenceRpmMax:PHOTO_RPM_MAX,defaults:Object.freeze(Object.assign({},DEFAULTS))});
+  // Smart MAP: reconstruct ONE TPS row from 4+ independent stable AFR/PW
+  // points using EXACTLY the same VE/air-mass/injector/deadtime model as
+  // TINH MAP PHUN NEN -> TRIUMPH MG KHI. These are calibrated *observations*,
+  // never unsampled ECU base-map values. Output is a DRAFT, not an ECU map.
+  function calculateStableFuelRow(raw,args){
+    const p=validate(Object.assign({},raw,{model:'airmass'}));
+    const axis=Array.isArray(args?.rpms)?args.rpms.map(Number):[];
+    const targets=Array.isArray(args?.targets)?args.targets.map(Number):[];
+    const rowTps=Number(args?.tps);
+    if(axis.length<4||targets.length!==axis.length||
+       axis.some((x,i)=>!Number.isFinite(x)||x<500||(i&&x<=axis[i-1]))||
+       targets.some(x=>!Number.isFinite(x)||x<9||x>18)||
+       !Number.isFinite(rowTps)||rowTps<0||rowTps>100)
+      throw new Error('SMART VE: trục RPM/TPS hoặc AFR mục tiêu của cả hàng không hợp lệ.');
+    const readings=Array.isArray(args?.readings)?args.readings:[];
+    const seen=new Set(),nodes=[],rejections=[];
+    for(const a of readings){
+      const c=Number(a?.c);
+      if(!Number.isInteger(c)||c<0||c>=axis.length||seen.has(c))continue;
+      seen.add(c);
+      try{
+        // inferVe validates the fuel physics and rejects implausible VE
+        // or >50% disagreement with the regional reference VE.
+        const x=inferVe(p,{
+          tps:a.tps,rpm:a.rpm,afr:a.afr,pw:a.pw
+        });
+        nodes.push({c,rpm:axis[c],actualRpm:x.rpm,afr:x.afr,pw:x.pw,
+          ve:x.ve,vePct:x.vePct,prior:x.prior,
+          departurePct:x.departurePct,correction:Math.log(x.ve/x.prior)});
+      }catch(e){rejections.push({c,reason:String(e?.message||e)});}
+    }
+    nodes.sort((a,b)=>a.c-b.c);
+    if(nodes.length<4){
+      const why=rejections[0]?.reason||'thiếu 4 vùng AFR/PW đã xác nhận ổn định';
+      throw new Error('SMART VE: chỉ '+nodes.length+' neo VE hợp lệ / cần 4. '+why);
+    }
+    const physics=paramsPhysics(p);
+    const scale=p.afrScale==='gauge'?14.7:14.1;
+    const first=nodes[0].c,last=nodes[nodes.length-1].c;
+    // Piecewise LINEAR interpolation of logged VE-to-prior ratios, the same
+    // axis-aware interpolation principle as the selected-anchor map tool.
+    // Out of bounds: exponential fade of the boundary correction to prior
+    // VE, using the familiar RPM_VE + per-TPS regional reference shape.
+    function logCorrection(rpm){
+      const low=nodes[0],high=nodes[nodes.length-1];
+      if(rpm<low.rpm)return low.correction*Math.exp(-(low.rpm-rpm)/3000);
+      if(rpm>high.rpm)return high.correction*Math.exp(-(rpm-high.rpm)/3000);
+      for(let k=1;k<nodes.length;k++)if(rpm<=nodes[k].rpm){
+        const l=nodes[k-1],h=nodes[k];
+        const t=(rpm-l.rpm)/(h.rpm-l.rpm);
+        return l.correction+(h.correction-l.correction)*t;
+      }
+      return high.correction;
+    }
+    const maxMs=Number(args?.maxMs)||131.07;
+    const output=[],veGrid=[],airMassMg=[],dutyGrid=[];
+    let maxDuty=0,aboveDuty=0;
+    for(let c=0;c<axis.length;c++){
+      const rpm=axis[c],ve=baseVe(p,rowTps,rpm)*Math.exp(logCorrection(rpm));
+      const airMg=physics.displacement*physics.rho*ve;
+      const afrReal=targets[c]*14.1/scale;
+      const fuelMg=airMg/afrReal;
+      const effective=fuelMg/physics.injectorMgPerMs/p.pulses;
+      const command=effective+p.deadtime;
+      const pw=p.output==='command'?command:effective;
+      if(!Number.isFinite(pw)||pw<=0||pw>maxMs||
+         !Number.isFinite(ve)||ve<=0||ve>1.3)
+        throw new Error('SMART VE: RPM '+rpm+' cho PW/VE vượt giới hạn; cần kiểm chứng thông số trước.');
+      const duty=p.pulses*command*rpm/120000*100;
+      if(duty>80)aboveDuty++;
+      maxDuty=Math.max(maxDuty,duty);
+      output.push(Number(pw.toFixed(3)));
+      veGrid.push(ve);
+      airMassMg.push(airMg);
+      dutyGrid.push(duty);
+    }
+    return {output,veGrid,airMassMg,dutyGrid,maxDuty,aboveDuty,
+      first,last,anchorCount:nodes.length,nodes,rejections,
+      extrapolated:axis.length-(last-first+1),
+      source:'BlinkFuelModelMath.inferVe/baseVe/paramsPhysics',
+      model:'STEADY-AFR-LIVE-PW-VE-2D-RPM-TARGET'};
+  }
+  root.BlinkFuelModelMath=Object.freeze({calculate,calculateStableFuelRow,validate,inferVe,baseVe,interpolate:interp,referenceMs:photoRegionalMs,referenceTps:PHOTO_TPS.slice(),referenceRpmMin:PHOTO_RPM_MIN,referenceRpmMax:PHOTO_RPM_MAX,defaults:Object.freeze(Object.assign({},DEFAULTS))});
 
   const doc=root.document,nav=root.navigator||{},ua=String(nav.userAgent||'');
   const isIOS=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints)>1);
