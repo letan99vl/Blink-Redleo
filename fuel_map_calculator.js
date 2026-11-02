@@ -179,7 +179,7 @@
     return {params:p,cc:displacement,rho,flow,injectorMgPerMs,lambda,actualE10Afr,
       effective,command,output,airMassMg,veGrid,candidate,updated,min,max,maxDuty,aboveDuty,maxVe,extrapolated,usedCalibrations};
   }
-  // Smart MAP: reconstruct ONE TPS row from 4+ independent stable AFR/PW
+  // Smart MAP: reconstruct ONE TPS row from 3+ independent corroborated AFR/PW
   // points using EXACTLY the same VE/air-mass/injector/deadtime model as
   // TINH MAP PHUN NEN -> TRIUMPH MG KHI. These are calibrated *observations*,
   // never unsampled ECU base-map values. Output is a DRAFT, not an ECU map.
@@ -188,7 +188,7 @@
     const axis=Array.isArray(args?.rpms)?args.rpms.map(Number):[];
     const targets=Array.isArray(args?.targets)?args.targets.map(Number):[];
     const rowTps=Number(args?.tps);
-    if(axis.length<4||targets.length!==axis.length||
+    if(axis.length<3||targets.length!==axis.length||
        axis.some((x,i)=>!Number.isFinite(x)||x<500||(i&&x<=axis[i-1]))||
        targets.some(x=>!Number.isFinite(x)||x<9||x>18)||
        !Number.isFinite(rowTps)||rowTps<0||rowTps>100)
@@ -211,9 +211,9 @@
       }catch(e){rejections.push({c,reason:String(e?.message||e)});}
     }
     nodes.sort((a,b)=>a.c-b.c);
-    if(nodes.length<4){
-      const why=rejections[0]?.reason||'thiếu 4 vùng AFR/PW đã xác nhận ổn định';
-      throw new Error('SMART VE: chỉ '+nodes.length+' neo VE hợp lệ / cần 4. '+why);
+    if(nodes.length<3){
+      const why=rejections[0]?.reason||'thiếu 3 vùng AFR/PW đã đối chiếu tại 3 RPM khác nhau';
+      throw new Error('SMART VE: chỉ '+nodes.length+' neo VE hợp lệ / cần 3. '+why);
     }
     const physics=paramsPhysics(p);
     const scale=p.afrScale==='gauge'?14.7:14.1;
