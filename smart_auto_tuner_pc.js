@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.141 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.142 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -150,7 +150,7 @@ function startRun(){
     tps:s.tps.slice(),rpms:s.rpms.slice(),anchors:new Map(),evidence:new Map(),provisional:new Map(),
     spatialBuckets:new Map(),spatialConfirmed:new Map(),spatialPending:[],
     spatial:{assigned:0,waiting:0,conflicts:0,corroborated:0,eligible:0,missingTrace:0,
-      invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0},
+      invalidAfr:0,invalidPw:0,outsideAxes:0,cold:0,noDelay:0,sensorClip:0},
     sensorDelayMs:clamp(Number(bridge.live()?.afrDelayMs)||0,0,2500),lastSpatialEval:0,
     preview:clone(s.map),labels:s.map.map(row=>row.map(()=>'none')),estimated:0};
   return true;
@@ -171,6 +171,9 @@ function makePreview(s){
   const out=clone(base),labels=base.map(row=>row.map(()=>'none'));
   let changed=0;
   for(let r=0;r<base.length-1;r++)for(let c=0;c<base[r].length;c++){
+    // Spatial preview may change ONLY cells actually visited by a TRACE or RAW AFR.
+    // Never alter unobserved regions simply because a distant anchor exists.
+    if(run.spatialBuckets&&!run.spatialBuckets.has(r+':'+c)&&!run.provisional.has(r+':'+c))continue;
     const original=Number(base[r][c]);
     if(original<=0||s.locked?.[r]?.[c]){labels[r][c]='locked';continue;}
     let total=0,sum=0,nearest=Infinity,localGood=false;
@@ -372,9 +375,9 @@ function spatialCellAssessment(key){
 }
 function recalculateSpatial(t){
   if(!active||!run)return;
-  const previous=run.spatialConfirmed;
+  const previous=run.spatialConfirmed,oldPreview=run.preview;
   const next=new Map(),newAnchors=new Map();
-  let waiting=0,conflicts=0,eligible=0,cold=0,noDelay=0;
+  let waiting=0,conflicts=0,eligible=0,cold=0,noDelay=0,sensorClip=0;
   for(const key of run.spatialBuckets.keys()){
     const x=spatialCellAssessment(key);
     if(!x.ok){
@@ -383,6 +386,7 @@ function recalculateSpatial(t){
       continue;
     }
     next.set(key,x);
+    if(x.note.includes('kẹp cảm biến'))sensorClip++;
     if(!x.fuelEligible){
       if(x.note.includes('ECT'))cold++;
       if(!run.sensorDelayMs)noDelay++;
@@ -405,12 +409,24 @@ function recalculateSpatial(t){
   run.spatial.eligible=eligible;
   run.spatial.cold=cold;
   run.spatial.noDelay=noDelay;
+  run.spatial.sensorClip=sensorClip;
   const snapshot=getSnapshot();
   if(snapshot)makePreview(snapshot);
-  // Never modify measured AFR / target locks / ECU commands here.
-  // Refresh at most once per spatial batch; otherwise raw cells update incrementally.
-  if(previous.size!==next.size||run.spatial.lastPreviewCount!==run.estimated){
+  const previewChanged=oldPreview.some((row,r)=>row.some((value,c)=>
+    value!==run.preview[r][c]));
+  const changedCells=[];
+  for(const [key,x] of next){
+    const before=previous.get(key);
+    if(!before||Math.abs(before.afr-x.afr)>.005||before.note!==x.note)
+      changedCells.push({r:x.r,c:x.c});
+  }
+  for(const [key,x] of previous)if(!next.has(key))changedCells.push({r:x.r,c:x.c});
+  // Incrementally refresh inferred blue numbers when their estimate changes;
+  // rerender full table only when the fuel preview or confirmation set changes.
+  if(previous.size!==next.size||previewChanged){
     try{bridge.refreshView()}catch(_e){}
+  }else if(changedCells.length){
+    try{bridge.refreshPendingCells?.(changedCells)}catch(_e){}
   }
   run.spatial.lastPreviewCount=run.estimated;
   run.lastSpatialEval=t;
@@ -434,7 +450,8 @@ function appendSpatialSample(s,p){
   const r=Math.round(u),c=Math.round(v),key=r+':'+c;
   let bucket=run.spatialBuckets.get(key);
   if(!bucket){bucket={r,c,samples:[],count:0};run.spatialBuckets.set(key,bucket);}
-  const ect=Number(bridge.live()?.ect);
+  const ectValue=bridge.live()?.ect;
+  const ect=ectValue==null?NaN:Number(ectValue);
   bucket.samples.push({t:s.t,when:s.when,afr,pw,baseAt,targetAt,ratio:afr/targetAt,
     pwFactor:pw/baseAt,tps:p.tps,rpm:p.rpm,u,v,idle,
     ect:Number.isFinite(ect)?ect:null});
@@ -562,7 +579,8 @@ function ui(){
     ' · vùng đủ điều kiện đề xuất '+(x?.eligible||0)+
     ' · ô MAP đề xuất '+(run?.estimated||0);
   if(detail){
-    const ect=Number(bridge.live()?.ect);
+    const ectValue=bridge.live()?.ect;
+    const ect=ectValue==null?NaN:Number(ectValue);
     const ectLabel=Number.isFinite(ect)?
       ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?' (máy chưa ấm, không học bù)':'')):
       'ECT chưa có (chưa học bù)';
@@ -572,6 +590,7 @@ function ui(){
       ' · không khớp LIVE '+(x?.missingTrace||0)+
       ' · AFR ngoài dữ liệu '+(x?.invalidAfr||0)+
       ' · PW lỗi '+(x?.invalidPw||0)+
+      ' · nghi kẹp cảm biến '+(x?.sensorClip||0)+' ô'+
       ' · '+ectLabel+
       (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
         ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
@@ -607,7 +626,9 @@ async function applyLocal(){
     '%/lượt. Chỉ đổi MAP trong Blink, KHÔNG ghi ECU.\n\n'+
     'Phải kiểm tra và đo xác minh lại sau khi áp dụng. AFR đo cũ sẽ xóa để tránh bù lặp.',
     'ÁP DỤNG BLINK','HỦY');
-  if(!ok||!active||run!==s||!validRun()||bridge.live()?.recording)return;
+  if(!ok||!active||run!==s||!validRun()||bridge.live()?.recording||
+     s.spatial.eligible<2||s.sensorDelayMs<=0||
+     !(Number(bridge.live()?.ect)>=CFG.spatialWarmEctC))return;
   try{
     bridge.applyLocal({bank:s.bank,baseline,proposal});
     stop('ĐÃ ÁP DỤNG VÀO BLINK · KHÔNG GHI ECU · phải xác minh lại!');
@@ -619,10 +640,11 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.141',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
-    config:CFG,stats:{raw,accepted,fuelEligible:Math.max(0,accepted-diagnostics.idleOnly),
-      idleOnly:diagnostics.idleOnly,rejected,suspected,provisionalSamples,provisionalSkipped,
-      readyAnchors:readyAnchors()},diagnostics:{...diagnostics},
+  const payload={revision:'PB3.79.142',algorithm:'SPATIAL-AFR-PW-CONSENSUS-EXPERIMENT',bank:run.bank,identity:run.identity,
+    config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
+      traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
+      fuelEligibleCells:run.spatial.eligible,previewCells:run.estimated,
+      readyAnchors:readyAnchors()},
     base:run.base,target:run.target,proposedMap:run.preview,anchors,
     evidence:Array.from(run.evidence.entries()),
     provisional:Array.from(run.provisional.entries()),
