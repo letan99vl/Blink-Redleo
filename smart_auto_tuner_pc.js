@@ -898,6 +898,31 @@ function onAfr(info){
   return true;
 }
 
+function veReadinessMessage(){
+  if(!active||!run||!fullRowEnabled)return '';
+  const byRow=run.tps.slice(0,-1).map((tps,r)=>{
+    const all=Array.from(run.spatialConfirmed.values()).filter(x=>x.r===r&&x.previewEligible===true);
+    const blue=new Set(all.map(x=>x.c)).size;
+    const stable=new Set(all.filter(x=>x.stableForVe===true).map(x=>x.c)).size;
+    return {tps,blue,stable};
+  }).filter(x=>x.blue>0).sort((a,b)=>b.blue-a.blue||b.stable-a.stable);
+  const short=byRow.slice(0,3).map(x=>'TPS '+x.tps+'%: '+x.blue+
+    ' ô xanh / '+x.stable+' neo PW+AFR ỔN ĐỊNH').join(' · ');
+  const rows=run.fullRowMeta?.rows||0,previewOnly=run.fullRowMeta?.previewOnlyRows||0;
+  const setting=(()=>{try{return root.localStorage?.getItem('blinkFuelModelSettingsV1');}catch(_e){return null;}})();
+  if(!root.BlinkFuelModelMath?.calculateStableFuelRow)
+    return 'CHƯA CÓ BỘ TÍNH VE. Tải lại Blink bằng Ctrl+F5. '+short;
+  if(!setting)
+    return 'CHƯA CÓ THÔNG SỐ MÁY/KIM: vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập và kiểm tra thông số thực, bấm TÍNH & XEM TRƯỚC rồi bật lại SMART. '+short;
+  if(rows){
+    return 'ĐÃ DỰNG '+rows+' HÀNG VE · '+previewOnly+
+      ' hàng từ ô XANH CHỈ XEM, chưa đủ ổn định để LƯU NHÁP. '+
+      (short||'')+' · Ô tím ngoài khoảng đo là ngoại suy, KHÔNG GHI ECU.';
+  }
+  if(run.fullRowMeta?.lastError)
+    return 'CHƯA DỰNG: '+run.fullRowMeta.lastError+' · '+short;
+  return 'CHỜ 4 Ô XANH CÙNG TPS để DỰNG XEM; LƯU NHÁP cần 4 neo AFR/PW LIVE ỔN ĐỊNH khi ECT đủ 65°C. '+(short||'Chưa đủ dữ liệu AFR/PW.');
+}
 function preview(bank){return active&&run&&!saving&&!awaitingRebase&&Number(bank)===run.bank?run.preview:null;}
 function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels[r]?.[c]||'none':'none';}
 function ui(){
@@ -921,6 +946,11 @@ function ui(){
     curveButton.classList.toggle('danger',fullRowEnabled);
   }
   if(status)status.textContent=reason;
+  const veNote=get('smartPcVeReadiness');
+  if(veNote){
+    veNote.hidden=!active||!fullRowEnabled;
+    if(!veNote.hidden)veNote.textContent=veReadinessMessage();
+  }
   const x=run?.spatial;
   if(stats)stats.textContent='AFR nhận '+raw+' · mẫu RAW ~ '+provisionalSamples+
     ' · ô đã lướt '+(run?.provisional.size||0)+
@@ -941,6 +971,7 @@ function ui(){
     ' · hàng VE đủ 4 neo ổn định '+(run?.fullRowMeta?.rows||0)+
     ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
     ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
+    ' · hàng VE từ ô XANH chưa ổn định '+(run?.fullRowMeta?.previewOnlyRows||0)+
     ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
     ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
     ' · ô NGOẠI SUY chưa đo '+(run?.fullRowMeta?.extrapolated||0)+
@@ -1208,6 +1239,9 @@ function initUI(){
     '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
     '#smartPcTrialMode{background:#493325;color:#ffe8ba}#smartPcTrialMode.danger{background:#b85b13;color:#fff}'+
     '#smartPcFullRowMode{background:#164450;color:#d6ffff}#smartPcFullRowMode.danger{background:#076d82;color:#fff}'+
+    '#smartPcVeReadiness{flex:1 1 100%;padding:8px 10px;border-radius:7px;'+
+    'border:1px solid #bf792a;background:#30261a;color:#ffe3a5;font-size:12px;font-weight:800;line-height:1.5}'+
+    '#smartPcVeReadiness[hidden]{display:none!important}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-outside{outline:2px dashed #a657ee;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-unverified{outline:2px dashed #c478ef;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-interior{outline:2px dashed #18e5cd;outline-offset:-2px}'+
@@ -1230,6 +1264,7 @@ function initUI(){
     '<button type="button" id="smartPcTrialMode">GHI THỬ ECU: TẮT</button>'+
     '<button type="button" id="smartPcApply" disabled>✓ LƯU MAP BÙ VÀO BLINK</button>'+
     '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
+    '<div id="smartPcVeReadiness" role="status" aria-live="polite" hidden></div>'+
     '<span id="smartPcStats">Chưa có mẫu</span>'+ 
     '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
     '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
