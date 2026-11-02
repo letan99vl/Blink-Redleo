@@ -18,7 +18,7 @@
   window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
     /Chrome\/\d+/i.test(navigator.userAgent) &&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.151' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.151: Chrome SMART four-anchor full-row preview, WARM-only ECU trial write
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.152' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.152: Chrome SMART 4-anchor independent whole-row fuel draft
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +31,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-4ANCHOR-PW-FACTOR-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-4ANCHOR-INDEPENDENT-PW-20261102';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -7898,7 +7898,7 @@ window.blinkPcSmartBridge={
     if(!ok)state.pendingAfrClearMapNo=0;
     return ok===true;
   },
-  applyLocal({bank,baseline,proposal}){
+  applyLocal({bank,baseline,proposal,fullRowDraft=false}){
     if(bank!==state.activeMap||state.recording||autoIdleSave.enabled||
       autoIdleSave.inFlight||state.ecuWriteQueued||
       window.BlinkRealProtocol?.manualIoActive||
@@ -7908,6 +7908,10 @@ window.blinkPcSmartBridge={
        !validMatrix(baseline)||!validMatrix(proposal)||!inspectFuelMap(state.inject).ok)
       throw new Error('MAP/ECU chưa xác thực hoặc dữ liệu chưa hợp lệ.');
     const max=fuelProtocolMaxMs();
+    // The user must explicitly confirm LOCAL-only draft after 4 corroborated
+    // anchors. This is NOT an ECU write or an exemption for unmodeled cells.
+    const fullRowLocalDraft=fullRowDraft===true&&window.BLINK_PC_SMART_TUNE&&
+      window.BlinkPcSmartAutoTune?.isFullRowMode?.()===true;
     for(let r=0;r<R;r++)for(let c=0;c<C;c++){
       if(!Object.is(Number(state.inject[r][c]),Number(baseline[r][c])))
         throw new Error('MAP nền đã thay đổi. Không áp dụng bản suy luận cũ.');
@@ -7915,8 +7919,9 @@ window.blinkPcSmartBridge={
       if(!Number.isFinite(n)||n<0||n>max)throw new Error('Thời gian phun vượt giới hạn ở '+r+','+c);
       if(r===R-1||afrTargetLockActive(r,c)){
         if(Math.abs(n-old)>0.000001)throw new Error('SMART đã đụng ô IDLE/ô khóa AFR: '+r+','+c);
-      }else if(old>0&&Math.abs(n/old-1)>0.201)
-        throw new Error('SMART vượt giới hạn thay đổi 20%: '+r+','+c);
+      }else if(old>0&&Math.abs(n/old-1)>0.201&&
+        !(fullRowLocalDraft&&window.BlinkPcSmartAutoTune?.isFullRowDraftCell?.(r,c)))
+        throw new Error('SMART vượt 20% ngoài ô dự đoán 4 neo: '+r+','+c);
     }
     state.inject=proposal.map(row=>row.slice()); // RAM/localStorage ONLY, no ECU command
     saveSmartLocalDraftGuard(bank,state.inject);
@@ -7924,7 +7929,7 @@ window.blinkPcSmartBridge={
     afrResetTargetLocks(bank);state.lastCellKey='';
     render();saveSoon();
     showEcuNotice('info','MAP BÙ ĐÃ LƯU TRONG BLINK · CHƯA GHI ECU',
-      'Đã cập nhật MAP phun trong Blink và xóa AFR cũ tránh bù lặp. Đây có thể là bản nháp chưa xác minh: cần kiểm tra kỹ trước khi chọn THỜI GIAN PHUN → LƯU HIỆN TẠI để gửi ECU.',6500);
+      'Đã lưu BẢN NHÁP vào Blink; ECU KHÔNG thay đổi. Những ô chưa chạy, đặc biệt dải RPM cao trước đây 15ms, là ước tính từ 4 neo chứ KHÔNG phải số đo. Cần kiểm tra độc lập trước khi ghi ECU.',6500);
     return true;
   }
 };
