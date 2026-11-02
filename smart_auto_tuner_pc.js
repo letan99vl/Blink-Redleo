@@ -126,7 +126,14 @@ const note=key=>{if(Object.prototype.hasOwnProperty.call(diagnostics,key))diagno
 const readyAnchors=()=>run?Array.from(run.anchors.values()).filter(a=>a.n>=2).length:0;
 let reason='Chưa bật SMART MAP · Chỉ Chrome Windows';
 const clone=m=>m.map(row=>row.slice());
-const keyOf=s=>JSON.stringify([s.bank,s.identity,s.tps,s.rpms,s.map,s.target]);
+const fuelSettingsSignature=()=>{
+  // A different injector/engine/AFR-scale setting invalidates ALL old VE
+  // anchors: the observed PW can no longer be interpreted with the same model.
+  try{return String(root.localStorage?.getItem('blinkFuelModelSettingsV1')||'');}
+  catch(_e){return '';}
+};
+const keyOf=s=>JSON.stringify([s.bank,s.identity,s.tps,s.rpms,s.map,s.target,
+  fuelSettingsSignature()]);
 const log=v=>{recent.push(v);if(recent.length>900)recent.shift();};
 function say(msg,isReject=false){
   reason=msg;if(isReject)rejected++;
