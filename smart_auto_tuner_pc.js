@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.157 | SMART AUTO TUNER | Chrome Windows PC only.
+/* Blink TL PB3.79.158 | SMART AUTO TUNER | Chrome Windows PC only.
    Local 420-cell preview. No automatic ECU writes or firmware changes. */
 (function(root){
 'use strict';
@@ -111,7 +111,7 @@ function filterAfr(w){
 }
 root.BlinkPcSmartMath=Object.freeze({coord,sample2D,findTrace,stableTrace,filterAfr});
 let active=false,saving=false,awaitingRebase=false,trialWriteArmed=false,trialWriteAuthorized=false,
-  fullRowEnabled=false,fullRowWriteAuthorized=false,fullRowExplicitAuthorized=false,afrHoldUntil=0,rebaseAfterTime=0,verifiedWrites=0,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
+  fullRowEnabled=true,fullRowWriteAuthorized=false,fullRowExplicitAuthorized=false,afrHoldUntil=0,rebaseAfterTime=0,verifiedWrites=0,run=null,history=[],afrRing=[],recent=[],lastAccept=0,lastUI=0;
 let provisionalSamples=0,provisionalSkipped=0,lastProvisionalUI=0;
 let raw=0,accepted=0,rejected=0,suspected=0;
 const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:0,
@@ -155,7 +155,7 @@ function startRun(){
   const s=getSnapshot();
   if(!s){say('Hãy kết nối, ĐỌC MAP ECU, xác minh TPS và AFR mục tiêu trước');return false;}
   if(s.autoIdle){say('Phải tắt TỰ LƯU MAP trước khi bật SMART');return false;}
-  saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;fullRowWriteAuthorized=false;fullRowExplicitAuthorized=false;
+  saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;fullRowEnabled=true;fullRowWriteAuthorized=false;fullRowExplicitAuthorized=false;
   history=[];afrRing=[];recent=[];raw=accepted=rejected=suspected=0;
   diagnostics=emptyDiagnostics();
   provisionalSamples=provisionalSkipped=0;lastProvisionalUI=0;
@@ -940,105 +940,22 @@ function veReadinessMessage(){
 function preview(bank){return active&&run&&!saving&&!awaitingRebase&&Number(bank)===run.bank?run.preview:null;}
 function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels[r]?.[c]||'none':'none';}
 function ui(){
-  const button=get('smartPcToggle'),status=get('smartPcStatus'),stats=get('smartPcStats'),
-    detail=get('smartPcDiagnostics'),apply=get('smartPcApply'),trialButton=get('smartPcTrialMode'),
-    curveButton=get('smartPcFullRowMode');
+  const button=get('smartPcToggle');
   if(!button)return;
-  button.textContent=saving?'⏳ SMART ĐANG GHI ECU':
-    (active?'■ TẮT SMART MAP':'◆ BẬT SMART MAP (PC)');
+  const label=saving?'⏳ SMART ĐANG GHI ECU':
+    (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP (PC)');
+  if(button.textContent!==label)button.textContent=label;
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
-  if(trialButton){
-    trialButton.textContent=fullRowEnabled?'GHI QUA NÚT MAP ĐÃ BÙ → ECU':
-      (trialWriteArmed?'⚠ GHI THỬ ECU: BẬT':'GHI THỬ ECU: TẮT');
-    trialButton.disabled=!active||saving||awaitingRebase||fullRowEnabled;
-    trialButton.classList.toggle('danger',trialWriteArmed);
-  }
-  if(curveButton){
-    curveButton.textContent=fullRowEnabled?'SỬA CONG CẢ HÀNG: BẬT':'SỬA CONG CẢ HÀNG: TẮT';
-    curveButton.disabled=!active||saving||awaitingRebase;
-    curveButton.classList.toggle('danger',fullRowEnabled);
-  }
-  if(status)status.textContent=reason;
-  const veNote=get('smartPcVeReadiness');
-  if(veNote){
-    veNote.hidden=!active||!fullRowEnabled;
-    if(!veNote.hidden)veNote.textContent=veReadinessMessage();
-  }
-  const x=run?.spatial;
-  if(stats)stats.textContent='AFR nhận '+raw+' · mẫu RAW ~ '+provisionalSamples+
-    ' · ô đã lướt '+(run?.provisional.size||0)+
-    ' · mẫu khớp TRACE '+(x?.assigned||0)+
-    ' · ô so khớp ≈ '+(x?.corroborated||0)+
-    ' · ô chờ '+(x?.waiting||0)+
-    ' · ô mâu thuẫn '+(x?.conflicts||0)+
-    ' · vùng đề xuất THỬ '+(x?.visual||0)+
-    ' · vùng đủ điều kiện ÁP DỤNG '+(x?.eligible||0)+
-    ' · vùng CHỈ XEM '+(x?.previewOnly||0)+
-    ' · hàng TPS bù '+(run?.rowMeta?.rows||0)+
-    ' · đoạn RPM có 2 neo '+(run?.rowMeta?.segments||0)+
-    ' · đoạn đủ điều kiện GHI '+(run?.rowMeta?.writeSegments||0)+
-    ' · ô NỘI SUY được duyệt '+(run?.rowMeta?.inferred||0)+
-    ' · ô được duyệt GHI '+(run?.rowMeta?.approved||0)+
-    ' · ô GHI THỬ có 2 neo '+(run?.rowMeta?.trialCells||0)+
-    ' · hàng SỬA CONG XEM TRƯỚC '+(run?.fullRowMeta?.rows||0)+
-    ' · hàng VE từ ≥3 neo cùng TPS '+(run?.fullRowMeta?.rows||0)+
-    ' · neo VE ổn định từ AFR/PW LIVE '+(run?.fullRowMeta?.calibrated||0)+
-    ' · neo VE chỉ XEM '+(run?.fullRowMeta?.provisional||0)+
-    ' · ô VE có thể GHI 1 CHẠM '+(run?.fullRowCells?.size||0)+
-    ' · hàng VE từ ô XANH chưa ổn định '+(run?.fullRowMeta?.previewOnlyRows||0)+
-    ' · ô sửa cong '+(run?.fullRowMeta?.changed||0)+
-    ' · ô CHỜ XÁC MINH '+(run?.fullRowMeta?.unverified||0)+
-    ' · ô NGOẠI SUY chưa đo (sẽ ghi nếu bấm ECU) '+(run?.fullRowMeta?.extrapolated||0)+
-    ' · ô 15ms KHÔNG làm nền '+(run?.fullRowMeta?.protected||0)+
-    (fullRowEnabled&&run?.fullRowMeta?.lastError?' · VE đang chờ: '+run.fullRowMeta.lastError:'')+
-    ' · ô MAP ĐÃ BÙ (XEM TRƯỚC) '+(saving||awaitingRebase?0:(run?.estimated||0))+
-    ' · lần GHI ECU đã xác minh '+verifiedWrites;
-  if(detail){
-    const ectValue=bridge.live()?.ect;
-    const ect=ectValue==null?NaN:Number(ectValue);
-    const ectLabel=Number.isFinite(ect)?
-      ('ECT '+ect.toFixed(1)+'°C'+(ect<CFG.spatialWarmEctC?
-        (fullRowEnabled?' (chưa ấm: VE ngoại suy rủi ro cao, vẫn cho phép ghi tay)':
-          ' (máy chưa ấm: chỉ xem trước, khóa áp dụng)'):'')):
-      (fullRowEnabled?'ECT chưa có (MAP VE chưa xác minh AFR)':
-        'ECT chưa có (chỉ xem trước, khóa áp dụng)');
-    detail.textContent='ĐỐI CHIẾU TOÀN MAP: AFR/mục tiêu + PW thực/map phun gốc + ô kề, ≥2 lần ghi cách nhau '+
-      CFG.spatialIndependentGapMs+'ms; không bắt giữ ga 1,1s hoặc gom 7 AFR. '+
-      'Chờ ghép LIVE '+(run?.spatialPending.length||0)+
-      ' · không khớp LIVE '+(x?.missingTrace||0)+
-      ' · AFR ngoài dữ liệu '+(x?.invalidAfr||0)+
-      ' · PW lỗi '+(x?.invalidPw||0)+
-      ' · nghi kẹp cảm biến '+(x?.sensorClip||0)+' ô'+
-      ' · '+ectLabel+
-      (run?.sensorDelayMs?' · AFR delay '+run.sensorDelayMs+'ms':
-        ' · AFR delay 0ms: chỉ xem, chưa được phép bù từ ga sốc.')+
-      (fullRowEnabled?
-        ' · VE 3 neo XANH: bấm MAP ĐÃ BÙ → ECU một lần để ghi các ô đã dựng, '+
-        'bao gồm ô RPM chưa đo, dải 15ms cũ và thay đổi trên ±20%. '+
-        'Không tự ghi; ước tính AFR có thể sai nguy hiểm khi máy đang chạy. ':
-        ' · KHÔNG giới hạn sai lệch AFR 18% trong phần xem thử; bù xăng giới hạn ±20%. '+
-        'Chế độ thường chỉ nội suy GIỮA hai neo cùng TPS, không ngoại suy. '+
-        'GHI THỬ vẫn theo giới hạn ECT và công thức cũ. ')+
-      'SỬA CONG CẢ HÀNG (VE): 3 ô XANH AFR/PW ở 3 RPM cùng TPS dựng đủ 30 ô RPM. '+
-      'Có thể ghi trực tiếp vào ECU bằng MỘT lần bấm MAP ĐÃ BÙ → ECU, GHI AFR giữ ON. '+
-      'Mẫu chưa ổn định vẫn bị coi là dự đoán nguy cơ cao. '+
-      'Dùng công thức ƒx TÍNH MAP PHUN NỀN · TRIUMPH mg khí → AFR → ms. '+
-      'Nội suy hệ số hiệu chỉnh VE theo RPM, ngoại suy về VE nền, rồi tính TGP bằng AFR MỤC TIÊU từng cột. '+
-      'Không ép TGP giảm tuyến tính và KHÔNG lấy thời gian phun cũ của ô chưa đo/15ms làm nền. '+
-      'Cần nhập và lưu thông số piston/dên/kim/áp/deadtime/số xung trong ƒx trước khi dựng VE. '+
-      'MAP VE ghi cả ô NGOẠI SUY, không ép giảm tuyến tính, không cần tắt GHI AFR/ECT đủ ấm, '+
-      'không có bước xác nhận thứ hai. Đây là chức năng ghi tay rủi ro cao. '+
-      'ECU phải được sao lưu MAP gốc, không ghi chồng lệnh, đọc lại 420 ô. '+
-      'Đọc lại KHÔNG chứng minh AFR an toàn.';
-  }
-  // Local staging is operator-confirmed and NEVER a background ECU write.
-  if(apply)apply.disabled=!active||!run||saving||awaitingRebase||
-    !!bridge.live()?.recording||!run.estimated;
+  button.setAttribute('aria-pressed',String(active));
+  // Keep the full-row extrapolation risk available without reopening the large panel.
+  button.title=(active?
+    'SỬA CONG CẢ HÀNG: luôn ON. Ô RPM ngoại suy chưa đo AFR có thể gây hư hỏng động cơ. Chỉ bấm MAP ĐÃ BÙ → ECU sau khi sao lưu MAP gốc. ':
+    'Khi bật SMART MAP, SỬA CONG CẢ HÀNG sẽ tự ON. ')+reason;
 }
 
 function stop(message){
-  active=false;saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;fullRowEnabled=false;fullRowWriteAuthorized=false;fullRowExplicitAuthorized=false;afrHoldUntil=0;rebaseAfterTime=0;
+  active=false;saving=false;awaitingRebase=false;trialWriteArmed=false;trialWriteAuthorized=false;fullRowEnabled=true;fullRowWriteAuthorized=false;fullRowExplicitAuthorized=false;afrHoldUntil=0;rebaseAfterTime=0;
   run=null;history=[];afrRing=[];
   reason=message||'SMART MAP đã tắt · không ghi ECU';
   ui();try{bridge.refreshView()}catch(_e){}
@@ -1301,7 +1218,7 @@ function exportLog(){
     cell,tpsCoord:a.u,rpmCoord:a.v,count:a.n,
     afr:a.afrSum/a.n,target:a.targetSum/a.n,correctionPct:(Math.exp(a.logSum/a.n)-1)*100
   }));
-  const payload={revision:'PB3.79.157',algorithm:'THREE-BLUE-AFR-PW-VE-LOCAL-ONLY',bank:run.bank,identity:run.identity,
+  const payload={revision:'PB3.79.158',algorithm:'THREE-BLUE-AFR-PW-VE-LOCAL-ONLY',bank:run.bank,identity:run.identity,
     config:CFG,stats:{raw,provisionalSamples,provisionalSkipped,
       traceAssigned:run.spatial.assigned,corroboratedCells:run.spatial.corroborated,
       fuelEligibleCells:run.spatial.eligible,visualCells:run.spatial.visual,
@@ -1328,22 +1245,14 @@ function exportLog(){
 }
 function initUI(){
   const style=doc.createElement('style');
-  style.textContent='#smartPcPanel{display:none;gap:7px;flex-wrap:wrap;align-items:center;'+
-    'padding:7px 10px;margin:4px 8px;background:#0c2636;border:1px solid #267fa2;'+
-    'border-radius:9px;color:#e6f7ff;font-size:12px}'+
+  style.textContent='#smartPcPanel{display:none;align-items:center;'+
+    'padding:3px 8px;margin:2px 8px;background:transparent;border:0}'+
     '#mapEditorScreen.autoTuneMap #smartPcPanel{display:flex}'+
     'body.mapZoomMode #mapEditorScreen #smartPcPanel{display:none!important}'+
-    '#smartPcPanel button{min-height:34px;padding:4px 10px;font-size:12px;border-radius:7px;'+
-    'border:1px solid #4c9ac8;font-weight:800}'+
-    '#smartPcToggle{background:#075a55;color:#fff}#smartPcToggle.danger{background:#8c2635}'+
-    '#smartPcStatus{flex:1 1 350px}#smartPcStats{flex:1 1 100%;color:#93cddf;font-size:11px}'+
-    '#smartPcDiagnostics{flex:1 1 100%;color:#f3d3aa;font-size:11px;line-height:1.35}'+
-    '#smartPcApply{background:#1b415a;color:#fff}#smartPcApply:disabled{opacity:.42}'+
-    '#smartPcTrialMode{background:#493325;color:#ffe8ba}#smartPcTrialMode.danger{background:#b85b13;color:#fff}'+
-    '#smartPcFullRowMode{background:#164450;color:#d6ffff}#smartPcFullRowMode.danger{background:#076d82;color:#fff}'+
-    '#smartPcVeReadiness{flex:1 1 100%;padding:8px 10px;border-radius:7px;'+
-    'border:1px solid #bf792a;background:#30261a;color:#ffe3a5;font-size:12px;font-weight:800;line-height:1.5}'+
-    '#smartPcVeReadiness[hidden]{display:none!important}'+
+    '#smartPcToggle{min-height:34px;padding:4px 12px;border-radius:7px;'+
+    'border:1px solid #4c9ac8;font-size:12px;font-weight:800;background:#075a55;color:#fff}'+
+    '#smartPcToggle.danger{background:#8c2635}'+
+    '#smartPcToggle:disabled{opacity:.7}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-outside{outline:2px dashed #a657ee;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-unverified{outline:2px dashed #c478ef;outline-offset:-2px}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-interior{outline:2px dashed #18e5cd;outline-offset:-2px}'+
@@ -1360,34 +1269,10 @@ function initUI(){
   doc.head.appendChild(style);
   const panel=doc.createElement('div');
   panel.id='smartPcPanel';
-  panel.innerHTML='<button type="button" id="smartPcToggle">◆ BẬT SMART MAP (PC)</button>'+
-    '<span id="smartPcStatus" role="status">SMART MAP mặc định tắt.</span>'+
-    '<button type="button" id="smartPcFullRowMode">SỬA CONG CẢ HÀNG: TẮT</button>'+
-    '<button type="button" id="smartPcTrialMode">GHI THỬ ECU: TẮT</button>'+
-    '<button type="button" id="smartPcApply" disabled>✓ LƯU MAP BÙ VÀO BLINK</button>'+
-    '<button type="button" id="smartPcExport">↓ XUẤT TRACE JSON</button>'+
-    '<div id="smartPcVeReadiness" role="status" aria-live="polite" hidden></div>'+
-    '<span id="smartPcStats">Chưa có mẫu</span>'+ 
-    '<span id="smartPcDiagnostics" aria-live="polite">Chờ mẫu để chẩn đoán.</span>'+
-    '<small>CHỈ CHROME WINDOWS · THỬ NGHIỆM. ~AFR màu vàng: TRACE TẠM khi lướt ga, '+
-    'CHƯA đủ tin cậy và KHÔNG dùng bù xăng; ≈AFR màu xanh: nhiều lượt được đối chiếu AFR/PW ô kề, vẫn là suy luận. '+
-    'Không lọc 7 mẫu/1,1s khi thu; ±20% mỗi lượt. BÙ theo cả đoạn hàng TPS giữa ≥2 neo '+
-    'AFR/PW, làm mượt theo RPM và liên kết hàng TPS kề. Không tự bù các vùng chưa đo; '+
-    'không thay hàng IDLE hoặc ô khóa. Một lần bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô nội suy '+
-    'đủ điều kiện, đọc lại 420 ô; GHI AFR và SMART vẫn ON. '+
-    'SỬA CONG CẢ HÀNG: 3 ô XANH ở 3 RPM cùng TPS dựng đủ 30 ô; một lần bấm MAP ĐÃ BÙ → ECU sẽ GHI mọi ô bù của hàng đã dựng. '+
-    'Kể cả ô chưa chạy và vùng thay đổi >20% sẽ được ghi; rủi ro AFR thực tế có thể nghiêm trọng. '+
-    'Dùng cùng công thức ƒx TÍNH MAP NỀN với thông số động cơ/kim đã lưu để dựng cả 30 RPM. '+
-    'Không dùng TGP cũ ô chưa chạy, kể cả 15ms; không ép tuyến tính giảm. '+
-    'Ngoài vùng đo là NGOẠI SUY, nếu bấm MAP ĐÃ BÙ → ECU sẽ ghi cả ô dự đoán. KHÔNG cần tắt GHI AFR. '+
-    'Blink tạm bỏ mẫu trong lúc ghi/đọc lại, sao lưu MAP gốc và kiểm tra 420 ô; KHÔNG tự động ghi. '+
-    'Phải xác minh AFR thật trên động cơ trước khi sử dụng.</small>';
+  panel.innerHTML='<button type="button" id="smartPcToggle" aria-pressed="false" '+
+    'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP (PC)</button>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
-  get('smartPcTrialMode').addEventListener('click',toggleTrialMode);
-  get('smartPcFullRowMode').addEventListener('click',toggleFullRowMode);
-  get('smartPcApply').addEventListener('click',()=>{void applyLocal()});
-  get('smartPcExport').addEventListener('click',exportLog);
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
