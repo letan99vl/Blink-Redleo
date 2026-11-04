@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.164' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.164: mobile Auto Tune compact SMART + throttle-save and 10 visible RPM columns
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.165' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.165: phone Auto Tune layout: single aligned toolbar + real 3/2 live-card rows
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -39,6 +39,7 @@ window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
 window.BLINK_PC_SMART_MAP_REVISION = 'SMART-BASE-FUEL-FIRST-ONE-TOGGLE-20261104';
+window.BLINK_AUTOTUNE_MOBILE_LAYOUT_REVISION = 'ONE-ROW-TOOLBAR-THREE-TWO-LIVE-20261104';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -2747,24 +2748,139 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   }
   /* Save another 30px above TPS 100% by using the otherwise empty row 2. */
   @media (max-width:760px) and (orientation:portrait){
+    /* PB3.79.165 owns the unified phone toolbar and 3+2 LIVE layout below.
+       Remove the old two-row toolbar rule that created a phantom 5th column. */
+  }
+
+  /* PB3.79.165 — phone Auto Tune single-row toolbar, consistent cards.
+     Scope to Auto Tune; standalone INJ VE, ECU map and fullscreen controls
+     keep their existing layouts and update paths. */
+  @media (max-width:920px), (pointer:coarse) and (max-width:1100px){
     body:not(.mapZoomMode):not(.appForceLandscape)
-    #mapEditorScreen.autoTuneMap .editToolbar{
-      grid-template-rows:28px 30px!important;
+    #mapEditorScreen.autoTuneMap .editToolbar,
+    body.appForceLandscape:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap .editToolbar {
+      display:grid!important;
+      grid-template-columns:34px minmax(0,1.03fr) minmax(0,1fr) minmax(0,1.32fr)!important;
+      grid-template-rows:34px!important;
+      grid-auto-rows:0!important;
+      grid-auto-flow:row!important;
+      gap:3px!important;
+      padding:0 7px 4px!important;
+      margin:0!important;
+      min-height:0!important;
+      align-items:stretch!important;
     }
-    body:not(.mapZoomMode):not(.appForceLandscape)
-    #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
-      grid-column:4/span 2!important;grid-row:2!important;
-      min-width:0!important;height:30px!important;min-height:30px!important;
-      padding:0 2px!important;font-size:9px!important;
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar button{
+      box-sizing:border-box!important;
+      height:34px!important;min-height:34px!important;
+      min-width:0!important;padding:0 3px!important;
       overflow:hidden!important;text-overflow:ellipsis!important;
+      white-space:nowrap!important;font-size:9px!important;
+      border-radius:8px!important;
+      line-height:1.1!important;
     }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #editorBackBtn{
+      grid-column:1!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn{
+      grid-column:2!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn{
+      grid-column:3!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+      grid-column:4!important;grid-row:1!important;
+    }
+    /* Other tabs have no CLEAR AFR action. Give the write control the space. */
+    body:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap:not(.autoTuneMeasuredTab):not(.targetAfrEditor)
+    .editToolbar #applyCorrectedBtn{
+      grid-column:3/span 2!important;
+    }
+    body:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #afrTargetLocalSaveBtn{
+      display:block!important;grid-column:2/span 2!important;grid-row:1!important;
+    }
+    body:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #applyCorrectedBtn{
+      grid-column:4!important;
+    }
+    /* The zoom action is already next to the editor title. */
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #mapZoomBtn,
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #threeHistoryBtn{
+      display:none!important;
+    }
+    /* Short labels keep the same buttons, IDs, accessible names and handlers. */
+    body:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn:not([data-io-busy="1"]){
+      font-size:0!important;
+    }
+    body:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap .editToolbar #readMapBtn:not([data-io-busy="1"])::after{
+      content:"↓ ĐỌC";font-size:10px!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn,
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn,
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #afrTargetLocalSaveBtn{
+      font-size:0!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #clearMeasuredEditorBtn::after{
+      content:"⌫ XÓA AFR";font-size:9px!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn::after{
+      content:"✦ BÙ → ECU";font-size:10px!important;
+    }
+    body:not(.mapZoomMode) #mapEditorScreen.autoTuneMap .editToolbar #afrTargetLocalSaveBtn::after{
+      content:"✓ LƯU AFR";font-size:10px!important;
+    }
+  }
+  /* PORTRAIT: first 3 cards = TPS/RPM, AFR, ECT.
+     Second 2 cards = ignition, fuel pulse. No 1-card orphan rows. */
+  @media (max-width:760px) and (orientation:portrait){
     body:not(.mapZoomMode):not(.appForceLandscape)
     #mapEditorScreen.autoTuneMap .editorInfo{
-      grid-template-columns:repeat(3,minmax(0,1fr))!important;
+      display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;
+      grid-template-rows:repeat(2,32px)!important;
+      grid-auto-rows:0!important;gap:3px!important;
+      padding:0 7px 4px!important;
     }
     body:not(.mapZoomMode):not(.appForceLandscape)
-    #mapEditorScreen.autoTuneMap .editorEctBox{
-      grid-column:auto!important;
+    #mapEditorScreen.autoTuneMap .editorInfo > .livebox,
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo > .livebox:nth-child(-n+2),
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo > .editorEctBox{
+      grid-column:span 2!important;
+      grid-row:auto!important;
+      box-sizing:border-box!important;
+      height:32px!important;min-height:32px!important;
+      padding:2px 5px!important;min-width:0!important;
+      display:flex!important;justify-content:center!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo > .livebox:nth-child(4),
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo > .livebox:nth-child(5){
+      grid-column:span 3!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo .livebox .k{
+      font-size:8px!important;line-height:10px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo .livebox .v{
+      font-size:clamp(11px,2.9vw,14px)!important;
+      line-height:15px!important;margin-top:1px!important;
+      font-weight:850!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorTabs{
+      margin:0 7px 4px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls{
+      margin-bottom:4px!important;
     }
   }
 </style>
@@ -6851,6 +6967,7 @@ function setTab(tab){
   resetQuickType();state.tab=tab;
   document.getElementById('mapEditorScreen')?.classList.toggle('autoTuneReadOnly',tab==='measured'||tab==='corrected');
   document.getElementById('mapEditorScreen')?.classList.toggle('targetAfrEditor',tab==='target');
+  document.getElementById('mapEditorScreen')?.classList.toggle('autoTuneMeasuredTab',tab==='measured');
   const kpBtn=document.getElementById('fuelKeypadToggle');
   if(kpBtn)kpBtn.setAttribute('aria-label',tab==='target'?'Mở bàn phím AFR mục tiêu':'Mở bàn phím thời gian phun');
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
