@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.160' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.160: show VE row readiness/errors on Bluefy/Android; no estimator/writer change
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.161' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.161: share PC Smart VE engine and transfer its real injector/engine profile to mobile
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -38,7 +38,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'SMART-MOBILE-VE-STATUS-20261104';
+window.BLINK_PC_SMART_MAP_REVISION = 'SMART-VE-PC-ANDROID-BLUEFY-PROFILE-20261104';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';

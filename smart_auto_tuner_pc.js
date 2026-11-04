@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.160 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
+/* Blink TL PB3.79.161 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
    Explicit recording and ECU-write actions; no automatic write or firmware changes. */
 (function(root){
 'use strict';
@@ -936,9 +936,10 @@ function veReadinessMessage(){
   if(!root.BlinkFuelModelMath?.calculateStableFuelRow)
     return 'CHƯA CÓ BỘ TÍNH VE. Tải lại Blink bằng Ctrl+F5. '+short;
   if(!setting)
-    return 'CHƯA DỰNG VE: Bluefy/Android lưu thông số riêng với Chrome PC. '+
-      'Vào DỮ LIỆU → THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập thông số MÁY/KIM thật và '+
-      'bấm TÍNH & XEM TRƯỚC; sau đó TẮT/BẬT lại SMART. '+short;
+    return 'CHƯA DỰNG VE: Bluefy/Android chưa có thông số MÁY/KIM của PC. '+
+      'Bấm NHẬP CẤU HÌNH VE PC bằng tệp xuất từ PC; hoặc ở điện thoại '+
+      'mở THỜI GIAN PHUN → ƒx TÍNH MAP NỀN → TÍNH & XEM TRƯỚC. '+
+      'BẬT LẠI SMART để đo phiên mới. '+short;
   if(rows){
     return 'ĐÃ DỰNG '+rows+' HÀNG VE / '+run.fullRowCells.size+
       ' ô sẽ GHI ECU 1 LẦN, kể cả RPM NGOẠI SUY; '+previewOnly+
@@ -1271,6 +1272,90 @@ function exportLog(){
   link.href=url;link.download='BLINK_SMART_PC_MAP'+run.bank+'_'+Date.now()+'.json';
   link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+
+const SMART_VE_SETTINGS_KEY='blinkFuelModelSettingsV1';
+const SMART_VE_PROFILE_FORMAT='BLINK_SMART_VE_ENGINE_SETTINGS_V1';
+// Chrome PC, Android WebView and Bluefy have separate browser storage.
+// Port the SAME physical calibration explicitly; never guess engine geometry,
+// injector flow/pressure, deadtime, AFR scale or injector pulses.
+const SMART_VE_REQUIRED=['bore','stroke','throttle','flow','ratedBar','pressure',
+  'iat','baroKpa','maxRpm','peakVe','shapePct','deadtime','pulses',
+  'output','afrScale','model','afr'];
+function validatedVEProfile(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))
+    throw new Error('Tệp thiếu cấu hình VE hợp lệ.');
+  for(const key of SMART_VE_REQUIRED)
+    if(!Object.prototype.hasOwnProperty.call(raw,key))
+      throw new Error('Thiếu thông số '+key+'. Hãy xuất cấu hình PC sau khi TÍNH & XEM TRƯỚC.');
+  if(typeof root.BlinkFuelModelMath?.validate!=='function')
+    throw new Error('Bộ tính VE chưa tải, hãy tải lại Blink.');
+  return root.BlinkFuelModelMath.validate(raw);
+}
+function exportVEProfileText(){
+  let raw;
+  try{raw=JSON.parse(root.localStorage?.getItem(SMART_VE_SETTINGS_KEY)||'null');}
+  catch(_e){raw=null;}
+  if(!raw)throw new Error('Chưa có cấu hình. Vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN → TÍNH & XEM TRƯỚC ở PC.');
+  return JSON.stringify({format:SMART_VE_PROFILE_FORMAT,revision:1,
+    exportedAt:new Date().toISOString(),params:validatedVEProfile(raw)},null,2);
+}
+function importVEProfileText(contents){
+  let payload;
+  try{payload=JSON.parse(String(contents));}
+  catch(_e){throw new Error('Không đọc được JSON cấu hình VE từ PC.');}
+  if(payload?.format!==SMART_VE_PROFILE_FORMAT||payload?.revision!==1)
+    throw new Error('Sai định dạng. Hãy dùng nút XUẤT CẤU HÌNH VE trên Blink PC.');
+  const params=validatedVEProfile(payload.params);
+  const encoded=JSON.stringify(params);
+  try{
+    root.localStorage?.setItem(SMART_VE_SETTINGS_KEY,encoded);
+    if(root.localStorage?.getItem(SMART_VE_SETTINGS_KEY)!==encoded)throw new Error('verify');
+  }catch(_e){throw new Error('Trình duyệt không lưu được cấu hình VE. Kiểm tra quyền lưu dữ liệu.');}
+  // PC Smart identity guard: a changed physical profile invalidates all old
+  // AFR/PW evidence. Never silently reuse observations taken with old settings.
+  if(active)stop('ĐÃ NHẬP CẤU HÌNH VE PC · BẬT LẠI SMART VÀ ĐO MỚI AFR/PW');
+  return params;
+}
+function setVETransferMessage(message,isError=false){
+  const el=get('smartVETransferMessage');
+  if(el){el.textContent=message;el.classList.toggle('error',!!isError);}
+}
+async function readSelectedVEFile(file){
+  if(typeof file?.text==='function')return file.text();
+  if(typeof root.FileReader!=='function')throw new Error('Thiết bị không hỗ trợ đọc tệp này.');
+  return new Promise((resolve,reject)=>{
+    const r=new root.FileReader();
+    r.onload=()=>resolve(String(r.result||''));
+    r.onerror=()=>reject(new Error('Không đọc được tệp JSON.'));
+    r.readAsText(file,'utf-8');
+  });
+}
+function initVEProfileTransfer(){
+  const ex=get('smartVEExport'),im=get('smartVEImport'),input=get('smartVEImportFile');
+  if(!ex||!im||!input)return;
+  ex.addEventListener('click',()=>{
+    try{
+      const blob=new Blob([exportVEProfileText()],{type:'application/json;charset=utf-8'});
+      const url=root.URL.createObjectURL(blob),a=doc.createElement('a');
+      a.href=url;a.download='BLINK_SMART_VE_CAU_HINH_PC.json';
+      doc.body.appendChild(a);a.click();a.remove();
+      root.setTimeout?.(()=>root.URL.revokeObjectURL(url),5000);
+      setVETransferMessage('Đã xuất cấu hình VE. Chuyển tệp sang Bluefy/Android rồi bấm NHẬP CẤU HÌNH.');
+    }catch(e){setVETransferMessage('KHÔNG XUẤT: '+String(e?.message||e),true);}
+  });
+  im.addEventListener('click',()=>input.click());
+  input.addEventListener('change',async()=>{
+    const file=input.files?.[0];if(!file)return;
+    try{
+      if(file.size>32768)throw new Error('Tệp JSON quá lớn.');
+      importVEProfileText(await readSelectedVEFile(file));
+      setVETransferMessage('ĐÃ NHẬP CẤU HÌNH VE PC · BẬT LẠI SMART, ĐO MỚI AFR/PW ở TPS cần sửa.');
+    }catch(e){setVETransferMessage('KHÔNG NHẬP: '+String(e?.message||e),true);}
+    finally{input.value='';}
+  });
+}
+root.BlinkSmartVEProfile=Object.freeze({exportText:exportVEProfileText,
+  importText:importVEProfileText,format:SMART_VE_PROFILE_FORMAT});
 function initUI(){
   const style=doc.createElement('style');
   style.textContent='#smartPcPanel{display:none;align-items:stretch;flex-direction:column;'+
@@ -1288,6 +1373,13 @@ function initUI(){
     'overflow-wrap:anywhere;font-size:11px;line-height:1.35;color:#ffdeb1;'+
     'padding:3px 1px;font-variant-numeric:tabular-nums}'+
     '#smartVeStatus.ready{color:#bfffe0}'+
+    '#smartVETransferBar{display:flex;flex-wrap:wrap;gap:5px;min-width:0}'+
+    '#smartVETransferBar button{flex:1 1 132px;min-width:0;min-height:34px;'+
+    'padding:5px 6px;font-size:10px;font-weight:800;border:1px solid #456785;'+
+    'border-radius:7px;background:#15334b;color:#e0f5ff;touch-action:manipulation}'+
+    '#smartVETransferMessage{font-size:10px;line-height:1.35;'+
+    'color:#b9ffe5;white-space:normal;overflow-wrap:anywhere}'+
+    '#smartVETransferMessage.error{color:#ffc1b5}'+
     '@media(max-width:600px){#smartPcPanel{margin:1px 7px 5px;padding:1px 0}'+
     '#smartPcToggle{min-height:42px;font-size:12px}}'+
     '#smartPcToggle.danger{background:#8c2635}'+
@@ -1311,10 +1403,16 @@ function initUI(){
   panel.innerHTML='<button type="button" id="smartPcToggle" aria-pressed="false" '+
     'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP</button>'+
     '<div id="smartVeStatus" role="status" hidden></div>'+
+    '<div id="smartVETransferBar">'+
+    '<button type="button" id="smartVEExport">↓ XUẤT CẤU HÌNH VE</button>'+
+    '<button type="button" id="smartVEImport">↑ NHẬP CẤU HÌNH VE PC</button>'+
+    '<input type="file" id="smartVEImportFile" accept=".json,application/json" hidden></div>'+
+    '<div id="smartVETransferMessage" role="status" aria-live="polite"></div>'+
     '<div id="smartMobileWarning" role="note">⚠ MAP VE có thể GHI cả RPM CHƯA ĐO AFR vào ECU. '+
     'Sao lưu MAP gốc và kiểm tra AFR độc lập trước khi sử dụng.</div>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
+  initVEProfileTransfer();
   ui();
 }
 root.BlinkPcSmartAutoTune=Object.freeze({isActive:()=>active,onAfr,onLive,preview,cellStatus,stop,
