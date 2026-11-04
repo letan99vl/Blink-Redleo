@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.159 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
+/* Blink TL PB3.79.160 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
    Explicit recording and ECU-write actions; no automatic write or firmware changes. */
 (function(root){
 'use strict';
@@ -541,7 +541,11 @@ function collectAfrEvidence(u,v,afr,atTarget,idle=false){
 function measuredEstimate(r,c){
   if(!active||!run||saving||awaitingRebase)return null;
   const x=run.spatialConfirmed.get(r+':'+c);
-  return x?{afr:x.afr,n:x.n,weight:x.neighbors,kind:'spatial',note:x.note}:null;
+  // Only display a BLUE ≈ node if it is eligible for the VE learner.
+  // Without calibrated AFR delay (or at a clipped sensor floor), show ~ amber
+  // provisional trace instead: this node cannot seed a full-row prediction.
+  return x?.previewEligible===true?
+    {afr:x.afr,n:x.n,weight:x.neighbors,kind:'spatial',note:x.note}:null;
 }
 
 // RAW TRACE DISPLAY ONLY: a fast TPS/RPM sweep still leaves an AFR sample.
@@ -928,10 +932,13 @@ function veReadinessMessage(){
     ' ô xanh / '+x.stable+' neo PW+AFR ỔN ĐỊNH').join(' · ');
   const rows=run.fullRowMeta?.rows||0,previewOnly=run.fullRowMeta?.previewOnlyRows||0;
   const setting=(()=>{try{return root.localStorage?.getItem('blinkFuelModelSettingsV1');}catch(_e){return null;}})();
+  const qualified=byRow.filter(x=>x.blue>=CFG.fullRowMinAnchors);
   if(!root.BlinkFuelModelMath?.calculateStableFuelRow)
     return 'CHƯA CÓ BỘ TÍNH VE. Tải lại Blink bằng Ctrl+F5. '+short;
   if(!setting)
-    return 'CHƯA CÓ THÔNG SỐ MÁY/KIM: vào THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập và kiểm tra thông số thực, bấm TÍNH & XEM TRƯỚC rồi bật lại SMART. '+short;
+    return 'CHƯA DỰNG VE: Bluefy/Android lưu thông số riêng với Chrome PC. '+
+      'Vào DỮ LIỆU → THỜI GIAN PHUN → ƒx TÍNH MAP NỀN, nhập thông số MÁY/KIM thật và '+
+      'bấm TÍNH & XEM TRƯỚC; sau đó TẮT/BẬT lại SMART. '+short;
   if(rows){
     return 'ĐÃ DỰNG '+rows+' HÀNG VE / '+run.fullRowCells.size+
       ' ô sẽ GHI ECU 1 LẦN, kể cả RPM NGOẠI SUY; '+previewOnly+
@@ -939,14 +946,28 @@ function veReadinessMessage(){
       ' · GHI AFR vẫn ON; đọc lại 420 ô sau ghi.';
   }
   if(run.fullRowMeta?.lastError)
-    return 'CHƯA DỰNG: '+run.fullRowMeta.lastError+' · '+short;
-  return 'CHỜ 3 Ô XANH CÙNG TPS để DỰNG VÀ LƯU NHÁP (không ghi ECU). 3 neo AFR/PW ỔN ĐỊNH khi máy ấm sẽ tăng độ tin cậy. '+(short||'Chưa đủ dữ liệu AFR/PW.');
+    return 'CHƯA DỰNG VE'+(qualified.length?' DÙ ĐÃ ĐỦ '+qualified[0].blue+' Ô XANH':'')+
+      ': '+run.fullRowMeta.lastError+' · '+short;
+  if(!run.sensorDelayMs)
+    return 'CHƯA CÀI ĐỘ TRỄ AFR: đặt thời gian trễ cảm biến đã hiệu chuẩn trong THIẾT LẬP, '+
+      'TẮT/BẬT lại SMART rồi đo mới; ô ~ vàng chỉ là dữ liệu tạm. '+(short||'');
+  return 'CHỜ 3 Ô XANH ≈ ĐỦ ĐIỀU KIỆN trong CÙNG một TPS, ở 3 RPM khác nhau. '+
+    'Ô ~ vàng và AFR đo thông thường chưa phải neo VE. '+
+    (short||'Chưa đủ dữ liệu AFR/PW LIVE.');
 }
 function preview(bank){return active&&run&&!saving&&!awaitingRebase&&Number(bank)===run.bank?run.preview:null;}
 function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels[r]?.[c]||'none':'none';}
 function ui(){
   const button=get('smartPcToggle');
   if(!button)return;
+  const status=get('smartVeStatus');
+  if(status){
+    const message=active?veReadinessMessage():'';
+    if(status.textContent!==message)status.textContent=message;
+    status.hidden=!active;
+    status.classList.toggle('ready',!!(active&&run?.fullRowMeta?.rows>0));
+    status.title=active?reason:'';
+  }
   const label=saving?'⏳ SMART ĐANG GHI ECU':
     (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP');
   if(button.textContent!==label)button.textContent=label;
@@ -1262,6 +1283,11 @@ function initUI(){
     'border:1px solid #4c9ac8;font-size:12px;font-weight:800;background:#075a55;color:#fff}'+
     '#smartMobileWarning{display:none;font-size:10px;line-height:1.35;color:#ffe0aa}'+
     '#smartPcPanel.smart-active #smartMobileWarning{display:block}'+
+    '#smartVeStatus[hidden]{display:none!important}'+
+    '#smartVeStatus{min-width:0;max-width:100%;box-sizing:border-box;white-space:normal;'+
+    'overflow-wrap:anywhere;font-size:11px;line-height:1.35;color:#ffdeb1;'+
+    'padding:3px 1px;font-variant-numeric:tabular-nums}'+
+    '#smartVeStatus.ready{color:#bfffe0}'+
     '@media(max-width:600px){#smartPcPanel{margin:1px 7px 5px;padding:1px 0}'+
     '#smartPcToggle{min-height:42px;font-size:12px}}'+
     '#smartPcToggle.danger{background:#8c2635}'+
@@ -1284,6 +1310,7 @@ function initUI(){
   panel.id='smartPcPanel';
   panel.innerHTML='<button type="button" id="smartPcToggle" aria-pressed="false" '+
     'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP</button>'+
+    '<div id="smartVeStatus" role="status" hidden></div>'+
     '<div id="smartMobileWarning" role="note">⚠ MAP VE có thể GHI cả RPM CHƯA ĐO AFR vào ECU. '+
     'Sao lưu MAP gốc và kiểm tra AFR độc lập trước khi sử dụng.</div>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
