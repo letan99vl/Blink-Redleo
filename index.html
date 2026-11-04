@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.162' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.162: require saved base fuel calculator settings; simplify SMART panel to one button
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.163' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.163: smooth target AFR cell heatmap; same ECU protocol, SMART and AFR values
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2619,6 +2619,33 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   }
 }
 
+
+  /* PB3.79.163: CONTINUOUS TARGET-AFR CELL HEATMAP (visual only).
+     The measured AFR map retains its existing red/green/orange bands.
+     Keep the temperature hue while the cell is selected or live-highlighted. */
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat,
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat:hover,
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat.current,
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat.selected {
+    background:var(--afr-target-bg)!important;
+    color:var(--afr-target-fg)!important;
+    font-weight:800!important;
+    transition:background-color .12s linear;
+  }
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat.current {
+    box-shadow:inset 0 0 0 3px #ff3131,inset 0 0 0 5px #fff!important;
+  }
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat.selected {
+    box-shadow:inset 0 0 0 3px #1266d4,inset 0 0 0 5px #fff!important;
+  }
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat.selected.current {
+    box-shadow:inset 0 0 0 3px #ff3131,inset 0 0 0 6px #1266d4,
+      inset 0 0 0 8px #fff!important;
+  }
+  #mapEditorScreen.targetAfrEditor #mapTable td.mapcell.afr-target-heat[contenteditable="true"]:focus {
+    background:#fff0a8!important;color:#111!important;
+    box-shadow:inset 0 0 0 2px #ff9f0a!important;
+  }
 </style>
 </head>
 <body>
@@ -3631,6 +3658,24 @@ function smartPcAfrOverlay(r,c){
   return null;
 }
 
+// PB3.79.163: smoothed red -> amber -> green -> lime -> yellow.
+const AFR_TARGET_HEAT_STOPS=[
+  [9,184,40,58],[11.5,224,107,47],[12.2,207,157,44],
+  [13.4,39,160,82],[14.3,35,171,97],[16,213,198,51],[20,241,149,36]
+];
+function targetAfrHeatColor(value){
+  const n=Number(value);
+  if(!Number.isFinite(n))return null;
+  const stops=AFR_TARGET_HEAT_STOPS,x=clamp(n,stops[0][0],stops[stops.length-1][0]);
+  let hi=1;
+  while(hi<stops.length-1&&x>stops[hi][0])hi++;
+  const a=stops[hi-1],b=stops[hi],t=clamp((x-a[0])/(b[0]-a[0]),0,1);
+  const channel=i=>Math.round(a[i]+(b[i]-a[i])*t);
+  const r=channel(1),g=channel(2),blue=channel(3);
+  const linear=v=>{const c=v/255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)};
+  const luminance=.2126*linear(r)+.7152*linear(g)+.0722*linear(blue);
+  return {bg:'rgb('+r+','+g+','+blue+')',fg:luminance>.179?'#17110d':'#fff'};
+}
 const INJ_HEAT_RED_MS=13;
 function injectionHeatColor(value){
   const v=Number(value);
@@ -4048,9 +4093,15 @@ function render(){
       if((state.tab==='measured'||state.tab==='corrected')&&afrTargetLockActive(r,c)){
         cls+=' afr-target-locked';cellAttr=' title="AFR đạt mục tiêu ±0,3 · đang khóa bù xăng"';
       }
-      // Use the exact same red/green/yellow band for measured AFR and target
-      // AFR. This is visual-only; values, target locks and ECU writes unchanged.
-      if((state.tab==='measured'||state.tab==='target')&&v!=null){
+      // AFR MỤC TIÊU uses a smooth numeric heatmap; AFR ĐO keeps original
+      // categorical red/green/orange bands. Both remain display-only.
+      if(state.tab==='target'&&v!=null){
+        const heat=targetAfrHeatColor(v);
+        if(heat){
+          cls+=' afr-target-heat';
+          cellStyle=' style="--afr-target-bg:'+heat.bg+';--afr-target-fg:'+heat.fg+'"';
+        }
+      }else if(state.tab==='measured'&&v!=null){
         const afr=Number(v);
         if(Number.isFinite(afr)){
           if(afr<12) cls+=' afr-red';
@@ -4130,6 +4181,9 @@ function beginEdit(td){
     td.onkeydown=null;td.onpaste=null;td.onblur=null;
     state.editingCell=null;
     setSelection(+td.dataset.r,+td.dataset.c,false);
+    // Desktop inline edit must repaint the new target AFR color immediately.
+    // Virtual keyboard and +/- already call render() on each value change.
+    if(state.tab==='target')render();
   };
 }
 function startCellSelection(e,td){
