@@ -9,16 +9,23 @@
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
   // Windows desktop browser: the previously blank fourth INJ VE toolbar slot shows a large AFR LIVE reading.
-  // Do not change the native iOS app, Android layout, Bluefy layout or ECU protocol.
+  // Preserve native iOS IPA, ECU protocol and platform-specific BLE transport.
   window.BLINK_WINDOWS_WEB_AFR = /Windows NT|Win64|Win32/i.test(navigator.userAgent) &&
     !/Electron|BLINK-REDLEO-ANDROID|Bluefy/i.test(navigator.userAgent);
   document.documentElement.classList.toggle('blinkWindowsWeb',window.BLINK_WINDOWS_WEB_AFR);
-  // SMART AUTO TUNER is opt-in and exclusively loaded by desktop Windows Chrome.
-  // Edge, Opera, Electron, Android, iOS, Bluefy and native wrappers remain unchanged.
-  window.BLINK_PC_SMART_TUNE = window.BLINK_WINDOWS_WEB_AFR &&
-    /Chrome\/\d+/i.test(navigator.userAgent) &&
-    !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|Bluefy|BLINK-REDLEO-ANDROID/i.test(navigator.userAgent);
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.158' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.158: Chrome SMART one toggle; full-row VE curve defaults ON
+  // PB3.79.159: one shared SMART engine for Windows Chrome, Android browser/APK and iOS Bluefy.
+  // Keep the legacy flag for all existing preview/recording/write guards.
+  const blinkSmartUA=String(navigator.userAgent||'');
+  const blinkSmartIOS=/iPhone|iPad|iPod/i.test(blinkSmartUA)||
+    (/Macintosh/i.test(blinkSmartUA)&&Number(navigator.maxTouchPoints)>1);
+  const blinkSmartBluefy=blinkSmartIOS&&/Bluefy/i.test(blinkSmartUA);
+  const blinkSmartAndroid=/Android|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
+  const blinkSmartChromePC=window.BLINK_WINDOWS_WEB_AFR&&/Chrome\/\d+/i.test(blinkSmartUA)&&
+    !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
+  window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
+  window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
+  // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.159' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.159: SMART on Chrome PC + Android + Bluefy; VE logic unchanged
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -31,7 +38,7 @@ window.BLINK_AFR_LOCK_TOGGLE_REVISION = 'AFR-LOCK-USER-TOGGLE-20261026';
 window.BLINK_AFR_CELL_UNLOCK_REVISION = 'AFR-SELECTED-CELL-UNLOCK-20261101';
 window.BLINK_WINDOWS_WEB_LARGE_AFR_REVISION = 'INJ-VE-HEADER-FLOAT-NO-TOOLBAR-20261101';
 window.BLINK_AUTOTUNE_DIRECT_RATIO_REVISION = 'NO-PER-CELL-LEARNING-20261026';
-window.BLINK_PC_SMART_MAP_REVISION = 'CHROME-PC-SMART-ONE-TOGGLE-FULLROW-DEFAULT-ON-20261102';
+window.BLINK_PC_SMART_MAP_REVISION = 'SMART-MOBILE-ANDROID-BLUEFY-20261104';
 window.BLINK_PC_BLE_READ_RECOVERY_REVISION = 'CHROME-WIN-GATT-READ-TX-WATCHDOG-20261101';
 window.BLINK_APP_DIALOG_REVISION = 'APP-MODAL-FIFO-20261024';
 window.BLINK_TPS_ECU_REVISION = 'TPS-ECU-A2-VERIFY-20261024';
@@ -3586,8 +3593,7 @@ function correctedFrom(baseMap,afrMap,targetMap,limitPct=state.cal.limitPct){
   return out;
 }
 function correctedMatrix(){
-  // Chrome Windows SMART MAP shows a local-only preview. No ECU write path
-  // may transmit this estimate without the separate local application step.
+  // Shared SMART preview (PC/Android/Bluefy); ECU write remains a separate, explicit action.
   if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
     const proposal=window.BlinkPcSmartAutoTune.preview(state.activeMap);
     // No stale pre-write AFR corrections while SMART is awaiting a new baseline.
@@ -5449,7 +5455,7 @@ function autoIdleSaveReset(disable=false){
 }
 function autoIdleSaveSetEnabled(on){
   if(on&&window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
-    showEcuNotice('info','SMART MAP ĐANG HOẠT ĐỘNG','TỰ LƯU ECU bị khóa khi SMART MAP PC đang xem trước.',3800);
+    showEcuNotice('info','SMART MAP ĐANG HOẠT ĐỘNG','TỰ LƯU ECU bị khóa khi SMART MAP đang bật.',3800);
     autoIdleSave.enabled=false;autoIdleSaveReset(false);return;
   }
   autoIdleSave.enabled=!!on;
@@ -6458,7 +6464,7 @@ function processAfrPacket(p){
   state.afrHistory.push({t:now,v:state.live.afr,blocked});
   while(state.afrHistory.length&&now-state.afrHistory[0].t>5000)state.afrHistory.shift();
   updateLive();
-  // PC-only SMART owns sample placement, including the reject case. Never
+  // Shared SMART owns sample placement, including rejects. Never
   // also run the legacy nearest-cell recorder for the same sample.
   let smartOwned=false;
   if(window.BLINK_PC_SMART_TUNE&&window.BlinkPcSmartAutoTune?.isActive?.()){
@@ -10174,7 +10180,7 @@ updateMapControls();
     const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
     const isBluefy=/Bluefy/i.test(navigator.userAgent);
     if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'"><\/script>');
-    // Never load SMART MAP on Android/iOS/Bluefy/Edge/desktop wrappers.
+    // Load SMART only on supported Chrome PC, Android browser/APK and iOS Bluefy.
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
   })();
 </script>

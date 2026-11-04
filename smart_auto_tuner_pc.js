@@ -1,12 +1,17 @@
-/* Blink TL PB3.79.158 | SMART AUTO TUNER | Chrome Windows PC only.
-   Local 420-cell preview. No automatic ECU writes or firmware changes. */
+/* Blink TL PB3.79.159 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
+   Explicit recording and ECU-write actions; no automatic write or firmware changes. */
 (function(root){
 'use strict';
 const ua=String(root.navigator?.userAgent||'');
+const ios=/iPhone|iPad|iPod/i.test(ua)||
+  (/Macintosh/i.test(ua)&&Number(root.navigator?.maxTouchPoints)>1);
+const bluefy=ios&&/Bluefy/i.test(ua);
+const android=/Android|BLINK-REDLEO-ANDROID/i.test(ua);
 const pc=/Windows NT|Win64|Win32/i.test(ua)&&/Chrome\/\d+/i.test(ua)&&
   !/Edg\/|Edge\/|OPR\/|Opera\/|Electron|BLINK-REDLEO-ANDROID|Bluefy|Mobile|Android|iPhone|iPad/i.test(ua);
+const supported=pc||android||bluefy;
 const bridge=root.blinkPcSmartBridge,doc=root.document;
-if(!pc||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
+if(!supported||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
   minPointGap:850,maxAfrSpread:0.72,minAfr:10.15,maxAfr:19.85,
   maxPreviewPct:20,minWeight:0.18,minAfrEstimateWeight:0.25,minAfrEstimateCount:2,
@@ -124,7 +129,7 @@ const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:
 let diagnostics=emptyDiagnostics();
 const note=key=>{if(Object.prototype.hasOwnProperty.call(diagnostics,key))diagnostics[key]++;};
 const readyAnchors=()=>run?Array.from(run.anchors.values()).filter(a=>a.n>=2).length:0;
-let reason='Chưa bật SMART MAP · Chỉ Chrome Windows';
+let reason='Chưa bật SMART MAP · Chrome PC / Android / Bluefy';
 const clone=m=>m.map(row=>row.slice());
 const fuelSettingsSignature=()=>{
   // A different injector/engine/AFR-scale setting invalidates ALL old VE
@@ -943,12 +948,14 @@ function ui(){
   const button=get('smartPcToggle');
   if(!button)return;
   const label=saving?'⏳ SMART ĐANG GHI ECU':
-    (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP (PC)');
+    (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP');
   if(button.textContent!==label)button.textContent=label;
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
   button.setAttribute('aria-pressed',String(active));
-  // Keep the full-row extrapolation risk available without reopening the large panel.
+  const panel=get('smartPcPanel');
+  if(panel)panel.classList.toggle('smart-active',active);
+  // Mobile touch browsers cannot hover the risk title; display a visible warning too.
   button.title=(active?
     'SỬA CONG CẢ HÀNG: luôn ON. Ô RPM ngoại suy chưa đo AFR có thể gây hư hỏng động cơ. Chỉ bấm MAP ĐÃ BÙ → ECU sau khi sao lưu MAP gốc. ':
     'Khi bật SMART MAP, SỬA CONG CẢ HÀNG sẽ tự ON. ')+reason;
@@ -962,7 +969,7 @@ function stop(message){
 }
 function toggle(){
   if(saving)return;
-  if(active){stop('Đã hủy SMART MAP PC · MAP ECU giữ nguyên');return;}
+  if(active){stop('Đã hủy SMART MAP · MAP ECU giữ nguyên');return;}
   if(!startRun())return;
   if(!bridge.disableAutoIdle()){run=null;say('Không tắt được TỰ LƯU; SMART không bật');return;}
   active=true;reason='SMART SPATIAL: lưu dấu AFR mọi lượt ga; đối chiếu ô kề + PW, chỉ đề xuất khi đủ chứng cứ.';
@@ -1245,12 +1252,18 @@ function exportLog(){
 }
 function initUI(){
   const style=doc.createElement('style');
-  style.textContent='#smartPcPanel{display:none;align-items:center;'+
+  style.textContent='#smartPcPanel{display:none;align-items:stretch;flex-direction:column;'+
+    'gap:4px;box-sizing:border-box;min-width:0;max-width:100%;'+
     'padding:3px 8px;margin:2px 8px;background:transparent;border:0}'+
     '#mapEditorScreen.autoTuneMap #smartPcPanel{display:flex}'+
     'body.mapZoomMode #mapEditorScreen #smartPcPanel{display:none!important}'+
-    '#smartPcToggle{min-height:34px;padding:4px 12px;border-radius:7px;'+
+    '#smartPcToggle{width:100%;min-width:0;min-height:36px;padding:5px 12px;border-radius:7px;'+
+    'touch-action:manipulation;white-space:normal;line-height:1.3;'+
     'border:1px solid #4c9ac8;font-size:12px;font-weight:800;background:#075a55;color:#fff}'+
+    '#smartMobileWarning{display:none;font-size:10px;line-height:1.35;color:#ffe0aa}'+
+    '#smartPcPanel.smart-active #smartMobileWarning{display:block}'+
+    '@media(max-width:600px){#smartPcPanel{margin:1px 7px 5px;padding:1px 0}'+
+    '#smartPcToggle{min-height:42px;font-size:12px}}'+
     '#smartPcToggle.danger{background:#8c2635}'+
     '#smartPcToggle:disabled{opacity:.7}'+
     '#mapEditorScreen.autoTuneMap #mapTable td.smart-pc-fullrow-outside{outline:2px dashed #a657ee;outline-offset:-2px}'+
@@ -1270,7 +1283,9 @@ function initUI(){
   const panel=doc.createElement('div');
   panel.id='smartPcPanel';
   panel.innerHTML='<button type="button" id="smartPcToggle" aria-pressed="false" '+
-    'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP (PC)</button>';
+    'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP</button>'+
+    '<div id="smartMobileWarning" role="note">⚠ MAP VE có thể GHI cả RPM CHƯA ĐO AFR vào ECU. '+
+    'Sao lưu MAP gốc và kiểm tra AFR độc lập trước khi sử dụng.</div>';
   get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
   get('smartPcToggle').addEventListener('click',toggle);
   ui();
