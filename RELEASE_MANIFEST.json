@@ -1,0 +1,22 @@
+{
+  "product": "BLINK REDLEO",
+  "bundleId": "vn.blinkredleo.app",
+  "marketingVersion": "1.0",
+  "iosBuildNumber": 166,
+  "webPBVersion": "3.79.166",
+  "minimumIOS": "15.0",
+  "packaging": "XcodeGen source ZIP; NO signed IPA / NO Apple signing credentials",
+  "baseNativeBranch": "ios-hybrid-fallback",
+  "baseNativeCommit": "1e91ca8a37364f4385a0dbf9b3e29f759de06315",
+  "webSnapshotBranch": "main",
+  "webSnapshotCommit": "7e5ae8fdddca01c93018f07502c5c5b4e6f6bcc2",
+  "bundledHTMLBlob": "e75ab77156070619692e03d19157cb9237ddd303",
+  "bundledSmartBlob": "f93806ff70d6364e543a36a9a0a0df6f45e3dcab",
+  "bundledECUProtocolBlob": "29fbcca3f9d79c8ea4d481f72bf3acdd80d7fbe0",
+  "bundledFuelCalculatorBlob": "cd397e28dd5daa48f21c98dba147d5701849810a",
+  "xcodeMainViewBlob": "7acb2a38ee523a087c084d9906c3f9bc2a0d30c8",
+  "iosProjectYmlBlob": "4f93be961afe6083bfcd1baa64d3b5176998f0ab",
+  "remoteProtocolURL": "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js",
+  "nativeBLE": "CoreBluetooth via BLEBridge.swift and native_bridge_ios.js",
+  "warning": "iOS WKWebView remote JavaScript injection can require App Review compliance review; hardware/ECU tests and Apple signing pending"
+}

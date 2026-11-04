@@ -1,0 +1,75 @@
+name: "BLINK REDLEO iOS PB3.79.166 unsigned build QA"
+
+on:
+  push:
+    branches: [ios-build-pb379166]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-ipa:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate source snapshot and JavaScript
+        run: |
+          set -euo pipefail
+          bash ios/verify_bundle.sh
+          test "$(grep -c 'BLINK-REDLEO-IOS' ios/BlinkRedleo/Web/index.html)" -ge 1
+          test -f ios/BlinkRedleo/Resources/native_bridge_ios.js
+
+      - name: Install XcodeGen if needed
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+
+      - name: Generate signed-ready Xcode project and RGB icons
+        working-directory: ios
+        run: |
+          bash prepare_xcode_project.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('BlinkRedleo/Assets.xcassets/AppIcon.appiconset/icon-1024.png')
+          b=path.read_bytes()
+          assert b[:8]==b'\x89PNG\r\n\x1a\n', 'Invalid 1024x1024 app icon'
+          assert b[25]==2, 'App icon must have RGB without alpha'
+          print('AppIcon 1024: RGB PNG confirmed')
+          PY
+
+      - name: Unsigned iOS simulator build
+        working-directory: ios
+        run: |
+          xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo \
+            -configuration Debug -sdk iphonesimulator \
+            -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO build
+
+      - name: Unsigned iOS device build
+        working-directory: ios
+        run: |
+          xcodebuild -project BlinkRedleo.xcodeproj -scheme BlinkRedleo \
+            -configuration Release -sdk iphoneos \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build
+
+      - name: Package unsigned IPA for local QA only
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          APP="$(find build/device/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP" && test -d "$APP"
+          test -n "$(find "$APP" -name index.html -type f -print -quit)"
+          test -n "$(find "$APP" -name smart_auto_tuner_pc.js -type f -print -quit)"
+          test -n "$(find "$APP" -name fuel_map_calculator.js -type f -print -quit)"
+          test -n "$(find "$APP" -name redleo_real_protocol.js -type f -print -quit)"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry BLINK-REDLEO-PB3.79.166-Build166-UNSIGNED.ipa Payload
+
+      - name: Upload UNSIGNED IPA (not for TestFlight)
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLINK-REDLEO-PB379166-Build166-UNSIGNED-IOS-QA
+          path: ios/BLINK-REDLEO-PB3.79.166-Build166-UNSIGNED.ipa
+          if-no-files-found: error

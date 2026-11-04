@@ -5,9 +5,10 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
     // Hybrid runtime: local UI, remote-first iOS-only ECU protocol, bundled fallback.
     private var webView: WKWebView!
     private var bleBridge: BLEBridge!
+    private var backupImportBridge: BackupImportBridge!
     private var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
     private var protocolInjected = false
-    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js")!
+    private let remoteProtocolURL = URL(string: "https://raw.githubusercontent.com/letan99vl/Blink-Redleo/main/redleo_real_protocol.js")!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -21,6 +22,9 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
+        // Append to WebKit's real iPhone/iPad UA rather than replacing it.
+        // The bundled PB3.79.166 UI recognizes this signed native shell.
+        configuration.applicationNameForUserAgent = "BLINK-REDLEO-IOS/1.0"
 
         let userContentController = WKUserContentController()
         configuration.userContentController = userContentController
@@ -48,7 +52,6 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
         webView.scrollView.contentInset = .zero
         webView.scrollView.scrollIndicatorInsets = .zero
         webView.allowsBackForwardNavigationGestures = false
-        webView.customUserAgent = "BLINK-REDLEO-IOS/1.0"
 
         bleBridge = BLEBridge(
             webView: webView,
@@ -58,6 +61,9 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
             }
         )
         userContentController.add(bleBridge, name: "iosBLE")
+        // Files import for ECU backups stays device-local and never writes to ECU.
+        backupImportBridge = BackupImportBridge(presenter: self, webView: webView)
+        userContentController.add(backupImportBridge, name: "blinkBackupImport")
 
         view.addSubview(webView)
         NSLayoutConstraint.activate([
@@ -170,6 +176,7 @@ final class MainViewController: UIViewController, WKNavigationDelegate {
 
     deinit {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "iosBLE")
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "blinkBackupImport")
     }
 
     override func viewWillAppear(_ animated: Bool) {
