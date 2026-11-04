@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.163' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.163: smooth target AFR cell heatmap; same ECU protocol, SMART and AFR values
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.164' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.164: mobile Auto Tune compact SMART + throttle-save and 10 visible RPM columns
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2646,6 +2646,127 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     background:#fff0a8!important;color:#111!important;
     box-shadow:inset 0 0 0 2px #ff9f0a!important;
   }
+
+  /* PB3.79.164: preserve the desktop controls and all existing ECU handlers. */
+  #mapEditorScreen .autoTuneSmartIdleRow{
+    display:flex;flex-direction:column;flex:0 0 auto;min-width:0;
+  }
+  #mapEditorScreen .autoIdleSaveLabelShort{display:none}
+  #mapEditorScreen .autoIdleSaveLabelLong{display:inline}
+  #mapEditorScreen.standaloneFuel .autoTuneSmartIdleRow,
+  body.mapZoomMode #mapEditorScreen .autoTuneSmartIdleRow{display:none!important}
+
+  /* Compact only on phone/narrow touch displays. 30 map columns remain scrollable.
+     Fixed geometry: 44px sticky TPS label + 10 * cell width = 100vw. */
+  @media (max-width:920px), (pointer:coarse) and (max-width:1100px){
+    #mapEditorScreen.autoTuneMap{
+      --auto-mobile-tps-width:44px;
+      --auto-mobile-rpm-width:calc(10vw - 4.4px);
+      --auto-mobile-map-width:calc(300vw - 88px);
+    }
+    #mapEditorScreen.autoTuneMap .autoIdleSaveLabelLong{display:none!important}
+    #mapEditorScreen.autoTuneMap .autoIdleSaveLabelShort{display:inline!important}
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls{
+      display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+      gap:5px!important;margin:0 7px 3px!important;padding:0!important;
+      flex:0 0 auto!important;min-width:0!important;align-items:stretch!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls #smartPcPanel{
+      display:flex!important;min-width:0!important;width:100%!important;
+      margin:0!important;padding:0!important;gap:0!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls #smartPcToggle{
+      display:block!important;height:32px!important;min-height:32px!important;
+      width:100%!important;padding:0 4px!important;border-radius:7px!important;
+      font-size:clamp(9px,2.5vw,11px)!important;line-height:1.2!important;
+      white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls .autoIdleSaveControl{
+      display:flex!important;flex-wrap:nowrap!important;align-items:center!important;
+      justify-content:center!important;min-height:32px!important;height:32px!important;
+      min-width:0!important;margin:0!important;padding:0 3px!important;
+      gap:2px!important;overflow:hidden!important;border-radius:7px!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls .autoIdleSaveControl label{
+      display:flex!important;align-items:center!important;justify-content:center!important;
+      gap:4px!important;white-space:nowrap!important;min-width:0!important;
+      font-size:clamp(9px,2.5vw,11px)!important;line-height:1!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls #autoIdleSaveToggle{
+      width:15px!important;height:15px!important;min-width:15px!important;
+      flex:0 0 15px!important;margin:0!important;
+    }
+    #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls #autoIdleSaveStatus{
+      position:absolute!important;width:1px!important;height:1px!important;
+      padding:0!important;margin:-1px!important;overflow:hidden!important;
+      clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important;
+    }
+    /* Override the legacy global 1650px table and >=52px-cell rules only in Auto Tune. */
+    body #mapEditorScreen.autoTuneMap #mapTable{
+      table-layout:fixed!important;width:var(--auto-mobile-map-width)!important;
+      min-width:var(--auto-mobile-map-width)!important;
+      max-width:var(--auto-mobile-map-width)!important;
+    }
+    body #mapEditorScreen.autoTuneMap #mapTable th:not(.corner),
+    body #mapEditorScreen.autoTuneMap #mapTable td.mapcell{
+      box-sizing:border-box!important;width:var(--auto-mobile-rpm-width)!important;
+      min-width:var(--auto-mobile-rpm-width)!important;
+      max-width:var(--auto-mobile-rpm-width)!important;
+      padding-left:1px!important;padding-right:1px!important;
+      font-size:clamp(8px,2.15vw,10px)!important;overflow:hidden!important;
+      white-space:nowrap!important;text-overflow:clip!important;
+      font-variant-numeric:tabular-nums!important;
+    }
+    body #mapEditorScreen.autoTuneMap #mapTable th.corner,
+    body #mapEditorScreen.autoTuneMap #mapTable td.rowhead{
+      box-sizing:border-box!important;width:var(--auto-mobile-tps-width)!important;
+      min-width:var(--auto-mobile-tps-width)!important;
+      max-width:var(--auto-mobile-tps-width)!important;
+      font-size:9px!important;padding:0 1px!important;
+    }
+    body #mapEditorScreen.autoTuneMap #mapTable th:not(.corner){font-size:8px!important}
+    body #mapEditorScreen.autoTuneMap:not(.autoTuneReadOnly):not(.targetAfrEditor)
+    #mapTable td.mapcell[data-afr-corner]{
+      padding-left:0!important;padding-right:0!important;
+      font-size:clamp(8px,2.1vw,10px)!important;
+    }
+  }
+  /* In actual landscape, take advantage of width to expose >=16 RPM columns. */
+  @media (max-width:1100px) and (orientation:landscape){
+    #mapEditorScreen.autoTuneMap{
+      --auto-mobile-rpm-width:calc(6.25vw - 2.75px);
+      --auto-mobile-map-width:calc(187.5vw - 38.5px);
+    }
+  }
+  /* App-forced landscape rotates a portrait viewport: use its height as width. */
+  @media (max-width:1100px){
+    body.appForceLandscape #mapEditorScreen.autoTuneMap{
+      --auto-mobile-rpm-width:calc(6.25dvh - 2.75px);
+      --auto-mobile-map-width:calc(187.5dvh - 38.5px);
+    }
+  }
+  /* Save another 30px above TPS 100% by using the otherwise empty row 2. */
+  @media (max-width:760px) and (orientation:portrait){
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editToolbar{
+      grid-template-rows:28px 30px!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+      grid-column:4/span 2!important;grid-row:2!important;
+      min-width:0!important;height:30px!important;min-height:30px!important;
+      padding:0 2px!important;font-size:9px!important;
+      overflow:hidden!important;text-overflow:ellipsis!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorInfo{
+      grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    }
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editorEctBox{
+      grid-column:auto!important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -2702,7 +2823,16 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle" id="editorTitle">Thời gian phun (INJ VE)</div><div class="screenSub" id="editorSub">MAP NO.1 · TPS × RPM · ms</div></div><button id="autoTuneHeaderZoomBtn" type="button" class="ghost" title="Phóng to MAP Auto Tune" aria-label="Phóng to MAP Auto Tune">⛶ PHÓNG TO</button><div class="miniStatus" id="editorBleStatus"><span class="lamp"></span><span>OFF</span></div><div id="windowsDesktopAfr" class="windowsDesktopAfr" aria-label="Giá trị AFR đang đo"><span class="windowsDesktopAfrLabel">AFR LIVE</span><strong class="windowsDesktopAfrValue" data-mirror="afr">--</strong></div></div>
     <div class="editToolbar"><button class="backBtn toolbarBackBtn" id="editorBackBtn" type="button" aria-label="Quay lại" title="Quay lại">‹</button><button id="readMapBtn" class="good">↓ ĐỌC HIỆN TẠI</button><button id="writeMapBtn" class="danger">▣ LƯU HIỆN TẠI</button><button id="afrTargetLocalSaveBtn" type="button" class="good">✓ LƯU AFR MỤC TIÊU</button><button id="mapZoomBtn" class="ghost" type="button">⛶ PHÓNG TO MAP</button><button id="clearMeasuredEditorBtn" class="danger autoTuneEditorOnly" type="button">⌫ XÓA BẢNG AFR</button><button id="threeHistoryBtn" class="ghost autoTuneEditorOnly" aria-label="Lịch sử Auto Tune" title="Lịch sử Auto Tune">▦ LỊCH SỬ</button><button id="applyCorrectedBtn" class="danger autoTuneEditorOnly">✦ MAP ĐÃ BÙ → ECU</button></div>
     <div class="autoTuneQuickBar autoTuneEditorOnly" id="autoTuneQuickBar"><button id="autoTuneQuickRecordBtn" class="good" type="button">● BẮT ĐẦU GHI AFR</button><button id="autoTuneAfrLockToggle" class="primary" type="button" aria-pressed="true" title="Bật/tắt khóa ô AFR đã đo khi đạt mục tiêu ±0,3">🔒 KHÓA AFR ĐO: BẬT</button><button id="autoTuneQuickModeBtn" class="ghost" type="button">⚙ CHẾ ĐỘ / 3 LƯỢT</button></div>
-    <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly"><label for="autoIdleSaveToggle"><input id="autoIdleSaveToggle" type="checkbox"> TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</label><span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span></div>
+    <div id="autoTuneSmartIdleRow" class="autoTuneSmartIdleRow autoTuneEditorOnly">
+      <div id="autoIdleSaveControl" class="autoIdleSaveControl autoTuneEditorOnly">
+        <label for="autoIdleSaveToggle" title="Tự lưu MAP đã bù khi nhả/thòng ga: TPS dưới 1% liên tục 2 giây, có AFR mới và ECU đã xác thực">
+          <input id="autoIdleSaveToggle" type="checkbox" aria-label="Thòng ga, tự lưu MAP đã bù khi TPS dưới 1% đủ 2 giây">
+          <span class="autoIdleSaveLabelLong">TỰ LƯU MAP ĐÃ BÙ KHI TPS &lt; 1% ĐỦ 2 GIÂY</span>
+          <span class="autoIdleSaveLabelShort">THÒNG GA &gt; BÙ</span>
+        </label>
+        <span id="autoIdleSaveStatus" role="status" aria-live="polite">Đang tắt · Bật khi cần; TPS dưới 1% đủ 2 giây sẽ tự lưu.</span>
+      </div>
+    </div>
     <div class="editorInfo" aria-label="Thông số ECU LIVE"><div class="livebox"><div class="k">TPS / RPM</div><div class="v" data-mirror="cell">--</div></div><div class="livebox"><div class="k">AFR LIVE</div><div class="v" data-mirror="afr">--</div></div><div class="livebox editorEctBox"><div class="k">ECT</div><div class="v" data-mirror="ect">-- °C</div></div><div class="livebox editorIgnBox"><div class="k">GÓC LỬA LIVE</div><div class="v" data-mirror="ign">--°</div></div><div class="livebox editorPwBox"><div class="k">PHUN LIVE</div><div class="v" data-mirror="pw">-- ms</div></div></div>
     <div class="tabs editorTabs"><button class="tab active" data-tab="measured">AFR ĐO (BLINK)</button><button class="tab" data-tab="target">AFR MỤC TIÊU (BLINK)</button><button class="tab" data-tab="inject">THỜI GIAN PHUN</button><button class="tab" data-tab="corrected">MAP ĐÃ BÙ</button></div>
     <div class="editorStepBar"><div class="mapToolGroup mapStepGroup"><span>Bước:</span><button class="stepChip" data-mapstep="1" type="button">1</button><button class="stepChip on" data-mapstep="0.1" type="button">0.1</button><button class="stepChip" data-mapstep="0.01" type="button">0.01</button></div><button class="stepChip scanChip" id="mapScanToggle" type="button">▦ QUÉT CHỌN</button><div class="mapToolGroup mapModeGroup"><span>Chế độ:</span><button class="stepChip on" data-mapmode="unit" type="button">Unit</button><button class="stepChip" data-mapmode="percent" type="button">%</button></div><button class="stepChip" id="mapLiveCursorToggle" type="button">◎ TỰ CUỘN LIVE</button></div>

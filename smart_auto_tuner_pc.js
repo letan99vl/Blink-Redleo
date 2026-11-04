@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.162 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
+/* Blink TL PB3.79.164 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
    Explicit recording and ECU-write actions; no automatic write or firmware changes. */
 (function(root){
 'use strict';
@@ -947,8 +947,11 @@ function cellStatus(r,c){return active&&run&&!saving&&!awaitingRebase?run.labels
 function ui(){
   const button=get('smartPcToggle');
   if(!button)return;
-  const label=saving?'⏳ SMART ĐANG GHI ECU':
-    (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP');
+  const mobileUi=typeof root.matchMedia==='function'&&
+    root.matchMedia('(max-width:920px), (pointer:coarse) and (max-width:1100px)').matches;
+  const label=mobileUi?(saving?'⏳ ĐANG GHI ECU':(active?'■ TẮT SMART':'◆ BẬT SMART')):
+    (saving?'⏳ SMART ĐANG GHI ECU':
+     (active?'■ TẮT SMART MAP · SỬA CONG ON':'◆ BẬT SMART MAP'));
   if(button.textContent!==label)button.textContent=label;
   button.disabled=!!saving;
   button.classList.toggle('danger',active);
@@ -1284,7 +1287,15 @@ function initUI(){
   panel.id='smartPcPanel';
   panel.innerHTML='<button type="button" id="smartPcToggle" aria-pressed="false" '+
     'title="SMART MAP: sửa cong cả hàng luôn ON; RPM ngoại suy chưa được kiểm chứng AFR.">◆ BẬT SMART MAP</button>';
-  get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
+  // Keep the original SMART button and auto-idle checkbox on one mobile row.
+  // On desktop the wrapper stays stacked; no change to BLE/ECU callbacks.
+  const row=get('autoTuneSmartIdleRow');
+  if(row&&get('autoIdleSaveControl')){
+    row.insertBefore(panel,get('autoIdleSaveControl'));
+    row.classList.add('smartMobileControls');
+  }else{
+    get('autoTuneQuickBar').insertAdjacentElement('afterend',panel);
+  }
   get('smartPcToggle').addEventListener('click',toggle);
   ui();
 }
