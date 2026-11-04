@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.165' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.165: phone Auto Tune layout: single aligned toolbar + real 3/2 live-card rows
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.166' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.166: fix phone BÙ → ECU hidden under recording bar (CSS specificity conflict)
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2881,6 +2881,44 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
     body:not(.mapZoomMode):not(.appForceLandscape)
     #mapEditorScreen.autoTuneMap #autoTuneSmartIdleRow.smartMobileControls{
       margin-bottom:4px!important;
+    }
+  }
+
+  /* PB3.79.166 MOBILE ACTION BAR: OLD SPECIFIC CSS WAS WINNING.
+     Earlier body:not(.mapZoomMode):not(.appForceLandscape) forced
+     #applyCorrectedBtn into row 2/3 while the mobile bar has only one row.
+     These selectors deliberately MATCH that specificity and appear LAST.
+     DO NOT change data handlers, ECU-write guards or any other Auto Tune tab. */
+  @media (max-width:920px), (pointer:coarse) and (max-width:1100px){
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn,
+    body.appForceLandscape:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap .editToolbar #applyCorrectedBtn{
+      grid-column:4!important;
+      grid-row:1!important;
+      align-self:stretch!important;
+      height:34px!important;
+      min-height:34px!important;
+      position:relative!important;
+      z-index:1!important;
+    }
+    /* With CLEAR hidden on other tabs, let BÙ occupy its empty space. */
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap:not(.autoTuneMeasuredTab):not(.targetAfrEditor)
+    .editToolbar #applyCorrectedBtn,
+    body.appForceLandscape:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap:not(.autoTuneMeasuredTab):not(.targetAfrEditor)
+    .editToolbar #applyCorrectedBtn{
+      grid-column:3/span 2!important;
+      grid-row:1!important;
+    }
+    /* On target AFR, keep LƯU AFR at left and BÙ at right. */
+    body:not(.mapZoomMode):not(.appForceLandscape)
+    #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #applyCorrectedBtn,
+    body.appForceLandscape:not(.mapZoomMode)
+    #mapEditorScreen.autoTuneMap.targetAfrEditor .editToolbar #applyCorrectedBtn{
+      grid-column:4!important;
+      grid-row:1!important;
     }
   }
 </style>
