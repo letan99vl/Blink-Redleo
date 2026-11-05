@@ -1200,7 +1200,69 @@ function parseHandshake(a){
   return info;
 }
 function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGGIO'][n]||'OTHER'}
+// BLE reconnect MAP fix: preserve only a user-selected MAP confirmed by a
+// checksum-valid 0x69/A1 ECU response. Never equate localStorage/UI state with
+// the physical ECU's active bank or reuse a choice for another BLE device.
+const BLINK_CONFIRMED_MAP_STORAGE='blinkRedleoConfirmedMapV1';
+const BLINK_CONFIRMED_MAP_MAX_AGE_MS=7*24*60*60*1000;
+let blinkConfirmedMapChoice=null,blinkPendingMapChoice=null;
+function blinkMapIdentity(info){
+  if(!info||info.short||info.legacyProbe)return '';
+  const ident=String(info.ident||'').trim().toUpperCase();
+  const fw=String(info.firmware||'').trim().toUpperCase();
+  const ecuId=Number(info.ecuId);
+  if(!ident||!fw||!Number.isInteger(ecuId)||ecuId<1||ecuId>255)return '';
+  // Web Bluetooth device.id is origin-stable and distinguishes physical bridges.
+  // On clients without a device ID, ECU handshake identity is the only fallback.
+  const bridgeId=String(window.blinkBridgeDeviceId||'');
+  return JSON.stringify([bridgeId,ident,fw,String(info.date||'').trim(),ecuId,Number(info.ecuMode)||0]);
+}
+function blinkMapCanAutoRestore(info){
+  if(!info||info.profile?.family==='v8'||!blinkMapIdentity(info))return false;
+  // FW2.3+ may run an autonomous MAP4 redline guard. Never override that guard
+  // with a remembered map on reconnect; this fix covers the safe FW2.2 bridge.
+  const v=String(window.blinkBridgeFirmwareStatus||'').match(/FW\s*(\d+)\.(\d+)/i);
+  if(!v)return false;
+  const major=Number(v[1]),minor=Number(v[2]);
+  return major<2||(major===2&&minor<=2);
+}
+function noteUserActiveMapSelection(mapNo){
+  if(!handshakeInfo||!blinkMapCanAutoRestore(handshakeInfo)||
+     !cmdChar()||!mapChar()||!profileCap('live'))return false;
+  const bank=Number(mapNo),identity=blinkMapIdentity(handshakeInfo);
+  if(!Number.isInteger(bank)||bank<1||bank>4||!identity)return false;
+  blinkPendingMapChoice={identity,bank,epoch:transportEpoch};
+  return true;
+}
+function confirmUserActiveMapSelection(mapNo,epoch,frame){
+  const p=blinkPendingMapChoice;
+  if(!p||p.bank!==mapNo||p.epoch!==epoch||
+     p.identity!==blinkMapIdentity(handshakeInfo)||
+     !frame||frame.length!==53||frame[0]!==0xA1||!validFrame(frame)||
+     frame[33]!==mapNo-1)return false;
+  const choice={identity:p.identity,bank:mapNo,savedAt:Date.now()};
+  blinkConfirmedMapChoice=choice;
+  blinkPendingMapChoice=null;
+  try{localStorage.setItem(BLINK_CONFIRMED_MAP_STORAGE,JSON.stringify(choice));}catch(_e){}
+  log('MAP No.'+mapNo+' confirmed from ECU A1 byte33 and remembered for same bridge');
+  return true;
+}
+function preferredActiveMapForHandshake(info){
+  if(!blinkMapCanAutoRestore(info))return null;
+  const identity=blinkMapIdentity(info);
+  let choice=blinkConfirmedMapChoice;
+  if(!choice||choice.identity!==identity){
+    try{choice=JSON.parse(localStorage.getItem(BLINK_CONFIRMED_MAP_STORAGE)||'null');}
+    catch(_e){choice=null;}
+  }
+  if(!choice||choice.identity!==identity)return null;
+  const age=Date.now()-Number(choice.savedAt),bank=Number(choice.bank);
+  if(!Number.isFinite(age)||age<0||age>BLINK_CONFIRMED_MAP_MAX_AGE_MS||
+     !Number.isInteger(bank)||bank<1||bank>4)return null;
+  return bank;
+}
 function syncHandshakeInfo(info){
+  const freshHandshake=handshakeInfo!==info;
   handshakeInfo=info;
   const p=info.profile||profileFromHandshake(info);
   setEcuProfile(p);
@@ -1208,7 +1270,17 @@ function syncHandshakeInfo(info){
   if(typeof state!=='undefined'){
     state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
     state.ecuVariant=isUltraPro2Identity(info)?'ULTRA_PRO2':(isUltraDirect()?'ULTRA_PRO1':'');
-    if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
+    // A cached 0x5A must never overwrite a MAP chosen after that handshake.
+    if(freshHandshake&&!state.threeRun?.active){
+      const remembered=preferredActiveMapForHandshake(info);
+      const mapNo=remembered==null?info.activeMap:remembered;
+      if(mapNo>=1&&mapNo<=4){
+        state.activeMap=normalizeBankForProfile(mapNo);
+        const ms=document.getElementById('mapSelect');if(ms)ms.value=String(state.activeMap);
+        if(remembered!=null&&remembered!==info.activeMap)
+          log('Reconnect uses last confirmed MAP No.'+remembered+' instead of stale 0x5A MAP No.'+info.activeMap);
+      }
+    }
   }
   const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
   const displayLabel=sessionProfileLabel(p,info),displayShort=sessionProfileShort(p,info);
@@ -1428,6 +1500,7 @@ async function liveOnce(){
   if(!cmdChar()||busy||document.hidden)return;
   try{
     const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+    const liveEpoch=transportEpoch;
     let arg=mapNo;
     if(ecuProfile&&ecuProfile.family==='v8'){
       v8LiveSlot=(v8LiveSlot+1)%10;
@@ -1435,6 +1508,7 @@ async function liveOnce(){
     }
     const rx=await rawExchange(req5(0x69,arg),5000);
     parseLiveReal(rx);
+    confirmUserActiveMapSelection(mapNo,liveEpoch,rx);
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
@@ -1566,6 +1640,7 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  blinkPendingMapChoice=null; // a previous BLE session cannot confirm new choices
   if(typeof state!=='undefined'&&state.live){
     state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;
   }
@@ -5826,7 +5901,7 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
+window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
   pendingCount:pending.size,liveRunning,transportEpoch
