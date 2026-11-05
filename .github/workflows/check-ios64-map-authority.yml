@@ -1,0 +1,20 @@
+name: Check iOS64 remote ECU MAP authority
+on:
+  pull_request:
+    paths:
+      - 'ios/BlinkRedleo/Web/redleo_real_protocol.js'
+      - 'ios/BlinkRedleo/Web/index.html'
+      - 'tools/check-ios64-map-authority.js'
+      - '.github/workflows/check-ios64-map-authority.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check-ios-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: iOS remote map authority regression
+        run: node tools/check-ios64-map-authority.js
+      - name: JavaScript syntax
+        run: node --check ios/BlinkRedleo/Web/redleo_real_protocol.js

@@ -1159,7 +1159,9 @@ function parseHandshake(a){
     if(!f)throw new Error('Handshake 0x5A không hợp lệ · '+a.length+'B');
     a=f;
   }
-  const info={raw:a.slice(),short:a.length===9,activeMap:1,ecuId:1,password:null};
+  // A 9-byte or partial handshake has no trustworthy ECU bank. 0x69 byte2
+  // selects the running MAP, so never invent MAP1 when byte33 is absent.
+  const info={raw:a.slice(),short:a.length<37,activeMap:null,ecuId:1,password:null};
   if(a.length>=35){
     info.ident=ascii(a,1,16);
     info.firmware=ascii(a,17,4);
@@ -1170,14 +1172,80 @@ function parseHandshake(a){
     info.sumSignal=a[29];
     info.zeroIgn=(a[30]||0)+1;
     info.zeroInj=(a[31]||0)+1;
-    info.activeMap=clamp((a[33]||0)+1,1,4);
+    info.activeMap=a.length>=37&&a[33]<=3?a[33]+1:null;
     info.ecuId=a[34]||1;
     if(a.length>=41)info.password=Array.from(a.slice(35,39));
   }
   return info;
 }
 function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGGIO'][n]||'OTHER'}
+// iOS 64 standalone IPA loads this remote protocol, but its bundled HTML
+// still contains a legacy bridge-A1 MAP overwrite. The ECU's 0x5A byte33 is
+// authoritative; the bridge's A1 byte11 is not. Never let it choose ECU MAP.
+window.BLINK_IOS64_MAP_RECONNECT_REVISION='IOS64-MAP-ECU5A-NO-AUTO1-20261106';
+let blinkIosMapEpoch=-1,blinkIosLiveBank=null,blinkIosAllowBankWrite=false;
+let blinkIosPendingUserBank=null,blinkIosBankGuardInstalled=false,blinkIosRepairTimer=null;
+function blinkIosHasVerifiedMap(){
+  if(!handshakeInfo)return false;
+  if(ecuProfile&&ecuProfile.family==='v8')return true; // V8 wire path is different.
+  const raw=handshakeInfo.raw,bank=Number(handshakeInfo.activeMap);
+  return blinkIosMapEpoch===transportEpoch && raw && raw.length>=37 &&
+    Number.isInteger(bank)&&bank>=1&&bank<=4&&raw[33]===bank-1 &&
+    Number.isInteger(blinkIosLiveBank)&&blinkIosLiveBank>=1&&blinkIosLiveBank<=4;
+}
+function blinkIosAcceptUserBank(bank){
+  bank=Number(bank);
+  if(!blinkIosHasVerifiedMap()||!Number.isInteger(bank)||bank<1||bank>4||
+     typeof state==='undefined'||state.ecuPhase!=='live')return false;
+  blinkIosLiveBank=normalizeBankForProfile(bank);
+  blinkIosPendingUserBank=bank;
+  setTimeout(()=>{if(blinkIosPendingUserBank===bank)blinkIosPendingUserBank=null;},0);
+  return true;
+}
+function blinkIosInstallMapGuard(){
+  if(blinkIosBankGuardInstalled||typeof state==='undefined')return;
+  let value=state.activeMap;
+  try{
+    Object.defineProperty(state,'activeMap',{
+      configurable:true,enumerable:true,
+      get(){return value},
+      set(next){
+        const n=Number(next);
+        if(blinkIosAllowBankWrite || !blinkIosHasVerifiedMap() ||
+           (ecuProfile&&ecuProfile.family==='v8') ||
+           n===blinkIosLiveBank || n===blinkIosPendingUserBank){
+          value=next;return;
+        }
+        // The bundled iOS A1 handler may be writing its bridge-local MAP1.
+        // Refuse to change the running bank. Correct its dropdown repaint.
+        if(Number.isInteger(n)&&n>=1&&n<=4){
+          if(blinkIosRepairTimer===null){
+            blinkIosRepairTimer=setTimeout(()=>{
+              blinkIosRepairTimer=null;
+              const ms=document.getElementById('mapSelect');
+              if(ms)ms.value=String(value);
+            },0);
+          }
+          return;
+        }
+        value=next;
+      }
+    });
+    blinkIosBankGuardInstalled=true;
+  }catch(e){log('iOS bank UI guard unavailable; LIVE still ECU-authorized',String(e));}
+  const selectId=new Set(['mapSelect','redBankSelect','idleLimitBankSelect']);
+  document.addEventListener('change',e=>{
+    const t=e.target;
+    if(t && selectId.has(t.id))blinkIosAcceptUserBank(t.value);
+  },true);
+  document.addEventListener('click',e=>{
+    const t=e.target,el=t&&typeof t.closest==='function'?t.closest('.mapBankBtn'):null;
+    if(el)blinkIosAcceptUserBank(el.dataset.mapbank);
+  },true);
+}
 function syncHandshakeInfo(info){
+  const freshHandshake=handshakeInfo!==info;
+  if(freshHandshake){blinkIosMapEpoch=-1;blinkIosLiveBank=null;}
   handshakeInfo=info;
   const p=info.profile||profileFromHandshake(info);
   setEcuProfile(p);
@@ -1185,7 +1253,19 @@ function syncHandshakeInfo(info){
   if(typeof state!=='undefined'){
     state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
     state.ecuVariant=isUltraPro2Identity(info)?'ULTRA_PRO2':(isUltraDirect()?'ULTRA_PRO1':'');
-    if(info.activeMap>=1&&info.activeMap<=4&&!state.threeRun?.active){state.activeMap=info.activeMap;const ms=document.getElementById('mapSelect');if(ms)ms.value=String(info.activeMap);}
+    if(freshHandshake && !info.short && !state.threeRun?.active &&
+       Number.isInteger(Number(info.activeMap)) &&
+       Number(info.activeMap)>=1&&Number(info.activeMap)<=4 &&
+       info.raw?.length>=37 && info.raw[33]===Number(info.activeMap)-1){
+      blinkIosAllowBankWrite=true;
+      try{
+        state.activeMap=normalizeBankForProfile(info.activeMap);
+        const ms=document.getElementById('mapSelect');
+        if(ms)ms.value=String(state.activeMap);
+        blinkIosLiveBank=state.activeMap;
+        blinkIosMapEpoch=transportEpoch;
+      }finally{blinkIosAllowBankWrite=false;}
+    }
   }
   const cls=Number.isFinite(info.classify)?classNameFromCode(info.classify):(p.family==='legacy'?'LEGACY':'OTHER');
   const displayLabel=sessionProfileLabel(p,info),displayShort=sessionProfileShort(p,info);
@@ -1306,26 +1386,30 @@ async function handshakeReal(){
     }
   }
 
-  // V3 / very old REDLEO builds do not use the modern 0x5A flow.
-  // 0x69 is read-only; use one probe only to identify a legacy ECU, then lock
-  // all modern page/write operations until a dedicated legacy parser exists.
-  try{
-    const rx=await rawExchange(req5(0x69,1),8000);
-    const f=findValidCommandFrame(rx,0xA1,3);
-    if(!f)throw new Error('Legacy probe không có frame A1 checksum hợp lệ');
-    const info={raw:new Uint8Array(0),short:true,activeMap:1,ecuId:1,password:null,ident:'REDLEO LEGACY',firmware:'LEGACY',date:'—',legacyProbe:true,legacyLiveLength:f.length,profile:ECU_PROFILE_DEFS.LEGACY_PROBE};
-    syncHandshakeInfo(info);
-    return info;
-  }catch(e){
-    throw new Error('Không nhận diện được ECU. 5A: '+String(firstErr&&firstErr.message||firstErr)+' · legacy 69: '+String(e&&e.message||e));
-  }
+  // Original REDLEO 9.2 uses 0x69 byte2 to SELECT a MAP. Never use
+  // 0x69,1 as a supposed read-only fallback after a failed ECU handshake.
+  throw new Error('Chưa xác thực MAP ECU bằng 0x5A; đã chặn 0x69/MAP1: '+
+    String(firstErr&&firstErr.message||firstErr));
 }
 let v8LiveSlot=0;
 async function liveOnce(){
+  if(!blinkIosHasVerifiedMap())return;
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
   try{
-    const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+    // For modern REDLEO, only the bank from fresh ECU 0x5A or an explicit
+    // user tap is authorized. Ignore stale IPA UI or bridge-A1 MAP1 updates.
+    const mapNo=(ecuProfile&&ecuProfile.family==='v8')
+      ? normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1)
+      : blinkIosLiveBank;
+    if(!Number.isInteger(mapNo)||mapNo<1||mapNo>4)return;
+    if(typeof state!=='undefined'&&state.activeMap!==mapNo){
+      blinkIosAllowBankWrite=true;
+      try{
+        state.activeMap=mapNo;
+        const ms=document.getElementById('mapSelect');if(ms)ms.value=String(mapNo);
+      }finally{blinkIosAllowBankWrite=false;}
+    }
     let arg=mapNo;
     if(ecuProfile&&ecuProfile.family==='v8'){
       v8LiveSlot=(v8LiveSlot+1)%10;
@@ -1336,6 +1420,7 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
+  if(!blinkIosHasVerifiedMap())return;
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
   // Never restart ECU LIVE while an app backup or MAP read/write owns the transport.
   if(manualMapIoDepth>0)return;
@@ -1378,6 +1463,7 @@ async function initializeRealSession(){
   if(sessionInitPromise)return sessionInitPromise;
   const epoch=transportEpoch;
   sessionInitPromise=(async()=>{
+    blinkIosMapEpoch=-1;blinkIosLiveBank=null;
     installRawListener();installAfrListener();
 
     // Every new connection starts with a visibly empty ECU map UI.
@@ -1417,7 +1503,7 @@ async function initializeRealSession(){
 
     // Profiles explicitly advertising live support enter the live pipeline.
     // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
-    if(profileCap('live')){
+    if(profileCap('live')&&blinkIosHasVerifiedMap()){
       if(typeof state!=='undefined')state.ecuPhase='live';
       startLiveLoop();
       taskUi('success','ECU ONLINE · '+sessionProfileShort(ecuProfile,info)+' · LIVE 0x69 · OK');
@@ -1429,6 +1515,10 @@ async function initializeRealSession(){
       // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
       // Fresh ECU A2 is required for TPS calibration EVEN when sensor curves were cached.
       scheduleSensorCalWarmup(epoch,newCalIdentity,0);
+    }else if(profileCap('live')){
+      stopLiveLoop();
+      if(typeof state!=='undefined')state.ecuPhase='map-unverified';
+      taskUi('error','ECU CHƯA BÁO MAP · KHÔNG GỬI 0x69/MAP1',0);
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1447,6 +1537,7 @@ function cmdChar(){return window.blinkCommandChar||null}
 function statusChar(){return window.blinkStatusChar||null}
 function abortRawTransport(reason='BLE disconnected'){
   transportEpoch++;
+  blinkIosMapEpoch=-1;blinkIosLiveBank=null;blinkIosPendingUserBank=null;
   if(sensorWarmupTimer){clearTimeout(sensorWarmupTimer);sensorWarmupTimer=null;}
   stopLiveLoop();
   for(const [id,p] of pending){
@@ -5501,6 +5592,7 @@ function installUI(){
 // ReadAll after BLE becomes connected. Poll for exposed chars because connect handler lives in another IIFE.
 function boot(){
   installUI();
+  blinkIosInstallMapGuard();
   applyProfileUi();
   let lastCmd=null,lastMap=null,settleTimer=null;
   setInterval(()=>{
