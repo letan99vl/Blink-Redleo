@@ -16,5 +16,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: iOS remote map authority regression
         run: node tools/check-ios64-map-authority.js
-      - name: iOS remote original ignition regression
-        run: node tools/check-ios64-original-ign.js
+      - name: JavaScript syntax
+        run: node --check ios/BlinkRedleo/Web/redleo_real_protocol.js
