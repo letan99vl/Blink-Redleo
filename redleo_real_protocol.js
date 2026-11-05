@@ -1182,7 +1182,9 @@ function parseHandshake(a){
     if(!f)throw new Error('Handshake 0x5A không hợp lệ · '+a.length+'B');
     a=f;
   }
-  const info={raw:a.slice(),short:a.length===9,activeMap:1,ecuId:1,password:null};
+  // A 9-byte/partial 0x5A reply has NO trustworthy active-MAP byte.
+  // Never invent MAP1 from a missing field: 0x69 with MAP1 would switch the ECU.
+  const info={raw:a.slice(),short:a.length<37,activeMap:null,ecuId:1,password:null};
   if(a.length>=35){
     info.ident=ascii(a,1,16);
     info.firmware=ascii(a,17,4);
@@ -1193,7 +1195,9 @@ function parseHandshake(a){
     info.sumSignal=a[29];
     info.zeroIgn=(a[30]||0)+1;
     info.zeroInj=(a[31]||0)+1;
-    info.activeMap=clamp((a[33]||0)+1,1,4);
+    // REDLEO 9.2 proRxOnLine: raw byte33 0..3 is the actual ECU bank.
+    // Reject invalid raw values rather than clamping/guessing a bank.
+    info.activeMap=a.length>=37&&a[33]<=3?a[33]+1:null;
     info.ecuId=a[34]||1;
     if(a.length>=41)info.password=Array.from(a.slice(35,39));
   }
@@ -1271,8 +1275,20 @@ function confirmUserActiveMapSelection(mapNo,epoch,frame){
 // The periodic LIVE 0x69 request is the sole MAP-selection transport.
 // An explicit UI tap marks intent; the next checksum-valid A1 confirms it.
 // Never start a second RAW 0x69 request competing for the same BLE mutex.
+// REDLEO 9.2: LIVE byte2 SELECTS the physical ECU MAP. Only a fresh, checksum-
+// validated full 0x5A can authorize the first LIVE on modern ECUs.
+let blinkVerifiedMapEpoch=-1;
+function blinkHasVerifiedMapForLive(){
+  if(!handshakeInfo)return false;
+  // V8 does not encode its MAP in byte33; keep its original transport path.
+  if(ecuProfile&&ecuProfile.family==='v8')return true;
+  const raw=handshakeInfo.raw,bank=Number(handshakeInfo.activeMap);
+  return blinkVerifiedMapEpoch===transportEpoch&&raw&&raw.length>=37&&
+    Number.isInteger(bank)&&bank>=1&&bank<=4&&raw[33]===bank-1;
+}
 function syncHandshakeInfo(info){
   const freshHandshake=handshakeInfo!==info;
+  if(freshHandshake)blinkVerifiedMapEpoch=-1;
   handshakeInfo=info;
   const p=info.profile||profileFromHandshake(info);
   setEcuProfile(p);
@@ -1284,14 +1300,23 @@ function syncHandshakeInfo(info){
     // currently reported by ECU. Each PC/phone has a different local MAP
     // cache; restoring it on reconnect switched other users' ECU MAP.
     // Cached calls to syncHandshakeInfo() must never re-select a bank.
-    if(freshHandshake&&!state.threeRun?.active&&!info.short){
+    if(freshHandshake&&!info.short){
       const ecuMapNo=Number(info.activeMap);
-      if(Number.isInteger(ecuMapNo)&&ecuMapNo>=1&&ecuMapNo<=4){
+      const rawMap=info.raw&&info.raw.length>=37?Number(info.raw[33]):NaN;
+      const noThreeRunConflict=!state.threeRun?.active||Number(state.threeRun.mapNo)===ecuMapNo;
+      if(Number.isInteger(ecuMapNo)&&ecuMapNo>=1&&ecuMapNo<=4&&
+         rawMap===ecuMapNo-1&&noThreeRunConflict){
         state.activeMap=normalizeBankForProfile(ecuMapNo);
+        blinkVerifiedMapEpoch=transportEpoch;
         const ms=document.getElementById('mapSelect');
         if(ms)ms.value=String(state.activeMap);
+        // Refresh every MAP indicator, not just the dropdown; do not invoke
+        // selectMapBank(), which represents an explicit user MAP-change intent.
+        try{window.render?.();window.updateLive?.();}catch(e){log('MAP UI sync:',String(e));}
         log('Fresh ECU 0x5A reports running MAP No.'+state.activeMap+
-            ' · ignored browser-local last MAP on reconnect');
+            ' · ignored browser and ESP32-local bank on reconnect');
+      }else if(p.family!=='v8'){
+        log('0x5A did not verify ECU MAP (or 3-run lock conflicts): LIVE 0x69 blocked');
       }
     }
   }
@@ -1492,27 +1517,21 @@ async function handshakeReal(){
     }
   }
 
-  // V3 / very old REDLEO builds do not use the modern 0x5A flow.
-  // 0x69 is read-only; use one probe only to identify a legacy ECU, then lock
-  // all modern page/write operations until a dedicated legacy parser exists.
-  try{
-    const rx=await rawExchange(req5(0x69,1),8000);
-    const f=findValidCommandFrame(rx,0xA1,3);
-    if(!f)throw new Error('Legacy probe không có frame A1 checksum hợp lệ');
-    const info={raw:new Uint8Array(0),short:true,activeMap:1,ecuId:1,password:null,ident:'REDLEO LEGACY',firmware:'LEGACY',date:'—',legacyProbe:true,legacyLiveLength:f.length,profile:ECU_PROFILE_DEFS.LEGACY_PROBE};
-    syncHandshakeInfo(info);
-    return info;
-  }catch(e){
-    throw new Error('Không nhận diện được ECU. 5A: '+String(firstErr&&firstErr.message||firstErr)+' · legacy 69: '+String(e&&e.message||e));
-  }
+  // IMPORTANT: the original REDLEO 9.2 proTxCommand(0x69) sends
+  // proSwithNum() as byte2. It SELECTS a MAP; it is NOT a safe read-only probe.
+  // On an unknown/failed 0x5A we must NOT probe 0x69,1 and force MAP1.
+  throw new Error('Không xác minh được ECU 0x5A. Đã dừng an toàn, KHÔNG gửi 0x69/MAP1: '+
+    String(firstErr&&firstErr.message||firstErr));
 }
 let v8LiveSlot=0;
 async function liveOnce(){
-  if(pcGattTxFault)return;
+  if(pcGattTxFault||!blinkHasVerifiedMapForLive())return;
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
   try{
-    const mapNo=clamp((typeof state!=='undefined'&&state.activeMap)||1,1,4);
+    const userBank=typeof state!=='undefined'?Number(state.activeMap):NaN;
+    if(!Number.isInteger(userBank)||userBank<1||userBank>4)return;
+    const mapNo=normalizeBankForProfile(userBank);
     const liveEpoch=transportEpoch;
     let arg=mapNo;
     if(ecuProfile&&ecuProfile.family==='v8'){
@@ -1525,7 +1544,7 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
-  if(pcGattTxFault)return;
+  if(pcGattTxFault||!blinkHasVerifiedMapForLive())return;
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
   // A backup or verified MAP read/write owns the manual ECU transaction scope.
   // Do not restart background 0x69 from a stale delayed timer until it ends.
@@ -1573,6 +1592,7 @@ async function initializeRealSession(){
   if(sessionInitPromise)return sessionInitPromise;
   const epoch=transportEpoch;
   sessionInitPromise=(async()=>{
+    blinkVerifiedMapEpoch=-1;
     installRawListener();installAfrListener();
 
     // Every new connection starts with a visibly empty ECU map UI.
@@ -1610,9 +1630,9 @@ async function initializeRealSession(){
       }
     }
 
-    // Profiles explicitly advertising live support enter the live pipeline.
-    // Unknown/legacy profiles remain connected in SAFE MODE with write gates closed.
-    if(profileCap('live')){
+    // LIVE 0x69 byte2 selects the physical MAP: no auto-LIVE unless the
+    // connection's current MAP was verified by fresh ECU 0x5A.
+    if(profileCap('live')&&blinkHasVerifiedMapForLive()){
       if(typeof state!=='undefined')state.ecuPhase='live';
       startLiveLoop();
       taskUi('success','ECU ONLINE · '+sessionProfileShort(ecuProfile,info)+' · LIVE 0x69 · OK');
@@ -1624,6 +1644,11 @@ async function initializeRealSession(){
       // readA2SensorPageReal pauses 0x69 safely, validates the page, then resumes live.
       // Fresh ECU A2 is required for TPS calibration EVEN when sensor curves were cached.
       scheduleSensorCalWarmup(epoch,newCalIdentity,0);
+    }else if(profileCap('live')){
+      stopLiveLoop();
+      if(typeof state!=='undefined')state.ecuPhase='map-unverified';
+      taskUi('error','CHƯA XÁC NHẬN MAP ECU · KHÔNG GỬI LIVE 0x69',0);
+      notice('error','ECU CHƯA BÁO MAP HỢP LỆ','Đã chặn lệnh 0x69 để không tự chuyển ECU về MAP1. Kiểm tra handshake 0x5A.');
     }else{
       stopLiveLoop();
       if(typeof state!=='undefined')state.ecuPhase='profile-locked';
@@ -1653,6 +1678,7 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  blinkVerifiedMapEpoch=-1;
   if(blinkMapChoiceTimeout!==null){clearTimeout(blinkMapChoiceTimeout);blinkMapChoiceTimeout=null;}
   blinkPendingMapChoice=null; // a previous BLE session cannot confirm new choices
   if(typeof state!=='undefined'&&state.live){
