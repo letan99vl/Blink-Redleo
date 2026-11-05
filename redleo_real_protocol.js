@@ -7,6 +7,15 @@
 'use strict';
 
 const TAG='[BLINK TL REAL]';
+// Temporary opt-in PC diagnostic. The *only* ECU command allowed is a
+// checksum-correct 0x5A identity read; no 0x69, no MAP writes, no READ ALL.
+// An ESP32 firmware autonomous guard (if armed) is outside browser control.
+const blinkMap5aReadOnly=(()=>{
+  try{return /(?:^|[?&])mapReadOnly=1(?:&|$)/.test(String(window.location?.search||''));}
+  catch(_e){return false;}
+})();
+window.BLINK_MAP_READONLY_DIAGNOSTIC=blinkMap5aReadOnly;
+window.BLINK_MAP_READONLY_REVISION='MAP5A-FIRST-BEFORE-LIVE-20261106';
 const RAW_TX=0xE1, RAW_RX=0xE2, RAW_CHUNK=13, RAW_JUMBO_CHUNK=160;
 const READ_ALL_LEN=9767;
 const VER_TIME=2, VER_ANGLE=4;
@@ -1292,6 +1301,7 @@ function confirmUserActiveMapSelection(mapNo,epoch,frame){
 let blinkVerifiedMapEpoch=-1;
 let blinkWireMapBank=0,blinkWireMapSource='none';
 let blinkFirstMapTx=null,blinkLastMapTx=null;
+let blinkMap5aFirst=null,blinkMap5aError=null;
 function blinkHasVerifiedMapForLive(){
   if(!handshakeInfo)return false;
   // V8 does not encode its MAP in byte33; keep its original transport path.
@@ -1518,6 +1528,17 @@ async function handshakeReal(){
       const rx=await rawExchange(req5(0x5A,0x5A),6000);
     const info=parseHandshake(rx);
     info.profile=profileFromHandshake(info);
+    if(blinkMap5aReadOnly && blinkMap5aFirst===null){
+      const raw33=info.raw?.length>=37?Number(info.raw[33]):null;
+      blinkMap5aFirst={
+        rawLength:info.raw?.length||0,rawByte33:raw33,
+        mapFromByte33:raw33!==null&&raw33>=0&&raw33<=3?raw33+1:null,
+        profile:info.profile?.key||'UNKNOWN',
+        ecuMap:info.activeMap,bridgeFw:window.blinkBridgeFirmwareStatus||'unknown',
+        handshakeEpoch:transportEpoch
+      };
+      log('MAP READONLY initial ECU 0x5A:',JSON.stringify(blinkMap5aFirst));
+    }
     if(info.profile.family==='v8'){
       // REDLEO V8 byte33 is serial/config related, not the V9 active-map byte.
       info.activeMap=1;
@@ -1529,6 +1550,7 @@ async function handshakeReal(){
     }catch(e){
       firstErr=e;
       const msg=String(e&&e.message||e);
+      if(blinkMap5aReadOnly)blinkMap5aError=msg;
       if(/GATT operation already in progress|GATT.*operation.*in progress/i.test(msg)){
         // This is a Windows host BLE contention, not proof that ECU is legacy.
         if(attempt===2||!cmdChar()||!mapChar())throw new Error('Bluetooth GATT bận khi xác thực ECU 0x5A sau 3 lần: '+msg);
@@ -1548,6 +1570,7 @@ async function handshakeReal(){
 }
 let v8LiveSlot=0;
 async function liveOnce(){
+  if(blinkMap5aReadOnly)return;
   if(pcGattTxFault||!blinkHasVerifiedMapForLive())return;
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
@@ -1583,6 +1606,7 @@ async function liveOnce(){
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
 function startLiveLoop(){
+  if(blinkMap5aReadOnly)return;
   if(pcGattTxFault||!blinkHasVerifiedMapForLive())return;
   if(liveResumeTimer){clearTimeout(liveResumeTimer);liveResumeTimer=null;}
   // A backup or verified MAP read/write owns the manual ECU transaction scope.
@@ -1634,6 +1658,7 @@ async function initializeRealSession(){
     blinkVerifiedMapEpoch=-1;
     blinkWireMapBank=0;blinkWireMapSource='none';
     blinkFirstMapTx=null;blinkLastMapTx=null;
+    blinkMap5aFirst=null;blinkMap5aError=null;
     installRawListener();installAfrListener();
 
     // Every new connection starts with a visibly empty ECU map UI.
@@ -1654,6 +1679,15 @@ async function initializeRealSession(){
     const info=await handshakeReal();
     if(epoch!==transportEpoch)throw new Error('BLE đổi kết nối trong lúc handshake');
     publishProfileAxisFallback(ecuProfile&&ecuProfile.family==='v8'?'V8 · AXIS CỐ ĐỊNH':(ecuProfile&&ecuProfile.key==='MODERN_V9'?'V9 · AXIS CỐ ĐỊNH':'CHỜ A2 AXIS · '+(ecuProfile?.short||'ECU')));
+    if(blinkMap5aReadOnly){
+      stopLiveLoop();
+      const bank=info.activeMap==null?'CHƯA XÁC ĐỊNH':('MAP'+info.activeMap);
+      if(typeof state!=='undefined')state.ecuPhase='map-readonly';
+      taskUi('success','CHẨN ĐOÁN CHỈ ĐỌC 0x5A · ECU '+bank+' · KHÔNG GỬI 0x69',0);
+      notice('info','CHẾ ĐỘ CHỈ ĐỌC MAP',
+        'ECU 0x5A: '+bank+'. Blink không gửi LIVE 0x69 trong chế độ này. Xem F12 Console: BlinkRealProtocol.diagnostics. Nếu firmware ESP32 có bảo vệ tự động, nó vẫn có thể tự giao tiếp ECU.');
+      return info; // No A2 warmup, AutoRead, LIVE, or other ECU commands.
+    }
     const newCalIdentity=[
       ecuProfile?.key||'UNKNOWN',info.ident||'',info.firmware||'',info.ecuId||1
     ].join('|');
@@ -1984,6 +2018,13 @@ window.onBlinkStatus=function(text){
 };
 
 async function rawExchange(bytes,timeout=12000){
+  if(blinkMap5aReadOnly){
+    const test=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes||[]);
+    // Only REDLEO's five-byte 0x5A 0x5A checksum-valid query.
+    if(test.length!==5||test[0]!==0x5A||test[1]!==0x5A||
+       test[2]!==0x4B||test[3]!==0xB4||test[4]!==5)
+      throw new Error('MAP READONLY: chỉ cho phép lệnh đọc ECU 0x5A, đã chặn lệnh khác');
+  }
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive())){
     throw new Error('OTA ESP32 đang chạy');
   }
@@ -5996,6 +6037,8 @@ window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,wr
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
   pendingCount:pending.size,liveRunning,transportEpoch,
+  mapReadOnly:blinkMap5aReadOnly,
+  firstEcu0x5a:blinkMap5aFirst,firstEcu0x5aError:blinkMap5aError,
   ecu5aRaw33:handshakeInfo&&handshakeInfo.raw&&handshakeInfo.raw.length>=37
     ?handshakeInfo.raw[33]:null,
   ecu5aMap:handshakeInfo?handshakeInfo.activeMap:null,
