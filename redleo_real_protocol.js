@@ -1200,9 +1200,10 @@ function parseHandshake(a){
   return info;
 }
 function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGGIO'][n]||'OTHER'}
-// BLE reconnect MAP fix: preserve only a user-selected MAP confirmed by a
-// checksum-valid 0x69/A1 ECU response. Never equate localStorage/UI state with
-// the physical ECU's active bank or reuse a choice for another BLE device.
+// BLE MAP selection: remember an explicit user choice only to report the
+// checksum-valid 0x69/A1 acknowledgement. A different PC/phone has different
+// localStorage, so only a FRESH ECU 0x5A response can set the running MAP on
+// reconnect; local preferences must never silently re-select an ECU bank.
 const BLINK_CONFIRMED_MAP_STORAGE='blinkRedleoConfirmedMapV1';
 const BLINK_CONFIRMED_MAP_MAX_AGE_MS=7*24*60*60*1000;
 let blinkConfirmedMapChoice=null,blinkPendingMapChoice=null;
@@ -1270,20 +1271,6 @@ function confirmUserActiveMapSelection(mapNo,epoch,frame){
 // The periodic LIVE 0x69 request is the sole MAP-selection transport.
 // An explicit UI tap marks intent; the next checksum-valid A1 confirms it.
 // Never start a second RAW 0x69 request competing for the same BLE mutex.
-function preferredActiveMapForHandshake(info){
-  if(!blinkMapCanAutoRestore(info))return null;
-  const identity=blinkMapIdentity(info);
-  let choice=blinkConfirmedMapChoice;
-  if(!choice||choice.identity!==identity){
-    try{choice=JSON.parse(localStorage.getItem(BLINK_CONFIRMED_MAP_STORAGE)||'null');}
-    catch(_e){choice=null;}
-  }
-  if(!choice||choice.identity!==identity)return null;
-  const age=Date.now()-Number(choice.savedAt),bank=Number(choice.bank);
-  if(!Number.isFinite(age)||age<0||age>BLINK_CONFIRMED_MAP_MAX_AGE_MS||
-     !Number.isInteger(bank)||bank<1||bank>4)return null;
-  return bank;
-}
 function syncHandshakeInfo(info){
   const freshHandshake=handshakeInfo!==info;
   handshakeInfo=info;
@@ -1293,15 +1280,18 @@ function syncHandshakeInfo(info){
   if(typeof state!=='undefined'){
     state.ecuConnected=true;state.ecuPhase='identified';state.ecuId=info.ecuId||1;
     state.ecuVariant=isUltraPro2Identity(info)?'ULTRA_PRO2':(isUltraDirect()?'ULTRA_PRO1':'');
-    // A cached 0x5A must never overwrite a MAP chosen after that handshake.
-    if(freshHandshake&&!state.threeRun?.active){
-      const remembered=preferredActiveMapForHandshake(info);
-      const mapNo=remembered==null?info.activeMap:remembered;
-      if(mapNo>=1&&mapNo<=4){
-        state.activeMap=normalizeBankForProfile(mapNo);
-        const ms=document.getElementById('mapSelect');if(ms)ms.value=String(state.activeMap);
-        if(remembered!=null&&remembered!==info.activeMap)
-          log('Reconnect uses last confirmed MAP No.'+remembered+' instead of stale 0x5A MAP No.'+info.activeMap);
+    // A fresh checksum-valid 0x5A is the only authority for the bank
+    // currently reported by ECU. Each PC/phone has a different local MAP
+    // cache; restoring it on reconnect switched other users' ECU MAP.
+    // Cached calls to syncHandshakeInfo() must never re-select a bank.
+    if(freshHandshake&&!state.threeRun?.active&&!info.short){
+      const ecuMapNo=Number(info.activeMap);
+      if(Number.isInteger(ecuMapNo)&&ecuMapNo>=1&&ecuMapNo<=4){
+        state.activeMap=normalizeBankForProfile(ecuMapNo);
+        const ms=document.getElementById('mapSelect');
+        if(ms)ms.value=String(state.activeMap);
+        log('Fresh ECU 0x5A reports running MAP No.'+state.activeMap+
+            ' · ignored browser-local last MAP on reconnect');
       }
     }
   }
@@ -3629,7 +3619,8 @@ async function readCurrentFuelBank(bank=((typeof state!=='undefined'&&state.acti
   // Let the per-cell Auto Tune learner pair new AFR with an ECU-verified MAP.
   try{window.onBlinkFuelMapReadback?.(bank,R.matrix)}catch(e){log('Auto Tune learner readback observer',String(e&&e.message||e))}
   log('READ CURRENT MAP No.'+bank,'page 0x'+pg.toString(16).toUpperCase(),'RX',rx.length,'frame',R.frame.length,'primed',first?'first':'warm');
-  if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+' · OK');
+  if(showUi)taskUi('success','ĐỌC HIỆN TẠI · MAP NO.'+bank+
+      ' · PAGE 0x'+pg.toString(16).toUpperCase()+' · ECU TRẢ LỜI OK');
   return R;
 }
 async function readAll(cmd=0xAB,timeoutMs=35000){
