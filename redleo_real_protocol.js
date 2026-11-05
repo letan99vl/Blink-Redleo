@@ -1233,6 +1233,18 @@ function blinkMapCanAutoRestore(info){
   return major<2||(major===2&&minor<=2);
 }
 function noteUserActiveMapSelection(mapNo){
+  // Physical MAP selection is authorized ONLY by a real user selection after
+  // this BLE session has received a full checksum-verified ECU 0x5A. This
+  // must work regardless of FW generation; the old persistence policy below
+  // is merely for optional UI feedback on FW <=2.2.
+  const requestedBank=Number(mapNo);
+  if(blinkHasVerifiedMapForLive() && typeof state!=='undefined' &&
+     state.ecuPhase==='live' && Number.isInteger(requestedBank) &&
+     requestedBank>=1&&requestedBank<=4){
+    blinkWireMapBank=normalizeBankForProfile(requestedBank);
+    blinkWireMapSource='user';
+    log('Explicit MAP selection authorized 0x69 bank',blinkWireMapBank);
+  }
   if(!handshakeInfo||!blinkMapCanAutoRestore(handshakeInfo)||
      !cmdChar()||!mapChar()||!profileCap('live'))return false;
   const bank=Number(mapNo),identity=blinkMapIdentity(handshakeInfo);
@@ -1278,17 +1290,24 @@ function confirmUserActiveMapSelection(mapNo,epoch,frame){
 // REDLEO 9.2: LIVE byte2 SELECTS the physical ECU MAP. Only a fresh, checksum-
 // validated full 0x5A can authorize the first LIVE on modern ECUs.
 let blinkVerifiedMapEpoch=-1;
+let blinkWireMapBank=0,blinkWireMapSource='none';
+let blinkFirstMapTx=null,blinkLastMapTx=null;
 function blinkHasVerifiedMapForLive(){
   if(!handshakeInfo)return false;
   // V8 does not encode its MAP in byte33; keep its original transport path.
-  if(ecuProfile&&ecuProfile.family==='v8')return true;
+  if(typeof ecuProfile!=='undefined'&&ecuProfile&&ecuProfile.family==='v8')return true;
   const raw=handshakeInfo.raw,bank=Number(handshakeInfo.activeMap);
   return blinkVerifiedMapEpoch===transportEpoch&&raw&&raw.length>=37&&
-    Number.isInteger(bank)&&bank>=1&&bank<=4&&raw[33]===bank-1;
+    Number.isInteger(bank)&&bank>=1&&bank<=4&&raw[33]===bank-1 &&
+    Number.isInteger(blinkWireMapBank)&&blinkWireMapBank>=1&&blinkWireMapBank<=4;
 }
 function syncHandshakeInfo(info){
   const freshHandshake=handshakeInfo!==info;
-  if(freshHandshake)blinkVerifiedMapEpoch=-1;
+  if(freshHandshake){
+    blinkVerifiedMapEpoch=-1;
+    blinkWireMapBank=0;blinkWireMapSource='none';
+    blinkFirstMapTx=null;blinkLastMapTx=null;
+  }
   handshakeInfo=info;
   const p=info.profile||profileFromHandshake(info);
   setEcuProfile(p);
@@ -1307,7 +1326,11 @@ function syncHandshakeInfo(info){
       if(Number.isInteger(ecuMapNo)&&ecuMapNo>=1&&ecuMapNo<=4&&
          rawMap===ecuMapNo-1&&noThreeRunConflict){
         state.activeMap=normalizeBankForProfile(ecuMapNo);
+        blinkWireMapBank=state.activeMap;
+        blinkWireMapSource='ecu-0x5A';
         blinkVerifiedMapEpoch=transportEpoch;
+        log('ECU 0x5A verified MAP',blinkWireMapBank,
+          'raw33',rawMap,'profile',p.key,'bridgeFW',window.blinkBridgeFirmwareStatus||'unknown');
         const ms=document.getElementById('mapSelect');
         if(ms)ms.value=String(state.activeMap);
         // Refresh every MAP indicator, not just the dropdown; do not invoke
@@ -1529,10 +1552,26 @@ async function liveOnce(){
   if(otaPaused || (typeof window.blinkOtaTransferActive==='function' && window.blinkOtaTransferActive()))return;
   if(!cmdChar()||busy||document.hidden)return;
   try{
-    const userBank=typeof state!=='undefined'?Number(state.activeMap):NaN;
-    if(!Number.isInteger(userBank)||userBank<1||userBank>4)return;
-    const mapNo=normalizeBankForProfile(userBank);
+    // PB3.79.172 PC: raw 0x69 byte2 changes the *physical* ECU MAP.
+    // It must NEVER derive from the mutable UI/localStorage/ESP32 telemetry
+    // after 0x5A verified a different physical bank. The only legal
+    // authorities are the fresh ECU handshake or an explicit user MAP tap.
+    const mapNo=ecuProfile&&ecuProfile.family==='v8'
+      ? normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1)
+      : blinkWireMapBank;
+    if(!Number.isInteger(mapNo)||mapNo<1||mapNo>4)return;
+    if(typeof state!=='undefined'&&state.activeMap!==mapNo &&
+       !state.threeRun?.active){
+      // Stale UI/local bank is display-only, never a physical-map write.
+      const staleUiMap=state.activeMap;
+      state.activeMap=mapNo;
+      const dropdown=document.getElementById('mapSelect');
+      if(dropdown)dropdown.value=String(mapNo);
+      log('Repaired display-only bank drift from',staleUiMap,'to ECU bank',mapNo);
+    }
     const liveEpoch=transportEpoch;
+    blinkLastMapTx={bank:mapNo,epoch:liveEpoch,source:blinkWireMapSource};
+    if(!blinkFirstMapTx)blinkFirstMapTx={...blinkLastMapTx};
     let arg=mapNo;
     if(ecuProfile&&ecuProfile.family==='v8'){
       v8LiveSlot=(v8LiveSlot+1)%10;
@@ -1593,6 +1632,8 @@ async function initializeRealSession(){
   const epoch=transportEpoch;
   sessionInitPromise=(async()=>{
     blinkVerifiedMapEpoch=-1;
+    blinkWireMapBank=0;blinkWireMapSource='none';
+    blinkFirstMapTx=null;blinkLastMapTx=null;
     installRawListener();installAfrListener();
 
     // Every new connection starts with a visibly empty ECU map UI.
@@ -1679,6 +1720,8 @@ function abortRawTransport(reason='BLE disconnected'){
   sessionInitPromise=null;
   handshakeInfo=null;
   blinkVerifiedMapEpoch=-1;
+  blinkWireMapBank=0;blinkWireMapSource='none';
+  blinkFirstMapTx=null;blinkLastMapTx=null;
   if(blinkMapChoiceTimeout!==null){clearTimeout(blinkMapChoiceTimeout);blinkMapChoiceTimeout=null;}
   blinkPendingMapChoice=null; // a previous BLE session cannot confirm new choices
   if(typeof state!=='undefined'&&state.live){
@@ -5952,7 +5995,15 @@ function boot(){
 window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
-  pendingCount:pending.size,liveRunning,transportEpoch
+  pendingCount:pending.size,liveRunning,transportEpoch,
+  ecu5aRaw33:handshakeInfo&&handshakeInfo.raw&&handshakeInfo.raw.length>=37
+    ?handshakeInfo.raw[33]:null,
+  ecu5aMap:handshakeInfo?handshakeInfo.activeMap:null,
+  ecuProfile:ecuProfile?.key||'UNKNOWN',
+  bridgeFw:window.blinkBridgeFirmwareStatus||'unknown',
+  wireMap:blinkWireMapBank||null,wireSource:blinkWireMapSource,
+  uiMap:typeof state!=='undefined'?state.activeMap:null,
+  firstLive0x69:blinkFirstMapTx,lastLive0x69:blinkLastMapTx
 }}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
