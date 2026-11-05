@@ -1206,6 +1206,7 @@ function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGG
 const BLINK_CONFIRMED_MAP_STORAGE='blinkRedleoConfirmedMapV1';
 const BLINK_CONFIRMED_MAP_MAX_AGE_MS=7*24*60*60*1000;
 let blinkConfirmedMapChoice=null,blinkPendingMapChoice=null;
+let blinkMapChoiceInFlight=null;
 function blinkMapIdentity(info){
   if(!info||info.short||info.legacyProbe)return '';
   const ident=String(info.ident||'').trim().toUpperCase();
@@ -1236,16 +1237,48 @@ function noteUserActiveMapSelection(mapNo){
 }
 function confirmUserActiveMapSelection(mapNo,epoch,frame){
   const p=blinkPendingMapChoice;
+  // Unlike 0x5A, byte33 in 0xA1 is not a verified current-MAP field.
+  // A valid, solicited 0x69/A1 response confirms ECU communication with the
+  // requested MAP; do not invent a second MAP-byte condition here.
   if(!p||p.bank!==mapNo||p.epoch!==epoch||
      p.identity!==blinkMapIdentity(handshakeInfo)||
-     !frame||frame.length!==53||frame[0]!==0xA1||!validFrame(frame)||
-     frame[33]!==mapNo-1)return false;
+     !frame||frame.length!==53||frame[0]!==0xA1||!validFrame(frame))return false;
   const choice={identity:p.identity,bank:mapNo,savedAt:Date.now()};
   blinkConfirmedMapChoice=choice;
   blinkPendingMapChoice=null;
   try{localStorage.setItem(BLINK_CONFIRMED_MAP_STORAGE,JSON.stringify(choice));}catch(_e){}
-  log('MAP No.'+mapNo+' confirmed from ECU A1 byte33 and remembered for same bridge');
+  log('MAP No.'+mapNo+' 0x69/A1 valid response; remembered for same bridge (not an EEPROM readback)');
   return true;
+}
+
+// Send an explicit user MAP selection once instead of relying on a periodic
+// LIVE tick which can be paused during BLE activity. This is never called on
+// reconnect; reconnection only uses the last validated user selection.
+async function requestUserActiveMapSelection(bank){
+  const pendingChoice=blinkPendingMapChoice;
+  bank=Number(bank);
+  if(!pendingChoice||pendingChoice.bank!==bank||!blinkMapCanAutoRestore(handshakeInfo)||
+     typeof state==='undefined'||state.ecuPhase!=='live')return false;
+  if(blinkMapChoiceInFlight)return false;
+  const epoch=transportEpoch;
+  const selectionLease={epoch,bank};
+  blinkMapChoiceInFlight=selectionLease;
+  let io=null;
+  try{
+    io=await beginManualMapIo('CHUYỂN MAP '+bank);
+    if(epoch!==transportEpoch||!cmdChar()||!mapChar()||
+       state.activeMap!==bank||blinkPendingMapChoice!==pendingChoice)return false;
+    const rx=await rawExchange(req5(0x69,bank),5000);
+    parseLiveReal(rx);
+    const ok=confirmUserActiveMapSelection(bank,epoch,rx);
+    if(!ok)throw new Error('ECU chưa xác nhận lệnh MAP '+bank+' qua 0x69/A1.');
+    return true;
+  }finally{
+    // A timed-out old BLE task cannot clear the in-flight marker belonging
+    // to a newer connection after transportEpoch changed.
+    if(blinkMapChoiceInFlight===selectionLease)blinkMapChoiceInFlight=null;
+    if(io)endManualMapIo(io);
+  }
 }
 function preferredActiveMapForHandshake(info){
   if(!blinkMapCanAutoRestore(info))return null;
@@ -1641,6 +1674,7 @@ function abortRawTransport(reason='BLE disconnected'){
   sessionInitPromise=null;
   handshakeInfo=null;
   blinkPendingMapChoice=null; // a previous BLE session cannot confirm new choices
+  blinkMapChoiceInFlight=null; // reconnect starts a new explicit-selection scope
   if(typeof state!=='undefined'&&state.live){
     state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;
   }
@@ -5901,7 +5935,7 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
+window.BlinkRealProtocol={noteUserActiveMapSelection,requestUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
   pendingCount:pending.size,liveRunning,transportEpoch
