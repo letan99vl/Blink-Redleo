@@ -7160,8 +7160,8 @@ window.addEventListener('beforeunload',save);
       :tpsFromBridge;
     noteTpsTrend(state.live.tps,performance.now());
     const afrV=v.getUint16(9,true)/1000;
-    const m=v.getUint8(11);
-    if(m>=1&&m<=4&&m!==state.activeMap&&!state.threeRun.active){state.activeMap=m;$('mapSelect').value=String(m);}
+    // ESP32 bridge A1 byte11 is not the physical ECU running MAP.
+    // Only the verified 0x5A byte33 or an explicit user selection changes bank.
     // Legacy/test A1 packets use the exact same AFR calibration/recording path
     // as production A3 packets. Ignore the precomputed AFR field in A1 so there
     // is only one source of truth for user calibration.
