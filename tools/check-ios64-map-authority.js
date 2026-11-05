@@ -15,8 +15,8 @@ assert(/const mapNo=\(ecuProfile&&ecuProfile\.family==='v8'\)/.test(p),
  'modern live must use authorized ECU/user bank not bridge A1');
 assert(/info\.activeMap=a\.length>=37&&a\[33\]<=3\?a\[33\]\+1:null/.test(p),
  'byte33 0..3 must be validated, not clamped');
-assert(ui.includes('if(m>=1&&m<=4&&m!==state.activeMap'),
- 'fixture must represent pre-existing IPA A1 overwrite');
+assert(!ui.includes('if(m>=1&&m<=4&&m!==state.activeMap'),
+ 'repacked IPA must not trust ESP32 bridge-local MAP');
 assert(native.includes('ios-hybrid-fallback/ios/BlinkRedleo/Web/redleo_real_protocol.js'),
  'remote URL must remain compatible with installed IPA');
 assert(native.includes('cachePolicy: .reloadIgnoringLocalCacheData'));
