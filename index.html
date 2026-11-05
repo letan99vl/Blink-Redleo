@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.168' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.168: fix BLE reconnect MAP1 reset; explicit 0x69 MAP selection confirmation
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.169' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.169: no 0x69 double-send; bounded MAP ACK via existing LIVE (FW2.2 compatible)
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -3444,16 +3444,9 @@ function selectMapBank(n,autoRead=true){
     return;
   }
   state.activeMap=n;
-  try{
-    const api=window.BlinkRealProtocol;
-    if(api?.noteUserActiveMapSelection?.(n)){
-      Promise.resolve(api.requestUserActiveMapSelection?.(n)).then(ok=>{
-        if(ok)showEcuNotice('success','MAP '+n+' · ECU ĐÃ TRẢ LỜI','Đã nhận phản hồi 0x69/A1 hợp lệ. Đây chưa phải xác nhận ECU lưu vào flash.',2400);
-      }).catch(e=>{
-        showEcuNotice('error','CHUYỂN MAP '+n+' CHƯA XÁC NHẬN',String(e&&e.message||e),6000);
-      });
-    }
-  }catch(_e){}
+  // The existing live loop sends 0x69 using this MAP selection.
+  // It confirms via a valid A1; no second RAW command or LIVE pause is needed.
+  try{window.BlinkRealProtocol?.noteUserActiveMapSelection?.(n);}catch(_e){}
   $('mapSelect').value=String(n);
   state.lastCellKey='';
   state.cellEnteredAt=performance.now();
