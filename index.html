@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.166' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.166: fix phone BÙ → ECU hidden under recording bar (CSS specificity conflict)
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.167' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.166: fix phone BÙ → ECU hidden under recording bar (CSS specificity conflict)
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -3444,6 +3444,7 @@ function selectMapBank(n,autoRead=true){
     return;
   }
   state.activeMap=n;
+  try{window.BlinkRealProtocol?.noteUserActiveMapSelection?.(n);}catch(_e){}
   $('mapSelect').value=String(n);
   state.lastCellKey='';
   state.cellEnteredAt=performance.now();
@@ -7932,6 +7933,7 @@ window.addEventListener('beforeunload',save);
         filters:[{namePrefix:'BLINK-REDLEO'}],
         optionalServices:[BLE.SERVICE]
       });
+      window.blinkBridgeDeviceId=String(device?.id||'');
       device.addEventListener('gattserverdisconnected',onDisconnected);
       server=await device.gatt.connect();
       service=await server.getPrimaryService(BLE.SERVICE);
@@ -7982,6 +7984,7 @@ window.addEventListener('beforeunload',save);
       if(e&&e.name==='NotFoundError'){$('ecuBadge').textContent='BLE: ĐÃ HỦY';$('ecuBadge').className='badge bad';setEcuTaskStatus('offline','ĐÃ HỦY KẾT NỐI');return;}
       setBleUi(false);
       window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;
+      window.blinkBridgeDeviceId='';
       try{if(device?.gatt?.connected)device.gatt.disconnect();}catch(_e){}
       setEcuTaskStatus('error','KẾT NỐI ECU · LỖI');
       showEcuNotice('error','KẾT NỐI BLE THẤT BẠI',String(e&&e.message||e),0);
@@ -7995,7 +7998,7 @@ window.addEventListener('beforeunload',save);
     autoIdleSaveReset(true);
     state.live.ecuAfr=NaN;state.live.ecuAfrV=NaN;state.live.ecuAfrAt=NaN;state.live.ecuAfrState='awaiting-ecu';state.live.ecuO2Source=null;
     otaUpdateReady=false;if($('otaInstallBtn'))$('otaInstallBtn').disabled=true;
-    liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';
+    liveChar=commandChar=mapChar=statusChar=service=server=null;window.blinkLiveChar=window.blinkMapChar=window.blinkCommandChar=window.blinkStatusChar=null;window.blinkBridgeFirmwareStatus='';window.blinkBridgeDeviceId='';
     setBleUi(false);
     updateLive();try{syncMirrors();}catch(_e){}
     setEcuTaskStatus('offline','ECU ĐÃ NGẮT KẾT NỐI',5000);
