@@ -1206,7 +1206,7 @@ function classNameFromCode(n){return ['HONDA','YAMAHA','SUZUKI','BENELLI','PIAGG
 const BLINK_CONFIRMED_MAP_STORAGE='blinkRedleoConfirmedMapV1';
 const BLINK_CONFIRMED_MAP_MAX_AGE_MS=7*24*60*60*1000;
 let blinkConfirmedMapChoice=null,blinkPendingMapChoice=null;
-let blinkMapChoiceInFlight=null;
+let blinkMapChoiceTimeout=null;
 function blinkMapIdentity(info){
   if(!info||info.short||info.legacyProbe)return '';
   const ident=String(info.ident||'').trim().toUpperCase();
@@ -1232,7 +1232,21 @@ function noteUserActiveMapSelection(mapNo){
      !cmdChar()||!mapChar()||!profileCap('live'))return false;
   const bank=Number(mapNo),identity=blinkMapIdentity(handshakeInfo);
   if(!Number.isInteger(bank)||bank<1||bank>4||!identity)return false;
-  blinkPendingMapChoice={identity,bank,epoch:transportEpoch};
+  if(typeof state==='undefined'||state.ecuPhase!=='live')return false;
+  if(blinkMapChoiceTimeout!==null){clearTimeout(blinkMapChoiceTimeout);blinkMapChoiceTimeout=null;}
+  const pendingChoice={identity,bank,epoch:transportEpoch};
+  blinkPendingMapChoice=pendingChoice;
+  // Reuse the existing LIVE 0x69 transport. Do NOT call beginManualMapIo:
+  // pausing LIVE while waiting for LIVE caused the endless CHỜ LIVE 0x69 banner.
+  taskUi('loading','ĐANG CHỜ ECU PHẢN HỒI MAP '+bank+' QUA LIVE 0x69...');
+  blinkMapChoiceTimeout=setTimeout(()=>{
+    if(blinkPendingMapChoice!==pendingChoice)return;
+    blinkMapChoiceTimeout=null;
+    blinkPendingMapChoice=null;
+    taskUi('error','MAP '+bank+' CHƯA XÁC NHẬN · KIỂM TRA ECU/LIVE 0x69',6500);
+    log('MAP selection not acknowledged before bounded LIVE timeout',bank);
+  },8500);
+  if(!liveRunning&&manualMapIoDepth===0&&!otaPaused&&!document.hidden)startLiveLoop();
   return true;
 }
 function confirmUserActiveMapSelection(mapNo,epoch,frame){
@@ -1246,40 +1260,16 @@ function confirmUserActiveMapSelection(mapNo,epoch,frame){
   const choice={identity:p.identity,bank:mapNo,savedAt:Date.now()};
   blinkConfirmedMapChoice=choice;
   blinkPendingMapChoice=null;
+  if(blinkMapChoiceTimeout!==null){clearTimeout(blinkMapChoiceTimeout);blinkMapChoiceTimeout=null;}
   try{localStorage.setItem(BLINK_CONFIRMED_MAP_STORAGE,JSON.stringify(choice));}catch(_e){}
+  taskUi('success','MAP '+mapNo+' · ECU PHẢN HỒI LIVE 0x69 HỢP LỆ',2600);
   log('MAP No.'+mapNo+' 0x69/A1 valid response; remembered for same bridge (not an EEPROM readback)');
   return true;
 }
 
-// Send an explicit user MAP selection once instead of relying on a periodic
-// LIVE tick which can be paused during BLE activity. This is never called on
-// reconnect; reconnection only uses the last validated user selection.
-async function requestUserActiveMapSelection(bank){
-  const pendingChoice=blinkPendingMapChoice;
-  bank=Number(bank);
-  if(!pendingChoice||pendingChoice.bank!==bank||!blinkMapCanAutoRestore(handshakeInfo)||
-     typeof state==='undefined'||state.ecuPhase!=='live')return false;
-  if(blinkMapChoiceInFlight)return false;
-  const epoch=transportEpoch;
-  const selectionLease={epoch,bank};
-  blinkMapChoiceInFlight=selectionLease;
-  let io=null;
-  try{
-    io=await beginManualMapIo('CHUYỂN MAP '+bank);
-    if(epoch!==transportEpoch||!cmdChar()||!mapChar()||
-       state.activeMap!==bank||blinkPendingMapChoice!==pendingChoice)return false;
-    const rx=await rawExchange(req5(0x69,bank),5000);
-    parseLiveReal(rx);
-    const ok=confirmUserActiveMapSelection(bank,epoch,rx);
-    if(!ok)throw new Error('ECU chưa xác nhận lệnh MAP '+bank+' qua 0x69/A1.');
-    return true;
-  }finally{
-    // A timed-out old BLE task cannot clear the in-flight marker belonging
-    // to a newer connection after transportEpoch changed.
-    if(blinkMapChoiceInFlight===selectionLease)blinkMapChoiceInFlight=null;
-    if(io)endManualMapIo(io);
-  }
-}
+// The periodic LIVE 0x69 request is the sole MAP-selection transport.
+// An explicit UI tap marks intent; the next checksum-valid A1 confirms it.
+// Never start a second RAW 0x69 request competing for the same BLE mutex.
 function preferredActiveMapForHandshake(info){
   if(!blinkMapCanAutoRestore(info))return null;
   const identity=blinkMapIdentity(info);
@@ -1673,8 +1663,8 @@ function abortRawTransport(reason='BLE disconnected'){
   busy=false;
   sessionInitPromise=null;
   handshakeInfo=null;
+  if(blinkMapChoiceTimeout!==null){clearTimeout(blinkMapChoiceTimeout);blinkMapChoiceTimeout=null;}
   blinkPendingMapChoice=null; // a previous BLE session cannot confirm new choices
-  blinkMapChoiceInFlight=null; // reconnect starts a new explicit-selection scope
   if(typeof state!=='undefined'&&state.live){
     state.live.auxAt=NaN;state.live.ign=NaN;state.live.pw=NaN;
   }
@@ -1772,7 +1762,14 @@ async function beginManualMapIo(label='MAP'){
     updateActiveMapIoText('⏳ CHỜ '+owner+' NHẢ ECU...');
     taskUi('loading','ĐANG CHỜ '+owner+' KẾT THÚC · '+String(label||'MAP').toUpperCase());
   }
-  await waitForEcuIdle(8000);
+  try{
+    await waitForEcuIdle(8000);
+  }catch(e){
+    // A failed wait must not leave manualMapIoDepth > 0 with LIVE stopped.
+    // This formerly locked all later READ/WRITE commands after a 0x69 timeout.
+    endManualMapIo({resumeLive:manualMapIoResumeLive});
+    throw e;
+  }
   const waited=Math.round(performance.now()-t0);
   if(waited>60)log('manual MAP I/O waited for background transaction',waited+'ms',label);
 
@@ -5935,7 +5932,7 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={noteUserActiveMapSelection,requestUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
+window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
   pendingCount:pending.size,liveRunning,transportEpoch
