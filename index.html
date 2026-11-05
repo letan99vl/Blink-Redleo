@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.170' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.170: use fresh ECU 0x5A MAP across PC/phone, never override with local bank
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.171' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.171: original REDLEO 9.2 ECU active MAP authority; never auto-send 0x69/MAP1
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -3383,7 +3383,7 @@ const state={
     inject:blankMatrix(0)
   })),
   ecuPort:null, ecuReader:null, ecuKeepReading:false, ecuBuf:[],
-  ecuPhase:'idle', ecuId:1, ecuConnected:false, ecuNative:true, ecuHandshakeTry:0, ecuHandshakeTimer:null, ecuRxCount:0, ecuLastTx:[], ecuWriteSentAt:0,
+  ecuPhase:'idle', ecuId:1, ecuConnected:false, ecuActiveMapVerified:false, ecuNative:true, ecuHandshakeTry:0, ecuHandshakeTimer:null, ecuRxCount:0, ecuLastTx:[], ecuWriteSentAt:0,
   ecuReadCurrentQueued:false, ecuReadCurrentMapNo:1,
   ecuReadAllQueued:false,
   ecuTpsStudyQueued:false, ecuTpsStudyToken:0,
@@ -3440,6 +3440,13 @@ function selectMapBank(n,autoRead=true){
   if(n!==state.activeMap)autoIdleSaveReset(false);
   if(state.ecuPhase==='write1'||state.ecuPhase==='write2'){
     blinkAlert('Đang ghi ECU, chưa thể chuyển MAP.');
+    $('mapSelect').value=String(state.activeMap);
+    return;
+  }
+  // Ignore selection changes during handshake/unverified ECU sessions.
+  // A UI change here must not authorize an unverified first LIVE command.
+  if(state.ecuConnected&&['ble-linked','handshake','online','map-unverified'].includes(state.ecuPhase)){
+    showEcuNotice('error','CHƯA XÁC THỰC MAP','ECU chưa báo MAP hợp lệ qua 0x5A. Không gửi lệnh đổi MAP.',3000);
     $('mapSelect').value=String(state.activeMap);
     return;
   }
@@ -4913,7 +4920,15 @@ function req5(cmd,arg){
 const REQ_ONLINE=req5(0x5A,0x5A);
 // REDLEO original: command 0x69 byte2 is the ACTIVE MAP number (1..4),
 // not ECU_ID. The ECU uses this byte to select which map is actually running.
-function reqLive(){return req5(0x69,clamp(Math.round(state.activeMap)||1,1,4)&255)}
+function reqLive(){
+  // REDLEO 9.2 0x69 byte2 is a MAP SET, not just a telemetry read.
+  // Block a default MAP1 command before 0x5A has verified the current ECU bank.
+  if(!state.ecuActiveMapVerified || !Number.isInteger(Number(state.activeMap)) ||
+     Number(state.activeMap)<1 || Number(state.activeMap)>4){
+    throw new Error('ECU chưa xác minh MAP từ 0x5A: KHÔNG gửi 0x69/MAP1');
+  }
+  return req5(0x69,Number(state.activeMap));
+}
 const REQ_READ_ALL=req5(0xAB,0xAB);
 
 
@@ -5003,8 +5018,9 @@ function processOnlineFrame(f){
 
   if(f.length===9){
     state.ecuId=1;
+    state.ecuActiveMapVerified=false;
     state.ecuConnected=true;
-    $('ecuBadge').textContent='ECU: ON · HANDSHAKE 9B';
+    $('ecuBadge').textContent='ECU: ON · HANDSHAKE 9B · CHƯA XÁC MINH MAP';
     $('ecuBadge').className='badge ok';
     return;
   }
@@ -5016,7 +5032,11 @@ function processOnlineFrame(f){
   // REDLEO original proRxOnLine(): byte 33 is current active-map index
   // (0=No.1, 1=No.2, 2=No.3, 3=No.4); byte 34 is ECU_ID.
   const ecuMapIndex=Number(f[33]);
-  if(ecuMapIndex>=0 && ecuMapIndex<=3){
+  // If another operation has pinned a different MAP, do not let the
+  // pinned UI bank silently override the fresh ECU bank through LIVE 0x69.
+  const bankConflict=state.threeRun.active && state.threeRun.mapNo!==ecuMapIndex+1;
+  state.ecuActiveMapVerified=Number.isInteger(ecuMapIndex)&&ecuMapIndex>=0&&ecuMapIndex<=3&&!bankConflict;
+  if(state.ecuActiveMapVerified){
     const ecuMapNo=ecuMapIndex+1;
     // During a paused/active 3-run session keep the locked map, otherwise
     // follow the ECU exactly like REDLEO does on connect.
@@ -5033,7 +5053,9 @@ function processOnlineFrame(f){
   }
   state.ecuId=f[34]||1;
   state.ecuConnected=true;
-  $('ecuBadge').textContent='ECU: ON · MAP No.'+state.activeMap+' · ID '+state.ecuId+' · '+f.length+'B';
+  $('ecuBadge').textContent=state.ecuActiveMapVerified
+    ? 'ECU: ON · MAP No.'+state.activeMap+' · ID '+state.ecuId+' · '+f.length+'B'
+    : 'ECU: ON · MAP CHƯA XÁC MINH · KHÔNG GỬI 0x69';
   $('ecuBadge').className='badge ok';
 }
 function processLiveFrame(f){
@@ -6469,7 +6491,12 @@ async function serviceEcuFrames(){
       f=extractOnlineFrame();
       if(!f)return;
       processOnlineFrame(f);
-      await sendLiveRequest();
+      if(state.ecuActiveMapVerified){
+        await sendLiveRequest();
+      }else{
+        state.ecuPhase='map-unverified';
+        showEcuNotice('error','CHƯA XÁC NHẬN MAP ECU','0x5A không chứa MAP hợp lệ. Blink không gửi 0x69 để tránh ép ECU về MAP1.',0);
+      }
       continue;
     }
 
@@ -6648,6 +6675,7 @@ async function connectEcu(){
     state.ecuKeepReading=true;
     state.ecuBuf=[];
     state.ecuConnected=false;
+    state.ecuActiveMapVerified=false;
     state.ecuHandshakeTry=0;
     state.ecuRxCount=0;
 
@@ -6750,6 +6778,7 @@ async function disconnectEcu(){
   state.ecuPort=null;
   state.ecuPhase='idle';
   state.ecuConnected=false;
+  state.ecuActiveMapVerified=false;
   state.ecuBuf=[];
   state.ecuRxCount=0;
   state.ecuWriteQueued=false;
@@ -7822,8 +7851,11 @@ window.addEventListener('beforeunload',save);
       :tpsFromBridge;
     noteTpsTrend(state.live.tps,performance.now());
     const afrV=v.getUint16(9,true)/1000;
-    const m=v.getUint8(11);
-    if(m>=1&&m<=4&&m!==state.activeMap&&!state.threeRun.active){state.activeMap=m;$('mapSelect').value=String(m);}
+    // The ESP32 A1 byte11 is bridge-local telemetry, NOT the authoritative
+    // running ECU bank. On reconnect it can still be MAP1, and copying it
+    // into state.activeMap causes LIVE 0x69 to force the physical ECU to MAP1.
+    // Only a fresh, checksum-valid ECU 0x5A byte33 (or explicit user selection)
+    // is permitted to change the bank. Keep bridge A1 as passive telemetry.
     // Legacy/test A1 packets use the exact same AFR calibration/recording path
     // as production A3 packets. Ignore the precomputed AFR field in A1 so there
     // is only one source of truth for user calibration.
