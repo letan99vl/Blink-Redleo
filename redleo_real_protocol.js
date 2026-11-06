@@ -517,11 +517,12 @@ function mainFeaturePage(id,bank){
   const v10=isV10Direct();
   const ultra=isUltraDirect();
   if(v91&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
-  if(v91&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return 0xA2;
+  if(v91&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v92&&['idle_limit','ect_idle_motor'].includes(id))return page(6,bank);
   if(v92&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&id==='idle_limit')return page(6,bank);
   if(ultra&&id==='idle_limit')return page(6,bank);
+  if(ultra&&id==='auto_shift')return page(6,bank);
   if(ultra&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','ate_options','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(v10&&['iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return 0xA2;
   if(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift'].includes(id))return page(6,bank);
@@ -529,15 +530,15 @@ function mainFeaturePage(id,bank){
   return null;
 }
 function isDirectVerifiedFeature(id){
-  if(isUltraPro2Direct()&&id==='auto_clutch')return false;
   if(['inj_degree','ign_degree','ign_time'].includes(id))return true;
   // DN multi-generation app + original REDLEO UI confirm Air fuel ratio is a
   // real 420-byte page-5 table across identified ECU generations.
   if(id==='afr_map'&&ecuProfile&&['v8','modern','v11'].includes(ecuProfile.family))return true;
   // REDLEO 9.1X original ECU Pro 9.1X.exe proves: page6=30B (Idle 18 + ECT Motor 12),
   // A2=133B, and compensation pages 0x72/0x82/0x92 are 11x30 byte grids.
-  // AutoClutch/Options remain out of the direct-write surface; their A2 bytes are preserved raw.
-  if(isV91Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return true;
+  // 9.1X original A2 has the same 11-byte CONFIG (feature/RPM/5 timers/password) as 9.2.
+  // AutoClutch is restricted to an exact 133B read-modify-write + fresh readback.
+  if(isV91Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','ect_idle_motor','iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return true;
   // REDLEO 9.2+ uses dedicated compensation pages 0x72/0x82/0x92.
   // These layouts and row orientation are already handled explicitly below,
   // so they can use the same page-read -> page-write safety gate as the main maps.
@@ -545,6 +546,8 @@ function isDirectVerifiedFeature(id){
   // Original V10.2 IL confirms page family 6 writes only the 18B Idle/Limit block.
   // ECT Motor is NOT on page6 for V10; it remains locked with the unverified A2 tail.
   if(isV10Direct()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return true;
+  // Ultra Pro1 has a distinct AutoShift table on its 42B page6, never a V10 AutoClutch A2 block.
+  if(isUltraDirect()&&id==='auto_shift')return true;
   if(isUltraDirect()&&['ect_inj','ect_ign','map_inj','idle_limit','iat_inj','map_idle_motor','ect_idle_motor','external_adjust','ect_start','ate_options','tps_axis','rpm_axis','v_ect','v_iat','v_map'].includes(id))return true;
   return !!(ecuProfile&&ecuProfile.family==='v11'&&['idle_limit','ect_idle_motor','auto_shift','afr_map','auto_clutch','chg_params','ate_options','ect_start','alternate_table','ect_inj','ect_ign','map_inj','iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id));
 }
@@ -590,16 +593,15 @@ const PROFILE_FEATURES=Object.freeze({
   UNKNOWN:new Set()
 });
 function profileSupportsFeature(id,p=ecuProfile){
-  // User scope decision: AutoClutch is not a required target on newly added ECU families.
-  // Ultra Pro2 original software contains Dgv_Dzfm, but keep that UI surface hidden for Pro2.
-  if(p===ecuProfile&&isUltraPro2Direct()&&id==='auto_clutch')return false;
-  if(p===ecuProfile&&isV91Direct()&&id==='auto_clutch')return false;
+  // Enable only native AutoClutch variants (9.x / V10 / V11 / Pro2).
+  // V8 has Spare and Ultra Pro1 has AutoShift, NOT the same A2 CONFIG codec.
   // V10.2 and Ultra share MODERN_V10, but these two decoded A2 surfaces are
   // proven only for a current non-ULTRA V10 session. Never broaden them by
   // profile key alone.
   const currentV10Direct=p===ecuProfile&&isV10Direct();
   const currentUltraDirect=p===ecuProfile&&isUltraDirect();
   if(currentV10Direct&&['ect_idle_motor','external_adjust','auto_clutch','ate_options','ect_start','tps_axis','rpm_axis'].includes(id))return true;
+  if(currentUltraDirect&&id==='auto_shift')return true;
   if(currentUltraDirect&&['ect_idle_motor','external_adjust','ect_start','ate_options','tps_axis','rpm_axis'].includes(id))return true;
   const set=PROFILE_FEATURES[p?.key||'UNKNOWN']||PROFILE_FEATURES.UNKNOWN;
   return set.has(id);
@@ -737,6 +739,7 @@ function applyProfileUi(){
     setProfileDisabled(el,!supported,!supported?'ECU Profile: '+p.label+' · bảng này chưa được giải mã an toàn cho profile này.':'');
     el.style.display=(pending||supported)?'':'none';
   });
+  updateAutoClutchEditorUi(false);
 }
 function setEcuProfile(p){
   ecuProfile=p||ECU_PROFILE_DEFS.UNKNOWN;
@@ -1055,6 +1058,49 @@ function decColdStart(raw){return r1((raw*64/50)/20)}
 function encColdStart(v){return clamp(Math.round(Math.max(0,Number(v))*20*50/64),0,255)}
 function decAutoRpm(raw){return raw*50}
 function encAutoRpm(v){return clamp(Math.round(Number(v)/50),0,255)}
+
+// Native REDLEO 9.x/V10 AutoClutch CONFIG panel; never re-use for Ultra Pro1 or V11.
+// The page-A2 baseline controls freshness. No flags/RPM are changed before an explicit WRITE.
+function updateAutoClutchEditorUi(force=false){
+  const box=document.getElementById('autoClutchControlPanel'),enable=document.getElementById('autoClutchEnableInput');
+  const rpm=document.getElementById('autoClutchStartRpmInput'),info=document.getElementById('autoClutchControlInfo');
+  if(!box||!enable||!rpm)return;
+  let active=null;try{active=currentFeatureId();}catch(_e){}
+  const v10=isV10Direct(),v9=isV91Direct()||isV92Direct();
+  const visible=active==='auto_clutch'&&(v9||v10);
+  box.style.display=visible?'':'none';
+  if(!visible)return;
+  const minLen=v10?V10_A2.LEN:133,off=v10?V10_A2.CONFIG:80;
+  const base=pageCache.get(0xA2);
+  if(!base||base.length<minLen){
+    enable.disabled=true;rpm.disabled=true;enable.checked=false;rpm.value='';
+    box.dataset.clutchBaseline='';
+    if(info)info.textContent='Hãy ĐỌC ECU trước khi chỉnh Enable, Start RPM và 5 ô thời gian. Chưa ghi ECU.';
+    return;
+  }
+  const fingerprint=[ecuProfile?.key||'',handshakeInfo?.ecuId||'',...base.slice(off,off+7)].join(':');
+  if(force||box.dataset.clutchBaseline!==fingerprint){
+    enable.checked=!!(base[off]&64);
+    rpm.value=String(decAutoRpm(base[off+1]));
+    box.dataset.clutchBaseline=fingerprint;
+  }
+  enable.disabled=false;rpm.disabled=false;
+  if(info)info.textContent=(v10?'V10.2 A2 268B':'REDLEO 9.x A2 133B')+
+    ' · Enable = CONFIG bit 6 · Start RPM = raw × 50 · Timer = raw × 5 ms. Chỉ ghi khi bấm GHI ECU; PIN/byte khác giữ nguyên.';
+}
+function applyAutoClutchConfigFromUi(payload,offset){
+  const box=document.getElementById('autoClutchControlPanel'),enable=document.getElementById('autoClutchEnableInput');
+  const rpm=document.getElementById('autoClutchStartRpmInput');
+  if(!box||!enable||!rpm||box.style.display==='none'||enable.disabled||rpm.disabled||!box.dataset.clutchBaseline){
+    throw new Error('Hãy mở Automatic Clutch và ĐỌC ECU thành công trước khi GHI Enable/Start RPM.');
+  }
+  const val=String(rpm.value||'').trim(),n=Number(val);
+  if(!val||!Number.isInteger(n)||n<0||n>12750||n%50!==0){
+    throw new Error('AutoClutch Start RPM cần số nguyên từ 0 đến 12750, bước 50 RPM.');
+  }
+  payload[offset]=(payload[offset]&~64)|(enable.checked?64:0);
+  payload[offset+1]=n/50;
+}
 
 function decodeEcuAfr420(raw){
   raw=raw instanceof Uint8Array?raw:new Uint8Array(raw||[]);
@@ -3324,13 +3370,14 @@ async function readA2SensorPageReal(showUi=true,backgroundWarmup=false){
       if(v11&&C.ateOptions)emitFeature(N.ate_options,C.ateOptions);
       if(v11&&C.ectStart)emitFeature(N.ect_start,C.ectStart);
       if(v11&&C.alternateTable)emitFeature(N.alternate_table,C.alternateTable);
-      if(!v11&&!isV91Direct()&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
+      if(!v11&&(isV91Direct()||isV92Direct()||v10Direct)&&C.auto)emitFeature(N.auto_clutch,[C.auto]);
       emitFeature(N.v_ect,[C.vEct]);
       emitFeature(N.v_iat,[C.vIat]);
       emitFeature(N.v_map,[C.vMap]);
     }catch(_e){}
     taskUi('success',v11?((ultra2?'ULTRA PRO2':'V11')+' · '+(C.v11A2Layout||'A2')+' · '+(a2AxesOk?'AXIS ECU':'AXIS FALLBACK')+' + SENSOR · OK'):(v10Direct?('V10.2 · A2 '+R.data.length+'B / TX 268B · AXIS + SENSOR + OPTION + MOTOR + START + EXTERNAL · OK'):(ultra?('ULTRA · A2 '+R.data.length+'B · AXIS + SENSOR + OPTION15 + MOTOR + START + EXTERNAL · RESERVED/SPARE/CHG giữ raw'):(v10Family?'V10 FAMILY · A2 PREFIX · READ-ONLY':'CẢM BIẾN / OPTIONS · OK'))));
   }
+  if(showUi)updateAutoClutchEditorUi(true);
   return {...R,cache:C};
 }
 async function ensureEcuAxesReal(showUi=false){
@@ -3544,6 +3591,8 @@ async function readIdlePageReal(bank=((typeof state!=='undefined'&&state.activeM
     for(let i=0;i<12;i++)idle.push(u16be(idleRaw,i*2));
     const autoShiftRaw=wire.slice(24,33);
     const fourSpareRaw=wire.slice(33,42);
+    // Ultra Pro1: native 9B AutoShift. Until its per-field unit scale is proven, expose raw bytes only.
+    emitFeature(N.auto_shift,[Array.from(autoShiftRaw,x=>x&255)],bank);
     const o={
       idleCold:idle[0],
       idleHot:idle[1],
@@ -4061,6 +4110,12 @@ async function writeV91A2KnownFeature(id){
     case 'v_map':row11(47,encVolt,'vMAP');break;
     case 'iat_inj':row11(58,encOil,'IAT INJ');break;
     case 'map_idle_motor':row11(69,v=>clamp(Math.round(Number(v)),0,255),'MAP Idle Motor');break;
+    case 'auto_clutch':
+      m=matrixFromRedTable(1,5);
+      if(!m[0]||m[0].length!==5||m[0].some(v=>!Number.isFinite(Number(v))||Number(v)<0||Number(v)>1275))throw new Error('9.1X AutoClutch cần đúng 5 timer 0–1275 ms.');
+      for(let i=0;i<5;i++)payload[82+i]=clamp(Math.round(Number(m[0][i])/5),0,255);
+      applyAutoClutchConfigFromUi(payload,80);
+      break;
     case 'external_adjust':
       m=matrixFromRedTable(2,15);
       if(m.length!==2||m.some(r=>!Array.isArray(r)||r.length!==15||r.some(v=>!Number.isFinite(Number(v)))))throw new Error('External Adjustment chưa đủ 2 × 15 giá trị.');
@@ -4094,8 +4149,9 @@ async function writeV92A2KnownFeature(id){
     case 'map_idle_motor':row11(69,v=>clamp(Math.round(Number(v)),0,255));break;
     case 'auto_clutch':
       m=matrixFromRedTable(1,5);
-      if(!m[0]||m[0].length!==5||m[0].some(v=>!Number.isFinite(Number(v))))throw new Error('Automatic Clutch chưa có đủ 5 giá trị hợp lệ.');
+      if(!m[0]||m[0].length!==5||m[0].some(v=>!Number.isFinite(Number(v))||Number(v)<0||Number(v)>1275))throw new Error('Automatic Clutch cần đúng 5 Timer từ 0 đến 1275 ms.');
       for(let i=0;i<5;i++)payload[82+i]=clamp(Math.round(Number(m[0][i])/5),0,255);
+      applyAutoClutchConfigFromUi(payload,80);
       break;
     case 'external_adjust':
       m=matrixFromRedTable(2,15);
@@ -4247,7 +4303,8 @@ async function writeV10A2KnownFeature(id){
     // +7..+10 password. This writer edits only the five timer bytes.
     const v=v10A2UiMatrix(1,5,'AutoClutch')[0];
     for(let i=0;i<5;i++)payload[V10_A2.CONFIG+2+i]=clamp(Math.round(Math.max(0,Number(v[i]))/5),0,255);
-    label='AutoClutch Timer';
+    applyAutoClutchConfigFromUi(payload,V10_A2.CONFIG);
+    label='AutoClutch Timer + Enable + Start RPM';
   }else if(id==='ect_start'){
     const m=v10A2UiMatrix(3,11,'Start Add');
     payload.set(encodeV10EctStart33(m),V10_A2.ECT_START);
@@ -4376,6 +4433,25 @@ async function writeUltraA2KnownFeature(id){
   notice('success','GHI A2 ULTRA OK',label+' · TX '+layout.len+'B · ACK + READBACK OK · CONFIG/OPTION/One-Spare'+(layout.hasChg?'/CHG':'')+' giữ nguyên');
   return {ack:true,page:0xA2,payload:new Uint8Array(payload)};
 }
+// Ultra Pro1 has a native 9-byte Dgv_AutoShift in page6 (Idle24 + Shift9 + Spare9).
+// Do not pretend it is the five-timer AutoClutch used by REDLEO 9.x/V10.
+async function writeUltraAutoShiftRaw(bank){
+  if(!isUltraDirect())throw new Error('AutoShift RAW chỉ dùng với REDLEO Ultra Pro1.');
+  bank=normalizeBankForProfile(bank);
+  const pg=page(6,bank),baseline=requireCachedPageAtLeast(pg,42,'REDLEO Ultra AutoShift RAW');
+  const m=matrixFromRedTable(1,9),v=m[0]||[];
+  if(v.length!==9||v.some(x=>!Number.isInteger(Number(x))||Number(x)<0||Number(x)>255)){
+    throw new Error('Ultra AutoShift RAW cần đúng 9 byte nguyên 0–255 từ bảng ECU đã đọc.');
+  }
+  const payload=baseline.slice(0,42);
+  for(let i=0;i<9;i++)payload[24+i]=Number(v[i]);
+  // Preserve 24B Idle, 9B Four-Spare, and any reply-only tail.
+  taskUi('loading','REDLEO ULTRA PRO1 · GHI AUTOSHIFT RAW · MAP '+bank+' · giữ Idle/Four-Spare');
+  await writeWritablePrefixPage(pg,payload,baseline,'REDLEO Ultra AutoShift RAW MAP '+bank,'mainWrite',1);
+  notice('success','GHI AUTOSHIFT RAW ULTRA OK','MAP '+bank+' · 9 byte 24..32 · ACK + READBACK; Idle/Four-Spare giữ nguyên.');
+  return {ack:true,page:pg,payload:new Uint8Array(payload)};
+}
+
 async function writeUltraIdleLimit(bank){
   if(!isUltraDirect())throw new Error('Idle/Limit Ultra writer chỉ dùng REDLEO Ultra Pro1.');
   bank=normalizeBankForProfile(bank);
@@ -4644,9 +4720,21 @@ async function writeFeatureReal(id){
   const bank=normalizeBankForProfile((typeof state!=='undefined'&&state.activeMap)||1);
   const isMain=isDirectVerifiedFeature(id);
 
+  // Automatic Clutch/Shift may alter injection/ignition behavior. User must
+  // explicitly acknowledge stationary bench-only testing on every write.
+  // This confirms deliberate intent, not compatibility with real ECU hardware.
+  if(isMain&&(id==='auto_clutch'||(id==='auto_shift'&&isUltraDirect()))){
+    const family=ecuProfile?.label||'REDLEO ECU';
+    const label=id==='auto_shift'?'AUTOMATIC SHIFT RAW':'AUTOMATIC CLUTCH';
+    if(!await blinkProtocolConfirm(family+' · '+label,
+      'CHỨC NĂNG CHƯA XÁC MINH TRÊN TỪNG ECU THẬT.\\n\\nChỉ thực hiện khi xe đứng yên, ĐỘNG CƠ TẮT, nguồn ECU ổn định và đã SAO LƯU dữ liệu gốc.\\n\\nGhi có thể thay đổi hoạt động phun/đánh lửa hoặc cắt lửa. Không thử trên đường. Tiếp tục?',
+      'XÁC NHẬN GHI','HỦY'))return {cancelled:true};
+  }
+
   if(isMain){
     if(id==='afr_map')return writeEcuAfrMap(bank);
     if(isV11Profile()&&id==='idle_limit')return writeV11IdleLimit(bank);
+    if(isUltraDirect()&&id==='auto_shift')return writeUltraAutoShiftRaw(bank);
     if(isV11Profile()&&id==='auto_shift')return writeV11AutoShift(bank);
     if(isV11Profile()&&id==='ect_idle_motor')return writeV11EctMotor(bank);
     if(isV11Profile()&&id==='auto_clutch')return writeV11AutoClutch();
@@ -4656,7 +4744,7 @@ async function writeFeatureReal(id){
     if(isV11Profile()&&id==='alternate_table')return writeV11AlternateTable();
     if(isV11Profile()&&id==='external_adjust')return writeV11ExternalAdjust();
     if(isV11Profile()&&v11A2PatchSpec(id))return writeV11A2KnownFeature(id);
-    if(isV91Direct()&&['iat_inj','map_idle_motor','external_adjust','v_ect','v_iat','v_map'].includes(id))return writeV91A2KnownFeature(id);
+    if(isV91Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV91A2KnownFeature(id);
     if(isV91Direct()&&id==='idle_limit')return writeV91IdleLimit(bank);
     if(isV91Direct()&&id==='ect_idle_motor')return writeV91EctMotor(bank);
     if(isV92Direct()&&['iat_inj','map_idle_motor','external_adjust','auto_clutch','v_ect','v_iat','v_map'].includes(id))return writeV92A2KnownFeature(id);
