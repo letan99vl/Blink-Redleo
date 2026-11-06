@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.128' : (window.BLINK_PC_SMART_TUNE ? '3.79.173' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.134' : '3.79.132'); // 3.79.173: optional ?mapReadOnly=1 0x5A-only probe; normal mode unchanged
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.174' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.135' : '3.79.133'); // 2026-11-06 AutoClutch/AutoShift family update (manual-write only)
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -54,6 +54,7 @@ window.BLINK_ORIGINAL_IGN_REVISION = 'ORIGINAL-IGN-FIXED-360-MIDPOINT-EVEN';
 window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION = 'V9OPT-UNBIASED-20261028-R2';
 window.BLINK_OPTIONS_A2_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
 window.BLINK_OPTIONS_FAMILY_REVISION = 'V91-V92-ULTRA-OPTIONS-IL-20261028-R1';
+window.BLINK_AUTOCLUTCH_RELEASE_REVISION = 'AUTOC-20261106-1'; // native 9.x/V10 / V11/Pro2 and Ultra1 shift
 window.BLINK_AUTOTUNE_DIRECT_REVISION = 'AT-DIRECT-1';
 window.BLINK_AFR_CURSOR_REVISION = 'AFR-CURSOR-ROT90';
 window.BLINK_CORRECTED_SAVE_REVISION = 'CORR-ONE-TAP-1';
@@ -3084,6 +3085,14 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   <section id="redleoEditorScreen" class="screen">
     <div class="screenHeader redEditorHead"><button class="backBtn" id="redEditorBack" type="button">‹</button><div class="screenTitleWrap"><div class="screenTitle" id="redEditorTitle">REDLEO MAP</div><div class="screenSub" id="redEditorSub">—</div></div><div class="miniStatus" id="redEditorBleStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="redEditorTools"><button id="redReadBtn" class="good">↓ ĐỌC ECU</button><button id="redWriteBtn" class="danger">▣ GHI ECU</button><select id="redBankSelect"><option value="1">MAP NO.1</option><option value="2">MAP NO.2</option><option value="3">MAP NO.3</option><option value="4">MAP NO.4</option></select><select id="redAxisMode" class="wide" style="display:none"><option value="tps">TRỤC TPS</option><option value="rpm">TRỤC RPM</option></select><button id="redAfrOn" class="good" style="display:none">AFR ON · Ô CHỌN</button><button id="redAfrOff" class="danger" style="display:none">AFR OFF · Ô CHỌN</button><button id="redSmoothBtn" class="ghost wide">≈ LÀM MƯỢT TỰ ĐỘNG</button><button id="injCamCalcBtn" class="ghost wide" style="display:none">◒ TÍNH GÓC PHUN THEO GÓC CAM</button></div>
+    <div id="autoClutchControlPanel" class="optPanel" style="display:none;margin:6px 0 10px;padding:10px" aria-label="AutoClutch ECU CONFIG">
+      <div class="groupHead" style="margin-top:0"><h3>AUTO CLUTCH · ĐIỀU KHIỂN</h3><span>REDLEO 9.x / V10</span></div>
+      <div class="optionGrid" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+        <label class="toggleItem" style="display:flex;align-items:center;gap:6px"><input id="autoClutchEnableInput" type="checkbox" disabled><span>Bật Auto Clutch (ENABLE)</span></label>
+        <label class="optionField" style="display:flex;align-items:center;gap:8px">Start RPM <input id="autoClutchStartRpmInput" type="number" min="0" max="12750" step="50" style="max-width:120px" disabled></label>
+      </div>
+      <div id="autoClutchControlInfo" class="hint">ĐỌC ECU để lấy Enable, RPM và 5 ô Timer. Chỉ ghi khi bấm GHI ECU.</div>
+    </div>
     <div class="redMeta"><span class="metaChip">Tên REDLEO: <b id="redSourceName">—</b></span><span class="metaChip">Kích thước: <b id="redSize">—</b></span><span class="metaChip">Đơn vị: <b id="redUnit">—</b></span></div>
     <div class="redStep"><div class="redStepGroup"><span>Bước</span><button data-redstep="1">1</button><button class="primary" data-redstep="0.1">0.1</button><button data-redstep="0.01">0.01</button></div><button id="redScanToggle">▦ QUÉT</button><button id="redLiveCursorToggle">◎ TỰ CUỘN LIVE</button></div>
     <div class="redTableWrap"><table class="redTable" id="redFeatureTable"></table></div>
@@ -8427,6 +8436,7 @@ function featureForProfile(id){
   if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V10')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_Ect_Motor 2×11 = 22 byte; wire đảo hàng; tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   if(id==='ect_idle_motor'&&state.ecuProfile==='MODERN_V11')return {...f,rows:2,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Step/Time','INJ VE(ms)'],unit:'',desc:v11Name+' · 22 byte ECT Motor · tự nhận Stepper/Solenoid từ handshake; ghi có read-back verify.'};
   if(id==='auto_clutch'&&state.ecuProfile==='MODERN_V11')return {...f,rows:1,cols:6,x:['Low RPM','High RPM','Low Angle','High Angle','Close RPM','ECT On (V)'],y:['AUTO CLUTCH'],unit:'mixed',desc:'ATE V11 Dgv_Dzfm · RPM / góc trễ / ngưỡng điện áp ECT. Bit bật/tắt chức năng được giữ nguyên, Blink chỉ sửa 6 byte dữ liệu đã xác minh.'};
+  if(id==='auto_shift'&&state.ecuProfile==='MODERN_V10'&&state.ecuVariant==='ULTRA_PRO1')return {...f,title:'Automatic Shift · Ultra Pro1 (RAW)',source:'Dgv_AutoShift',rows:1,cols:9,x:['Config RAW','Start RPM RAW','INJ RAW','IGN RAW','4000 RAW','6000 RAW','8000 RAW','10000 RAW','12000 RAW'],y:['AUTO SHIFT'],unit:'byte',desc:'REDLEO Ultra Pro1 · Page 6 chứa 9 byte AutoShift (vị trí 24..32), phân biệt với AutoClutch 5 Timer. Hiển thị và ghi raw 0–255; chưa quy đổi đơn vị khi thiếu bằng chứng từ chương trình gốc.'};
   if(id==='ect_start'&&state.ecuProfile==='MODERN_V10')return {...f,rows:3,cols:11,x:ECU_AUX_AXES.ect.slice(),y:['Time(Second)','INJ VE(ms)','StrtAdd(ms)'],unit:'mixed',desc:'REDLEO V10.2 / Ultra Pro1 · Dgv_EctStrt_Add 3×11 = 33 byte. Wire đảo hàng; Time dùng bước 0.2s, hai hàng INJ dùng scale Oil gốc.'};
   if(id==='ate_options'&&state.ecuProfile==='MODERN_V10'){const ultra1=state.ecuVariant==='ULTRA_PRO1';return {...f,title:ultra1?'Tuỳ chọn REDLEO Ultra Pro1':'Tuỳ chọn REDLEO V10.2',source:'Dgv_Option',rows:1,cols:15,x:['TPS Voltage (Min.)','TPS Voltage (Max.)','Idle minimum inj (cold)','Idle minimum inj (Hot)','Idle Auto Regulation IGN(±°)','Idle Auto Regulation INJ(±ms)','Total steps of idle motor','Open fan temperature','O2S working ECT voltage','O2S delay work','O2S working speed','O2S adjusts fuel injection','Start the injection RPM','Idle Motor Maximum','Idle Motor Minimum'],y:['OPTIONS'],unit:'mixed',desc:(ultra1?'REDLEO Ultra Pro1':'REDLEO V10.2')+' · Dgv_Option 18B: 15 mục đầu có codec gốc được phép sửa; 3 byte cuối luôn giữ nguyên raw.'};}
   return f;
@@ -10563,7 +10573,7 @@ updateMapControls();
     const v=String(window.BLINK_PB_VERSION||'0');
     const label=document.getElementById('appBuildLabel');
     if(label)label.textContent='P.b v'+v; // no suffixes after numeric PB version
-    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&optFam='+encodeURIComponent(window.BLINK_OPTIONS_FAMILY_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
+    const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&optFam='+encodeURIComponent(window.BLINK_OPTIONS_FAMILY_REVISION)+'&autoc='+encodeURIComponent(window.BLINK_AUTOCLUTCH_RELEASE_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
     // PB3.79.131: Bluefy web BLE browser opts into calculator; native iOS IPA keeps original behavior.
