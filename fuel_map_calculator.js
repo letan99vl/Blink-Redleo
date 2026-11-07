@@ -41,8 +41,8 @@
   }
   // 2D region weight: 0% = legacy separable model, 100% = shape of supplied
   // reference; 95% preserves the low-rpm plateaus and TPS-specific peaks.
-  const DEFAULTS={bore:72,stroke:72,throttle:32,flow:300,ratedBar:3,pressure:3.5,
-    afr:13,afrScale:'gauge',iat:30,baroKpa:101.325,maxRpm:9000,peakVe:94,shapePct:95,deadtime:.9,
+  const DEFAULTS={bore:72,stroke:72,throttle:32,flow:300,ratedBar:3,pressure:2.5,
+    afr:12,afrScale:'gauge',iat:30,baroKpa:101.325,maxRpm:15000,peakVe:94,shapePct:95,deadtime:.9,
     pulses:'1',output:'command',scope:'full',model:'regional'};
   const specs={bore:[30,125],stroke:[30,140],throttle:[15,75],flow:[50,2000],
     ratedBar:[1,7],pressure:[1,7],afr:[9,18],iat:[-20,100],maxRpm:[500,30000],
@@ -290,6 +290,9 @@
     '#fuelModelDialog input[type=text]:focus{outline:2px solid #53e6a6}',
     '#fuelModelDialog .fmc-important{border:1px solid #48af83;border-radius:10px;padding:9px;background:#102b20}',
     '#fuelModelDialog .fmc-important label{color:#a8ffca;font-size:12px}',
+    '#fuelModelDialog .fmc-advanced{border:1px solid #385f51;border-radius:10px;padding:8px;background:#121d1a}',
+    '#fuelModelDialog .fmc-advanced summary{cursor:pointer;color:#9decca;font-weight:800;line-height:1.4}',
+    '#fuelModelDialog .fmc-advanced .fmc-grid{margin-top:8px}',
     '#fuelModelDialog .fmc-help{font-size:11px;color:#b9bab8;line-height:1.5}',
     '#fuelModelDialog .fmc-actions{display:flex;gap:7px;flex-wrap:wrap}',
     '#fuelModelDialog button{border-radius:9px;min-height:38px;padding:7px 11px;background:#26343a;color:#fff;border:1px solid #50615f;font-weight:800;font-size:12px;touch-action:manipulation}',
@@ -318,12 +321,15 @@
   ].join('\n');
   doc.head.appendChild(css);
   const dlg=doc.createElement('dialog');dlg.id='fuelModelDialog';
-  const fields=[
+  // Keep only five required inputs visible (AFR is rendered separately).
+  const mainFields=[
     ['bore','Piston (mm)'],['stroke','Hành trình dên (mm)'],
-    ['throttle','Họng ga (mm)'],['flow','Kim phun (cc/phút)'],
-    ['ratedBar','Áp chuẩn kim (bar)'],['pressure','Chênh áp thực qua kim (bar)'],
-    ['iat','Nhiệt độ khí nạp (°C)'],['baroKpa','Áp suất khí quyển (kPa)'],['maxRpm','Giới hạn tính (RPM)'],
-    ['peakVe','VE quy chiếu WOT / 6500 (%)'],['shapePct','Độ bám dáng map mẫu (%)'],['deadtime','Deadtime kim (ms)']
+    ['flow','Kim phun (cc/phút)'],['maxRpm','Giới hạn tính (RPM)']
+  ];
+  const advancedFields=[
+    ['ratedBar','Áp chuẩn lưu lượng kim (bar)'],['pressure','Chênh áp thực qua kim (bar)'],
+    ['deadtime','Deadtime kim (ms)'],['iat','Nhiệt độ khí nạp (°C)'],
+    ['baroKpa','Áp suất khí quyển (kPa)'],['shapePct','Độ bám dáng map mẫu (%)']
   ];
   function numericField(key,label){
     return '<label>'+label+'<input id="fmc'+key.charAt(0).toUpperCase()+key.slice(1)+'" type="text" readonly inputmode="none" data-fmc-field="'+key+'" aria-label="'+label+'"></label>';
@@ -332,16 +338,18 @@
     '<div class="fmc-head"><h3>TÍNH MAP PHUN NỀN · AFR MONG MUỐN</h3><button type="button" class="fmc-close" id="fmcClose">✕</button></div>',
     '<div class="fmc-body">',
     '<div class="fmc-important"><label>CHỌN THUẬT TOÁN<select data-fmc-option="model" id="fmcModel"><option value="regional">MAP MẪU 2D (GIỮ NGUYÊN)</option><option value="airmass">TRIUMPH THỬ NGHIỆM · MG KHÍ → AFR → MS</option></select></label></div>',
-    '<div class="fmc-important">'+numericField('afr','AFR MONG MUỐN (BẮT BUỘC)')+
-    '<label style="margin-top:7px">Thang AFR<select data-fmc-option="afrScale"><option value="gauge">AFR đồng hồ xăng · 14,7</option><option value="e10">AFR thực E10 · 14,1</option></select></label></div>',
-    '<div class="fmc-grid">'+fields.map(x=>numericField(x[0],x[1])).join('')+'</div>',
+    '<div class="fmc-important">'+numericField('afr','AFR MONG MUỐN (MẶC ĐỊNH 12)')+'</div>',
+    '<div class="fmc-grid">'+mainFields.map(x=>numericField(x[0],x[1])).join('')+'</div>',
+    '<div class="fmc-help">Chỉ nhập 5 thông số chính. Mặc định áp xăng 2,5 bar; kim phun khai báo theo lưu lượng danh định ở áp chuẩn 3 bar. Để đổi giả định, mở THÔNG SỐ NÂNG CAO. Map chỉ là ước lượng ban đầu, phải kiểm tra AFR thực tế trước khi sử dụng.</div>',
+    '<details class="fmc-advanced" id="fmcAdvanced"><summary>THÔNG SỐ NÂNG CAO · ÁP XĂNG / DEADTIME / KIỂU PW</summary>',
+    '<div class="fmc-grid">'+advancedFields.map(x=>numericField(x[0],x[1])).join('')+'</div>',
     '<div class="fmc-grid">',
+    '<label>Thang AFR<select data-fmc-option="afrScale"><option value="gauge">AFR đồng hồ · 14,7</option><option value="e10">AFR thực E10 · 14,1</option></select></label>',
     '<label>Số lần phun / 720°<select data-fmc-option="pulses"><option value="1">1 xung / chu kỳ</option><option value="2">2 xung / chu kỳ</option></select></label>',
-    '<label>Đơn vị map tạo ra<select data-fmc-option="output"><option value="command">ms lệnh (cộng deadtime)</option><option value="effective">ms hữu hiệu (chưa cộng)</option></select></label>',
-    '<label>Phạm vi áp dụng<select data-fmc-option="scope"><option value="full">Toàn bộ TPS đến RPM giới hạn</option><option value="selected">Chỉ vùng đang chọn trên map</option></select></label>',
-    '<label>Nhiên liệu<select disabled><option>E10 · AFR stoich 14,1</option></select></label></div>',
-    '<div class="fmc-help" id="fmcRegionalHelp">Bộ tính lấy hình dáng 14 hàng TPS × 19 cột RPM trong ẢNH MAP bạn gửi làm mẫu tương đối: vùng thấp 500–2000, vùng trũng khoảng 3500–4500, vùng đỉnh 6000–7500 và giảm sau đó. Nội suy hai chiều giữa các hàng TPS, KHÔNG sao chép số ms của ECU mẫu. VE quy chiếu tại 100% TPS / 6500 RPM. Độ bám dáng 0%=công thức cũ, 100%=theo ảnh. Các điểm trên 9500 RPM chỉ ngoại suy. Họng ga 32 mm chỉ là thông tin tham khảo, KHÔNG thể suy lưu lượng khí chính xác từ đường kính. Áp suất phải là chênh áp qua kim, không mặc định bằng áp đường rail. Kim được giả định định mức tại áp chuẩn nhập ở trên, E10 có khối lượng riêng giả định 0,75 g/cc. Độ trễ kim và số xung/chu kỳ chưa được xác minh với ECU.</div>',
-    '<div class="fmc-help" id="fmcTriumphHelp" hidden>TRIUMPH PHONG CÁCH TÍNH: VE 2D (ước lượng) → KHỐI LƯỢNG KHÍ mg/chu kỳ → LƯỢNG XĂNG theo AFR mong muốn → THỜI GIAN KIM ms. Vẫn là mô hình Alpha-N TPS × RPM, không phải bảng F/L thật của Triumph và chưa dùng chuyển bảng MAP. Các ô VE được hiệu chỉnh thủ công từ AFR đo ổn định sẽ được giữ riêng theo MAP No. và đúng bộ thông số động cơ. KHÔNG tự học AFR khi tăng tốc, KHÔNG bù tăng tốc hoặc nhiệt độ động cơ vào map nền. Chênh áp kim, deadtime, số xung và đặc tính phun thực tế phải xác nhận trước khi sử dụng.</div>',
+    '<label>Kiểu thời gian phun<select data-fmc-option="output"><option value="command">ms lệnh (cộng deadtime)</option><option value="effective">ms hữu hiệu (chưa cộng)</option></select></label>',
+    '<label>Phạm vi áp dụng<select data-fmc-option="scope"><option value="full">Toàn bộ TPS đến RPM giới hạn</option><option value="selected">Chỉ vùng đang chọn trên map</option></select></label></div>',
+    '<div class="fmc-help" id="fmcRegionalHelp">MAP mẫu 2D: nội suy hình dáng TPS/RPM từ tham chiếu, không sao chép thời gian phun của ECU mẫu. VE quy chiếu nội bộ 94%, không phải VE đo thực tế. Trên 9500 RPM là ngoại suy; họng ga không tham gia phép tính. Áp xăng phải là chênh áp thực qua kim, không mặc định bằng áp rail.</div>',
+    '<div class="fmc-help" id="fmcTriumphHelp" hidden>TRIUMPH thử nghiệm: ước lượng VE 2D → mg khí/chu kỳ → xăng theo AFR → ms. VE nội bộ 94% chỉ là mốc dự đoán. Chênh áp kim, deadtime, kiểu PW và số xung/chu kỳ phải được xác minh trước khi chạy. Mô hình hiện giả định nhiên liệu E10 với mật độ khoảng 0,75 g/cc; không có mục chọn xăng 95 riêng.</div>',
     '<section class="fmc-air-panel" id="fmcAirPanel" hidden>',
     '<h4>HIỆU CHỈNH VE TỪ AFR ĐO · CHỈ MỘT Ô TPS × RPM</h4>',
     '<div class="fmc-help" id="fmcCalStatus">Chọn một ô trên MAP INJ VE, rồi mở bộ tính lại để hiệu chỉnh.</div>',
@@ -350,10 +358,11 @@
     '<label class="fmc-ack"><input id="fmcCalConfirm" type="checkbox">AFR và PW đã đo ổn định đúng ô, tôi đã kiểm tra áp suất kim/deadtime, không dùng giá trị lúc mở ga đột ngột.</label>',
     '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcCalSave">LƯU VE Ô NÀY (TRONG BLINK)</button><button type="button" id="fmcCalRemove">XÓA VE Ô NÀY</button><button type="button" class="fmc-danger" id="fmcCalReset">XÓA VE MAP</button></div>',
     '</section>',
+    '</details>',
     '<div id="fmcPad" class="fmc-pad" aria-hidden="true"><span class="fmc-pad-title" id="fmcPadTitle">Chọn ô để nhập</span>',
     ['1','2','3','C','4','5','6','⌫','7','8','9','.','−','0','XONG'].map(k=>'<button type="button" data-fmc-key="'+k+'">'+k+'</button>').join(''),
     '</div>',
-    '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcPreview">TÍNH & XEM TRƯỚC</button><button type="button" id="fmcClose2">ĐÓNG</button></div>',
+    '<div class="fmc-actions"><button type="button" class="fmc-primary" id="fmcPreview">TÍNH & XEM TRƯỚC</button><button type="button" id="fmcRestoreDefaults">KHÔI PHỤC MẶC ĐỊNH</button><button type="button" id="fmcClose2">ĐÓNG</button></div>',
     '<div class="fmc-result" id="fmcResult" role="status" aria-live="polite">Chưa tính. AFR mong muốn luôn do bạn nhập, không lấy từ Auto Tune.</div>',
     '<div class="fmc-grid"><label>LOẠI BẢNG XEM TRƯỚC<select id="fmcView"><option value="pw">THỜI GIAN PHUN ms</option><option value="mg">KHỐI LƯỢNG KHÍ mg/chu kỳ</option><option value="ve">VE %</option></select></label></div>',
     '<div class="fmc-tablebox" id="fmcTableBox" hidden><table class="fmc-preview" id="fmcTable"></table></div>',
@@ -375,7 +384,7 @@
   }
   setFields(stored);
   function readFields(){
-    const p={};
+    const p={throttle:DEFAULTS.throttle,peakVe:DEFAULTS.peakVe};
     dlg.querySelectorAll('[data-fmc-field]').forEach(input=>{if(!input.dataset.fmcField.startsWith('cal'))p[input.dataset.fmcField]=input.value;});
     dlg.querySelectorAll('[data-fmc-option]').forEach(input=>{p[input.dataset.fmcOption]=input.value;});
     return p;
@@ -585,10 +594,14 @@
     const isAir=el('fmcModel').value==='airmass';
     el('fmcAirPanel').hidden=!isAir;el('fmcTriumphHelp').hidden=!isAir;el('fmcRegionalHelp').hidden=isAir;
     if(isAir)syncCalUI();
-    msg('MAP NO.'+snap.bank+' · AFR mong muốn do bạn nhập. Tính thử không thay đổi dữ liệu ECU. Trên 9.000 RPM sẽ giữ nguyên nếu giới hạn đang là 9.000.');
+    msg('MAP NO.'+snap.bank+' · AFR mong muốn do bạn nhập. Tính thử không thay đổi ECU. RPM trên giới hạn đang chọn sẽ giữ nguyên MAP cũ.');
     dlg.showModal();
   });
   el('fmcPreview').addEventListener('click',doPreview);
+  el('fmcRestoreDefaults').addEventListener('click',()=>{
+    setFields(DEFAULTS);invalidate();el('fmcAdvanced').open=false;
+    msg('Đã nạp giá trị mặc định mới: AFR 12, RPM 15000, áp xăng 2,5 bar, 1 xung/720°. Chưa áp dụng MAP hoặc ghi ECU.');
+  });
   el('fmcCalSave').addEventListener('click',()=>changeCal('save'));
   el('fmcCalRemove').addEventListener('click',()=>changeCal('remove'));
   el('fmcCalReset').addEventListener('click',()=>changeCal('reset'));
