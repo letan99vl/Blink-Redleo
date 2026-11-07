@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.174' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.135' : '3.79.133'); // 2026-11-06 AutoClutch/AutoShift family update (manual-write only)
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.175' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.135' : '3.79.133'); // 2026-11-07 fuel base calculator defaults and simplified five-input UI
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -10579,7 +10579,7 @@ updateMapControls();
     // PB3.79.131: Bluefy web BLE browser opts into calculator; native iOS IPA keeps original behavior.
     const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
     const isBluefy=/Bluefy/i.test(navigator.userAgent);
-    if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'"><\/script>');
+    if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'&fuelui=FIVE-INPUTS-AFR12-15000RPM-25BAR-20261107"><\/script>');
     // Load SMART only on supported Chrome PC, Android browser/APK and iOS Bluefy.
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
   })();
