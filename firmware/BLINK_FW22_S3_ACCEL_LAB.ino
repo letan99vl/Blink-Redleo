@@ -48,7 +48,7 @@
 
 #ifndef FW_VERSION
 #define FW_VERSION "2.2"
-#define ACC_LAB_BUILD_ID "S3ACC-LAB2"
+#define ACC_LAB_BUILD_ID "S3ACC-LAB3"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -379,7 +379,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "PING") {
-        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R2");
+        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R3");
       } else if (text.startsWith("RXPROBE:")) {
         const int requested = text.substring(8).toInt();
         sendRxProbe((uint16_t)requested);
@@ -848,6 +848,7 @@ struct AccConfig {
 static AccConfig acc;
 static Preferences accNvs;
 static bool accCalibrated=false,accRequested=false,accIdentityValid=false;
+static bool accHostVerified=false; // Fresh checksum-valid 0x5A was observed from this BLE session.
 static bool accPinnedValid=false,accReady=false,accBoost=false,accFault=false;
 static uint8_t accPinned[16]={0};
 static uint8_t accHandshakeMap=0,accPendingMap=0;
@@ -907,7 +908,8 @@ static bool accHandshake(const uint8_t *rx,size_t n,uint8_t &mapOut){
   if(!rx || (n!=37 && n!=41) || rx[0]!=0x5A || !validRedleoFrame(rx,n))
     return false;
   if(rx[17]!='9'||rx[18]!='.'||(rx[19]!='1'&&rx[19]!='2')||
-     rx[20]<'0'||rx[20]>'9'||rx[33]>3)
+     (rx[20] != 0 && rx[20] != ' ' && (rx[20]<'0'||rx[20]>'9'))||
+     rx[33]>3)
     return false;
   mapOut=(uint8_t)(rx[33]+1);
   return true;
@@ -1040,7 +1042,7 @@ static void accExecuteCommand(String cmd){
   if(cmd=="ACC OFF"){accStop("ACC:OFF");return;}
   if(cmd=="ACC RESET"){
     if(accRequested){accReport("ACC:OFF_FIRST");return;}
-    accNvs.clear();acc=AccConfig();accCalibrated=accPinnedValid=accIdentityValid=false;
+    accNvs.clear();acc=AccConfig();accCalibrated=accPinnedValid=accIdentityValid=accHostVerified=false;
     memset(accPinned,0,16);accReady=accBoost=accFault=false;
     accReport("ACC:RESET");return;
   }
@@ -1064,9 +1066,22 @@ static void accExecuteCommand(String cmd){
     if(!accCalibrated || acc.baseMap==acc.boostMap){
       accReport("ACC:CAL_FIRST");return;
     }
+    // When Blink is linked, only its already checksum-valid full 0x5A
+    // handshake may authorize an autonomous feature. Never inject a parallel
+    // self-handshake into the middle of the app's live UART transactions.
+    if(deviceConnected && (!accHostVerified || !accIdentityValid)){
+      accReport("ACC:AUTH_FIRST");return;
+    }
+    if(deviceConnected && accCurrentMap!=acc.baseMap && accCurrentMap!=acc.boostMap){
+      accReport("ACC:MAP_CONFLICT");return;
+    }
     accRequested=true;accReady=false;accFault=false;
-    accBoost=false;accPendingMap=0;accIdentityValid=false;
-    accHandshakeMap=0;accCurrentMap=0;
+    accBoost=false;accPendingMap=0;
+    // Keep the 0x5A identity from this active BLE session if verified. It
+    // was established before ACC ON and matches the NVS-pinned ECU, if any.
+    if(!deviceConnected){
+      accIdentityValid=false;accHandshakeMap=0;accCurrentMap=0;
+    }
     accZeroStart=accZeroLast=0;accZeroCount=0;accLastHandshakeMs=0;
     accLastLiveMs=0;accFailCount=0;accResetTrends();
     accNvs.putBool("enabled",true);
@@ -1215,27 +1230,33 @@ static void accObserveHost(const uint8_t *tx,size_t tn,const uint8_t *rx,size_t 
   if(!tn)return;
   accLastHostMs=millis();
   if(tx[0]!=0x69)accLastHostLongMs=accLastHostMs;
-  if(!accRequested)return;
   if(accIsRequest5(tx,tn,0x5A)){
     uint8_t bank=0;
     if(accCheckIdentity(rx,rn,bank)){
-      accHandshakeMap=bank;
-      // A full checksum-valid 0x5A is the only authority for physical MAP;
-      // host LIVE 0x69 is not a reliable MAP readback.
-      accCurrentMap=bank;
-      if(accReady){
+      // Cache a *fresh* verified ECU identity and physical MAP even while
+      // ACC is OFF. This avoids an unsafe autonomous 0x5A UART poll during
+      // Blink LIVE immediately after the user clicks ACC ON.
+      accHostVerified=true;
+      accHandshakeMap=bank;accCurrentMap=bank;
+      if(accRequested && accReady){
         if(bank!=acc.baseMap && bank!=acc.boostMap){
           accFail("ACC:MAP_CONFLICT");return;
         }
         accBoost=(bank==acc.boostMap);
         accBoostSince=accBoost?millis():0;
       }
-    }else if(rn>0 && rx && rx[0]==0x5A && validRedleoFrame(rx,rn)){
-      accFail("ACC:ECU_REJECT");
+    }else{
+      accHostVerified=false;
+      if(accRequested && rn>0 && rx && rx[0]==0x5A &&
+         validRedleoFrame(rx,rn)){
+        accFail("ACC:ECU_REJECT");
+      }
     }
-  }else if(accIsRequest5(tx,tn,0x69) && tx[1]>=1 && tx[1]<=4){
-    accLive(rx,rn);
+    return;
   }
+  if(!accRequested)return;
+  if(accIsRequest5(tx,tn,0x69) && tx[1]>=1 && tx[1]<=4)
+    accLive(rx,rn);
 }
 static bool accQuery(uint8_t cmd,uint8_t arg,uint8_t *rx,size_t cap,size_t &got){
   uint8_t tx[5];accRequest5(cmd,arg,tx);
@@ -1261,7 +1282,7 @@ static void accTick(){
   else if(wasLinked){
     wasLinked=false;
     if(accRequested){
-      accIdentityValid=false;
+      accIdentityValid=false;accHostVerified=false;
       accHandshakeMap=0;accCurrentMap=0;accPendingMap=0;
       accLastHandshakeMs=0;accLastLiveMs=0;accLastPollMs=0;
       accResetTrends();accCooldownUntil=millis()+1000U;
@@ -1273,10 +1294,12 @@ static void accTick(){
   if(!accRequested || accFault || !uartReady || otaBusy || bleOtaActive ||
      transactionReady || transactionBusy)return;
   const uint32_t now=millis();
-  // When Blink is linked it is the sole owner of active MAP selection.
-  // Its LIVE frames can still arm ACC at RPM=0; autonomous UART switches
-  // are suspended until disconnect and fresh 0x5A validation.
-  if(linked && accReady)return;
+  // Blink owns the entire ECU UART while connected, including handshake,
+  // LIVE and MAP switching. ACC passively sees Blink's verified 0x5A/0x69
+  // frames in accObserveHost() and may arm from RPM=0 without sending ANY
+  // parallel 0x5A/0x69 commands. After disconnect, standalone ACC resumes
+  // only after a new independent 0x5A identity + MAP check.
+  if(linked)return;
   if(deviceConnected && accPendingMap){
     // A phone connected during a pending autonomous switch wins control.
     // Never run an automatic MAP change that competes with app LIVE.
