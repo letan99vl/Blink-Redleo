@@ -1882,7 +1882,7 @@ async function waitForEcuIdle(maxWait=16000){
 
 let manualMapIoDepth=0;
 let manualMapIoResumeLive=false;
-async function beginManualMapIo(label='MAP'){
+async function beginManualMapIo(label='MAP',options={}){
   manualMapIoDepth++;
   if(manualMapIoDepth>1)return {nested:true,resumeLive:false};
 
@@ -1898,8 +1898,13 @@ async function beginManualMapIo(label='MAP'){
     const owner=rawInFlightCmd===0x69?'LIVE 0x69':
       rawInFlightCmd===0x9A?'PAGE 0x9A':
       Number.isFinite(rawInFlightCmd)?'ECU 0x'+rawInFlightCmd.toString(16).toUpperCase():'ECU';
-    updateActiveMapIoText('⏳ CHỜ '+owner+' NHẢ ECU...');
-    taskUi('loading','ĐANG CHỜ '+owner+' KẾT THÚC · '+String(label||'MAP').toUpperCase());
+    // ACC S3 only reads/writes ESP32 settings; its own panel owns progress.
+    // Do not leave Blink's sticky global ECU loading toast after a successful
+    // ACC save/read while still preserving the same UART mutex and timeout.
+    if(!options?.silentStatus){
+      updateActiveMapIoText('⏳ CHỜ '+owner+' NHẢ ECU...');
+      taskUi('loading','ĐANG CHỜ '+owner+' KẾT THÚC · '+String(label||'MAP').toUpperCase());
+    }
   }
   try{
     await waitForEcuIdle(8000);
