@@ -70,10 +70,18 @@ ACC status Serial report gom: ready, boost, ecuMap, RPM va TPS mV; BLE status pa
 
 ## Firmware/OTA
 
-- PONG voi Blink van la `FW2.2` de giu handshake bridge cu; Serial in `S3ACC-LAB1` de phan biet.
+- PONG cua FW S3 la `PONG FW2.2 ACCS3`, cho phep Blink tu phat hien tinh nang; so phien ban FW2.2 van giu de dam bao RAW bridge cu.
+- Firmware cu tra `PONG FW2.2` (hoac FW1.x/FW2.5) KHONG co chuoi `ACCS3`, Blink an hoan toan bang setup moi.
+- `ACC GET` tra ve 2 frame BLE MAP UUID marker 0xB3, 18B+16B, co so sequence va checksum XOR.
+- Blink doc lai sau moi lan LUU; khong coi thanh cong neu 12 gia tri khong trung voi trang thai ESP32.
+- Serial in `S3ACC-LAB1` de phan biet firmware thuc nghiem.
 - **OTA tren firmware S3 nay bi chan**; build LAB khong sua `ota/manifest.json`, khong ghi `ota/blink_esp32.bin`.
 - Khong nap `ota/blink_esp32.bin` danh cho ESP32 thuong len ESP32-S3.
-- Chua tu dong update Blink web/app. Khi can giao dien setup ACC trong Blink, phai lam them client UI/giao thuc xu ly trang thai.
+- Blink Web/Android/Bluefy PB3.79.176 nap `blink_accel_map_settings.js`; vao THIET LAP -> AUTO ACCEL MAP ESP32-S3 (chi xuat hien khi ESP32 tra PONG chinh xac `PONG FW2.2 ACCS3`).
+- Giao dien co cac thong so MAP 1/2, RPM, TPS cao, TPS tang nhanh, thoi gian giu va tra, cal TPS mV; co ban phim so noi bo; DOC / LUU / BAT / TAT.
+- LUU ra 10 lenh ACC duoc firmware ACK; sau do readback 2 frame B3 va doi chieu 12 gia tri. Firmware cu khong thay giao dien, khong gui ACC.
+- Trong luc thiet lap, Blink dung live poll trong mot khoang ngan bang co che `beginManualMapIo` co san, roi tiep tuc LIVE khi xong; khong sua ECU RAW transport.
+- Ung dung iOS native IPA dong goi HTML can rebuild neu khong nap index hosted; Bluefy web da duoc ho tro.
 
 ## Giới hạn còn phải kiểm tra thực tế
 
