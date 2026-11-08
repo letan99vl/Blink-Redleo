@@ -4,6 +4,9 @@ on:
     branches: [ main ]
     paths:
       - 'firmware/BLINK_FW22_S3_ACCEL_LAB.ino'
+      - 'blink_accel_map_settings.js'
+      - 'index.html'
+      - 'tools/check-acc-s3-protocol.js'
       - '.github/workflows/build-fw22-s3-accel-lab.yml'
   workflow_dispatch:
 
@@ -38,6 +41,10 @@ jobs:
           assert 'ACC:MAP_VERIFY' in s
           print('Static S3 and safe-default checks PASS; original 2.2 retained')
           PY
+      - name: Verify new S3 protocol + legacy isolation
+        run: |
+          node --check blink_accel_map_settings.js
+          node tools/check-acc-s3-protocol.js
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32 Arduino core
         run: |
@@ -48,7 +55,7 @@ jobs:
         run: |
           mkdir -p build-sketch/S3_ACC_LAB build-out
           cp firmware/BLINK_FW22_S3_ACCEL_LAB.ino build-sketch/S3_ACC_LAB/S3_ACC_LAB.ino
-          arduino-cli compile --fqbn esp32:esp32:esp32s3 --output-dir build-out build-sketch/S3_ACC_LAB
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=min_spiffs --output-dir build-out build-sketch/S3_ACC_LAB
           test -s build-out/S3_ACC_LAB.ino.bin
           sha256sum build-out/S3_ACC_LAB.ino.bin > build-out/SHA256.txt
           cp build-sketch/S3_ACC_LAB/S3_ACC_LAB.ino build-out/S3_ACC_LAB.ino
