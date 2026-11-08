@@ -1066,6 +1066,7 @@ static void accExecuteCommand(String cmd){
     }
     accRequested=true;accReady=false;accFault=false;
     accBoost=false;accPendingMap=0;accIdentityValid=false;
+    accHandshakeMap=0;accCurrentMap=0;
     accZeroStart=accZeroLast=0;accZeroCount=0;accLastHandshakeMs=0;
     accLastLiveMs=0;accFailCount=0;accResetTrends();
     accNvs.putBool("enabled",true);
@@ -1152,8 +1153,12 @@ static void accLive(const uint8_t *rx,size_t n){
           accNvs.putBytes("ecu",accPinned,16);
           accPinnedValid=true;
         }
+        // Arming never commands an automatic switch. ECU may currently
+        // run MAP2 while Base is MAP1: Blink still owns the MAP over BLE.
         accReady=true;accCurrentMap=accHandshakeMap;
-        accPendingMap=acc.baseMap;accResetTrends();
+        accBoost=(accCurrentMap==acc.boostMap);
+        accBoostSince=accBoost?now:0;
+        accPendingMap=0;accResetTrends();
         accReport("ACC:ARMED");
       }
     }else{
@@ -1199,14 +1204,12 @@ static void accLive(const uint8_t *rx,size_t n){
   }
 }
 static void accOverrideHostLive(uint8_t *tx,size_t n){
-  if(!accRequested || !accReady || accFault || !accIdentityValid ||
-     !accIsRequest5(tx,n,0x69) || tx[1]<1 || tx[1]>4)return;
-  const uint8_t selected=accBoost?acc.boostMap:acc.baseMap;
-  if(tx[1]!=selected){
-    // Do not silently rewrite a real Blink app's MAP choice: its UI and ECU
-    // state would diverge. The driver's explicit selection takes priority.
-    accStop("ACC:APP_MAP");
-  }
+  // Blink's verified 0x69 controls the ECU while BLE is connected. Do not
+  // rewrite it AND do not disable AUTO just because the app's physical MAP
+  // is different from our configured base MAP. Auto stays armed but paused.
+  // On BLE disconnect accTick re-reads 0x5A, adopts the actual bank, then
+  // starts autonomous monitoring. This prevents APP_MAP/OFF after ACC ON.
+  (void)tx;(void)n;
 }
 static void accObserveHost(const uint8_t *tx,size_t tn,const uint8_t *rx,size_t rn){
   if(!tn)return;
@@ -1217,7 +1220,16 @@ static void accObserveHost(const uint8_t *tx,size_t tn,const uint8_t *rx,size_t 
     uint8_t bank=0;
     if(accCheckIdentity(rx,rn,bank)){
       accHandshakeMap=bank;
-      if(!accReady)accCurrentMap=bank;
+      // A full checksum-valid 0x5A is the only authority for physical MAP;
+      // host LIVE 0x69 is not a reliable MAP readback.
+      accCurrentMap=bank;
+      if(accReady){
+        if(bank!=acc.baseMap && bank!=acc.boostMap){
+          accFail("ACC:MAP_CONFLICT");return;
+        }
+        accBoost=(bank==acc.boostMap);
+        accBoostSince=accBoost?millis():0;
+      }
     }else if(rn>0 && rx && rx[0]==0x5A && validRedleoFrame(rx,rn)){
       accFail("ACC:ECU_REJECT");
     }
@@ -1241,9 +1253,30 @@ static bool accSwitch(uint8_t mapNo){
   return accCheckIdentity(rx,got,verified) && verified==mapNo;
 }
 static void accTick(){
+  // Handover state runs even when AUTO is OFF. On BLE -> disconnected, throw
+  // away cached MAP authority before any autonomous 0x69 is allowed.
+  static bool wasLinked=false;
+  const bool linked=deviceConnected;
+  if(linked)wasLinked=true;
+  else if(wasLinked){
+    wasLinked=false;
+    if(accRequested){
+      accIdentityValid=false;
+      accHandshakeMap=0;accCurrentMap=0;accPendingMap=0;
+      accLastHandshakeMs=0;accLastLiveMs=0;accLastPollMs=0;
+      accResetTrends();accCooldownUntil=millis()+1000U;
+      // Keep ready proof from stationary start, but require fresh 0x5A
+      // and actual MAP reconciliation before resuming auto switching.
+      Serial.println("ACC-S3 app disconnected: re-verify 0x5A before LIVE");
+    }
+  }
   if(!accRequested || accFault || !uartReady || otaBusy || bleOtaActive ||
      transactionReady || transactionBusy)return;
   const uint32_t now=millis();
+  // When Blink is linked it is the sole owner of active MAP selection.
+  // Its LIVE frames can still arm ACC at RPM=0; autonomous UART switches
+  // are suspended until disconnect and fresh 0x5A validation.
+  if(linked && accReady)return;
   if(deviceConnected && accPendingMap){
     // A phone connected during a pending autonomous switch wins control.
     // Never run an automatic MAP change that competes with app LIVE.
@@ -1266,6 +1299,16 @@ static void accTick(){
     if(accQuery(0x5A,0x5A,rx,sizeof(rx),got)){
       if(accCheckIdentity(rx,got,bank)){
         accHandshakeMap=accCurrentMap=bank;
+        if(accReady){
+          if(bank!=acc.baseMap && bank!=acc.boostMap){
+            accFail("ACC:MAP_CONFLICT");return;
+          }
+          // Start from the real ECU MAP, not from the stored base/boost
+          // assumption. Never send a blind MAP1 request after BLE disconnect.
+          accBoost=(bank==acc.boostMap);
+          accBoostSince=accBoost?millis():0;
+          accPendingMap=0;accResetTrends();
+        }
         accReport("ACC:ECU_OK");
       }else if(rx[0]==0x5A && validRedleoFrame(rx,got)){
         accFail("ACC:ECU_REJECT");
@@ -1296,7 +1339,9 @@ static void accTick(){
   if(accLastLiveMs && (uint32_t)(now-accLastLiveMs)<240U)return;
   accLastPollMs=now;
   uint8_t rx[128]={0};size_t got=0;
-  const uint8_t mapNo=accReady?(accBoost?acc.boostMap:acc.baseMap):accHandshakeMap;
+  const uint8_t mapNo=accReady?accCurrentMap:accHandshakeMap;
+  // A poll request 0x69 itself can select MAP: never poll an assumed bank.
+  // Actual bank must come from a full fresh 0x5A after BLE handover.
   if(mapNo>=1&&mapNo<=4 && accQuery(0x69,mapNo,rx,sizeof(rx),got))
     accLive(rx,got);
 }
