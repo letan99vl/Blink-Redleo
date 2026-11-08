@@ -5,7 +5,7 @@
 const $=id=>document.getElementById(id);
 const host=$('settingsScreen');
 if(!host)return;
-const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2)?$/i;
+const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3)?$/i;
 // Existing Blink CSS forces .settings display:block!important; explicitly
 // restore hidden semantics for firmware without the ACCS3 capability.
 const style=document.createElement('style');
@@ -31,7 +31,7 @@ const fields=specs.map(([id,label,range,val],ix)=>'<div class="field"><label for
 panel.innerHTML=[
 '<summary>AUTO ACCEL MAP · ESP32-S3</summary>',
 '<div class="tuneSettingsGroup"><h3 class="tuneSettingsGroupHeading">TỰ CHUYỂN MAP KHI TĂNG GA</h3>',
-'<div class="tuneSettingHelp">Chỉ hiện với FW2.2 ACCS3 / ACCS3R2. Dùng TPS + RPM, không cần cảm biến MAP. AUTO bật nhưng tạm ngừng chuyển khi Blink còn kết nối; bản R2 đọc lại MAP ECU trước khi tự chạy. Chỉ dùng với ECU 9.1x/9.2x đã xác minh. Hai MAP phải an toàn về cả phun và đánh lửa.</div>',
+'<div class="tuneSettingHelp">Chỉ hiện với FW2.2 ACCS3/R2/R3. Dùng TPS + RPM, không cần cảm biến MAP. R3 giữ nhường quyền UART/MAP cho Blink khi BLE kết nối, xác thực lại ECU 0x5A trước khi tự chuyển khi ngắt BLE. Chỉ dùng ECU 9.1x/9.2x đã xác minh. Hai MAP phải an toàn về phun và đánh lửa.</div>',
 '<div class="settingsGrid tuneSettingsGrid">'+fields+'</div>',
 '<div class="toolrow" style="margin-top:8px">',
 '<button type="button" id="accS3UseTps">LẤY TPS ĐÃ HỌC</button>',
@@ -45,6 +45,8 @@ panel.innerHTML=[
 '<label class="toggleItem" style="margin:10px 0;display:flex;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3Safety"><span>Đã kiểm tra MAP thường/tăng tốc, đánh lửa, giới hạn tua và động cơ đang dừng khi bật.</span></label>',
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
+'<div class="tuneSettingHelp" id="accS3LastFault" role="alert" style="display:none;color:#ffb09e;border:1px solid #803d30;border-radius:9px;padding:10px;white-space:pre-wrap"></div>',
+'<details id="accS3Events" style="margin:10px 0"><summary>NHẬT KÝ AUTO ACCEL · LỆNH / CẢNH BÁO</summary><pre id="accS3Log" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace;max-height:230px;overflow:auto;margin:8px 0"></pre><button type="button" id="accS3ClearLog">XÓA NHẬT KÝ</button></details>',
 '<div class="tuneSettingHelp">Cài đặt lưu trên ESP32-S3. Khi Blink còn kết nối BLE, app ưu tiên MAP và AUTO tạm ngừng chuyển; ngắt kết nối Blink để ESP32 tự chuyển theo TPS/RPM. Tắt AUTO khi đang MAP tăng tốc không tự đổi về MAP thường: phải kiểm tra và chọn MAP an toàn bằng Blink.</div></div>'
 ].join('');
 $('accS3Base'); // panel attached below
@@ -53,6 +55,35 @@ $('accS3Base').value='1';$('accS3Boost').value='2';
 const ids=specs.map(x=>x[0]);
 let available=false,attached=null,lastSnap=null,hasRead=false,busy=false;
 let ack=null,readPromise=null,parts=new Map(),padField=null,lastTry=0;
+let lastFault=null;const events=[];
+const fatalCodes={
+ 'ACC:APP_MAP':'FW ACCS3 cũ tự tắt AUTO vì MAP Blink khác MAP thường. Nạp S3 ACCS3R2 bằng USB.',
+ 'ACC:APP_WRITE':'ESP32 tắt AUTO vì Blink gửi lệnh ghi/khôi phục ECU.',
+ 'ACC:ECU_REJECT':'ECU không vượt qua xác minh 0x5A hoặc không khớp ECU đã lưu.',
+ 'ACC:MAP_CONFLICT':'MAP thực tế không thuộc cặp MAP thường/tăng tốc đã đặt.',
+ 'ACC:TPS_RANGE':'Điện áp TPS LIVE nằm ngoài biên hiệu chuẩn cho phép. Kiểm tra TPS đóng/mở.',
+ 'ACC:MAP_VERIFY':'Chuyển MAP nhưng ECU không xác minh được MAP đích.',
+ 'ACC:CAL_FIRST':'ESP32 từ chối BẬT vì chưa hiệu chuẩn TPS hoặc cặp MAP chưa hợp lệ.',
+ 'ACC:AUTH_FIRST':'ESP32 chưa nhận handshake ECU 0x5A hợp lệ từ phiên Blink hiện tại hoặc ECU khác mã đã ghim. Hãy ngắt/kết nối lại Blink, xác thực ECU trước khi BẬT.',
+ 'ACC:OFF_FIRST':'ESP32 yêu cầu tắt AUTO trước khi thay đổi thiết lập.',
+ 'ACC:BAD_CMD':'Lệnh cài đặt không được firmware nhận.',
+ 'ACC:BAD_CAL':'Giá trị TPS đóng/mở không hợp lệ.',
+ 'ACC:BAD_MAP':'Cặp MAP thường/tăng tốc không hợp lệ.',
+ 'ACC:BAD_VALUE':'Giá trị thiết lập nằm ngoài phạm vi.',
+ 'ACC:CMD_BUSY':'ESP32 đang xử lý lệnh khác; không nhận thêm.'
+};
+function logEvent(code){
+ const entry=new Date().toLocaleTimeString('vi-VN',{hour12:false})+'  '+String(code);
+ events.push(entry);if(events.length>35)events.shift();
+ const el=$('accS3Log');if(el)el.textContent=events.join('\n');
+}
+function retainFault(code,reason){
+ lastFault={code:String(code),reason:String(reason||''),at:new Date().toLocaleTimeString('vi-VN',{hour12:false})};
+ const el=$('accS3LastFault');
+ if(el){el.style.display='block';el.textContent='CẢNH BÁO LƯU LẠI · '+lastFault.at+
+   '\n'+lastFault.code+' · '+lastFault.reason+'\nKhông tự xóa khi trạng thái AUTO chuyển sang TẮT.';}
+ const d=$('accS3Events');if(d)d.open=true;
+}
 const previous=typeof w.onBlinkStatus==='function'?w.onBlinkStatus:null;
 function info(t,error){const el=$('accS3State');if(el){el.textContent=String(t);el.style.color=error?'#ffb2a4':'';}}
 function lock(on){busy=on;for(const id of ['Read','Save','On','Off','UseTps']){const el=$('accS3'+id);if(el)el.disabled=on||!available;}}
@@ -61,16 +92,27 @@ function support(on){
  if(available===!!on)return;
  available=!!on;panel.hidden=!available;hasRead=false;lastSnap=null;
  if(!available){
+   lastFault=null;const el=$('accS3LastFault');if(el)el.style.display='none';
+ }
+ if(!available){
    stopPad();parts.clear();
    if(ack){const p=ack;ack=null;p.reject(new Error('Mất kết nối S3 ACC'));}
    if(readPromise){const p=readPromise;readPromise=null;p.reject(new Error('Mất kết nối S3 ACC'));}
- }else info('ESP32-S3 ACCS3 được phát hiện · đang đọc cấu hình...');
+ }else{
+   info('ESP32-S3 ACCS3 được phát hiện · đang đọc cấu hình...');
+   if(/^PONG\s+FW2\.2\s+ACCS3$/i.test(String(w.blinkBridgeFirmwareStatus||''))){
+     retainFault('FW2.2 ACCS3','Đây là firmware S3 đời đầu. Bản này có lỗi AUTO tự tắt khi Blink đang chọn MAP khác MAP thường. Cần nạp ACCS3R2 trên ESP32-S3, chỉ cập nhật Blink không sửa được.');
+   }
+ }
  lock(false);
 }
 function onStatus(s){
  s=String(s||'').trim();
  if(/^PONG\b/i.test(s))support(cap.test(s));
  if(!available||!s.startsWith('ACC:'))return;
+ logEvent(s);
+ if(fatalCodes[s])retainFault(s,fatalCodes[s]);
+ else if(s.startsWith('ACC:BAD_'))retainFault(s,'ESP32 từ chối lệnh; hãy kiểm tra cấu hình.');
  if(ack){
    if(s===ack.ok){const t=ack;ack=null;t.resolve();}
    else if(/^ACC:(?:BAD_|OFF_FIRST|CAL_FIRST|ECU_REJECT|CMD_BUSY|MAP_VERIFY|TPS_RANGE)/.test(s)){
@@ -219,6 +261,10 @@ async function save(){
 }
 async function switchAuto(on){
  if(busy||!hasRead)return;
+ if(on&&/^PONG\s+FW2\.2\s+ACCS3$/i.test(String(w.blinkBridgeFirmwareStatus||''))){
+   retainFault('FW2.2 ACCS3','Không bật AUTO từ Blink với firmware S3 đời đầu vì lỗi tự tắt/MAP xung đột. Nạp ACCS3R2 rồi kết nối lại.');
+   return;
+ }
  if(on&&!$('accS3Safety').checked){info('Chưa xác nhận an toàn và động cơ đang dừng.',true);return;}
  if(on&&!lastSnap.cal){info('Phải hiệu chuẩn TPS và lưu trước khi bật.',true);return;}
  lock(true);
@@ -227,7 +273,11 @@ async function switchAuto(on){
    await command(on?'ACC ON':'ACC OFF',on?'ACC:WAIT_ZERO':'ACC:OFF');
    const s=await get();
    paint(s);
-   if(s.enabled!==on)throw new Error('ESP32 không xác nhận bật/tắt.');
+   if(s.enabled!==on){
+     const reason=lastFault?.code?(' · '+lastFault.code+' · '+lastFault.reason):' · Mở NHẬT KÝ AUTO ACCEL để xem phản hồi.';
+     retainFault('ACC:VERIFY_OFF','Đã gửi '+(on?'BẬT':'TẮT')+' nhưng ESP32 đọc lại không khớp'+reason);
+     throw new Error('ESP32 không xác nhận bật/tắt'+reason);
+   }
   });
  }catch(e){info('BẬT/TẮT LỖI: '+e.message,true);}
  finally{lock(false);}
@@ -260,6 +310,10 @@ $('accS3Read').onclick=()=>{void read(false).catch(()=>{});};
 $('accS3Save').onclick=()=>{stopPad();void save();};
 $('accS3On').onclick=()=>{stopPad();void switchAuto(true);};
 $('accS3Off').onclick=()=>{stopPad();void switchAuto(false);};
+$('accS3ClearLog').onclick=()=>{
+ events.length=0;lastFault=null;
+ $('accS3Log').textContent='';$('accS3LastFault').style.display='none';
+};
 function update(){
  const mc=w.blinkMapChar||null;
  if(attached!==mc){
