@@ -206,6 +206,7 @@ static void accTick();
 static void accObserveHost(const uint8_t *tx,size_t tn,const uint8_t *rx,size_t rn);
 static void accOverrideHostLive(uint8_t *tx,size_t tn);
 static void accStop(const char *reason);
+static void accBeforeHostEcuTx(const uint8_t *tx, size_t n);
 
 static uint16_t le16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
 static uint32_t le32(const uint8_t *p) {
@@ -804,8 +805,7 @@ static void processTransaction() {
 
   // Manual ECU writes/restore have priority and must stop ACC switching.
   // Do not block or mutate the original 2.2 write protocol.
-  if(accRequested && n>0 && (txBuf[0]==0xCD || txBuf[0]==0x8B))
-    accStop("ACC:APP_WRITE");
+  accBeforeHostEcuTx(txBuf,n);
   accOverrideHostLive(txBuf,n);
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
   const size_t got = transactUart(txBuf, n, rxBuf, RX_MAX);
@@ -1028,6 +1028,10 @@ static void accStop(const char *reason){
   // Do not send an unverified blind 0x69 on STOP. If the ECU was on
   // BOOST MAP, select the safe MAP manually in Blink after STOP.
   accReport(reason);
+}
+static void accBeforeHostEcuTx(const uint8_t *tx, size_t n){
+  if(accRequested && tx && n>0 && (tx[0]==0xCD || tx[0]==0x8B))
+    accStop("ACC:APP_WRITE");
 }
 static void accExecuteCommand(String cmd){
   cmd.trim();cmd.toUpperCase();
