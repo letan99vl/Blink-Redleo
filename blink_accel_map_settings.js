@@ -122,7 +122,7 @@ async function withBridgeSlot(task){
  let ctx=null;
  try{
   if(api?.handshake && typeof api.beginManualMapIo==='function'){
-   ctx=await api.beginManualMapIo('ACCEL MAP S3');
+   ctx=await api.beginManualMapIo('ACCEL MAP S3',{silentStatus:true});
   }
   return await task();
  }finally{
