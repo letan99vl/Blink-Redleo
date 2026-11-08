@@ -77,7 +77,7 @@ function onStatus(s){
      const t=ack;ack=null;t.reject(new Error(s));
    }
  }
- if(s==='ACC:APP_MAP')info('AUTO đã tắt vì Blink chọn MAP thủ công.');
+ if(s==='ACC:APP_MAP')info('Firmware S3 đời đầu đã tự tắt khi MAP Blink khác MAP thường. Cần nạp FW S3 ACC mới để giữ AUTO ở chế độ tạm dừng.',true);
  if(s==='ACC:APP_WRITE')info('AUTO đã tắt vì Blink đang ghi/khôi phục dữ liệu ECU.');
  if(s==='ACC:APP_PAUSED')info('Blink đang kết nối: tạm ngừng tự chuyển MAP, app ưu tiên quyền điều khiển.');
  if(s==='ACC:MAP_BOOST')info('ESP32 vừa xác nhận MAP tăng tốc.');
@@ -113,8 +113,15 @@ function mapPacket(e){
 }
 function paint(s){
  ids.forEach(k=>{$('accS3'+k).value=String(s[k]);});
- const state=s.enabled?(s.ready?(s.boost?'MAP TĂNG TỐC':'MAP THƯỜNG'):'CHỜ XÁC THỰC ECU VÀ RPM=0'):'ĐANG TẮT';
- info('AUTO ACCEL: '+state+' · ECU MAP '+(s.ecuMap||'?')+' · RPM '+s.liveRpm+' · TPS '+s.liveMv+'mV · CAL '+(s.cal?'OK':'CHƯA')+(s.fault?' · CÓ LỖI':''));
+ const phase=!s.enabled?'ĐANG TẮT':
+   !s.ready?'ĐÃ BẬT · CHỜ XÁC THỰC ECU VÀ RPM=0':
+   w.blinkCommandChar?'ĐÃ BẬT · TẠM DỪNG CHUYỂN MAP KHI BLINK KẾT NỐI':
+   s.boost?'ĐANG CHẠY MAP TĂNG TỐC':'ĐANG CHẠY MAP THƯỜNG';
+ const offset=s.liveRpm<=10&&s.liveMv>0&&s.IdleMv>s.liveMv+100?
+   ' · CHÚ Ý: TPS LIVE THẤP HƠN TPS ĐÓNG '+(s.IdleMv-s.liveMv)+'mV, NÊN HỌC LẠI TPS':'';
+ info('AUTO ACCEL: '+phase+' · ECU MAP '+(s.ecuMap||'?')+
+   ' · RPM '+s.liveRpm+' · TPS '+s.liveMv+'mV · CAL '+(s.cal?'OK':'CHƯA')+
+   (s.fault?' · CÓ LỖI':'')+offset);
 }
 async function withBridgeSlot(task){
  const api=w.BlinkRealProtocol;
