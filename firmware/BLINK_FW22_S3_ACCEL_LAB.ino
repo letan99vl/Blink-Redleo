@@ -48,7 +48,7 @@
 
 #ifndef FW_VERSION
 #define FW_VERSION "2.2"
-#define ACC_LAB_BUILD_ID "S3ACC-LAB3"
+#define ACC_LAB_BUILD_ID "S3ACC-LAB4"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -379,7 +379,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "PING") {
-        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R3");
+        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R4");
       } else if (text.startsWith("RXPROBE:")) {
         const int requested = text.substring(8).toInt();
         sendRxProbe((uint16_t)requested);
@@ -943,7 +943,7 @@ static void accLoad(){
   accRequested=accNvs.getBool("enabled",false);
   const bool sane=acc.baseMap>=1&&acc.baseMap<=4&&
     acc.boostMap>=1&&acc.boostMap<=4&&acc.baseMap!=acc.boostMap&&
-    acc.minRpm>=1000&&acc.minRpm<=15000&&
+    acc.minRpm<=15000&&
     acc.minTps>=10&&acc.minTps<=90&&
     acc.risePts>=3&&acc.risePts<=40&&
     acc.backTps<acc.minTps&&acc.highTps>=acc.minTps&&
@@ -1088,7 +1088,7 @@ static void accExecuteCommand(String cmd){
     accReport("ACC:WAIT_ZERO");return;
   }
   const struct {const char* prefix;uint16_t minv,maxv;uint8_t tag;} inputs[]={
-    {"ACC RPM ",1000,15000,0},{"ACC TPS ",10,90,1},
+    {"ACC RPM ",0,15000,0},{"ACC TPS ",10,90,1},
     {"ACC RISE ",3,40,2},{"ACC HIGH ",10,95,3},
     {"ACC HOLD ",500,10000,4},{"ACC BACK ",5,70,5},
     {"ACC BACKMS ",300,3000,6},{"ACC DWELL ",200,2000,7}
@@ -1186,6 +1186,9 @@ static void accLive(const uint8_t *rx,size_t n){
   // regular 0x69 LIVE packets contain an ECU MAP selector; do not race it.
   // Keep reading RPM/TPS for UI, but only auto-switch after disconnect.
   if(deviceConnected){accResetTrends();return;}
+  // RPM=0 is a TEST-only setting: refuse automatic switching if the
+  // engine is actually turning. The ordinary default remains 2500 RPM.
+  if(acc.minRpm==0 && rpm>10){accResetTrends();return;}
   if(accSampleCount && (uint32_t)(now-accSamples[(accNextSample+7)%8].ms)>650U)
     accResetTrends();
   const uint8_t percent=(uint8_t)lroundf(tps);
