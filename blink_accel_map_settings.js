@@ -60,6 +60,8 @@ panel.innerHTML=[
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
 '<label class="toggleItem" id="accS3LiveControlRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3DriveLive"><span><b>CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI</b> · Chỉ S3 R3/R4. Cần bật thủ công mỗi phiên và xác nhận an toàn.</span></label>',
+'<div class="tuneSettingHelp" id="accS3ControlHint" style="display:none;color:#ffc37c"></div>',
+'<div class="tuneSettingHelp" id="accS3LiveWatch" role="status" aria-live="off">ECU LIVE 0xA1: chờ TPS và RPM hợp lệ...</div>',
 '<div class="tuneSettingHelp" id="accS3LiveProof" role="status">MAP ECU: chờ xác minh · chưa tự chuyển qua Blink.</div>',
 '<div class="tuneSettingHelp" id="accS3LastFault" role="alert" style="display:none;color:#ffb09e;border:1px solid #803d30;border-radius:9px;padding:10px;white-space:pre-wrap"></div>',
 '<details id="accS3Events" style="margin:10px 0"><summary>NHẬT KÝ AUTO ACCEL · LỆNH / CẢNH BÁO</summary><pre id="accS3Log" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace;max-height:230px;overflow:auto;margin:8px 0"></pre><button type="button" id="accS3ClearLog">XÓA NHẬT KÝ</button></details>',
@@ -82,7 +84,7 @@ const capR3=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4)$/i;
 const capR4=/^PONG\s+FW2\.2\s+ACCS3R4$/i;
 let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
 let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
-let autoLastMap=0;
+let autoLastMap=0,lastWatchMs=0;
 const fatalCodes={
  'ACC:APP_MAP':'FW ACCS3 cũ tự tắt AUTO vì MAP Blink khác MAP thường. Nạp S3 ACCS3R2 bằng USB.',
  'ACC:APP_WRITE':'ESP32 tắt AUTO vì Blink gửi lệnh ghi/khôi phục ECU.',
@@ -135,13 +137,25 @@ function syncPadToggle(){
  padToggle.hidden=!visible;
  if(!visible&&padVisible())stopPad();
 }
+function syncLiveControllerAvailability(){
+ const canDrive=available&&capR3.test(String(w.blinkBridgeFirmwareStatus||''));
+ const row=$('accS3LiveControlRow'),hint=$('accS3ControlHint');
+ if(row)row.style.display=canDrive?'flex':'none';
+ if(hint){
+   hint.style.display=available&&!canDrive?'block':'none';
+   if(available&&!canDrive)hint.textContent='Firmware '+String(w.blinkBridgeFirmwareStatus||'').replace('PONG ','')+
+     ' không cho Blink tự đổi MAP khi đang kết nối BLE. ESP32 chỉ tự chuyển sau khi ngắt Blink và đã ARMED. Muốn đổi MAP trên điện thoại cần S3 R3/R4; RPM=0 cần R4.';
+ }
+ if(!canDrive&&$('accS3DriveLive').checked){
+   $('accS3DriveLive').checked=false;resetAutoTrend();
+ }
+}
 function support(on){
- if(available===!!on)return;
+ if(available===!!on){syncLiveControllerAvailability();return;}
  available=!!on;panel.hidden=!available;hasRead=false;lastSnap=null;
  resetAutoTrend();autoManualHold=false;
- const driveRow=$('accS3LiveControlRow');
- if(driveRow)driveRow.style.display=on&&capR3.test(String(w.blinkBridgeFirmwareStatus||''))?'flex':'none';
  $('accS3DriveLive').checked=false; // explicit opt-in each BLE session
+ syncLiveControllerAvailability();
  if(!available){
    lastFault=null;const el=$('accS3LastFault');if(el)el.style.display='none';
  }
@@ -237,19 +251,47 @@ function onManualMapSelection(bank){
  if(!available||!lastSnap?.enabled)return;
  autoManualHold=true;$('accS3DriveLive').checked=false;resetAutoTrend();
  logEvent('BLINK: Người dùng tự chọn MAP '+bank+' · dừng AUTO trên app');
- liveProof('Đã ưu tiên MAP người dùng chọn. AUTO trên Blink tạm dừng; nếu cần dừng luôn ESP32 khi ngắt BLE, hãy bấm TẮT AUTO ACCEL.',true);
+ const again=capR3.test(String(w.blinkBridgeFirmwareStatus||''))?
+   'Để cho phép tự chuyển tiếp, tích lại CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI.':
+   'FW S3 R1/R2 chỉ tự đổi MAP sau khi ngắt BLE.';
+ liveProof('Đã ưu tiên MAP người dùng chọn. AUTO trên Blink tạm dừng. '+again+
+   ' Bấm TẮT AUTO ACCEL nếu muốn dừng cả ESP32.',true);
 }
 function onVerifiedLive(sample){
- if(!available||!capR3.test(String(w.blinkBridgeFirmwareStatus||''))||
-   !$('accS3DriveLive').checked||!$('accS3Safety').checked||
-   autoManualHold||autoTransitionBusy||busy)return;
- const cfg=lastSnap,api=w.BlinkRealProtocol;
- if(!cfg?.enabled||!cfg.ready||cfg.fault||
-    !api?.switchS3AutoMapVerified||api.manualIoActive||api.isBusy||
-    api.s3AutoMapBusy||api.otaPaused||api.diagnostics?.mapReadOnly)return;
+ if(!available)return;
  const now=Number(sample?.receivedAt),rpm=Number(sample?.rpm),mv=Number(sample?.tpsMv);
  if(!Number.isFinite(now)||!Number.isFinite(rpm)||!Number.isFinite(mv)||
-    rpm<0||rpm>20000||mv<0||mv>5000||cfg.WideMv<=cfg.IdleMv)return;
+    rpm<0||rpm>20000||mv<0||mv>5000)return;
+ const cfg=lastSnap,api=w.BlinkRealProtocol;
+ // Diagnostic only: show validated ECU 0xA1 measurements even if switching
+ // is paused. Do not bypass any MAP-safety gates below.
+ if(!lastWatchMs||now-lastWatchMs>=250||now<lastWatchMs){
+   lastWatchMs=now;
+   const el=$('accS3LiveWatch');
+   if(el){
+     const pct=cfg&&cfg.WideMv>cfg.IdleMv?
+       Math.max(0,Math.min(100,(mv-cfg.IdleMv)*100/(cfg.WideMv-cfg.IdleMv))):NaN;
+     let why='Đang xét TPS mở nhanh / giữ TPS cao đủ thời gian.';
+     if(!capR3.test(String(w.blinkBridgeFirmwareStatus||'')))why='S3 R1/R2 chỉ tự chuyển sau khi ngắt BLE.';
+     else if(autoManualHold)why='Đã chọn MAP thủ công; tích lại CHO BLINK TỰ CHUYỂN MAP.';
+     else if(!$('accS3DriveLive').checked)why='Chưa tích CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI.';
+     else if(!$('accS3Safety').checked)why='Chưa xác nhận điều kiện thử an toàn.';
+     else if(!cfg?.enabled)why='AUTO ESP32 đang TẮT.';
+     else if(cfg.fault)why='ESP32 báo lỗi AUTO.';
+     else if(!cfg.ready)why='ESP32 chưa ARMED.';
+     else if(cfg.Rpm===0&&rpm>10)why='RPM=0 chỉ dùng khi máy dừng.';
+     else if(rpm<cfg.Rpm)why='RPM chưa đạt '+cfg.Rpm+'.';
+     else if(Number.isFinite(pct)&&pct<cfg.Tps)why='TPS chưa đạt '+cfg.Tps+'%.';
+     el.textContent='ECU LIVE 0xA1 · RPM '+Math.round(rpm)+' · TPS '+Math.round(mv)+'mV'+
+       (Number.isFinite(pct)?' ('+Math.round(pct)+'%)':'')+' · '+why;
+   }
+ }
+ if(!capR3.test(String(w.blinkBridgeFirmwareStatus||''))||
+   !$('accS3DriveLive').checked||!$('accS3Safety').checked||
+   autoManualHold||autoTransitionBusy||busy)return;
+ if(!cfg?.enabled||!cfg.ready||cfg.fault||cfg.WideMv<=cfg.IdleMv||
+    !api?.switchS3AutoMapVerified||api.manualIoActive||api.isBusy||
+    api.s3AutoMapBusy||api.otaPaused||api.diagnostics?.mapReadOnly)return;
  // RPM trigger zero is a laboratory setting: do NOT auto-switch a running
  // engine if a user forgets to restore the normal RPM threshold.
  if(cfg.Rpm===0 && rpm>10){resetAutoTrend();return;}

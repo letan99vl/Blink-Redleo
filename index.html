@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.182' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.182' : '3.79.182'); // 2026-11-08 ACCS3 R3 verified MAP autoswitch UI, floating keypad and RPM0 stationary TEST; legacy untouched
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.183' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.183' : '3.79.183'); // 2026-11-08 S3 ACC LIVE TPS diagnostic and opt-in visibility fix; firmware/ECU unchanged
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -10610,7 +10610,7 @@ updateMapControls();
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
     // ACC setup is invisible unless the S3 bridge advertises ACCS3, ACCS3R2 or ACCS3R3.
     // No extra commands or interface changes on legacy firmware.
-    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP7-FLOATKEY-RPM0-VERIFIEDMAP-20261108"><\/script>');
+    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP8-LIVE-TPS-CHECK-20261108"><\/script>');
   })();
 </script>
 </body>

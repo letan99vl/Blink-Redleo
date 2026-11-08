@@ -50,6 +50,10 @@ assert(app.includes('const capR4=/^PONG\\s+FW2\\.2\\s+ACCS3R4$/i;'), 'RPM0 is S3
 assert(app.includes("o.Rpm===0&&!capR4.test"), 'reject RPM0 for old firmware');
 assert(f.includes('(rx[20] != 0 && rx[20] != \' \'') && f.includes('rx[33]>3'),'accept padded 9.2 version but require valid bank');
 assert(html.includes("blink_accel_map_settings.js?v="));
+assert(app.includes('syncLiveControllerAvailability()'), 'refresh R3/R4 opt-in after firmware marker');
+assert(app.includes('if(available===!!on){syncLiveControllerAvailability();return;}'), 'prevent stale hidden controller row');
+assert(app.includes('accS3ControlHint')&&app.includes('accS3LiveWatch'), 'S3 R2 explanation and checksum-validated LIVE TPS watcher');
+assert(app.includes('lastWatchMs')&&app.includes('Đã chọn MAP thủ công'), 'diagnose throttle and manual MAP ownership without bypassing safety');
 assert(html.includes('window.blinkApplyVerifiedAutoMap=function'), 'verified selection updates screen');
 assert(html.includes('accS3DashVerified')&&html.includes('accS3MapsVerified'), 'visible verified MAP on Home and Maps');
 assert(protocol.includes('async function switchS3AutoMapVerified'), 'app controls physical MAP when BLE connected');

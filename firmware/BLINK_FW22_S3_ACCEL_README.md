@@ -136,3 +136,12 @@ Trieu chung: bam BAT AUTO ACCEL, dong canh bao mau cam nhay qua nhanh, sau do hi
 **Firmware cu:** khong co capability ACCS3 thi Blink khong hien phan AUTO ACCEL, giao tiep/OTA RAW FW cu nhu truoc.
 
 **Gioi han:** can test bench thuc te; chu ky 0x69/0x5A va TPS/RPM chua duoc xac nhan tren tung ECU. Khong dung tren duong cong cong truoc khi chung minh ca map phun va map danh lua an toan.
+
+## Blink PB3.79.183 — MAP khong chuyen khi van ga
+
+- Giu nguyen firmware S3 R4, protocol, checksum 0x5A, identity, RPM=0 stationary interlock va OTA production khoa.
+- Neu FW S3 R1/R2, ESP32 KHONG tu chuyen MAP trong khi Blink con ket noi BLE. Muon Blink dieu khien khi con ket noi can firmware S3 R3/R4 + checkbox `CHO BLINK TU CHUYEN MAP KHI KET NOI`, bat thu cong moi phien.
+- Sua loi hien thi: dong y R3/R4 duoc cap nhat lai khi nhan marker PONG tre, thay vi bi an den lan ket noi sau. R1/R2 hien giai thich khong co checkbox.
+- Them chi so TPS mV / TPS % va RPM tu frame ECU LIVE 0xA1 checksum hop le, va thong bao vi sao Blink chua chuyen MAP. Du lieu hien thi KHONG tu gui lenh ECU.
+- Neu nguoi dung chon MAP bang tay, AUTO tren Blink ngung cho den khi tick lai checkbox; AUTO tren ESP32 co the van bat sau khi mat BLE, can OFF neu khong muon chay doc lap.
+- Chi kiem tra khi dong co DUNG / bench test, khong dung tren duong khi chua kiem chung ca MAP phun, danh lua va gioi han tua.
