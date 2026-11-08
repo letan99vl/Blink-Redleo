@@ -35,7 +35,7 @@ assert(app.includes('ACC GET')&&app.includes('ACC CAL ')&&app.includes('ACC MAP 
 assert(app.includes("s.enabled!==on")&&app.includes('ĐÃ LƯU VÀ XÁC MINH'));
 assert(app.includes('ĐÃ BẬT · TẠM DỪNG CHUYỂN MAP KHI BLINK KẾT NỐI'));
 assert(html.includes("blink_accel_map_settings.js?v="));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.178'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.179'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
