@@ -7924,6 +7924,9 @@ window.addEventListener('beforeunload',save);
     // The REAL protocol layer consumes this internally for timing/diagnostics.
     // Do not overwrite the user-facing footer with RAWREADY xx.
     if(text.startsWith('RAWREADY '))return;
+    // Dedicated ACCS3 settings own their short status ACKs. Do not flash the
+    // ordinary ECU/footer notices for each of the 12 setup transactions.
+    if(text.startsWith('ACC:'))return;
     if(text.startsWith('TXPROBE ')){
       const n=Number(text.slice(8))||0;
       if(txProbeResolve){const r=txProbeResolve;txProbeResolve=null;r(n>=12);}
