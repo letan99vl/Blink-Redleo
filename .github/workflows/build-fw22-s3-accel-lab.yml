@@ -5,6 +5,7 @@ on:
     paths:
       - 'firmware/BLINK_FW22_S3_ACCEL_LAB.ino'
       - 'blink_accel_map_settings.js'
+      - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-acc-s3-protocol.js'
       - '.github/workflows/build-fw22-s3-accel-lab.yml'
@@ -38,7 +39,9 @@ jobs:
           assert 'if(linked)return;' in s
           assert 'accHostVerified=true;' in s
           assert 'ACC:AUTH_FIRST' in s
-          assert ' " ACCS3R3"' in s
+          assert ' " ACCS3R4"' in s
+          assert '{"ACC RPM ",0,15000,0}' in s
+          assert 'if(acc.minRpm==0 && rpm>10)' in s
           assert "if(deviceConnected && (!accHostVerified || !accIdentityValid))" in s
           assert 'accReady?accCurrentMap:accHandshakeMap' in s
           assert 'app disconnected: re-verify 0x5A before LIVE' in s
@@ -51,6 +54,7 @@ jobs:
       - name: Verify new S3 protocol + legacy isolation
         run: |
           node --check blink_accel_map_settings.js
+          node --check redleo_real_protocol.js
           node tools/check-acc-s3-protocol.js
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32 Arduino core
