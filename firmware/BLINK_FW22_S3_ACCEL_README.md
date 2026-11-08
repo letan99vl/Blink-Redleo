@@ -32,8 +32,9 @@ Arduino IDE: Board `ESP32S3 Dev Module`, Arduino-ESP32 core `3.3.12`; nen bat `U
 5. Triggers: RPM >=2500, TPS>=35% va TPS tang >=15 diem phan tram / ~200-400ms; hoac TPS>=60% lien tuc 400ms. Chuyen MAP1 -> MAP2.
 6. Giua MAP2 it nhat 1500ms. Chi tra MAP1 neu TPS<=20% lien tuc 800ms.
 7. Moi lan chuyen: gui 0x69 MAP dich + check 53B LIVE, sau do doc lai 0x5A va doi chieu MAP thuc te. Neu 2 lan fail thi ACC OFF va bao loi. Khong thuc hien blind write.
-8. Khi Blink tren dien thoai / PC yeu cau mot MAP khac, phan mem duoc uu tien: ACC tu OFF, KHONG sua tham so trong lenh cua Blink. Khong duoc xem ACC la cung hoat dong voi thao tac chon MAP bang tay.
+8. Khi Blink dang ket noi BLE, bo tu dong **TAM DUNG CHUYEN MAP** de tranh canh tranh voi lenh LIVE 0x69 cua app. Ngat BLE sau khi cai dat de ESP32-S3 tu dong chuyen MAP doc lap. Neu nguoi dung chon MAP thu cong khac, ACC tu OFF, KHONG sua tham so trong lenh Blink.
 9. Neu ACC OFF khi ECU dang MAP2 thi ESP32 **khong tu chuyen ve MAP1** khi chua verify; nguoi dung phai chon MAP an toan bang Blink / dung may kiem tra.
+10. Khi app ghi/khôi phuc ECU (0xCD/0x8B), firmware tu OFF ACC truoc khi giao tiep ghi; lenh ghi ECU van giu nguyen. Neu nguoi dung mo Blink trong khi ACC dang chay, app uu tien dieu khien.
 
 **CANH BAO:** Doi REDLEO MAP1/2 la doi *ca* map danh lua/han muc RPM... khong chi thoi gian phun. Chi dung khi hai bo map da duoc test, thong so phun/lua an toan, va khong thu tren duong cong cong.
 
