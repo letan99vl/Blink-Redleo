@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.179' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.179' : '3.79.179'); // 2026-11-08 ACCS3R2 BLE-paused ON + physical MAP handover, legacy untouched
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.180' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.180' : '3.79.180'); // 2026-11-08 ACCS3 persistent fault reporting and guarded S3 R3 capability, legacy untouched
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -10585,9 +10585,9 @@ updateMapControls();
     if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'&fuelui=FIVE-INPUTS-AFR12-15000RPM-25BAR-20261107"><\/script>');
     // Load SMART only on supported Chrome PC, Android browser/APK and iOS Bluefy.
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
-    // ACC setup is invisible unless the S3 bridge returns PONG FW2.2 ACCS3 or ACCS3R2.
+    // ACC setup is invisible unless the S3 bridge advertises ACCS3, ACCS3R2 or ACCS3R3.
     // No extra commands or interface changes on legacy firmware.
-    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP4-ACCS3R2-20261108"><\/script>');
+    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP5-FAULTLOG-R3-20261108"><\/script>');
   })();
 </script>
 </body>
