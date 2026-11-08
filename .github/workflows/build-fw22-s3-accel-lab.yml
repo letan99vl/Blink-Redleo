@@ -34,7 +34,10 @@ jobs:
           assert 'OTA:S3_BLOCKED' in s
           assert 'accOverrideHostLive(txBuf,n)' in s
           assert 'accCheckIdentity(rx,got,verified) && verified==mapNo' in s
-          assert 'accStop("ACC:APP_MAP")' in s
+          assert 'accStop("ACC:APP_MAP")' not in s
+          assert 'if(linked && accReady)return;' in s
+          assert 'accReady?accCurrentMap:accHandshakeMap' in s
+          assert 'app disconnected: re-verify 0x5A before LIVE' in s
           assert 'getBool("enabled",false)' in s
           assert 'accZeroCount>=3' in s
           assert 'ECU_RX_PIN 16' in s and 'ECU_TX_PIN 17' in s
