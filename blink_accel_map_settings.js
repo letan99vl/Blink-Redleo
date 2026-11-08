@@ -5,12 +5,25 @@
 const $=id=>document.getElementById(id);
 const host=$('settingsScreen');
 if(!host)return;
-const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3)?$/i;
+const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4)?$/i;
 // Existing Blink CSS forces .settings display:block!important; explicitly
 // restore hidden semantics for firmware without the ACCS3 capability.
 const style=document.createElement('style');
 style.textContent='#settingsScreen #blinkAccelSettingsS3[hidden]{display:none!important}'+
- '#accS3Pad{height:auto!important;z-index:1!important;left:auto!important;right:auto!important;bottom:auto!important}';
+ '#accS3Pad{position:fixed!important;left:auto!important;right:max(10px,env(safe-area-inset-right))!important;'+
+ 'bottom:calc(150px + env(safe-area-inset-bottom))!important;top:auto!important;'+
+ 'z-index:250050!important;width:min(348px,calc(100vw - 20px))!important;max-width:348px!important;'+
+ 'height:min(300px,calc(100dvh - 230px))!important;min-height:170px!important;'+
+ 'margin:0!important;border:1px solid #79313e!important;border-radius:14px!important;'+
+ 'box-shadow:0 12px 38px #000d!important;overflow:hidden!important}'+
+ '#accS3Pad .fuelKeypadGrid{min-height:0;grid-template-rows:repeat(4,minmax(36px,1fr))}'+
+ '#accS3Pad .fuelKeypadGrid button{min-height:36px}'+
+ '#accS3FloatKey{position:fixed;right:max(12px,env(safe-area-inset-right));'+
+ 'bottom:calc(88px + env(safe-area-inset-bottom));z-index:250060;width:58px;height:53px;'+
+ 'min-width:58px;min-height:53px;border-radius:15px;border:1px solid #f06476;'+
+ 'background:#24141c;color:white;font-size:20px;font-weight:900;'+
+ 'box-shadow:0 9px 25px #000b;touch-action:manipulation}'+
+ '#accS3FloatKey[hidden]{display:none!important}';
 document.head.appendChild(style);
 const panel=document.createElement('details');
 panel.className='settings tuneSettingsDetails';
@@ -18,7 +31,7 @@ panel.id='blinkAccelSettingsS3';
 panel.hidden=true;
 const specs=[
  ['Base','MAP bình thường','1:4',1],['Boost','MAP tăng tốc','1:4',2],
- ['Rpm','RPM kích hoạt','1000:15000',2500],['Tps','TPS kích hoạt (%)','10:90',35],
+ ['Rpm','RPM kích hoạt (0 = TEST)','0:15000',2500],['Tps','TPS kích hoạt (%)','10:90',35],
  ['Rise','TPS tăng trong 200–400ms (%)','3:40',15],['High','TPS cao duy trì (%)','10:95',60],
  ['Dwell','Giữ TPS cao (ms)','200:2000',400],['Hold','Giữ MAP tăng tốc (ms)','500:10000',1500],
  ['Back','TPS trả MAP thường (%)','5:70',20],['BackMs','Trễ trả MAP (ms)','300:3000',800],
@@ -31,13 +44,14 @@ const fields=specs.map(([id,label,range,val],ix)=>'<div class="field"><label for
 panel.innerHTML=[
 '<summary>AUTO ACCEL MAP · ESP32-S3</summary>',
 '<div class="tuneSettingsGroup"><h3 class="tuneSettingsGroupHeading">TỰ CHUYỂN MAP KHI TĂNG GA</h3>',
-'<div class="tuneSettingHelp">Chỉ hiện với FW2.2 ACCS3/R2/R3. Dùng TPS + RPM, không cần cảm biến MAP. R3 giữ nhường quyền UART/MAP cho Blink khi BLE kết nối, xác thực lại ECU 0x5A trước khi tự chuyển khi ngắt BLE. Chỉ dùng ECU 9.1x/9.2x đã xác minh. Hai MAP phải an toàn về phun và đánh lửa.</div>',
+'<div class="tuneSettingHelp">S3 R3/R4: Blink tự chuyển MAP theo TPS/RPM khi BLE kết nối nếu bật công tắc cho phép; phải xác minh ECU 0x5A rồi mới đổi MAP hiển thị. R4 cho phép RPM=0 để test máy dừng. Ngắt Blink thì ESP32 tự xử lý. Chỉ REDLEO 9.1x/9.2x; MAP phun/lửa phải an toàn.</div>',
 '<div class="settingsGrid tuneSettingsGrid">'+fields+'</div>',
+'<div class="tuneSettingHelp" style="color:#ffc37c">RPM = 0 chỉ để TEST khi máy dừng, khóa điện bật. Thử xong đặt lại ngưỡng RPM an toàn trước khi chạy xe.</div>',
 '<div class="toolrow" style="margin-top:8px">',
 '<button type="button" id="accS3UseTps">LẤY TPS ĐÃ HỌC</button>',
 '<button type="button" id="accS3Read" class="primary">ĐỌC TỪ ESP32</button>',
 '<button type="button" id="accS3Save" class="good">LƯU VÀO ESP32</button></div>',
-'<div id="accS3Pad" class="fuelKeypad" style="display:none;position:relative;inset:auto;max-width:400px;margin:9px 0;padding:8px" aria-hidden="true">',
+'<div id="accS3Pad" class="fuelKeypad" style="display:none" aria-hidden="true">',
 '<div class="fuelKeypadHead"><span id="accS3PadLabel">Nhập số</span><strong id="accS3PadValue">--</strong></div>',
 '<div class="fuelKeypadGrid">',
 ...['1','2','3','C','4','5','6','⌫','7','8','9','ẨN','0'].map((v,i)=>'<button type="button" data-acc-key="'+v+'"'+(i===12?' style="grid-column:span 4"':'')+'>'+v+'</button>'),
@@ -45,17 +59,30 @@ panel.innerHTML=[
 '<label class="toggleItem" style="margin:10px 0;display:flex;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3Safety"><span>Đã kiểm tra MAP thường/tăng tốc, đánh lửa, giới hạn tua và động cơ đang dừng khi bật.</span></label>',
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
+'<label class="toggleItem" id="accS3LiveControlRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3DriveLive"><span><b>CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI</b> · Chỉ S3 R3/R4. Cần bật thủ công mỗi phiên và xác nhận an toàn.</span></label>',
+'<div class="tuneSettingHelp" id="accS3LiveProof" role="status">MAP ECU: chờ xác minh · chưa tự chuyển qua Blink.</div>',
 '<div class="tuneSettingHelp" id="accS3LastFault" role="alert" style="display:none;color:#ffb09e;border:1px solid #803d30;border-radius:9px;padding:10px;white-space:pre-wrap"></div>',
 '<details id="accS3Events" style="margin:10px 0"><summary>NHẬT KÝ AUTO ACCEL · LỆNH / CẢNH BÁO</summary><pre id="accS3Log" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace;max-height:230px;overflow:auto;margin:8px 0"></pre><button type="button" id="accS3ClearLog">XÓA NHẬT KÝ</button></details>',
-'<div class="tuneSettingHelp">Cài đặt lưu trên ESP32-S3. Khi Blink còn kết nối BLE, app ưu tiên MAP và AUTO tạm ngừng chuyển; ngắt kết nối Blink để ESP32 tự chuyển theo TPS/RPM. Tắt AUTO khi đang MAP tăng tốc không tự đổi về MAP thường: phải kiểm tra và chọn MAP an toàn bằng Blink.</div></div>'
+'<div class="tuneSettingHelp">S3 R3: app tự chuyển MAP qua 0x69/0x5A khi đã bật tùy chọn trên; khi ngắt BLE, ESP32 tự chuyển. Tắt AUTO không tự trả về MAP thường. Chưa kiểm chứng trên xe: chỉ thử với động cơ dừng và hai MAP an toàn.</div></div>'
 ].join('');
 $('accS3Base'); // panel attached below
 const ota=$('otaSettings');if(ota)ota.before(panel);else host.appendChild(panel);
+// Pop out of settings scroll container so keyboard stays at viewport corner.
+const padNode=$('accS3Pad');if(padNode)document.body.appendChild(padNode);
+const padToggle=document.createElement('button');padToggle.id='accS3FloatKey';padToggle.type='button';
+padToggle.textContent='⌨';padToggle.title='Hiện hoặc ẩn bàn phím AUTO ACCEL';
+padToggle.setAttribute('aria-label','Hiện bàn phím nhập số AUTO ACCEL');
+padToggle.hidden=true;document.body.appendChild(padToggle);
 $('accS3Base').value='1';$('accS3Boost').value='2';
 const ids=specs.map(x=>x[0]);
 let available=false,attached=null,lastSnap=null,hasRead=false,busy=false;
 let ack=null,readPromise=null,parts=new Map(),padField=null,lastTry=0;
 let lastFault=null;const events=[];
+const capR3=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4)$/i;
+const capR4=/^PONG\s+FW2\.2\s+ACCS3R4$/i;
+let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
+let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
+let autoLastMap=0;
 const fatalCodes={
  'ACC:APP_MAP':'FW ACCS3 cũ tự tắt AUTO vì MAP Blink khác MAP thường. Nạp S3 ACCS3R2 bằng USB.',
  'ACC:APP_WRITE':'ESP32 tắt AUTO vì Blink gửi lệnh ghi/khôi phục ECU.',
@@ -87,10 +114,34 @@ function retainFault(code,reason){
 const previous=typeof w.onBlinkStatus==='function'?w.onBlinkStatus:null;
 function info(t,error){const el=$('accS3State');if(el){el.textContent=String(t);el.style.color=error?'#ffb2a4':'';}}
 function lock(on){busy=on;for(const id of ['Read','Save','On','Off','UseTps']){const el=$('accS3'+id);if(el)el.disabled=on||!available;}}
-function stopPad(){padField=null;$('accS3Pad').style.display='none';$('accS3Pad').setAttribute('aria-hidden','true');}
+function padVisible(){return $('accS3Pad').getAttribute('aria-hidden')==='false';}
+function stopPad(){
+ $('accS3Pad').style.display='none';
+ $('accS3Pad').setAttribute('aria-hidden','true');
+ padToggle.textContent='⌨';padToggle.setAttribute('aria-label','Hiện bàn phím AUTO ACCEL');
+}
+function showPad(input){
+ padField=input||padField||$('accS3Rpm');
+ if(!padField)return;
+ const key=padField.id.replace('accS3','');
+ $('accS3PadLabel').textContent=specs.find(x=>x[0]===key)?.[1]||'Nhập số';
+ $('accS3PadValue').textContent=String(padField.value||'0');
+ $('accS3Pad').style.display='flex';
+ $('accS3Pad').setAttribute('aria-hidden','false');
+ padToggle.textContent='ẨN';padToggle.setAttribute('aria-label','Ẩn bàn phím AUTO ACCEL');
+}
+function syncPadToggle(){
+ const visible=available&&panel.open&&host.classList.contains('active');
+ padToggle.hidden=!visible;
+ if(!visible&&padVisible())stopPad();
+}
 function support(on){
  if(available===!!on)return;
  available=!!on;panel.hidden=!available;hasRead=false;lastSnap=null;
+ resetAutoTrend();autoManualHold=false;
+ const driveRow=$('accS3LiveControlRow');
+ if(driveRow)driveRow.style.display=on&&capR3.test(String(w.blinkBridgeFirmwareStatus||''))?'flex':'none';
+ $('accS3DriveLive').checked=false; // explicit opt-in each BLE session
  if(!available){
    lastFault=null;const el=$('accS3LastFault');if(el)el.style.display='none';
  }
@@ -147,23 +198,120 @@ function mapPacket(e){
   Dwell:b.getUint16(4,true),IdleMv:b.getUint16(6,true),
   WideMv:b.getUint16(8,true),ecuMap:b.getUint8(10),
   liveRpm:b.getUint16(11,true),liveMv:b.getUint16(13,true)};
- if(s.Base<1||s.Base>4||s.Boost<1||s.Boost>4||s.Base===s.Boost||s.Rpm<1000||
+ if(s.Base<1||s.Base>4||s.Boost<1||s.Boost>4||s.Base===s.Boost||s.Rpm<0||
     s.Rpm>15000||s.IdleMv<200||s.WideMv<3000||s.WideMv-s.IdleMv<2000)return;
  hasRead=true;lastSnap=s;
+ if(s.enabled&&s.ready&&s.boost&&!autoBoostSince)autoBoostSince=performance.now();
+ if(!s.enabled){resetAutoTrend();autoLastMap=0;}
  if(!busy)paint(s);
  if(readPromise){const p=readPromise;readPromise=null;p.resolve(s);}
 }
 function paint(s){
  ids.forEach(k=>{$('accS3'+k).value=String(s[k]);});
+ const drive=capR3.test(String(w.blinkBridgeFirmwareStatus||''))&&
+   $('accS3DriveLive').checked&&$('accS3Safety').checked&&!autoManualHold;
  const phase=!s.enabled?'ĐANG TẮT':
    !s.ready?'ĐÃ BẬT · CHỜ XÁC THỰC ECU VÀ RPM=0':
-   w.blinkCommandChar?'ĐÃ BẬT · TẠM DỪNG CHUYỂN MAP KHI BLINK KẾT NỐI':
-   s.boost?'ĐANG CHẠY MAP TĂNG TỐC':'ĐANG CHẠY MAP THƯỜNG';
+   w.blinkCommandChar
+     ?drive?'ĐÃ BẬT · BLINK TỰ CHUYỂN MAP KHI ĐỦ ĐIỀU KIỆN'
+       :'ĐÃ BẬT · ĐANG NHƯỜNG QUYỀN MAP CHO BLINK'
+     :s.boost?'ĐANG CHẠY MAP TĂNG TỐC':'ĐANG CHẠY MAP THƯỜNG';
  const offset=s.liveRpm<=10&&s.liveMv>0&&s.IdleMv>s.liveMv+100?
    ' · CHÚ Ý: TPS LIVE THẤP HƠN TPS ĐÓNG '+(s.IdleMv-s.liveMv)+'mV, NÊN HỌC LẠI TPS':'';
  info('AUTO ACCEL: '+phase+' · ECU MAP '+(s.ecuMap||'?')+
    ' · RPM '+s.liveRpm+' · TPS '+s.liveMv+'mV · CAL '+(s.cal?'OK':'CHƯA')+
    (s.fault?' · CÓ LỖI':'')+offset);
+}
+// Optional client-side controller: the S3 R3 keeps autonomous UART OFF
+// while BLE is linked, so Blink itself uses the same stored TPS/RPM thresholds.
+// Only a fresh verified ECU 0x5A may authorize an on-screen MAP change.
+function resetAutoTrend(){
+ autoSamples=[];autoHighSince=0;autoBackSince=0;
+ autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;
+}
+function liveProof(message,isError=false){
+ const el=$('accS3LiveProof');
+ if(el){el.textContent=String(message);el.style.color=isError?'#ffb09e':'';}
+}
+function onManualMapSelection(bank){
+ if(!available||!lastSnap?.enabled)return;
+ autoManualHold=true;$('accS3DriveLive').checked=false;resetAutoTrend();
+ logEvent('BLINK: Người dùng tự chọn MAP '+bank+' · dừng AUTO trên app');
+ liveProof('Đã ưu tiên MAP người dùng chọn. AUTO trên Blink tạm dừng; nếu cần dừng luôn ESP32 khi ngắt BLE, hãy bấm TẮT AUTO ACCEL.',true);
+}
+function onVerifiedLive(sample){
+ if(!available||!capR3.test(String(w.blinkBridgeFirmwareStatus||''))||
+   !$('accS3DriveLive').checked||!$('accS3Safety').checked||
+   autoManualHold||autoTransitionBusy||busy)return;
+ const cfg=lastSnap,api=w.BlinkRealProtocol;
+ if(!cfg?.enabled||!cfg.ready||cfg.fault||
+    !api?.switchS3AutoMapVerified||api.manualIoActive||api.isBusy||
+    api.s3AutoMapBusy||api.otaPaused||api.diagnostics?.mapReadOnly)return;
+ const now=Number(sample?.receivedAt),rpm=Number(sample?.rpm),mv=Number(sample?.tpsMv);
+ if(!Number.isFinite(now)||!Number.isFinite(rpm)||!Number.isFinite(mv)||
+    rpm<0||rpm>20000||mv<0||mv>5000||cfg.WideMv<=cfg.IdleMv)return;
+ // RPM trigger zero is a laboratory setting: do NOT auto-switch a running
+ // engine if a user forgets to restore the normal RPM threshold.
+ if(cfg.Rpm===0 && rpm>10){resetAutoTrend();return;}
+ const physical=Number(api.handshake?.activeMap),wire=Number(api.diagnostics?.wireMap);
+ if(!Number.isInteger(physical)||physical!==wire||
+    ![cfg.Base,cfg.Boost].includes(physical)){
+   liveProof('MAP ECU chưa được xác minh 0x5A trong cặp đã thiết lập. Không tự đổi.',true);
+   return;
+ }
+ if(autoLastMap!==physical){resetAutoTrend();autoLastMap=physical;if(physical===cfg.Boost)autoBoostSince=now;}
+ if(autoLastSampleAt&&(now-autoLastSampleAt>650||now<autoLastSampleAt)){
+   resetAutoTrend();autoLastMap=physical;
+   if(physical===cfg.Boost)autoBoostSince=now;
+ }
+ autoLastSampleAt=now;
+ const pct=Math.max(0,Math.min(100,(mv-cfg.IdleMv)*100/(cfg.WideMv-cfg.IdleMv)));
+ const rounded=Math.round(pct);
+ let prior=null;
+ for(let j=autoSamples.length-1;j>=0;j--){
+   const age=now-autoSamples[j].t;
+   if(age>=200&&age<=400){prior=autoSamples[j];break;}
+ }
+ autoSamples.push({t:now,tps:rounded});
+ if(autoSamples.length>12)autoSamples.shift();
+ if(rounded>=cfg.High){if(!autoHighSince)autoHighSince=now;}else autoHighSince=0;
+ const fast=prior!==null&&rounded>=cfg.Tps&&rounded-prior.tps>=cfg.Rise;
+ const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
+ let target=0,reason='';
+ if(physical===cfg.Base){
+   if(now>=autoCooldownUntil&&rpm>=cfg.Rpm&&(fast||high)){
+     target=cfg.Boost;reason=fast?'TPS MỞ NHANH':'TPS CAO GIỮ';
+   }
+ }else{
+   if(!autoBoostSince)autoBoostSince=now;
+   if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back){
+     if(!autoBackSince)autoBackSince=now;
+     if(now-autoBackSince>=cfg.BackMs){target=cfg.Base;reason='TPS GIẢM / TRẢ MAP';}
+   }else autoBackSince=0;
+ }
+ if(!target||target===physical)return;
+ autoTransitionBusy=true;autoCooldownUntil=now+1200;
+ logEvent('BLINK: ĐỀ NGHỊ MAP '+physical+' → MAP '+target+' · '+reason+
+   ' · TPS '+rounded+'% · RPM '+Math.round(rpm));
+ liveProof('Đang gửi ECU 0x69, chờ đọc lại 0x5A · MAP '+physical+' → '+target+'...');
+ Promise.resolve(api.switchS3AutoMapVerified(target)).then(result=>{
+   if(!result?.verified||result.map!==target)throw new Error('ECU chưa xác minh đúng MAP mới bằng 0x5A.');
+   lastSnap={...lastSnap,ecuMap:target,boost:target===cfg.Boost};
+   resetAutoTrend();autoLastMap=target;
+   autoCooldownUntil=performance.now()+1200;
+   if(target===cfg.Boost)autoBoostSince=performance.now();
+   const msg='ĐÃ CHUYỂN THẬT · MAP '+physical+' → MAP '+target+
+     ' · ECU 0x5A XÁC NHẬN · '+new Date().toLocaleTimeString('vi-VN');
+   liveProof(msg);logEvent(msg);
+   if(!busy)paint(lastSnap);
+ }).catch(e=>{
+   resetAutoTrend();autoManualHold=true;$('accS3DriveLive').checked=false;
+   const desc=String(e?.message||e);
+   retainFault('ACC:APP_VERIFY','Không xác minh được MAP sau tự chuyển: '+desc+
+     '. Đã ngừng AUTO ở Blink, kiểm tra MAP ECU trước khi thử lại.');
+   logEvent('AUTO BLINK DỪNG: '+desc);
+   liveProof('LỖI CHUYỂN MAP · '+desc,true);
+ }).finally(()=>{autoTransitionBusy=false;});
 }
 async function withBridgeSlot(task){
  const api=w.BlinkRealProtocol;
@@ -230,6 +378,8 @@ function getValues(){
    if(n<min||n>max)throw new Error(k+' chỉ nhận '+min+'–'+max);
    o[k]=n;
  }
+ if(o.Rpm===0&&!capR4.test(String(w.blinkBridgeFirmwareStatus||'')))
+   throw new Error('RPM = 0 cần firmware ESP32-S3 ACCS3R4. R3 trở xuống chỉ nhận RPM từ 1000.');
  if(o.Base===o.Boost)throw new Error('Hai MAP phải khác nhau.');
  if(o.Back>=o.Tps)throw new Error('TPS trả về phải thấp hơn TPS kích hoạt.');
  if(o.High<o.Tps)throw new Error('TPS cao phải lớn hơn hoặc bằng TPS kích hoạt.');
@@ -285,18 +435,18 @@ async function switchAuto(on){
 for(const k of ids.slice(2)){
  $('accS3'+k).addEventListener('click',e=>{
    if(!available||busy)return;padField=e.currentTarget;
-   $('accS3PadLabel').textContent=specs.find(x=>x[0]===k)[1];
-   $('accS3PadValue').textContent=padField.value;
-   $('accS3Pad').style.display='block';$('accS3Pad').setAttribute('aria-hidden','false');
+   showPad(padField);
  });
 }
-panel.querySelectorAll('[data-acc-key]').forEach(b=>b.addEventListener('click',()=>{
+padNode.querySelectorAll('[data-acc-key]').forEach(b=>b.addEventListener('click',()=>{
  const key=b.dataset.accKey;if(key==='ẨN'){stopPad();return;}
  if(!padField)return;let v=padField.value;
  if(key==='C')v='';else if(key==='⌫')v=v.slice(0,-1);
  else if(v.length<6)v+=key;
  padField.value=v;$('accS3PadValue').textContent=v||'0';
 }));
+padToggle.onclick=()=>{if(padVisible())stopPad();else showPad(padField||$('accS3Rpm'));};
+panel.addEventListener('toggle',syncPadToggle);
 $('accS3UseTps').onclick=()=>{
  const a=Number($('tpsMin')?.value),b=Number($('tpsMax')?.value);
  if(!Number.isFinite(a)||!Number.isFinite(b)||a<.2||a>2||b<3||b>5||b-a<2){
@@ -310,6 +460,18 @@ $('accS3Read').onclick=()=>{void read(false).catch(()=>{});};
 $('accS3Save').onclick=()=>{stopPad();void save();};
 $('accS3On').onclick=()=>{stopPad();void switchAuto(true);};
 $('accS3Off').onclick=()=>{stopPad();void switchAuto(false);};
+$('accS3DriveLive').onchange=()=>{
+ autoManualHold=false;resetAutoTrend();
+ if($('accS3DriveLive').checked&&(!$('accS3Safety').checked||
+    !capR3.test(String(w.blinkBridgeFirmwareStatus||'')))){
+   $('accS3DriveLive').checked=false;
+   liveProof('Phải có FW ACCS3R3/R4 và đã xác nhận MAP an toàn ở trên.',true);return;
+ }
+ liveProof($('accS3DriveLive').checked?
+   'BLINK TỰ CHUYỂN ĐÃ CHỌN · Chờ AUTO ARMED, RPM/TPS hợp lệ.':
+   'ĐÃ TẮT CHUYỂN MAP TỰ ĐỘNG TRONG BLINK.');
+ if(lastSnap)paint(lastSnap);
+};
 $('accS3ClearLog').onclick=()=>{
  events.length=0;lastFault=null;
  $('accS3Log').textContent='';$('accS3LastFault').style.display='none';
@@ -322,13 +484,13 @@ function update(){
   if(mc)mc.addEventListener('characteristicvaluechanged',mapPacket);
  }
  const okay=!!mc&&!!w.blinkCommandChar&&cap.test(String(w.blinkBridgeFirmwareStatus||''));
- if(!okay){support(false);return;}
- support(true);
+ if(!okay){support(false);syncPadToggle();return;}
+ support(true);syncPadToggle();
  if(!hasRead&&!busy&&!readPromise&&Date.now()-lastTry>6500){
   lastTry=Date.now();void read(true).catch(()=>{});
  }
 }
-w.BlinkAccelSettings={get supported(){return available;},get snapshot(){return lastSnap?{...lastSnap}:null;},read};
+w.BlinkAccelSettings={get supported(){return available;},get snapshot(){return lastSnap?{...lastSnap}:null;},read,onVerifiedLive,onManualMapSelection};
 setInterval(update,650);
 update();
 })(window);
