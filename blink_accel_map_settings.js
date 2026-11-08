@@ -115,7 +115,7 @@ function onStatus(s){
  else if(s.startsWith('ACC:BAD_'))retainFault(s,'ESP32 từ chối lệnh; hãy kiểm tra cấu hình.');
  if(ack){
    if(s===ack.ok){const t=ack;ack=null;t.resolve();}
-   else if(/^ACC:(?:BAD_|OFF_FIRST|CAL_FIRST|ECU_REJECT|CMD_BUSY|MAP_VERIFY|TPS_RANGE)/.test(s)){
+   else if(/^ACC:(?:BAD_|OFF_FIRST|CAL_FIRST|AUTH_FIRST|ECU_REJECT|CMD_BUSY|MAP_CONFLICT|MAP_VERIFY|TPS_RANGE|APP_WRITE|APP_MAP)/.test(s)){
      const t=ack;ack=null;t.reject(new Error(s));
    }
  }
