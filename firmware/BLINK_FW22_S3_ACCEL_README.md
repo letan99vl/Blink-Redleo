@@ -120,3 +120,19 @@ Trieu chung: bam BAT AUTO ACCEL, dong canh bao mau cam nhay qua nhanh, sau do hi
 **Chua kiem nghiem thuc te tren ECU / xe.** Truoc khi dung de tu chuyen khi xe dang chay, can kiem nghiem chuyen MAP va map danh lua/phun tren ban thu.
 
 - Blink PB3.79.181 tu choi ngay ACK `ACC:AUTH_FIRST`, `ACC:MAP_CONFLICT` va hien ma loi vao nhat ky, khong doi 4 giay de bao `Thieu ACK` sai. Cac loi tren cho thay firmware khong du dieu kien BAT, AUTO van OFF.
+
+## ACCS3R4 + Blink PB3.79.182: LIVE MAP confirmed + floating keypad + RPM=0 TEST
+
+**Firmware ESP32-S3:** file `BLINK_FW22_S3_ACCEL_LAB.ino`, marker PONG `FW2.2 ACCS3R4` (`S3ACC-LAB4` tren Serial). Co the tai tu GitHub va nap tay bang USB Arduino IDE. Khong thay FW 2.2 goc, khong xuat ban OTA production.
+
+**Giao dien Blink:** mo `THIET LAP -> AUTO ACCEL MAP ESP32-S3`, bam o nhap so: ban phim hien noi canh goc duoi phai, bam `⌨` de hien / `AN` de dong. Khong can cuon den vi tri ban phim. De nhap RPM=0, can ACCS3R4; ban R3 va cu van chi nhan RPM>=1000.
+
+**Test khi may dung:** dat RPM kich hoat **0** (nguong thu nghiem); du cam bien TPS da hieu chuan, live 0x69 hop le va ECU xac nhan 0x5A. Firmware va app deu chan tu chuyen MAP neu RPM>10 trong che do test nay. Sau khi thu phai doi RPM lai gia tri dung cho xe, neu khong se khong auto trigger khi no may. Chi thu voi dong co DUNG, khoa dien bat, MAP1/2 an toan. Day la mot phep thu giao tiep, khong phai xac nhan an toan hoat dong tren duong.
+
+**Quan sat MAP doi that khi ket noi Blink:** bat AUTO tren S3 -> doi den READY sau nhieu mau RPM=0 -> tick hop an toan -> bat `CHO BLINK TU CHUYEN MAP KHI KET NOI` (khong tu bat moi phien). App chi chay logic TPS/RPM theo ngưong da luu neu S3 R3/R4 ho tro. Khi du dieu kien, app gui `0x69` de chon MAP, sau do phai lay `0x5A` full checksum/ID hop le xac nhan MAP thuc moi cap nhat so MAP tai Trang chu / Ban do va thong bao `ECU 0x5A DA XAC NHAN`. Neu 0x5A that bai, ung dung khoa lai LIVE 0x69 de khong vo tinh dao MAP ve gia tri cu; can ngat/ket noi lai de doc MAP thuc.
+
+**Thu cong luon uu tien:** neu bam chon MAP thu cong, app dung AUTO cua phien do. Khi Blink disconnect, ESP32-S3 phai doc lai MAP thuc 0x5A roi moi tiep tuc tu dong. Can bam `TAT AUTO ACCEL` neu khong muon AUTO tai kich hoat sau khi dong ket noi.
+
+**Firmware cu:** khong co capability ACCS3 thi Blink khong hien phan AUTO ACCEL, giao tiep/OTA RAW FW cu nhu truoc.
+
+**Gioi han:** can test bench thuc te; chu ky 0x69/0x5A va TPS/RPM chua duoc xac nhan tren tung ECU. Khong dung tren duong cong cong truoc khi chung minh ca map phun va map danh lua an toan.
