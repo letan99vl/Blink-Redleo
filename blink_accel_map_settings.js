@@ -45,7 +45,7 @@ panel.innerHTML=[
 '<label class="toggleItem" style="margin:10px 0;display:flex;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3Safety"><span>Đã kiểm tra MAP thường/tăng tốc, đánh lửa, giới hạn tua và động cơ đang dừng khi bật.</span></label>',
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
-'<div class="tuneSettingHelp">Lưu cài đặt ở bộ nhớ ESP32-S3, không ghi bảng phun hay bảng lửa ECU. Tắt AUTO khi đang ở MAP tăng tốc không tự đổi MAP; chọn lại MAP an toàn bằng Blink.</div></div>'
+'<div class="tuneSettingHelp">Cài đặt lưu trên ESP32-S3. Khi Blink còn kết nối BLE, app ưu tiên MAP và AUTO tạm ngừng chuyển; ngắt kết nối Blink để ESP32 tự chuyển theo TPS/RPM. Tắt AUTO khi đang MAP tăng tốc không tự đổi về MAP thường: phải kiểm tra và chọn MAP an toàn bằng Blink.</div></div>'
 ].join('');
 $('accS3Base'); // panel attached below
 const ota=$('otaSettings');if(ota)ota.before(panel);else host.appendChild(panel);
@@ -78,6 +78,8 @@ function onStatus(s){
    }
  }
  if(s==='ACC:APP_MAP')info('AUTO đã tắt vì Blink chọn MAP thủ công.');
+ if(s==='ACC:APP_WRITE')info('AUTO đã tắt vì Blink đang ghi/khôi phục dữ liệu ECU.');
+ if(s==='ACC:APP_PAUSED')info('Blink đang kết nối: tạm ngừng tự chuyển MAP, app ưu tiên quyền điều khiển.');
  if(s==='ACC:MAP_BOOST')info('ESP32 vừa xác nhận MAP tăng tốc.');
  if(s==='ACC:MAP_NORMAL')info('ESP32 vừa xác nhận MAP thường.');
 }
