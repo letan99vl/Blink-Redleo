@@ -1533,6 +1533,13 @@ function parseLiveReal(a){
   if(Number.isFinite(state.live.batt))put('battLive',r1(state.live.batt).toFixed(1)+' V');
   const pw=document.getElementById('dashPw');if(pw&&Number.isFinite(state.live.pw))pw.textContent=state.live.pw.toFixed(2)+' ms';
   try{updateLive();highlightCurrent();syncMirrors();}catch(_e){}
+  // ACC S3 R3: emit only a strictly checksum-validated ECU 0xA1 sample.
+  // The optional S3 client may decide a MAP change, but MUST verify a fresh
+  // full ECU 0x5A before updating the MAP displayed in Blink.
+  try{window.BlinkAccelSettings?.onVerifiedLive?.({
+    rpm:Number(state.live.rpm),tpsMv:Math.round(Number(state.live.tpsV)*1000),
+    receivedAt:performance.now(),map:Number(blinkWireMapBank)
+  });}catch(e){log('S3 ACC observer:',String(e&&e.message||e))}
   // PB3.79.135: Chrome Windows SMART tuner reads VERIFIED 0xA1 timestamps.
   // No new ECU polling, no effect on native Android/iOS or other browsers.
   if(window.BLINK_PC_SMART_TUNE===true&&window.BlinkPcSmartAutoTune?.isActive?.()){
@@ -1650,6 +1657,85 @@ async function liveOnce(){
     parseLiveReal(rx);
     confirmUserActiveMapSelection(mapNo,liveEpoch,rx);
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
+}
+// ACCS3R3 ONLY: Blink is the active MAP controller while BLE is attached.
+// Existing firmware 2.2 and S3 R1/R2 never execute this path. A 0x69/A1 ACK
+// does NOT prove the bank; only a fresh full 0x5A + matching ECU identity does.
+let blinkS3AutoSwitchBusy=false;
+async function switchS3AutoMapVerified(requested){
+  const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4)$/i;
+  if(!cap.test(String(window.blinkBridgeFirmwareStatus||'')))
+    throw new Error('Chỉ ESP32-S3 ACCS3R3 được tự chuyển MAP khi Blink kết nối.');
+  const target=Number(requested),from=Number(blinkWireMapBank);
+  if(!Number.isInteger(target)||target<1||target>4)
+    throw new Error('MAP đích không hợp lệ.');
+  if(blinkS3AutoSwitchBusy||manualMapIoDepth>0||busy||ecuMapIoUiBusy||
+      blinkPendingMapChoice||otaPaused||pcGattTxFault||
+      (typeof window.blinkAutoIdleSaveBusy==='function'&&window.blinkAutoIdleSaveBusy()))
+    throw new Error('ECU đang có thao tác khác; chưa chuyển MAP.');
+  if(!blinkHasVerifiedMapForLive()||!handshakeInfo||
+      !window.blinkCommandChar||!window.blinkMapChar||
+      typeof state==='undefined'||state.ecuPhase!=='live'||
+      state.threeRun?.active||ecuProfile?.key!=='MODERN_V9'||
+      !/^9\.[12]/.test(String(handshakeInfo.firmware||'')))
+    throw new Error('ECU/0x5A chưa đủ điều kiện tự chuyển MAP.');
+  if(from===target)return {map:target,from,verified:true,unchanged:true};
+  const cfg=window.BlinkAccelSettings?.snapshot;
+  if(!cfg?.enabled||!cfg?.ready||cfg.fault||
+      ![cfg.Base,cfg.Boost].includes(from)||
+      ![cfg.Base,cfg.Boost].includes(target))
+    throw new Error('AUTO ACCEL chưa ARMED hoặc MAP ngoài cấu hình.');
+  const old=handshakeInfo,epoch=transportEpoch;
+  let ctx=null,sent=false,confirmed=false;
+  blinkS3AutoSwitchBusy=true;
+  try{
+    ctx=await beginManualMapIo('AUTO ACCEL · XÁC NHẬN MAP',{silentStatus:true});
+    if(transportEpoch!==epoch||!blinkHasVerifiedMapForLive()||otaPaused||
+       state.threeRun?.active)
+      throw new Error('ECU thay đổi kết nối/trạng thái trong lúc chờ chuyển MAP.');
+    const live=await rawExchange(req5(0x69,target),5000);
+    sent=true;
+    if(live.length!==53||live[0]!==0xA1||!validFrame(live))
+      throw new Error('ECU không xác nhận 0x69/A1 hợp lệ sau chuyển MAP.');
+    // The 0x69 command can physically SELECT target. Do not reflect it in UI
+    // until the following full, checksum-verified 0x5A confirms actual bank.
+    const rx=await rawExchange(req5(0x5A,0x5A),6000);
+    const info=parseHandshake(rx);
+    const sameId=old.raw?.length>=37&&info.raw?.length>=37&&
+      Array.from(old.raw.slice(1,17)).every((v,i)=>v===info.raw[1+i])&&
+      Number(info.ecuId)===Number(old.ecuId)&&
+      String(info.firmware)===String(old.firmware);
+    if(!sameId||info.short||Number(info.activeMap)!==target)
+      throw new Error('ECU 0x5A không xác nhận đúng MAP '+target+
+        ' trên cùng ECU. Đang ở MAP '+(info.activeMap??'?'));
+    if(transportEpoch!==epoch)
+      throw new Error('BLE đổi phiên trong lúc xác minh MAP.');
+    info.profile=profileFromHandshake(info);
+    if(info.profile?.key!=='MODERN_V9')
+      throw new Error('ECU đổi profile giữa lần chuyển MAP.');
+    syncHandshakeInfo(info); // updates physical ECU MAP, wire bank, app selection.
+    state.ecuPhase='live';
+    confirmed=true;
+    try{window.blinkApplyVerifiedAutoMap?.(target,from)}catch(e){log('AUTO MAP UI',String(e))}
+    log('S3 ACC: ECU verified 0x5A MAP',from,'=>',target);
+    return {map:target,from,verified:true,at:Date.now()};
+  }catch(e){
+    if(sent&&!confirmed){
+      // A failed/missing 0x5A leaves physical MAP UNKNOWN: any old 0x69
+      // poll could unexpectedly revert it. Latch live OFF until reconnect.
+      stopLiveLoop();
+      blinkVerifiedMapEpoch=-1;
+      blinkWireMapBank=0;blinkWireMapSource='auto-verify-failed';
+      if(typeof state!=='undefined')state.ecuPhase='map-unverified';
+      taskUi('error','AUTO ACCEL: MAP ECU CHƯA XÁC NHẬN · ĐÃ KHÓA LIVE 0x69',0);
+      notice('error','MAP CHƯA XÁC MINH',
+        'Không đọc lại được ECU 0x5A sau lệnh chuyển MAP. Đã dừng LIVE để tránh gửi MAP sai. Ngắt và kết nối lại Blink trước khi tiếp tục.',0);
+    }
+    throw e;
+  }finally{
+    if(ctx)endManualMapIo(ctx);
+    blinkS3AutoSwitchBusy=false;
+  }
 }
 function startLiveLoop(){
   if(blinkMap5aReadOnly)return;
@@ -6126,7 +6212,7 @@ function boot(){
   });
 }
 
-window.BlinkRealProtocol={noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
+window.BlinkRealProtocol={switchS3AutoMapVerified,get s3AutoMapBusy(){return blinkS3AutoSwitchBusy},noteUserActiveMapSelection,writeBackupFuelAndVerify,writeBackupFeatureAndVerify,rawExchange,exchangePage9A,readAll,readCurrentFuelBank,readFeaturePageReal,readIdlePageReal,readA2SensorPageReal,ensureAxes:ensureEcuAxesReal,writeCurrentFuelAndVerify,parseCurrentFuelFrame,parseReadAll,parseHandshake,parseLiveReal,handshakeReal,initializeRealSession,writeFeatureReal,writeOptionsReal,sendAllReal,copyBankReal,restoreReal,tpsStudyReal,testInjectorReal,abortRawTransport,pauseForOta,resumeAfterOta,beginManualMapIo,endManualMapIo,profileFromHandshake,normalizeBank:normalizeBankForProfile,refreshProfileUi:applyProfileUi,get axes(){return window.blinkEcuAxes||null},get cache(){return readCache},get sensorCache(){return sensorCalCache},get handshake(){return handshakeInfo},get profile(){return ecuProfile},get isBusy(){return busy},get manualIoActive(){return manualMapIoDepth>0},get otaPaused(){return otaPaused},get diagnostics(){return {
   busy,rawCommand:Number.isFinite(rawInFlightCmd)?'0x'+rawInFlightCmd.toString(16).toUpperCase():null,
   pcGattTxFault,manualDepth:manualMapIoDepth,uiBusy:ecuMapIoUiBusy,
   pendingCount:pending.size,liveRunning,transportEpoch,
