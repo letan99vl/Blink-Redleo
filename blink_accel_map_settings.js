@@ -5,7 +5,7 @@
 const $=id=>document.getElementById(id);
 const host=$('settingsScreen');
 if(!host)return;
-const cap=/^PONG\s+FW2\.2\s+ACCS3$/i;
+const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2)?$/i;
 // Existing Blink CSS forces .settings display:block!important; explicitly
 // restore hidden semantics for firmware without the ACCS3 capability.
 const style=document.createElement('style');
@@ -31,7 +31,7 @@ const fields=specs.map(([id,label,range,val],ix)=>'<div class="field"><label for
 panel.innerHTML=[
 '<summary>AUTO ACCEL MAP · ESP32-S3</summary>',
 '<div class="tuneSettingsGroup"><h3 class="tuneSettingsGroupHeading">TỰ CHUYỂN MAP KHI TĂNG GA</h3>',
-'<div class="tuneSettingHelp">Chỉ hiện với FW2.2 ACCS3. Dùng TPS + RPM, không cần MAP sensor. Chỉ cho ECU 9.1x/9.2x đã xác minh. Hai MAP phải an toàn về cả phun và đánh lửa.</div>',
+'<div class="tuneSettingHelp">Chỉ hiện với FW2.2 ACCS3 / ACCS3R2. Dùng TPS + RPM, không cần cảm biến MAP. AUTO bật nhưng tạm ngừng chuyển khi Blink còn kết nối; bản R2 đọc lại MAP ECU trước khi tự chạy. Chỉ dùng với ECU 9.1x/9.2x đã xác minh. Hai MAP phải an toàn về cả phun và đánh lửa.</div>',
 '<div class="settingsGrid tuneSettingsGrid">'+fields+'</div>',
 '<div class="toolrow" style="margin-top:8px">',
 '<button type="button" id="accS3UseTps">LẤY TPS ĐÃ HỌC</button>',
@@ -77,7 +77,7 @@ function onStatus(s){
      const t=ack;ack=null;t.reject(new Error(s));
    }
  }
- if(s==='ACC:APP_MAP')info('Firmware S3 đời đầu đã tự tắt khi MAP Blink khác MAP thường. Cần nạp FW S3 ACC mới để giữ AUTO ở chế độ tạm dừng.',true);
+ if(s==='ACC:APP_MAP')info('Firmware ACCS3 đời đầu đã tự tắt vì MAP Blink không trùng MAP thường. Nạp FW2.2 ACCS3R2 để sửa.',true);
  if(s==='ACC:APP_WRITE')info('AUTO đã tắt vì Blink đang ghi/khôi phục dữ liệu ECU.');
  if(s==='ACC:APP_PAUSED')info('Blink đang kết nối: tạm ngừng tự chuyển MAP, app ưu tiên quyền điều khiển.');
  if(s==='ACC:MAP_BOOST')info('ESP32 vừa xác nhận MAP tăng tốc.');
