@@ -41,10 +41,11 @@ assert(app.includes("s.enabled!==on")&&app.includes('ĐÃ LƯU VÀ XÁC MINH'));
 assert(app.includes('ĐÃ BẬT · TẠM DỪNG CHUYỂN MAP KHI BLINK KẾT NỐI'));
 assert(app.includes('accS3LastFault')&&app.includes('accS3Log')&&app.includes('retainFault('));
 assert(app.includes("fatalCodes[s]") && app.includes("'ACC:AUTH_FIRST'"));
+assert(app.includes('CAL_FIRST|AUTH_FIRST|ECU_REJECT|CMD_BUSY|MAP_CONFLICT'), 'explicit ON denial must not wait for ACK timeout');
 assert(app.includes("if(on&&/^PONG\\s+FW2\\.2\\s+ACCS3$/i.test"), 'old unsafe S3 R1 ON must block');
 assert(f.includes('(rx[20] != 0 && rx[20] != \' \'') && f.includes('rx[33]>3'),'accept padded 9.2 version but require valid bank');
 assert(html.includes("blink_accel_map_settings.js?v="));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.180'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.181'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
