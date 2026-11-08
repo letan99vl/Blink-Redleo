@@ -16,7 +16,12 @@ assert(f.includes('if(cmd=="ACC GET")'));
 assert(f.includes('accNotifySnapshot()'));
 assert(f.includes('0xB3,1,seq,0')&&f.includes('0xB3,1,seq,1'));
 assert(f.includes('accCheckIdentity(rx,got,verified) && verified==mapNo'));
-assert(f.includes('accStop("ACC:APP_MAP")'));
+// Regression: Blink may be on MAP2 while configured normal=MAP1.
+assert(!f.includes('accStop("ACC:APP_MAP")'), 'A normal app MAP2 LIVE must not disable AUTO');
+assert(f.includes('if(linked && accReady)return;'), 'BLE owns map while linked');
+assert(f.includes('app disconnected: re-verify 0x5A before LIVE'), 'fresh handover identity required');
+assert(f.includes('accReady?accCurrentMap:accHandshakeMap'), 'no blind base-map poll');
+assert(f.includes('accPendingMap=0;accResetTrends();'), 'no switch on arming');
 assert(f.includes('getBool("enabled",false)'));
 assert(f.includes('OTA:S3_BLOCKED'));
 assert(f.includes('accZeroCount>=3'));
@@ -25,8 +30,9 @@ assert(/const cap=\/\^PONG\\s\+FW2\\\.2\\s\+ACCS3\$\/i/.test(app));
 assert(app.includes('withBridgeSlot')&&app.includes('beginManualMapIo'));
 assert(app.includes('ACC GET')&&app.includes('ACC CAL ')&&app.includes('ACC MAP '));
 assert(app.includes("s.enabled!==on")&&app.includes('ĐÃ LƯU VÀ XÁC MINH'));
+assert(app.includes('ĐÃ BẬT · TẠM DỪNG CHUYỂN MAP KHI BLINK KẾT NỐI'));
 assert(html.includes("blink_accel_map_settings.js?v="));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.176'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.178'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
