@@ -70,7 +70,7 @@ assert(f.includes('{"ACC RPM ",0,15000,0}'), 'RPM 0 serial command accepted by S
 assert(f.includes('acc.minRpm<=15000&&'), 'RPM 0 saved value valid at boot');
 assert(f.includes('if(acc.minRpm==0 && rpm>10)'), 'RPM 0 bench only: cannot auto-select running motor');
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'), 'same stationary guard in Blink');
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.182'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.183'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
