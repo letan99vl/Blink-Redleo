@@ -802,6 +802,10 @@ static void processTransaction() {
     return;
   }
 
+  // Manual ECU writes/restore have priority and must stop ACC switching.
+  // Do not block or mutate the original 2.2 write protocol.
+  if(accRequested && n>0 && (txBuf[0]==0xCD || txBuf[0]==0x8B))
+    accStop("ACC:APP_WRITE");
   accOverrideHostLive(txBuf,n);
   Serial.printf("ECU TX sid=%u len=%u cmd=%02X\n", sid, n, n ? txBuf[0] : 0);
   const size_t got = transactUart(txBuf, n, rxBuf, RX_MAX);
@@ -878,6 +882,7 @@ static void accReport(const char *s){
   // Emit a separately checksum-protected snapshot after the current ECU RAW
   // response, never interleave with RAW_RX chunks or ECU UART.
   if(strcmp(s,"ACC:MAP_BOOST")==0 || strcmp(s,"ACC:MAP_NORMAL")==0 ||
+     strcmp(s,"ACC:APP_WRITE")==0 || strcmp(s,"ACC:APP_PAUSED")==0 ||
      strcmp(s,"ACC:ARMED")==0 || strcmp(s,"ACC:OFF")==0 ||
      strcmp(s,"ACC:WAIT_ZERO")==0 || strcmp(s,"ACC:MAP_VERIFY")==0 ||
      strcmp(s,"ACC:APP_MAP")==0)
@@ -1153,6 +1158,10 @@ static void accLive(const uint8_t *rx,size_t n){
     return;
   }
   if(accPendingMap || accFault)return;
+  // Blink owns MAP selection whenever a BLE client is attached. The app's
+  // regular 0x69 LIVE packets contain an ECU MAP selector; do not race it.
+  // Keep reading RPM/TPS for UI, but only auto-switch after disconnect.
+  if(deviceConnected){accResetTrends();return;}
   if(accSampleCount && (uint32_t)(now-accSamples[(accNextSample+7)%8].ms)>650U)
     accResetTrends();
   const uint8_t percent=(uint8_t)lroundf(tps);
@@ -1231,6 +1240,11 @@ static void accTick(){
   if(!accRequested || accFault || !uartReady || otaBusy || bleOtaActive ||
      transactionReady || transactionBusy)return;
   const uint32_t now=millis();
+  if(deviceConnected && accPendingMap){
+    // A phone connected during a pending autonomous switch wins control.
+    // Never run an automatic MAP change that competes with app LIVE.
+    accPendingMap=0;accResetTrends();accReport("ACC:APP_PAUSED");
+  }
   if(deviceConnected && accLastHostLongMs &&
      (uint32_t)(now-accLastHostLongMs)<900U)return;
   if(deviceConnected && txExpected && txGot<txExpected &&
