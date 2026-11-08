@@ -102,11 +102,11 @@ ACC status Serial report gom: ready, boost, ecuMap, RPM va TPS mV; BLE status pa
 - Can **nap lai file INO S3 R2 bang USB/Arduino IDE**. Chi update web Blink khong sua firmware ACCS3 cu. OTA san xuat van KHOA.
 - Chua co xac nhan compiler va chay tren xe; test bench/xac nhan 0x5A, LIVE, MAP phun/danh lua an toan truoc.
 
-## Sua loi R3 / Blink PB3.79.180 (2026-11-08)
+## Sua loi R3 / Blink PB3.79.181 (2026-11-08)
 
 Trieu chung: bam BAT AUTO ACCEL, dong canh bao mau cam nhay qua nhanh, sau do hien DANG TAT. Screenshot da gui truoc day co Firmware hien tai `2.2 ACCS3` (ban R1). Cap nhat web app KHONG thay the firmware nay tren chip ESP32.
 
-- Giao dien PB3.79.180 luu lai **ma su kien ACC:... va nguyen nhan** trong vung `CANH BAO LUU LAI` va muc `NHAT KY AUTO ACCEL`, khong de ket qua readback `DANG TAT` ghi de dong loi.
+- Giao dien PB3.79.181 luu lai **ma su kien ACC:... va nguyen nhan** trong vung `CANH BAO LUU LAI` va muc `NHAT KY AUTO ACCEL`, khong de ket qua readback `DANG TAT` ghi de dong loi.
 - Khi ESP32 tra `PONG FW2.2 ACCS3` (R1), nut BAT tu choi de khong tiep tuc kich hoat mot firmware co loi xung dot MAP. Van DOC/LUU/TAT binh thuong.
 - Firmware S3 **R3** tra `PONG FW2.2 ACCS3R3`, Serial build `S3ACC-LAB3`. R2 tra `PONG FW2.2 ACCS3R2`. Blink van co the DOC/LUU/TAT ban R2.
 - R3 **khong tu gui UART** 0x5A/0x69 khi BLE Blink dang ket noi. No chi quan sat 0x5A/0x69 checksum hop le do Blink phat, bao gom handshake khi AUTO dang tat.
@@ -115,6 +115,8 @@ Trieu chung: bam BAT AUTO ACCEL, dong canh bao mau cam nhay qua nhanh, sau do hi
 - R3 chap nhan chuoi phien ban ECU `9.1/9.2` voi ky tu thu 4 la so, NUL hoac khoang trang; chi ban dung family duoc phep, phai co checksum hop le, byte33 MAP 0..3 va identity khop.
 - `ACC:APP_WRITE` la chu dong fail-safe khi host gui lenh ghi/restore, khong duoc bo qua.
 - Nho nap `firmware/BLINK_FW22_S3_ACCEL_LAB.ino` vao ESP32-S3 bang USB. OTA server van khoa; ban FW 2.2 goc cho ESP32 thuong KHONG doi.
-- Test cap nhat: ngat ket noi -> nap FW S3 R3 -> mo Blink PB3.79.180 -> ket noi ECU 0x5A -> DOC TU ESP32 -> xac nhan MAP (trong cap) -> bam BAT khi RPM=0 -> doc lai `enabled=1` / `DA BAT - TAM DUNG`. Neu khong duoc, chup vung CANH BAO LUU LAI va NHAT KY, KHONG thu chay xe.
+- Test cap nhat: ngat ket noi -> nap FW S3 R3 -> mo Blink PB3.79.181 -> ket noi ECU 0x5A -> DOC TU ESP32 -> xac nhan MAP (trong cap) -> bam BAT khi RPM=0 -> doc lai `enabled=1` / `DA BAT - TAM DUNG`. Neu khong duoc, chup vung CANH BAO LUU LAI va NHAT KY, KHONG thu chay xe.
 
 **Chua kiem nghiem thuc te tren ECU / xe.** Truoc khi dung de tu chuyen khi xe dang chay, can kiem nghiem chuyen MAP va map danh lua/phun tren ban thu.
+
+- Blink PB3.79.181 tu choi ngay ACK `ACC:AUTH_FIRST`, `ACC:MAP_CONFLICT` va hien ma loi vao nhat ky, khong doi 4 giay de bao `Thieu ACK` sai. Cac loi tren cho thay firmware khong du dieu kien BAT, AUTO van OFF.
