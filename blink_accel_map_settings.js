@@ -6,6 +6,12 @@ const $=id=>document.getElementById(id);
 const host=$('settingsScreen');
 if(!host)return;
 const cap=/^PONG\s+FW2\.2\s+ACCS3$/i;
+// Existing Blink CSS forces .settings display:block!important; explicitly
+// restore hidden semantics for firmware without the ACCS3 capability.
+const style=document.createElement('style');
+style.textContent='#settingsScreen #blinkAccelSettingsS3[hidden]{display:none!important}'+
+ '#accS3Pad{height:auto!important;z-index:1!important;left:auto!important;right:auto!important;bottom:auto!important}';
+document.head.appendChild(style);
 const panel=document.createElement('details');
 panel.className='settings tuneSettingsDetails';
 panel.id='blinkAccelSettingsS3';
@@ -127,7 +133,18 @@ async function send(cmd){
    throw new Error('ESP32 firmware này không hỗ trợ AUTO ACCEL.');
  const api=w.BlinkRealProtocol;
  if(api&&(api.isBusy||api.otaPaused))throw new Error('ECU đang đọc/ghi; thử lại khi rảnh.');
- await w.blinkWriteCommand(cmd);
+ // Bluefy's write-without-response shim may send successfully but leave
+ // the returned Promise unresolved. Match Blink's proven PING safe-start;
+ // correctness still depends on the explicit ACC ACK / B3 readback below.
+ const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent)||
+   (/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1);
+ if(ios&&typeof w.blinkCommandChar.writeValueWithoutResponse==='function'){
+   const bytes=new TextEncoder().encode(cmd);
+   if(bytes.length>64)throw new Error('ACC command quá dài.');
+   const p=w.blinkCommandChar.writeValueWithoutResponse(bytes);
+   if(p&&typeof p.catch==='function')p.catch(()=>{});
+   await new Promise(res=>setTimeout(res,45));
+ }else await w.blinkWriteCommand(cmd);
 }
 function command(cmd,ok){
  if(ack)return Promise.reject(new Error('Đang có lệnh chờ phản hồi.'));
