@@ -32,7 +32,7 @@ Arduino IDE: Board `ESP32S3 Dev Module`, Arduino-ESP32 core `3.3.12`; nen bat `U
 5. Triggers: RPM >=2500, TPS>=35% va TPS tang >=15 diem phan tram / ~200-400ms; hoac TPS>=60% lien tuc 400ms. Chuyen MAP1 -> MAP2.
 6. Giua MAP2 it nhat 1500ms. Chi tra MAP1 neu TPS<=20% lien tuc 800ms.
 7. Moi lan chuyen: gui 0x69 MAP dich + check 53B LIVE, sau do doc lai 0x5A va doi chieu MAP thuc te. Neu 2 lan fail thi ACC OFF va bao loi. Khong thuc hien blind write.
-8. Khi Blink dang ket noi BLE, bo tu dong **TAM DUNG CHUYEN MAP** de tranh canh tranh voi lenh LIVE 0x69 cua app. Ngat BLE sau khi cai dat de ESP32-S3 tu dong chuyen MAP doc lap. Neu nguoi dung chon MAP thu cong khac, ACC tu OFF, KHONG sua tham so trong lenh Blink.
+8. **FW ACCS3R2:** Khi Blink dang ket noi BLE, AUTO van o trang thai **DA BAT** nhung tam dung tu dong chuyen MAP (app uu tien). MAP2 do Blink chon KHONG lam AUTO tu OFF ngay khi arming. Sau khi ngat BLE, ESP32-S3 doc lai `0x5A` de biet MAP ECU thuc, roi moi poll LIVE `0x69` va xet dieu kien ACC. Khong tu phat `0x69 MAP1` chi vi base MAP=1; khong ghi de bang phun danh lua. Neu MAP thuc khong thuoc MAP thuong/tang toc, FW fail closed va AUTO OFF.
 9. Neu ACC OFF khi ECU dang MAP2 thi ESP32 **khong tu chuyen ve MAP1** khi chua verify; nguoi dung phai chon MAP an toan bang Blink / dung may kiem tra.
 10. Khi app ghi/khôi phuc ECU (0xCD/0x8B), firmware tu OFF ACC truoc khi giao tiep ghi; lenh ghi ECU van giu nguyen. Neu nguoi dung mo Blink trong khi ACC dang chay, app uu tien dieu khien.
 
@@ -40,7 +40,7 @@ Arduino IDE: Board `ESP32S3 Dev Module`, Arduino-ESP32 core `3.3.12`; nen bat `U
 
 ## Cau hinh qua USB Serial Monitor / lenh BLE ASCII
 
-Giao dien Blink chua co panel setup ACC; phien ban LAB cau hinh bang **USB Serial** (115200 baud, Newline). Ban co the gui cung chuoi ASCII tren BLE command characteristic hien co neu co BLE terminal phu hop.
+Blink Web/Bluefy/Android co muc **THIET LAP -> AUTO ACCEL MAP ESP32-S3** chi khi firmware tra capability ACCS3/ACCS3R2. Co the cai dat bang app hoac **USB Serial** (115200 baud, Newline). Ban co the gui cung chuoi ASCII tren BLE command characteristic neu can kiem tra thuan.
 
 Sau khi ket noi:
 ```
@@ -59,7 +59,7 @@ ACC ON
 ACC?
 ```
 
-**ACC CAL 500 4500 chi la vi du:** 500mV la dien ap TPS dong ga, 4500mV la TPS mo het. CAN do/kiem tra dua tren Live TPS voltage thuc cua REDLEO; khong lay ngau nhien. ACC ON chi khi ECU da nap bo map co the chuyen an toan. Sau ON, **bat khoa dien, giu dong co dung** cho toi khi trang thai `ACC:ARMED`, `ACC:MAP_NORMAL` duoc xac nhan. Neu ECU dang chay, no khong ARM.
+**ACC CAL 500 4500 chi la vi du:** 500mV la dien ap TPS dong ga, 4500mV la TPS mo het. CAN do/kiem tra dua tren Live TPS voltage thuc cua REDLEO; khong lay ngau nhien. ACC ON chi khi ECU da nap bo map co the chuyen an toan. Sau ON, **bat khoa dien, giu dong co dung** cho toi khi trang thai `ACC:ARMED` duoc xac nhan. Khi Blink van ket noi, APP uu tien chon MAP, nen khong bat buoc nhan `ACC:MAP_NORMAL` ngay. Neu ECU dang chay, no khong ARM.
 
 Lenh tat, xoa NVS:
 ```
@@ -71,14 +71,14 @@ ACC status Serial report gom: ready, boost, ecuMap, RPM va TPS mV; BLE status pa
 
 ## Firmware/OTA
 
-- PONG cua FW S3 la `PONG FW2.2 ACCS3`, cho phep Blink tu phat hien tinh nang; so phien ban FW2.2 van giu de dam bao RAW bridge cu.
+- Ban S3 R2 tra `PONG FW2.2 ACCS3R2` (18 byte) de nhan biet ro FW da sua loi tu OFF khi Blink dang MAP2. Ban S3 cu tra `PONG FW2.2 ACCS3` van duoc app ho tro. RAW bridge FW2.2 duoc giu nguyen.
 - Firmware cu tra `PONG FW2.2` (hoac FW1.x/FW2.5) KHONG co chuoi `ACCS3`, Blink an hoan toan bang setup moi.
 - `ACC GET` tra ve 2 frame BLE MAP UUID marker 0xB3, 18B+16B, co so sequence va checksum XOR.
 - Blink doc lai sau moi lan LUU; khong coi thanh cong neu 12 gia tri khong trung voi trang thai ESP32.
-- Serial in `S3ACC-LAB1` de phan biet firmware thuc nghiem.
+- Serial in `S3ACC-LAB2` de phan biet firmware S3 R2 da sua.
 - **OTA tren firmware S3 nay bi chan**; build LAB khong sua `ota/manifest.json`, khong ghi `ota/blink_esp32.bin`.
 - Khong nap `ota/blink_esp32.bin` danh cho ESP32 thuong len ESP32-S3.
-- Blink Web/Android/Bluefy PB3.79.176 nap `blink_accel_map_settings.js`; vao THIET LAP -> AUTO ACCEL MAP ESP32-S3 (chi xuat hien khi ESP32 tra PONG chinh xac `PONG FW2.2 ACCS3`).
+- Blink Web/Android/Bluefy PB3.79.179 nap `blink_accel_map_settings.js`; vao THIET LAP -> AUTO ACCEL MAP ESP32-S3 (chi xuat hien khi PONG co marker ACCS3 hoac ACCS3R2). App hien "DA BAT - TAM DUNG" khi BLE van ket noi thay vi tu nghi AUTO da tat.
 - Giao dien co cac thong so MAP 1/2, RPM, TPS cao, TPS tang nhanh, thoi gian giu va tra, cal TPS mV; co ban phim so noi bo; DOC / LUU / BAT / TAT.
 - LUU ra 10 lenh ACC duoc firmware ACK; sau do readback 2 frame B3 va doi chieu 12 gia tri. Firmware cu khong thay giao dien, khong gui ACC.
 - Trong luc thiet lap, Blink dung live poll trong mot khoang ngan bang co che `beginManualMapIo` co san, roi tiep tuc LIVE khi xong; khong sua ECU RAW transport.
@@ -91,3 +91,13 @@ ACC status Serial report gom: ready, boost, ecuMap, RPM va TPS mV; BLE status pa
 - Chuyen MAP2 va readback 0x5A khi dong co chay tren ban thu; doi chieu MAP/IGN/AFR.
 - Neu mat LIVE hoac loi giao tiep, de cao: ECU co the tiep tuc o MAP2. Dung may/hoan nguyen bang tay thay vi du doan MAP.
 - Thu nghiem voi BLE ket noi Blink/khong ket noi Blink va rut/restart ESP32.
+
+## Sua loi ACCS3R2 (2026-11-08)
+
+- Trieu chung ban ACCS3 cu: khi ACC ON voi ECU dang MAP2 nhung Base MAP=1, sau khi xe dung >=1s va ACC ARMED, app Blink lien tuc gui LIVE 0x69 MAP2. Firmware cu goi ACC:APP_MAP va tat ACC. Hien thi AUTO ACCEL: DANG TAT du CAL OK / RPM0.
+- R2 khong tu tat do app dang dung MAP2: AUTO ON phai giu enabled=1, ready sau 3 mau RPM0 hop le, va **khong tu chuyen MAP khi BLE con ket noi**.
+- Neu ngat ket noi Blink khi ECU dang MAP2, firmware R2 xac minh lai 0x5A, xem MAP2 la MAP dang chay (boost) thay vi ep ve MAP1. Muon bat dau tu MAP1, hay chon MAP1 tren Blink va xac nhan MAP1 tren ECU truoc khi ngat ket noi.
+- Neu ECU doc ve MAP3 trong khi cap Base/Boost chi la MAP1/2, firmware ngung AUTO thay vi tu doan hoac chuyen MAP.
+- Trang thai \`CAL OK\` la bo gia tri TPS da luu, khong phai TPS thuc su dung. Neu TPS live khi dong ga la 410mV nhung da nhap min 550mV, sai khac 140mV: nen hoc lai TPS ECU khi dong ga, khong lay gia dinh 550mV.
+- Can **nap lai file INO S3 R2 bang USB/Arduino IDE**. Chi update web Blink khong sua firmware ACCS3 cu. OTA san xuat van KHOA.
+- Chua co xac nhan compiler va chay tren xe; test bench/xac nhan 0x5A, LIVE, MAP phun/danh lua an toan truoc.
