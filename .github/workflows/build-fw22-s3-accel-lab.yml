@@ -1,0 +1,60 @@
+name: Compile ESP32-S3 ACC LAB (NO OTA)
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firmware/BLINK_FW22_S3_ACCEL_LAB.ino'
+      - '.github/workflows/build-fw22-s3-accel-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  esp32s3-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify this is NOT a production OTA build
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('firmware/BLINK_FW22_S3_ACCEL_LAB.ino').read_text()
+          base=Path('firmware/2.2.ino').read_text()
+          assert '#define FW_VERSION "2.2"' in s
+          assert '#define FW_VERSION "2.2"' in base
+          assert 'CONFIG_IDF_TARGET_ESP32S3' in s
+          assert 'OTA:S3_BLOCKED' in s
+          assert 'accOverrideHostLive(txBuf,n)' in s
+          assert 'accCheckIdentity(rx,got,verified) && verified==mapNo' in s
+          assert 'accStop("ACC:APP_MAP")' in s
+          assert 'getBool("enabled",false)' in s
+          assert 'accZeroCount>=3' in s
+          assert 'ECU_RX_PIN 16' in s and 'ECU_TX_PIN 17' in s
+          assert 'ACC:MAP_VERIFY' in s
+          print('Static S3 and safe-default checks PASS; original 2.2 retained')
+          PY
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 Arduino core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+      - name: Compile S3 ONLY
+        run: |
+          mkdir -p build-sketch/S3_ACC_LAB build-out
+          cp firmware/BLINK_FW22_S3_ACCEL_LAB.ino build-sketch/S3_ACC_LAB/S3_ACC_LAB.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32s3 --output-dir build-out build-sketch/S3_ACC_LAB
+          test -s build-out/S3_ACC_LAB.ino.bin
+          sha256sum build-out/S3_ACC_LAB.ino.bin > build-out/SHA256.txt
+          cp build-sketch/S3_ACC_LAB/S3_ACC_LAB.ino build-out/S3_ACC_LAB.ino
+          printf 'ESP32-S3 ONLY - LAB/NOT TESTED ON REAL ECU.\nOriginal FW2.2 unchanged.\nGPIO16 RX (to ECU TX), GPIO17 TX (to ECU RX), GPIO4 AFR ADC.\nNO OTA published; configure and test stationary on the bench.\nDo NOT flash onto classic ESP32 or use on a moving vehicle before physical testing.\n' > build-out/READ_ME_FIRST.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLINK_FW22_S3_ACCEL_LAB
+          path: |
+            build-out/S3_ACC_LAB.ino.bin
+            build-out/S3_ACC_LAB.ino
+            build-out/SHA256.txt
+            build-out/READ_ME_FIRST.txt
+          retention-days: 30
