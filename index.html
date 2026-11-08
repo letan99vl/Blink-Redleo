@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.181' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.181' : '3.79.181'); // 2026-11-08 ACCS3 persistent error log + fast AUTH/MAP failure ACK, old FW remains isolated
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.182' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.182' : '3.79.182'); // 2026-11-08 ACCS3 R3 verified MAP autoswitch UI, floating keypad and RPM0 stationary TEST; legacy untouched
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -2943,6 +2943,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
       </div>
     </div>
     <div class="dashStatusRow"><div class="statePill">ECU</div><div class="statePill red" id="dashBleState">● OFF</div><div class="statePill" id="dashMapState">MAP NO.1</div></div>
+    <div id="accS3DashVerified" role="status" aria-live="polite" hidden style="margin:8px 1px;padding:9px 12px;border-radius:10px;background:#102b25;border:1px solid #287a5d;color:#9ff5c1;font-size:13px;font-weight:700"></div>
     <div class="liveHero">
       <div class="heroCard tps"><div class="cardK">BƯỚM GA (TPS)</div><div class="cardV" id="tpsLive">--%</div><div class="cardFoot">Vị trí bướm ga</div></div>
       <div class="heroCard afr"><div class="cardK">TỶ LỆ A/F</div><div class="cardV" id="afrLive">--</div><div class="cardFoot" id="afrDisplayLabel">AFR BLINK · IO4</div></div>
@@ -2966,6 +2967,7 @@ body.mapZoomMode #mapEditorScreen.autoTuneMap #mapZoomCorrectedSaveBtn[hidden]{d
   <section id="mapsScreen" class="screen scrollScreen">
     <div class="screenHeader"><div class="screenTitleWrap"><div class="screenTitle">Bản Đồ ECU</div><div class="screenSub" id="mapsProfileSub">AUTO ECU PROFILE · chờ nhận diện</div></div><div id="mapBleStatus" class="miniStatus"><span class="lamp"></span><span>OFF</span></div></div>
     <div class="mapBankBar"><button class="mapBankBtn active" data-mapbank="1">NO.1</button><button class="mapBankBtn" data-mapbank="2">NO.2</button><button class="mapBankBtn" data-mapbank="3">NO.3</button><button class="mapBankBtn" data-mapbank="4">NO.4</button></div>
+    <div id="accS3MapsVerified" role="status" aria-live="polite" hidden style="padding:8px 11px;border:1px solid #287a5d;border-radius:9px;color:#9ff5c1;font-size:13px;margin-bottom:10px"></div>
     <div class="groupHead"><h3>BẢN ĐỒ CHÍNH</h3><span>MAIN MAPS</span></div><div class="menuGrid"><button class="menuCard featureCard" data-feature="inj_ve"><div class="menuIcon">◉</div><span class="srcTag">INJ VE</span><h3>Thời gian phun</h3><p>INJ VE · TPS × RPM</p><span class="menuCode">MAP_01</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="inj_degree"><div class="menuIcon">◒</div><span class="srcTag">INJ degree</span><h3>Góc phun</h3><p>Thời điểm phun · TPS × RPM</p><span class="menuCode">MAP_02</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ign_degree"><div class="menuIcon">ϟ</div><span class="srcTag">IGN degree</span><h3>Góc đánh lửa</h3><p>TPS × RPM</p><span class="menuCode">MAP_03</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ign_time"><div class="menuIcon">⌁</div><span class="srcTag">IGN Time</span><h3>Dwell bobin</h3><p>Thời gian tích điện theo RPM</p><span class="menuCode">MAP_04</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="afr_map"><div class="menuIcon">λ</div><span class="srcTag">Air fuel ratio</span><h3>Air fuel ratio</h3><p>Auto tuner zin của ECU · TPS × RPM · ON/OFF từng ô</p><span class="menuCode">MAP_05</span><span class="menuArrow">›</span></button></div>
     <div class="groupHead"><h3>BÙ TRỪ</h3><span>COMPENSATIONS</span></div><div class="menuGrid"><button class="menuCard featureCard" data-feature="ect_inj"><div class="menuIcon">♨</div><span class="srcTag">ECT Comp INJ</span><h3>Bù phun theo ECT</h3><p>Nhiệt độ máy × RPM</p><span class="menuCode">COMP_01</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ect_ign"><div class="menuIcon">ϟ</div><span class="srcTag">ECT Comp IGN</span><h3>Bù đánh lửa theo ECT</h3><p>Nhiệt độ máy × RPM</p><span class="menuCode">COMP_02</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="map_inj"><div class="menuIcon">◫</div><span class="srcTag">MAP Comp INJ</span><h3>Bù phun theo MAP</h3><p>Áp suất nạp × RPM</p><span class="menuCode">COMP_03</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="iat_inj"><div class="menuIcon">≈</div><span class="srcTag">IAT Compensating Injection</span><h3>Bù phun theo IAT</h3><p>Nhiệt độ khí nạp</p><span class="menuCode">COMP_04</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ect_start"><div class="menuIcon">S</div><span class="srcTag">Start Add Injection</span><h3>Bù khởi động theo ECT</h3><p>Delay · INJ Add · Start Assist</p><span class="menuCode">COMP_05</span><span class="menuArrow">›</span></button></div>
     <div class="groupHead"><h3>GARANTI / KHÔNG TẢI</h3><span>IDLE</span></div><div class="menuGrid"><button class="menuCard featureCard" data-feature="idle_limit"><div class="menuIcon">◌</div><span class="srcTag">Idle and limit</span><h3>Không tải & giới hạn tua</h3><p>Bảng Idle and limit</p><span class="menuCode">IDLE_01</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="ect_idle_motor"><div class="menuIcon">◎</div><span class="srcTag">Temperature-idle motor relationship</span><h3>Motor garanti theo ECT</h3><p>Nhiệt độ máy → step/duty</p><span class="menuCode">IDLE_02</span><span class="menuArrow">›</span></button><button class="menuCard featureCard" data-feature="map_idle_motor"><div class="menuIcon">◍</div><span class="srcTag">Intake pressure compensation idle motor</span><h3>Bù garanti theo MAP</h3><p>Áp suất nạp → motor garanti</p><span class="menuCode">IDLE_03</span><span class="menuArrow">›</span></button></div>
@@ -3466,6 +3468,11 @@ function selectMapBank(n,autoRead=true){
     $('mapSelect').value=String(state.activeMap);
     return;
   }
+  if(state.ecuConnected&&state.ecuPhase==='live'&&n!==state.activeMap){
+    // An explicit user choice always outranks Blink's S3 acceleration
+    // controller. The controller stops issuing further automatic MAP swaps.
+    try{window.BlinkAccelSettings?.onManualMapSelection?.(n);}catch(_e){}
+  }
   state.activeMap=n;
   // The existing live loop sends 0x69 using this MAP selection.
   // It confirms via a valid A1; no second RAW command or LIVE pause is needed.
@@ -3484,6 +3491,22 @@ function selectMapBank(n,autoRead=true){
   }
 }
 
+// Called ONLY after BlinkRealProtocol switched 0x69 and read back a fresh
+// checksum-valid full 0x5A from the SAME ECU. Never called by ACC guess/0xA1.
+window.blinkApplyVerifiedAutoMap=function(mapNo,from){
+ const n=Number(mapNo),before=Number(from);
+ if(!state.ecuConnected||!Number.isInteger(n)||n<1||n>4)return false;
+ state.activeMap=n;state.lastCellKey='';state.cellEnteredAt=performance.now();
+ state.selection.active=false;
+ const sel=$('mapSelect');if(sel)sel.value=String(n);
+ try{syncBanks();render();updateLive();syncMirrors();saveSoon();}catch(e){console.warn('Verified ACC MAP render',e)}
+ const stamp=new Date().toLocaleTimeString('vi-VN',{hour12:false});
+ const message='AUTO ACCEL · MAP '+before+' → MAP '+n+' · ECU 0x5A ĐÃ XÁC NHẬN · '+stamp;
+ for(const id of ['accS3DashVerified','accS3MapsVerified']){
+   const el=$(id);if(el){el.textContent=message;el.hidden=false;}
+ }
+ return true;
+};
 function mapBasePage(mapNo=state.activeMap){
   return 0x10 + clamp(Math.round(mapNo),1,4)*2;
 }
@@ -10587,7 +10610,7 @@ updateMapControls();
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
     // ACC setup is invisible unless the S3 bridge advertises ACCS3, ACCS3R2 or ACCS3R3.
     // No extra commands or interface changes on legacy firmware.
-    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP6-FASTFAIL-R3-20261108"><\/script>');
+    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-CAP7-FLOATKEY-RPM0-VERIFIEDMAP-20261108"><\/script>');
   })();
 </script>
 </body>
