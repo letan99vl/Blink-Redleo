@@ -378,7 +378,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "PING") {
-        notifyStatus(String("PONG FW") + FW_VERSION);
+        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3");
       } else if (text.startsWith("RXPROBE:")) {
         const int requested = text.substring(8).toInt();
         sendRxProbe((uint16_t)requested);
@@ -855,6 +855,9 @@ static uint8_t accZeroCount=0,accFailCount=0;
 static uint16_t accLastRpm=0,accLastTpsMv=0;
 static float accLastTps=0;
 static uint8_t accCurrentMap=0;
+static bool accSnapshotQueued=false;
+static uint8_t accSnapshotSequence=0;
+static void accNotifySnapshot();
 static bool accBleCmdReady=false;
 static char accBleCmd[80]={0},accSerialCmd[80]={0};
 static size_t accSerialSize=0;
@@ -872,6 +875,13 @@ static void accReport(const char *s){
     s,accRequested?1U:0U,accReady?1U:0U,accBoost?1U:0U,
     (unsigned)accCurrentMap,(unsigned)accLastRpm,(double)accLastTps,(unsigned)accLastTpsMv);
   notifyStatus(s);
+  // Emit a separately checksum-protected snapshot after the current ECU RAW
+  // response, never interleave with RAW_RX chunks or ECU UART.
+  if(strcmp(s,"ACC:MAP_BOOST")==0 || strcmp(s,"ACC:MAP_NORMAL")==0 ||
+     strcmp(s,"ACC:ARMED")==0 || strcmp(s,"ACC:OFF")==0 ||
+     strcmp(s,"ACC:WAIT_ZERO")==0 || strcmp(s,"ACC:MAP_VERIFY")==0 ||
+     strcmp(s,"ACC:APP_MAP")==0)
+    accSnapshotQueued=true;
 }
 static void accFail(const char *reason){
   accFault=true;accReady=false;accRequested=false;accPendingMap=0;
@@ -957,6 +967,46 @@ static bool accQueueBle(const uint8_t *p,size_t n){
   portEXIT_CRITICAL(&accBleMux);
   return true;
 }
+static uint8_t accXor(const uint8_t *p,size_t n){
+  uint8_t x=0x5D;for(size_t i=0;i<n;i++)x^=p[i];return x;
+}
+// Two ATT-safe frames, both independently checksummed and sequence-matched.
+// Firmware 2.2 never produces marker 0xB3, so old clients remain unaffected.
+static void accNotifySnapshot(){
+  if(!deviceConnected || !mapChar)return;
+  const uint8_t seq=++accSnapshotSequence;
+  const uint8_t flags=(accRequested?1:0)|(accReady?2:0)|(accBoost?4:0)|
+    (accFault?8:0)|(accCalibrated?16:0)|(accPinnedValid?32:0)|
+    (accIdentityValid?64:0)|
+    ((accReady && !accPendingMap && !accFault && accCurrentMap>=1 && accCurrentMap<=4)?128:0);
+  uint8_t p0[18]={
+    0xB3,1,seq,0,flags,acc.baseMap,acc.boostMap,
+    acc.minTps,acc.risePts,acc.highTps,acc.backTps,
+    (uint8_t)acc.minRpm,(uint8_t)(acc.minRpm>>8),
+    (uint8_t)acc.holdMs,(uint8_t)(acc.holdMs>>8),
+    (uint8_t)acc.backMs,(uint8_t)(acc.backMs>>8),0
+  };
+  p0[17]=accXor(p0,17);
+  uint8_t p1[16]={
+    0xB3,1,seq,1,
+    (uint8_t)acc.dwellMs,(uint8_t)(acc.dwellMs>>8),
+    (uint8_t)acc.idleMv,(uint8_t)(acc.idleMv>>8),
+    (uint8_t)acc.wideMv,(uint8_t)(acc.wideMv>>8),
+    accCurrentMap,
+    (uint8_t)accLastRpm,(uint8_t)(accLastRpm>>8),
+    (uint8_t)accLastTpsMv,(uint8_t)(accLastTpsMv>>8),0
+  };
+  p1[15]=accXor(p1,15);
+  mapChar->setValue(p0,sizeof(p0));mapChar->notify();
+  delay(12);
+  mapChar->setValue(p1,sizeof(p1));mapChar->notify();
+}
+static void accFlushSnapshot(){
+  if(!accSnapshotQueued || transactionReady || transactionBusy ||
+     otaBusy || bleOtaActive || !deviceConnected)return;
+  accSnapshotQueued=false;
+  accNotifySnapshot();
+}
 static void accPrintConfig(){
   Serial.printf("ACC-S3 %s%s | ECU pinned=%u cal=%u | MAP%u -> MAP%u\n",
     accRequested?"ENABLED ":"OFF ",accReady?"READY":"WAIT",
@@ -976,6 +1026,7 @@ static void accStop(const char *reason){
 }
 static void accExecuteCommand(String cmd){
   cmd.trim();cmd.toUpperCase();
+  if(cmd=="ACC GET"){accSnapshotQueued=true;accReport("ACC:CFG_OK");return;}
   if(cmd=="ACC?" || cmd=="ACC STATUS"){accPrintConfig();accReport(accReady?(accBoost?"ACC:MAP_BOOST":"ACC:MAP_NORMAL"):"ACC:WAIT/OFF");return;}
   if(cmd=="ACC OFF"){accStop("ACC:OFF");return;}
   if(cmd=="ACC RESET"){
@@ -1994,6 +2045,7 @@ void loop() {
   accHandleCommands();
   processOtaCommand();
   if (!otaBusy && !bleOtaActive) processTransaction();
+  accFlushSnapshot();
   accTick();
   const uint32_t now = millis();
   if (!otaBusy && !bleOtaActive && deviceConnected && !transactionReady && now - lastAfrMs >= 160) {
