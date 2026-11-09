@@ -428,6 +428,24 @@ function getValues(){
  if(o.WideMv-o.IdleMv<2000)throw new Error('TPS MIN/MAX cách nhau tối thiểu 2000 mV.');
  return o;
 }
+// ESP32 validates every threshold command against its CURRENT saved neighbors.
+// Keep BACK < TPS <= HIGH valid at every intermediate step (not just at the end).
+function orderedAccelTpsSteps(current,next){
+ if(!current||![current.Back,current.Tps,current.High].every(Number.isInteger))
+   throw new Error('Chưa đọc đủ 3 ngưỡng TPS hiện tại từ ESP32.');
+ if(!(current.Back<current.Tps&&current.Tps<=current.High))
+   throw new Error('Ngưỡng TPS trong ESP32 đang không hợp lệ. Hãy kiểm tra trước khi lưu.');
+ const highFirst=Math.max(current.High,next.High,next.Tps);
+ const backFirst=Math.min(current.Back,next.Back);
+ const steps=[];
+ const set=(field,value)=>steps.push(['ACC '+field+' '+value,'ACC:SET_OK']);
+ if(highFirst!==current.High)set('HIGH',highFirst);
+ if(backFirst!==current.Back)set('BACK',backFirst);
+ if(next.Tps!==current.Tps)set('TPS',next.Tps);
+ if(next.Back!==backFirst)set('BACK',next.Back);
+ if(next.High!==highFirst)set('HIGH',next.High);
+ return steps;
+}
 async function save(){
  if(busy)return;
  let data;try{data=getValues();}catch(e){info(e.message,true);return;}
@@ -436,13 +454,18 @@ async function save(){
  lock(true);
  try{
   await withBridgeSlot(async()=>{
+   // Read a fresh saved snapshot without repainting the user's unsaved fields.
+   const current=await get();
+   if(current.enabled)throw new Error('Tắt AUTO trước khi thay đổi thiết lập.');
    const steps=[
     ['ACC CAL '+data.IdleMv+' '+data.WideMv,'ACC:CAL_OK'],
     ['ACC MAP '+data.Base+' '+data.Boost,'ACC:MAPS_OK'],
-    ['ACC RPM '+data.Rpm,'ACC:SET_OK'],['ACC TPS '+data.Tps,'ACC:SET_OK'],
-    ['ACC RISE '+data.Rise,'ACC:SET_OK'],['ACC HIGH '+data.High,'ACC:SET_OK'],
-    ['ACC DWELL '+data.Dwell,'ACC:SET_OK'],['ACC HOLD '+data.Hold,'ACC:SET_OK'],
-    ['ACC BACK '+data.Back,'ACC:SET_OK'],['ACC BACKMS '+data.BackMs,'ACC:SET_OK']];
+    ['ACC RPM '+data.Rpm,'ACC:SET_OK'],
+    ...orderedAccelTpsSteps(current,data),
+    ['ACC RISE '+data.Rise,'ACC:SET_OK'],
+    ['ACC DWELL '+data.Dwell,'ACC:SET_OK'],
+    ['ACC HOLD '+data.Hold,'ACC:SET_OK'],
+    ['ACC BACKMS '+data.BackMs,'ACC:SET_OK']];
    for(let i=0;i<steps.length;i++){info('Đang lưu '+(i+1)+'/'+steps.length+'...');await command(...steps[i]);}
    const stored=await get();
    if(!ids.every(k=>stored[k]===data[k]))throw new Error('ESP32 đọc lại không khớp, hãy đọc và kiểm tra.');
