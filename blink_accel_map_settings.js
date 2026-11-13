@@ -87,6 +87,8 @@ const capR4=/^PONG\s+FW2\.2\s+ACCS3(?:R4|R5)$/i;
 let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
 let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
 let autoLastMap=0,lastWatchMs=0;
+let autoRearmLow=null; // Real checksum-valid TPS<=3% sample before verified MAP2->MAP1.
+const ACC_REARM_MAX_AGE_MS=900; // One short, bounded handoff; never infer an unseen TPS.
 const fatalCodes={
  'ACC:APP_MAP':'FW ACCS3 cũ tự tắt AUTO vì MAP Blink khác MAP thường. Nạp S3 ACCS3R2 bằng USB.',
  'ACC:APP_WRITE':'ESP32 tắt AUTO vì Blink gửi lệnh ghi/khôi phục ECU.',
@@ -310,11 +312,21 @@ function accelLowestTpsReference(samples,now){
  }
  return reference;
 }
-function accelPulseReopenDiagnostic(cfg,now,tps,rpm,cooldownUntil,samples,highSince){
+// A repeated pulse is allowed only from a genuinely observed 0xA1 closed
+// TPS sample, with bounded age; RPM and ECU 0x5A gates are checked by caller.
+function accelIsVerifiedReopen(cfg,now,tps,rearmLow){
+ return !!(rearmLow&&rearmLow.tps<=3&&now>=rearmLow.t&&
+   now-rearmLow.t>=200&&now-rearmLow.t<=ACC_REARM_MAX_AGE_MS&&
+   tps>=cfg.Tps&&tps-rearmLow.tps>=cfg.Rise);
+}
+function accelPulseReopenDiagnostic(cfg,now,tps,rpm,cooldownUntil,samples,highSince,rearmLow){
  const wait=Math.max(0,Math.ceil(cooldownUntil-now));
  if(wait>0)return 'MAP1: chờ '+wait+'ms khóa tái kích hoạt sau xác minh 0x5A.';
  if(rpm<cfg.Rpm)return 'MAP1: RPM '+Math.round(rpm)+' thấp hơn ngưỡng '+cfg.Rpm+'.';
  if(tps<cfg.Tps)return 'MAP1: TPS '+tps+'% chưa đạt '+cfg.Tps+'%.';
+ if(accelIsVerifiedReopen(cfg,now,tps,rearmLow))
+   return 'MAP1: phát hiện mở ga lại +'+(tps-rearmLow.tps)+
+          ' điểm %, từ mẫu TPS đóng đã xác minh trước khi trả MAP1.';
  const ref=accelLowestTpsReference(samples,now);
  if(ref){
    const delta=tps-ref.tps;
@@ -326,7 +338,7 @@ function accelPulseReopenDiagnostic(cfg,now,tps,rpm,cooldownUntil,samples,highSi
 }
 function resetAutoTrend(){
  autoSamples=[];autoHighSince=0;autoBackSince=0;
- autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;
+ autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;autoRearmLow=null;
 }
 function liveProof(message,isError=false){
  const el=$('accS3LiveProof');
@@ -403,9 +415,15 @@ function onVerifiedLive(sample){
    liveProof('MAP ECU chưa được xác minh 0x5A trong cặp đã thiết lập. Không tự đổi.',true);
    return;
  }
+ const pulseEnabled=$('accS3PulseMode').checked===true;
  if(autoLastMap!==physical){resetAutoTrend();autoLastMap=physical;if(physical===cfg.Boost)autoBoostSince=now;}
+ if(autoRearmLow&&(now<autoRearmLow.t||now-autoRearmLow.t>ACC_REARM_MAX_AGE_MS))
+   autoRearmLow=null;
  if(autoLastSampleAt&&(now-autoLastSampleAt>650||now<autoLastSampleAt)){
-   resetAutoTrend();autoLastMap=physical;
+   // Only a real, short-lived TPS<=3% sample survives the LIVE gap caused by
+   // the verified MAP2->MAP1 transaction. Never invent a fresh low sample.
+   const low=pulseEnabled&&physical===cfg.Base?autoRearmLow:null;
+   resetAutoTrend();autoLastMap=physical;autoRearmLow=low;
    if(physical===cfg.Boost)autoBoostSince=now;
  }
  autoLastSampleAt=now;
@@ -419,9 +437,10 @@ function onVerifiedLive(sample){
  autoSamples.push({t:now,tps:rounded,rpm});
  if(autoSamples.length>32)autoSamples.shift();
  if(rounded>=cfg.High){if(!autoHighSince)autoHighSince=now;}else autoHighSince=0;
- const pulseEnabled=$('accS3PulseMode').checked===true;
  const riseReference=pulseEnabled?accelLowestTpsReference(autoSamples,now):prior;
  const fast=riseReference!==null&&rounded>=cfg.Tps&&rounded-riseReference.tps>=cfg.Rise;
+ const verifiedReopen=!!(pulseEnabled&&physical===cfg.Base&&
+   accelIsVerifiedReopen(cfg,now,rounded,autoRearmLow));
  const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
  if(pulseDiag&&pulseEnabled){
    const mode=physical===cfg.Boost?'MAP '+cfg.Boost+' (tăng tốc)':'MAP '+cfg.Base+' (thường)';
@@ -429,12 +448,14 @@ function onVerifiedLive(sample){
      (physical===cfg.Boost?
         accelPulseDiagnostic(cfg,now,rounded,rpm,autoBoostSince,autoBackSince,autoSamples):
         accelPulseReopenDiagnostic(cfg,now,rounded,rpm,
-                                   autoCooldownUntil,autoSamples,autoHighSince));
+                                   autoCooldownUntil,autoSamples,autoHighSince,autoRearmLow));
  }
  let target=0,reason='';
  if(physical===cfg.Base){
-   if(now>=autoCooldownUntil&&rpm>=cfg.Rpm&&(fast||high)){
-     target=cfg.Boost;reason=fast?'TPS MỞ NHANH':'TPS CAO GIỮ';
+   if(now>=autoCooldownUntil&&rpm>=cfg.Rpm&&(fast||verifiedReopen||high)){
+     target=cfg.Boost;
+     reason=verifiedReopen?'TPS MỞ LẠI SAU XÁC MINH MAP1':
+            fast?'TPS MỞ NHANH':'TPS CAO GIỮ';
    }
  }else{
    if(!autoBoostSince)autoBoostSince=now;
@@ -466,8 +487,17 @@ function onVerifiedLive(sample){
    autoCooldownUntil=verifiedAt+(target===cfg.Boost||!pulseEnabled?1200:180);
    if(target===cfg.Boost)autoBoostSince=verifiedAt;
    else if(pulseEnabled){
-     // Seed verified BASE snapshot only in the explicit experimental mode.
-     autoSamples=[{t:verifiedAt,tps:rounded,rpm}];
+     // The prior TPS value came from a real 0xA1 sample at "now", NOT from
+     // the later 0x5A verification time. Retain only a recent fully closed
+     // sample. It expires after 900ms and still requires NEW verified LIVE
+     // TPS/RPM, the existing RPM/Rise gates and the ECU 0x5A authority.
+     if(rounded<=3 && verifiedAt>=now &&
+        verifiedAt-now<=ACC_REARM_MAX_AGE_MS){
+       autoRearmLow={t:now,tps:rounded,rpm};
+       autoSamples=[{t:now,tps:rounded,rpm}];
+       logEvent('BLINK: MAP1 ĐÃ XÁC MINH · giữ chứng cứ TPS '+rounded+
+         '% từ LIVE thật ('+Math.round(verifiedAt-now)+'ms trước) tối đa 900ms để xét cú mở ga lại.');
+     }
      autoLastSampleAt=verifiedAt;
    }
    const msg='ĐÃ CHUYỂN THẬT · MAP '+physical+' → MAP '+target+

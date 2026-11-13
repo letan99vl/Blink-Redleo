@@ -14,6 +14,7 @@ on:
     branches: [ main ]
     paths:
       - 'blink_accel_map_settings.js'
+      - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-acc-s3-protocol.js'
       - 'tools/check-acc-s3-pulse-optin.js'

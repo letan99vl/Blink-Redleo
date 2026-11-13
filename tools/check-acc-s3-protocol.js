@@ -59,6 +59,10 @@ assert(html.includes('accS3DashVerified')&&html.includes('accS3MapsVerified'), '
 assert(protocol.includes('async function switchS3AutoMapVerified'), 'app controls physical MAP when BLE connected');
 assert(protocol.includes('await rawExchange(req5(0x69,target),5000)'), 'select intended MAP');
 assert(protocol.includes('const rx=await rawExchange(req5(0x5A,0x5A),6000)'), 'physical readback mandatory');
+assert(protocol.includes('if(ctx&&!ctx.nested)ctx.accelVerifiedResume=true;'),
+       'AUTO-only early LIVE resume must follow verified MAP');
+assert(protocol.includes('scheduleLiveResume(ctx?.accelVerifiedResume===true?0:380)'),
+       'manual MAP I/O must retain original 380ms delay');
 assert(protocol.includes('if(sent&&!confirmed)'), 'failed verification stops LIVE to avoid undesired reselect');
 assert(protocol.includes('window.BlinkAccelSettings?.onVerifiedLive'), 'TPS/RPM from checksum-verified LIVE');
 assert(app.includes('onVerifiedLive(sample)')&&app.includes('onManualMapSelection(bank)'), 'client-side autonomous detector with manual override');
@@ -76,7 +80,7 @@ assert(f.includes('{"ACC RPM ",0,15000,0}'), 'RPM 0 serial command accepted by S
 assert(f.includes('acc.minRpm<=15000&&'), 'RPM 0 saved value valid at boot');
 assert(f.includes('if(acc.minRpm==0 && rpm>10)'), 'RPM 0 bench only: cannot auto-select running motor');
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'), 'same stationary guard in Blink');
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.186'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.187'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){

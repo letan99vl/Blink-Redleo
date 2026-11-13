@@ -1716,6 +1716,10 @@ async function switchS3AutoMapVerified(requested){
     syncHandshakeInfo(info); // updates physical ECU MAP, wire bank, app selection.
     state.ecuPhase='live';
     confirmed=true;
+    // Resume fresh checksum-valid 0xA1 LIVE without the default 380ms UI
+    // delay after a verified AUTO map switch. The ECU mutex is still owned
+    // until endManualMapIo(ctx) in finally; this never skips 0x5A identity.
+    if(ctx&&!ctx.nested)ctx.accelVerifiedResume=true;
     try{window.blinkApplyVerifiedAutoMap?.(target,from)}catch(e){log('AUTO MAP UI',String(e))}
     log('S3 ACC: ECU verified 0x5A MAP',from,'=>',target);
     return {map:target,from,verified:true,at:Date.now()};
@@ -2012,7 +2016,7 @@ function endManualMapIo(ctx){
   const shouldResume=!!(ctx&&ctx.resumeLive)||manualMapIoResumeLive;
   manualMapIoResumeLive=false;
   if(shouldResume&&cmdChar()&&mapChar()&&handshakeInfo&&profileCap('live')&&!otaPaused){
-    scheduleLiveResume(380);
+    scheduleLiveResume(ctx?.accelVerifiedResume===true?0:380);
   }
 }
 
