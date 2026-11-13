@@ -46,7 +46,7 @@ panel.innerHTML=[
 '<div class="tuneSettingsGroup"><h3 class="tuneSettingsGroupHeading">TỰ CHUYỂN MAP KHI TĂNG GA</h3>',
 '<div class="tuneSettingHelp">S3 R3/R4: Blink tự chuyển MAP theo TPS/RPM khi BLE kết nối nếu bật công tắc cho phép; phải xác minh ECU 0x5A rồi mới đổi MAP hiển thị. R4 cho phép RPM=0 để test máy dừng. Ngắt Blink thì ESP32 tự xử lý. Chỉ REDLEO 9.1x/9.2x; MAP phun/lửa phải an toàn.</div>',
 '<div class="settingsGrid tuneSettingsGrid">'+fields+'</div>',
-'<div class="tuneSettingHelp" style="color:#ffc37c">RPM = 0 chỉ để TEST khi máy dừng, khóa điện bật. Thử xong đặt lại ngưỡng RPM an toàn trước khi chạy xe.</div>',
+'<div class="tuneSettingHelp" style="color:#ffc37c">RPM = 0 chỉ để TEST khi máy dừng, khóa điện bật. Thử xong đặt lại ngưỡng RPM an toàn trước khi chạy xe. Chế độ xung ga thử nghiệm: MAP tăng tốc có thể trả MAP thường sau thời gian GIỮ nếu TPS dưới 40% và RPM gần ổn định; nhả hết ga có thể trả sớm trong khoảng 250ms. MAP thường phải được hiệu chỉnh an toàn cho tải ổn định trước khi thử với ECU.</div>',
 '<div class="toolrow" style="margin-top:8px">',
 '<button type="button" id="accS3UseTps">LẤY TPS ĐÃ HỌC</button>',
 '<button type="button" id="accS3Read" class="primary">ĐỌC TỪ ESP32</button>',
@@ -239,6 +239,31 @@ function paint(s){
 // Optional client-side controller: the S3 R3 keeps autonomous UART OFF
 // while BLE is linked, so Blink itself uses the same stored TPS/RPM thresholds.
 // Only a fresh verified ECU 0x5A may authorize an on-screen MAP change.
+// Pulse boost: keep MAP2 for sustained/high demand, but release a verified
+// short acceleration pulse once moderate TPS and RPM have settled.
+function accelTpsSteady(samples,now,tps,rpm,highTps){
+ if(tps>Math.min(40,highTps-5))return false;
+ let loT=tps,hiT=tps,loR=rpm,hiR=rpm,covered=false;
+ for(let i=samples.length-1;i>=0;i--){
+   const p=samples[i],age=now-p.t;
+   if(age<0)return false;
+   if(age>950)break;
+   loT=Math.min(loT,p.tps);hiT=Math.max(hiT,p.tps);
+   loR=Math.min(loR,p.rpm);hiR=Math.max(hiR,p.rpm);
+   if(age>=500)covered=true;
+ }
+ return covered&&hiT-loT<=2&&hiR-loR<=250;
+}
+function accelReturnReason(cfg,now,tps,rpm,boostSince,backSince,samples){
+ const boostAge=now-boostSince,backAge=backSince?now-backSince:0;
+ if(tps<=3&&backSince&&backAge>=250&&boostAge>=250)
+   return 'TPS ĐÓNG GA / TRẢ NHANH';
+ if(boostAge<cfg.Hold)return '';
+ if(backSince&&backAge>=cfg.BackMs)return 'TPS GIẢM / TRẢ MAP';
+ if(accelTpsSteady(samples,now,tps,rpm,cfg.High))
+   return 'GA VÀ RPM ỔN ĐỊNH / TRẢ MAP';
+ return '';
+}
 function resetAutoTrend(){
  autoSamples=[];autoHighSince=0;autoBackSince=0;
  autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;
@@ -314,8 +339,8 @@ function onVerifiedLive(sample){
    const age=now-autoSamples[j].t;
    if(age>=200&&age<=400){prior=autoSamples[j];break;}
  }
- autoSamples.push({t:now,tps:rounded});
- if(autoSamples.length>12)autoSamples.shift();
+ autoSamples.push({t:now,tps:rounded,rpm});
+ if(autoSamples.length>32)autoSamples.shift();
  if(rounded>=cfg.High){if(!autoHighSince)autoHighSince=now;}else autoHighSince=0;
  const fast=prior!==null&&rounded>=cfg.Tps&&rounded-prior.tps>=cfg.Rise;
  const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
@@ -326,10 +351,12 @@ function onVerifiedLive(sample){
    }
  }else{
    if(!autoBoostSince)autoBoostSince=now;
-   if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back){
+   if(rounded<=cfg.Back){
      if(!autoBackSince)autoBackSince=now;
-     if(now-autoBackSince>=cfg.BackMs){target=cfg.Base;reason='TPS GIẢM / TRẢ MAP';}
    }else autoBackSince=0;
+   reason=accelReturnReason(cfg,now,rounded,rpm,
+                            autoBoostSince,autoBackSince,autoSamples);
+   if(reason)target=cfg.Base;
  }
  if(!target||target===physical)return;
  autoTransitionBusy=true;autoCooldownUntil=now+1200;
@@ -340,8 +367,15 @@ function onVerifiedLive(sample){
    if(!result?.verified||result.map!==target)throw new Error('ECU chưa xác minh đúng MAP mới bằng 0x5A.');
    lastSnap={...lastSnap,ecuMap:target,boost:target===cfg.Boost};
    resetAutoTrend();autoLastMap=target;
-   autoCooldownUntil=performance.now()+1200;
-   if(target===cfg.Boost)autoBoostSince=performance.now();
+   const verifiedAt=performance.now();
+   autoCooldownUntil=verifiedAt+(target===cfg.Boost?1200:180);
+   if(target===cfg.Boost)autoBoostSince=verifiedAt;
+   else{
+     // Seed the verified BASE snapshot so a new fast-open pulse is not
+     // discarded merely because the previous switch cleared the history.
+     autoSamples=[{t:verifiedAt,tps:rounded,rpm}];
+     autoLastSampleAt=verifiedAt;
+   }
    const msg='ĐÃ CHUYỂN THẬT · MAP '+physical+' → MAP '+target+
      ' · ECU 0x5A XÁC NHẬN · '+new Date().toLocaleTimeString('vi-VN');
    liveProof(msg);logEvent(msg);
