@@ -867,13 +867,35 @@ static bool accBleCmdReady=false;
 static char accBleCmd[80]={0},accSerialCmd[80]={0};
 static size_t accSerialSize=0;
 static portMUX_TYPE accBleMux=portMUX_INITIALIZER_UNLOCKED;
-struct AccSample {uint32_t ms;uint8_t tps;};
+struct AccSample {uint32_t ms;uint8_t tps;uint16_t rpm;};
 static AccSample accSamples[8]={};
 static uint8_t accNextSample=0,accSampleCount=0;
 
 static void accResetTrends(){
   accNextSample=accSampleCount=0;
   accBackSince=accHighSince=0;
+}
+// A steady throttle alone is not proof of low engine load. Only release a
+// short acceleration pulse at moderate TPS and nearly steady RPM. Full-load
+// TPS continues to use the explicit BACK threshold, not this shortcut.
+static bool accSteadyLightDemand(uint32_t now,uint8_t tps,uint16_t rpm){
+  const uint8_t ceiling=acc.highTps>45U?40U:(uint8_t)(acc.highTps-5U);
+  if(tps>ceiling)return false;
+  uint8_t loT=tps,hiT=tps;
+  uint16_t loR=rpm,hiR=rpm;
+  bool oldEnough=false;
+  for(uint8_t i=0;i<accSampleCount;i++){
+    const int idx=(accNextSample+8-1-i)%8;
+    const AccSample &p=accSamples[idx];
+    const uint32_t age=(uint32_t)(now-p.ms);
+    if(age>950U)break;
+    if(p.tps<loT)loT=p.tps;
+    if(p.tps>hiT)hiT=p.tps;
+    if(p.rpm<loR)loR=p.rpm;
+    if(p.rpm>hiR)hiR=p.rpm;
+    if(age>=500U)oldEnough=true;
+  }
+  return oldEnough&&(uint8_t)(hiT-loT)<=2U&&(uint16_t)(hiR-loR)<=250U;
 }
 static void accReport(const char *s){
   Serial.printf("ACC-S3 %s: active=%u ready=%u boost=%u ecuMap=%u rpm=%u TPS=%.1f%% tps=%umV\n",
@@ -1200,7 +1222,7 @@ static void accLive(const uint8_t *rx,size_t n){
   }
   const bool fastOpen=oldest>=0 && percent>=acc.minTps &&
                        int(percent)-int(accSamples[oldest].tps)>=int(acc.risePts);
-  accSamples[accNextSample]={now,percent};
+  accSamples[accNextSample]={now,percent,rpm};
   accNextSample=(accNextSample+1)%8;
   if(accSampleCount<8)accSampleCount++;
   if(percent>=acc.highTps){
@@ -1212,13 +1234,25 @@ static void accLive(const uint8_t *rx,size_t n){
       accPendingMap=acc.boostMap;
       accReport(fastOpen?"ACC:FAST_TPS":"ACC:HIGH_TPS");
     }
-  }else if((uint32_t)(now-accBoostSince)>=acc.holdMs){
+  }else{
     if(percent<=acc.backTps){
       if(!accBackSince)accBackSince=now;
-      if((uint32_t)(now-accBackSince)>=acc.backMs){
-        accPendingMap=acc.baseMap;accReport("ACC:RELEASE");
-      }
     }else accBackSince=0;
+    const uint32_t boostAge=(uint32_t)(now-accBoostSince);
+    const uint32_t backAge=accBackSince?(uint32_t)(now-accBackSince):0U;
+    // Fully closed throttle may release early, regardless of HOLD and BACKMS,
+    // to allow a second rapid-open pulse without a multi-second dead zone.
+    const bool quickClose=percent<=3U && accBackSince &&
+                          backAge>=250U && boostAge>=250U;
+    const bool normalBack=boostAge>=acc.holdMs && accBackSince &&
+                          backAge>=acc.backMs;
+    const bool steadyBack=boostAge>=acc.holdMs &&
+                          accSteadyLightDemand(now,percent,rpm);
+    if(quickClose||normalBack||steadyBack){
+      accPendingMap=acc.baseMap;
+      accReport(quickClose?"ACC:RELEASE_FAST":
+                steadyBack?"ACC:RELEASE_STEADY":"ACC:RELEASE");
+    }
   }
 }
 static void accOverrideHostLive(uint8_t *tx,size_t n){
@@ -1353,7 +1387,14 @@ static void accTick(){
       accBoost=(target==acc.boostMap);
       accBoostSince=accBoost?millis():0;
       accPendingMap=0;accFailCount=0;accResetTrends();
-      accCooldownUntil=millis()+1200U;
+      // After verified return to BASE, re-arm quickly; the verified 0x5A
+      // response and the next fresh 0xA1 frame remain mandatory.
+      accCooldownUntil=millis()+(accBoost?1200U:180U);
+      if(!accBoost && accLastLiveMs &&
+         (uint32_t)(millis()-accLastLiveMs)<=650U){
+        accSamples[0]={millis(),(uint8_t)lroundf(accLastTps),accLastRpm};
+        accNextSample=accSampleCount=1;
+      }
       accReport(accBoost?"ACC:MAP_BOOST":"ACC:MAP_NORMAL");
     }else{
       if(++accFailCount>=2){accFail("ACC:MAP_VERIFY");return;}
