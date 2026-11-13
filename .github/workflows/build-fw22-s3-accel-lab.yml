@@ -8,6 +8,15 @@ on:
       - 'redleo_real_protocol.js'
       - 'index.html'
       - 'tools/check-acc-s3-protocol.js'
+      - 'tools/check-acc-s3-pulse-optin.js'
+      - '.github/workflows/build-fw22-s3-accel-lab.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'blink_accel_map_settings.js'
+      - 'index.html'
+      - 'tools/check-acc-s3-protocol.js'
+      - 'tools/check-acc-s3-pulse-optin.js'
       - '.github/workflows/build-fw22-s3-accel-lab.yml'
   workflow_dispatch:
 
@@ -56,6 +65,7 @@ jobs:
           node --check blink_accel_map_settings.js
           node --check redleo_real_protocol.js
           node tools/check-acc-s3-protocol.js
+          node tools/check-acc-s3-pulse-optin.js
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32 Arduino core
         run: |

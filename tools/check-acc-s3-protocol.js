@@ -32,9 +32,9 @@ assert(f.includes('getBool("enabled",false)'));
 assert(f.includes('OTA:S3_BLOCKED'));
 assert(f.includes('accZeroCount>=3'));
 assert(/blinkAccelSettingsS3\[hidden\]\{display:none!important\}/.test(app));
-assert(app.includes('const cap=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R2|R3|R4)?$/i;'));
-const capability=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4)?$/i;
-for(const marker of ['PONG FW2.2 ACCS3','PONG FW2.2 ACCS3R2','PONG FW2.2 ACCS3R3','PONG FW2.2 ACCS3R4'])
+assert(app.includes('const cap=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R2|R3|R4|R5)?$/i;'));
+const capability=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4|R5)?$/i;
+for(const marker of ['PONG FW2.2 ACCS3','PONG FW2.2 ACCS3R2','PONG FW2.2 ACCS3R3','PONG FW2.2 ACCS3R4','PONG FW2.2 ACCS3R5'])
  assert(capability.test(marker), 'missing supported S3 bridge '+marker);
 assert(!capability.test('PONG FW2.2'), 'normal FW 2.2 must NOT show ACC');
 assert(app.includes('withBridgeSlot')&&app.includes('beginManualMapIo'));
@@ -46,7 +46,7 @@ assert(app.includes('accS3LastFault')&&app.includes('accS3Log')&&app.includes('r
 assert(app.includes("fatalCodes[s]") && app.includes("'ACC:AUTH_FIRST'"));
 assert(app.includes('CAL_FIRST|AUTH_FIRST|ECU_REJECT|CMD_BUSY|MAP_CONFLICT'), 'explicit ON denial must not wait for ACK timeout');
 assert(app.includes("if(on&&/^PONG\\s+FW2\\.2\\s+ACCS3$/i.test"), 'old unsafe S3 R1 ON must block');
-assert(app.includes('const capR4=/^PONG\\s+FW2\\.2\\s+ACCS3R4$/i;'), 'RPM0 is S3 R4 only');
+assert(app.includes('const capR4=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R4|R5)$/i;'), 'RPM0 is S3 R4 only');
 assert(app.includes("o.Rpm===0&&!capR4.test"), 'reject RPM0 for old firmware');
 assert(f.includes('(rx[20] != 0 && rx[20] != \' \'') && f.includes('rx[33]>3'),'accept padded 9.2 version but require valid bank');
 assert(html.includes("blink_accel_map_settings.js?v="));
@@ -62,6 +62,12 @@ assert(protocol.includes('const rx=await rawExchange(req5(0x5A,0x5A),6000)'), 'p
 assert(protocol.includes('if(sent&&!confirmed)'), 'failed verification stops LIVE to avoid undesired reselect');
 assert(protocol.includes('window.BlinkAccelSettings?.onVerifiedLive'), 'TPS/RPM from checksum-verified LIVE');
 assert(app.includes('onVerifiedLive(sample)')&&app.includes('onManualMapSelection(bank)'), 'client-side autonomous detector with manual override');
+assert(app.includes('id="accS3PulseMode"'), 'experimental UI toggle');
+assert(app.includes("&&(!$('accS3Safety').checked"), 'safety check remains required');
+assert(app.includes("$('accS3PulseMode').checked=false; // experimental pulse mode is NEVER restored automatically"), 'pulse mode default off');
+assert(app.includes('if(pulseEnabled){')&&app.includes("}else if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back)"), 'legacy release path preserved');
+assert(app.includes('accelReturnReason(cfg,now,rounded,rpm'), 'pulse return helper available');
+assert(app.includes('target===cfg.Boost||!pulseEnabled?1200:180'), 'rapid rearm requires experimental opt-in');
 assert(app.includes('accS3FloatKey')&&app.includes('position:fixed!important'), 'fixed corner keypad button and pad');
 assert(app.includes('panel.addEventListener(\'toggle\',syncPadToggle)'), 'keyboard toggle follows settings panel');
 assert(app.includes("padNode.querySelectorAll('[data-acc-key]')"), 'keypad buttons listen on detached floating pad, not panel');
@@ -70,7 +76,7 @@ assert(f.includes('{"ACC RPM ",0,15000,0}'), 'RPM 0 serial command accepted by S
 assert(f.includes('acc.minRpm<=15000&&'), 'RPM 0 saved value valid at boot');
 assert(f.includes('if(acc.minRpm==0 && rpm>10)'), 'RPM 0 bench only: cannot auto-select running motor');
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'), 'same stationary guard in Blink');
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.183'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.184'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
