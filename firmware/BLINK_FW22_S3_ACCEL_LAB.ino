@@ -48,7 +48,7 @@
 
 #ifndef FW_VERSION
 #define FW_VERSION "2.2"
-#define ACC_LAB_BUILD_ID "S3ACC-LAB4"
+#define ACC_LAB_BUILD_ID "S3ACC-LAB5"
 #endif
 
 static const char *OTA_MANIFEST_URL =
@@ -379,7 +379,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
     if (p[0] != RAW_TX_MARKER) {
       String text = raw;
       if (text == "PING") {
-        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R4");
+        notifyStatus(String("PONG FW") + FW_VERSION + " ACCS3R5");
       } else if (text.startsWith("RXPROBE:")) {
         const int requested = text.substring(8).toInt();
         sendRxProbe((uint16_t)requested);
