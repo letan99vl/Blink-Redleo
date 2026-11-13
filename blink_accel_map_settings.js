@@ -63,6 +63,7 @@ panel.innerHTML=[
 '<label class="toggleItem" id="accS3PulseModeRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3PulseMode"><span><b>THỬ NGHIỆM: TRẢ MAP KHI GA ỔN ĐỊNH / NHẢ GA NHANH</b> · TẮT mặc định, chỉ có tác dụng khi Blink kết nối và được phép tự chuyển MAP. TPS/RPM ổn định KHÔNG chứng minh tải động cơ nhẹ. Chỉ thử trên bàn ECU với cả hai MAP đã kiểm chứng an toàn. Ngắt BLE cần firmware S3 R5 để có cùng thuật toán.</span></label>',
 '<div class="tuneSettingHelp" id="accS3ControlHint" style="display:none;color:#ffc37c"></div>',
 '<div class="tuneSettingHelp" id="accS3LiveWatch" role="status" aria-live="off">ECU LIVE 0xA1: chờ TPS và RPM hợp lệ...</div>',
+'<div class="tuneSettingHelp" id="accS3PulseDiag" role="status" aria-live="off">CHẨN ĐOÁN TRẢ MAP: Chế độ thử nghiệm mặc định TẮT. Khi thử, xem dòng này để biết điều kiện chưa đạt.</div>',
 '<div class="tuneSettingHelp" id="accS3LiveProof" role="status">MAP ECU: chờ xác minh · chưa tự chuyển qua Blink.</div>',
 '<div class="tuneSettingHelp" id="accS3LastFault" role="alert" style="display:none;color:#ffb09e;border:1px solid #803d30;border-radius:9px;padding:10px;white-space:pre-wrap"></div>',
 '<details id="accS3Events" style="margin:10px 0"><summary>NHẬT KÝ AUTO ACCEL · LỆNH / CẢNH BÁO</summary><pre id="accS3Log" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace;max-height:230px;overflow:auto;margin:8px 0"></pre><button type="button" id="accS3ClearLog">XÓA NHẬT KÝ</button></details>',
@@ -271,6 +272,30 @@ function accelReturnReason(cfg,now,tps,rpm,boostSince,backSince,samples){
    return 'GA VÀ RPM ỔN ĐỊNH / TRẢ MAP';
  return '';
 }
+// Explain exactly which pulse-release gate is preventing a verified MAP2
+// return. Diagnostic ONLY: this never authorizes an ECU command.
+function accelPulseDiagnostic(cfg,now,tps,rpm,boostSince,backSince,samples){
+ const boostAge=Math.max(0,now-boostSince),backAge=backSince?now-backSince:0;
+ if(tps<=3)return 'TPS đóng '+Math.min(250,Math.round(backAge))+'/250ms để xét trả nhanh.';
+ if(boostAge<cfg.Hold)return 'MAP2 mới giữ '+Math.round(boostAge)+'/'+cfg.Hold+'ms.';
+ if(tps<=cfg.Back)return 'TPS đã về ngưỡng '+cfg.Back+'%; trễ trả '+Math.round(backAge)+'/'+cfg.BackMs+'ms.';
+ const ceiling=Math.min(40,cfg.High-5);
+ if(tps>ceiling)return 'TPS '+tps+'% cao hơn ngưỡng xét ga ổn định '+ceiling+'%.';
+ let loT=tps,hiT=tps,loR=rpm,hiR=rpm,covered=false,oldest=0;
+ for(let i=samples.length-1;i>=0;i--){
+   const p=samples[i],age=now-p.t;
+   if(age<0)break;
+   if(age>950)break;
+   loT=Math.min(loT,p.tps);hiT=Math.max(hiT,p.tps);
+   loR=Math.min(loR,p.rpm);hiR=Math.max(hiR,p.rpm);
+   oldest=Math.max(oldest,age);
+   if(age>=500)covered=true;
+ }
+ if(!covered)return 'Cần >=500ms mẫu LIVE liên tục (mới có '+Math.round(oldest)+'ms).';
+ if(hiT-loT>2)return 'TPS dao động '+(hiT-loT)+' điểm %, giới hạn 2.';
+ if(hiR-loR>250)return 'RPM dao động '+(hiR-loR)+' vòng trong cửa sổ, giới hạn 250.';
+ return 'TPS/RPM đã ổn định. Đang chờ điều kiện xác minh chuyển MAP 1.';
+}
 function resetAutoTrend(){
  autoSamples=[];autoHighSince=0;autoBackSince=0;
  autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;
@@ -295,6 +320,23 @@ function onVerifiedLive(sample){
  if(!Number.isFinite(now)||!Number.isFinite(rpm)||!Number.isFinite(mv)||
     rpm<0||rpm>20000||mv<0||mv>5000)return;
  const cfg=lastSnap,api=w.BlinkRealProtocol;
+ const pulseDiag=$('accS3PulseDiag');
+ if(pulseDiag){
+   const capOk=capR3.test(String(w.blinkBridgeFirmwareStatus||''));
+   const pulseOn=$('accS3PulseMode').checked;
+   const driveOn=$('accS3DriveLive').checked;
+   let reason=!capOk?'Firmware chưa hỗ trợ điều khiển khi kết nối.':
+      !pulseOn?'Chưa bật THỬ NGHIỆM: TRẢ MAP KHI GA ỔN ĐỊNH / NHẢ GA NHANH.':
+      !driveOn?'Chưa bật CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI.':
+      autoManualHold?'Đang dừng vì đã chọn MAP thủ công.':
+      !$('accS3Safety').checked?'Chưa xác nhận an toàn.':
+      !cfg?.enabled?'AUTO ESP32 đang TẮT.':
+      cfg?.fault?'ESP32 báo lỗi AUTO.':
+      !cfg?.ready?'AUTO chưa ARMED (cần xác thực ECU khi máy dừng).':
+      cfg.Rpm===0&&rpm>10?'RPM=0 chỉ TEST khi máy dừng.':
+      'Đã bật chế độ xung ga; chờ dữ liệu ECU MAP.';
+   pulseDiag.textContent='CHẨN ĐOÁN TRẢ MAP: '+reason;
+ }
  // Diagnostic only: show validated ECU 0xA1 measurements even if switching
  // is paused. Do not bypass any MAP-safety gates below.
  if(!lastWatchMs||now-lastWatchMs>=250||now<lastWatchMs){
@@ -352,6 +394,13 @@ function onVerifiedLive(sample){
  const fast=prior!==null&&rounded>=cfg.Tps&&rounded-prior.tps>=cfg.Rise;
  const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
  const pulseEnabled=$('accS3PulseMode').checked===true;
+ if(pulseDiag&&pulseEnabled){
+   const mode=physical===cfg.Boost?'MAP '+cfg.Boost+' (tăng tốc)':'MAP '+cfg.Base+' (thường)';
+   pulseDiag.textContent='CHẨN ĐOÁN TRẢ MAP: '+mode+' · '+
+     (physical===cfg.Boost?
+        accelPulseDiagnostic(cfg,now,rounded,rpm,autoBoostSince,autoBackSince,autoSamples):
+        'Chờ phát hiện TPS mở nhanh hoặc TPS cao duy trì.');
+ }
  let target=0,reason='';
  if(physical===cfg.Base){
    if(now>=autoCooldownUntil&&rpm>=cfg.Rpm&&(fast||high)){
