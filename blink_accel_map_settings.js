@@ -296,6 +296,34 @@ function accelPulseDiagnostic(cfg,now,tps,rpm,boostSince,backSince,samples){
  if(hiR-loR>250)return 'RPM dao động '+(hiR-loR)+' vòng trong cửa sổ, giới hạn 250.';
  return 'TPS/RPM đã ổn định. Đang chờ điều kiện xác minh chuyển MAP 1.';
 }
+// In opt-in pulse mode, a fast 0% -> 30% reopen can finish BEFORE the
+// first 200ms sample arrives. The newest 200-400ms reference may already
+// read 30%, so compare the lowest verified reference in that same window.
+// Preserve original one-reference behavior outside experimental pulse mode.
+function accelLowestTpsReference(samples,now){
+ let reference=null;
+ for(let j=samples.length-1;j>=0;j--){
+   const p=samples[j],age=now-p.t;
+   if(age>400)break;
+   if(age>=200&&age<=400&&(!reference||p.tps<reference.tps))
+     reference=p;
+ }
+ return reference;
+}
+function accelPulseReopenDiagnostic(cfg,now,tps,rpm,cooldownUntil,samples,highSince){
+ const wait=Math.max(0,Math.ceil(cooldownUntil-now));
+ if(wait>0)return 'MAP1: chờ '+wait+'ms khóa tái kích hoạt sau xác minh 0x5A.';
+ if(rpm<cfg.Rpm)return 'MAP1: RPM '+Math.round(rpm)+' thấp hơn ngưỡng '+cfg.Rpm+'.';
+ if(tps<cfg.Tps)return 'MAP1: TPS '+tps+'% chưa đạt '+cfg.Tps+'%.';
+ const ref=accelLowestTpsReference(samples,now);
+ if(ref){
+   const delta=tps-ref.tps;
+   if(delta>=cfg.Rise)return 'MAP1: đã có xung TPS +'+delta+' điểm %, đang xét lệnh ECU.';
+   return 'MAP1: TPS tăng '+delta+'/'+cfg.Rise+' điểm % trong cửa sổ 200-400ms.';
+ }
+ if(highSince)return 'MAP1: chờ TPS '+cfg.High+'% duy trì '+cfg.Dwell+'ms hoặc mẫu mở nhanh.';
+ return 'MAP1: chưa có mẫu TPS đối chiếu 200-400ms; cú vặn quá nhanh có thể bị bỏ lỡ nếu LIVE gián đoạn.';
+}
 function resetAutoTrend(){
  autoSamples=[];autoHighSince=0;autoBackSince=0;
  autoLastSampleAt=0;autoBoostSince=0;autoLastMap=0;
@@ -391,15 +419,17 @@ function onVerifiedLive(sample){
  autoSamples.push({t:now,tps:rounded,rpm});
  if(autoSamples.length>32)autoSamples.shift();
  if(rounded>=cfg.High){if(!autoHighSince)autoHighSince=now;}else autoHighSince=0;
- const fast=prior!==null&&rounded>=cfg.Tps&&rounded-prior.tps>=cfg.Rise;
- const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
  const pulseEnabled=$('accS3PulseMode').checked===true;
+ const riseReference=pulseEnabled?accelLowestTpsReference(autoSamples,now):prior;
+ const fast=riseReference!==null&&rounded>=cfg.Tps&&rounded-riseReference.tps>=cfg.Rise;
+ const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
  if(pulseDiag&&pulseEnabled){
    const mode=physical===cfg.Boost?'MAP '+cfg.Boost+' (tăng tốc)':'MAP '+cfg.Base+' (thường)';
    pulseDiag.textContent='CHẨN ĐOÁN TRẢ MAP: '+mode+' · '+
      (physical===cfg.Boost?
         accelPulseDiagnostic(cfg,now,rounded,rpm,autoBoostSince,autoBackSince,autoSamples):
-        'Chờ phát hiện TPS mở nhanh hoặc TPS cao duy trì.');
+        accelPulseReopenDiagnostic(cfg,now,rounded,rpm,
+                                   autoCooldownUntil,autoSamples,autoHighSince));
  }
  let target=0,reason='';
  if(physical===cfg.Base){
