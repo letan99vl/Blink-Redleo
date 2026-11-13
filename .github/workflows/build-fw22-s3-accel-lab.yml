@@ -69,7 +69,14 @@ jobs:
         run: |
           arduino-cli config init
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.12
+          # Release asset hosting occasionally resets connections on Actions.
+          for attempt in 1 2 3; do
+            if arduino-cli core install esp32:esp32@3.3.12; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 12
+          done
       - name: Compile S3 ONLY
         run: |
           mkdir -p build-sketch/S3_ACC_LAB build-out
