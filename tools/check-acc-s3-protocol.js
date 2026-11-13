@@ -13,7 +13,7 @@ new vm.Script(app,{filename:'blink_accel_map_settings.js'});
 new vm.Script(protocol,{filename:'redleo_real_protocol.js'});
 assert(f.includes('CONFIG_IDF_TARGET_ESP32S3'));
 assert(f.includes('#define FW_VERSION "2.2"'));
-assert(f.includes('PONG FW')&&f.includes(' " ACCS3R4"'));
+assert(f.includes('PONG FW')&&f.includes(' " ACCS3R5"'));
 assert(f.includes('if(cmd=="ACC GET")'));
 assert(f.includes('accNotifySnapshot()'));
 assert(f.includes('0xB3,1,seq,0')&&f.includes('0xB3,1,seq,1'));
@@ -32,9 +32,9 @@ assert(f.includes('getBool("enabled",false)'));
 assert(f.includes('OTA:S3_BLOCKED'));
 assert(f.includes('accZeroCount>=3'));
 assert(/blinkAccelSettingsS3\[hidden\]\{display:none!important\}/.test(app));
-assert(app.includes('const cap=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R2|R3|R4)?$/i;'));
-const capability=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4)?$/i;
-for(const marker of ['PONG FW2.2 ACCS3','PONG FW2.2 ACCS3R2','PONG FW2.2 ACCS3R3','PONG FW2.2 ACCS3R4'])
+assert(app.includes('const cap=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R2|R3|R4|R5)?$/i;'));
+const capability=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4|R5)?$/i;
+for(const marker of ['PONG FW2.2 ACCS3','PONG FW2.2 ACCS3R2','PONG FW2.2 ACCS3R3','PONG FW2.2 ACCS3R4','PONG FW2.2 ACCS3R5'])
  assert(capability.test(marker), 'missing supported S3 bridge '+marker);
 assert(!capability.test('PONG FW2.2'), 'normal FW 2.2 must NOT show ACC');
 assert(app.includes('withBridgeSlot')&&app.includes('beginManualMapIo'));
@@ -46,7 +46,7 @@ assert(app.includes('accS3LastFault')&&app.includes('accS3Log')&&app.includes('r
 assert(app.includes("fatalCodes[s]") && app.includes("'ACC:AUTH_FIRST'"));
 assert(app.includes('CAL_FIRST|AUTH_FIRST|ECU_REJECT|CMD_BUSY|MAP_CONFLICT'), 'explicit ON denial must not wait for ACK timeout');
 assert(app.includes("if(on&&/^PONG\\s+FW2\\.2\\s+ACCS3$/i.test"), 'old unsafe S3 R1 ON must block');
-assert(app.includes('const capR4=/^PONG\\s+FW2\\.2\\s+ACCS3R4$/i;'), 'RPM0 is S3 R4 only');
+assert(app.includes('const capR4=/^PONG\\s+FW2\\.2\\s+ACCS3(?:R4|R5)$/i;'), 'RPM0 is S3 R4 or R5');
 assert(app.includes("o.Rpm===0&&!capR4.test"), 'reject RPM0 for old firmware');
 assert(f.includes('(rx[20] != 0 && rx[20] != \' \'') && f.includes('rx[33]>3'),'accept padded 9.2 version but require valid bank');
 assert(html.includes("blink_accel_map_settings.js?v="));

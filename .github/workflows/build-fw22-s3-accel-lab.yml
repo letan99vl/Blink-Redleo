@@ -9,6 +9,13 @@ on:
       - 'index.html'
       - 'tools/check-acc-s3-protocol.js'
       - '.github/workflows/build-fw22-s3-accel-lab.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'firmware/BLINK_FW22_S3_ACCEL_LAB.ino'
+      - 'blink_accel_map_settings.js'
+      - 'tools/check-acc-s3-pulse-regression.js'
+      - '.github/workflows/build-fw22-s3-accel-lab.yml'
   workflow_dispatch:
 
 permissions:
@@ -39,7 +46,7 @@ jobs:
           assert 'if(linked)return;' in s
           assert 'accHostVerified=true;' in s
           assert 'ACC:AUTH_FIRST' in s
-          assert ' " ACCS3R4"' in s
+          assert ' " ACCS3R5"' in s
           assert '{"ACC RPM ",0,15000,0}' in s
           assert 'if(acc.minRpm==0 && rpm>10)' in s
           assert "if(deviceConnected && (!accHostVerified || !accIdentityValid))" in s
@@ -56,12 +63,20 @@ jobs:
           node --check blink_accel_map_settings.js
           node --check redleo_real_protocol.js
           node tools/check-acc-s3-protocol.js
+          node tools/check-acc-s3-pulse-regression.js
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32 Arduino core
         run: |
           arduino-cli config init
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.12
+          # Release asset hosting occasionally resets connections on Actions.
+          for attempt in 1 2 3; do
+            if arduino-cli core install esp32:esp32@3.3.12; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 12
+          done
       - name: Compile S3 ONLY
         run: |
           mkdir -p build-sketch/S3_ACC_LAB build-out
