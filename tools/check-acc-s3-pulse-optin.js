@@ -4,12 +4,13 @@
 const fs=require('fs'),assert=require('assert').strict,vm=require('vm');
 const app=fs.readFileSync('blink_accel_map_settings.js','utf8');
 const html=fs.readFileSync('index.html','utf8');
+const protocol=fs.readFileSync('redleo_real_protocol.js','utf8');
 new vm.Script(app);
 const start=app.indexOf('function accelTpsSteady(');
 const end=app.indexOf('function resetAutoTrend()',start);
 assert(start>=0&&end>start);
 const ctx={Math};
-vm.runInNewContext(app.slice(start,end),ctx);
+vm.runInNewContext('const ACC_REARM_MAX_AGE_MS=900;\n'+app.slice(start,end),ctx);
 const {accelTpsSteady,accelReturnReason}=ctx;
 const cfg={Hold:1000,Back:9,BackMs:800,High:60};
 const samples=(a,b,tps,rpm)=>{const z=[];for(let t=a;t<=b;t+=100)z.push({t,tps:tps(t),rpm:rpm(t)});return z;};
@@ -33,8 +34,8 @@ assert(app.includes('else if(pulseEnabled){\n     // Seed verified BASE'));
 assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.186'"));
-assert(html.includes('S3ACC-SECOND-PULSE-BASELINE-20261113'));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.187'"));
+assert(html.includes('S3ACC-VERIFIED-REARM-20261113'));
 assert.equal(typeof ctx.accelLowestTpsReference,'function');
 // Regression: fast reopen from 0% to 30% happens within 40ms. The newest
 // 200-400ms historical sample is already 30% (false negative in PB3.79.185),
@@ -57,7 +58,7 @@ assert.equal(ctx.accelLowestTpsReference([{t:1000,tps:30},{t:1040,tps:30}],1240)
              'steady 30% alone must not look like another opening');
 assert(app.includes("riseReference=pulseEnabled?accelLowestTpsReference(autoSamples,now):prior"),
        'legacy sample selection must remain unchanged when pulse option OFF');
-assert(app.includes('rpm>=cfg.Rpm&&(fast||high)'),
+assert(app.includes('rpm>=cfg.Rpm&&(fast||verifiedReopen||high)'),
        'new pulse evidence must not bypass the RPM gate');
 assert(app.includes('autoCooldownUntil=verifiedAt+(target===cfg.Boost||!pulseEnabled?1200:180)'),
        'new pulse evidence must not bypass cooldown or verified switch');
@@ -78,4 +79,36 @@ assert(ctx.accelPulseDiagnostic(pulseCfg,800,30,3200,100,0,rpmStable).includes('
 const fw=fs.readFileSync('firmware/BLINK_FW22_S3_ACCEL_LAB.ino','utf8');
 assert(fw.includes(' " ACCS3R4"'), 'no experimental R5 firmware deployed with web');
 assert(!fw.includes(' " ACCS3R5"'), 'R5 firmware must remain on lab PR');
-console.log('PASS: PB3.79.186 second TPS pulse correction + diagnostics, explicit opt-in, legacy unchanged, simulation cases, ECU 0x5A guard, firmware R4 retained');
+// Repeated throttle after MAP2->MAP1: 0% was actually observed before the
+// 0x5A handshake, while live sampling temporarily stopped. Preserve its
+// genuine monotonic timestamp briefly, NOT an invented verification timestamp.
+const rearmCfg={Rpm:2500,Tps:10,Rise:7,High:60,Dwell:400};
+const verifiedClosed={t:1000,tps:0,rpm:3100};
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1400,30,verifiedClosed),true);
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1590,30,verifiedClosed),true,
+  'first fresh verified LIVE can recognize reopening after 0x5A');
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1910,30,verifiedClosed),false,
+  'low TPS evidence must expire after 900ms');
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1199,30,verifiedClosed),false,
+  'must not authorize reopening before 200ms');
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1600,6,verifiedClosed),false,
+  'still require minimum TPS');
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1600,30,{t:1000,tps:5}),false,
+  'baseline must be a genuine closed-throttle sample');
+assert.equal(ctx.accelIsVerifiedReopen(rearmCfg,1600,30,null),false,
+  'no low-TPS evidence means no inferred event');
+assert(app.includes("rounded<=3 && verifiedAt>=now"));
+assert(app.includes("verifiedAt-now<=ACC_REARM_MAX_AGE_MS"));
+assert(app.includes("autoRearmLow={t:now,tps:rounded,rpm}"),
+  'sample must retain actual observation timestamp');
+assert(app.includes("const low=pulseEnabled&&physical===cfg.Base?autoRearmLow:null"),
+  'only retain low TPS through the bounded MAP1 handoff gap');
+assert(app.includes("if(now>=autoCooldownUntil&&rpm>=cfg.Rpm&&(fast||verifiedReopen||high))"),
+  'must still honor RPM and cooldown gate');
+assert(protocol.includes("if(ctx&&!ctx.nested)ctx.accelVerifiedResume=true"),
+  'short LIVE resume allowed only on successful 0x5A verification');
+assert(protocol.includes("scheduleLiveResume(ctx?.accelVerifiedResume===true?0:380)"),
+  'ordinary/manual operations retain original 380ms resume delay');
+assert(protocol.includes("if(!sameId||info.short||Number(info.activeMap)!==target)"),
+  'ECU 0x5A identity and MAP must remain verified');
+console.log('PASS: PB3.79.187 real low TPS, bounded post-5A rearm, opt-in guard, 0x5A authority, firmware R4 unchanged');
