@@ -495,6 +495,8 @@ function onVerifiedLive(sample){
         verifiedAt-now<=ACC_REARM_MAX_AGE_MS){
        autoRearmLow={t:now,tps:rounded,rpm};
        autoSamples=[{t:now,tps:rounded,rpm}];
+       logEvent('BLINK: MAP1 ĐÃ XÁC MINH · giữ chứng cứ TPS '+rounded+
+         '% từ LIVE thật ('+Math.round(verifiedAt-now)+'ms trước) tối đa 900ms để xét cú mở ga lại.');
      }
      autoLastSampleAt=verifiedAt;
    }
