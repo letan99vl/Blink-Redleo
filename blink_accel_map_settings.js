@@ -312,13 +312,19 @@ function accelLowestTpsReference(samples,now){
  }
  return reference;
 }
+// A repeated pulse is allowed only from a genuinely observed 0xA1 closed
+// TPS sample, with bounded age; RPM and ECU 0x5A gates are checked by caller.
+function accelIsVerifiedReopen(cfg,now,tps,rearmLow){
+ return !!(rearmLow&&rearmLow.tps<=3&&now>=rearmLow.t&&
+   now-rearmLow.t>=200&&now-rearmLow.t<=ACC_REARM_MAX_AGE_MS&&
+   tps>=cfg.Tps&&tps-rearmLow.tps>=cfg.Rise);
+}
 function accelPulseReopenDiagnostic(cfg,now,tps,rpm,cooldownUntil,samples,highSince,rearmLow){
  const wait=Math.max(0,Math.ceil(cooldownUntil-now));
  if(wait>0)return 'MAP1: chờ '+wait+'ms khóa tái kích hoạt sau xác minh 0x5A.';
  if(rpm<cfg.Rpm)return 'MAP1: RPM '+Math.round(rpm)+' thấp hơn ngưỡng '+cfg.Rpm+'.';
  if(tps<cfg.Tps)return 'MAP1: TPS '+tps+'% chưa đạt '+cfg.Tps+'%.';
- if(rearmLow&&now>=rearmLow.t&&now-rearmLow.t>=200&&
-    now-rearmLow.t<=ACC_REARM_MAX_AGE_MS&&tps-rearmLow.tps>=cfg.Rise)
+ if(accelIsVerifiedReopen(cfg,now,tps,rearmLow))
    return 'MAP1: phát hiện mở ga lại +'+(tps-rearmLow.tps)+
           ' điểm %, từ mẫu TPS đóng đã xác minh trước khi trả MAP1.';
  const ref=accelLowestTpsReference(samples,now);
@@ -433,10 +439,8 @@ function onVerifiedLive(sample){
  if(rounded>=cfg.High){if(!autoHighSince)autoHighSince=now;}else autoHighSince=0;
  const riseReference=pulseEnabled?accelLowestTpsReference(autoSamples,now):prior;
  const fast=riseReference!==null&&rounded>=cfg.Tps&&rounded-riseReference.tps>=cfg.Rise;
- const verifiedReopen=!!(pulseEnabled&&physical===cfg.Base&&autoRearmLow&&
-   now>=autoRearmLow.t&&now-autoRearmLow.t>=200&&
-   now-autoRearmLow.t<=ACC_REARM_MAX_AGE_MS&&rounded>=cfg.Tps&&
-   rounded-autoRearmLow.tps>=cfg.Rise);
+ const verifiedReopen=!!(pulseEnabled&&physical===cfg.Base&&
+   accelIsVerifiedReopen(cfg,now,rounded,autoRearmLow));
  const high=autoHighSince>0&&now-autoHighSince>=cfg.Dwell;
  if(pulseDiag&&pulseEnabled){
    const mode=physical===cfg.Boost?'MAP '+cfg.Boost+' (tăng tốc)':'MAP '+cfg.Base+' (thường)';
