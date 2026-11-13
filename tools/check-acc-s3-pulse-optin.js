@@ -33,8 +33,39 @@ assert(app.includes('else if(pulseEnabled){\n     // Seed verified BASE'));
 assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.185'"));
-assert(html.includes('S3ACC-PULSE-RETURN-DIAG-20261113'));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.186'"));
+assert(html.includes('S3ACC-SECOND-PULSE-BASELINE-20261113'));
+assert.equal(typeof ctx.accelLowestTpsReference,'function');
+// Regression: fast reopen from 0% to 30% happens within 40ms. The newest
+// 200-400ms historical sample is already 30% (false negative in PB3.79.185),
+// but a validated older low TPS remains in the SAME 200-400ms window.
+const reOpen=[{t:1000,tps:0,rpm:3000},{t:1040,tps:30,rpm:3100},
+              {t:1120,tps:30,rpm:3100}];
+const reOpenAt=1240;
+let legacyPrior=null;
+for(let j=reOpen.length-1;j>=0;j--){
+ const age=reOpenAt-reOpen[j].t;
+ if(age>=200&&age<=400){legacyPrior=reOpen[j];break;}
+}
+assert.equal(legacyPrior.tps,30,'old implementation misses this second opening');
+const best=ctx.accelLowestTpsReference(reOpen,reOpenAt);
+assert.equal(best.tps,0,'pulse mode must retain low TPS evidence');
+assert.equal(30-best.tps,30,'second opening crosses configured RISE=7');
+assert.equal(ctx.accelLowestTpsReference(reOpen,1600),null,
+             'must not reuse evidence older than 400ms');
+assert.equal(ctx.accelLowestTpsReference([{t:1000,tps:30},{t:1040,tps:30}],1240).tps,30,
+             'steady 30% alone must not look like another opening');
+assert(app.includes("riseReference=pulseEnabled?accelLowestTpsReference(autoSamples,now):prior"),
+       'legacy sample selection must remain unchanged when pulse option OFF');
+assert(app.includes('rpm>=cfg.Rpm&&(fast||high)'),
+       'new pulse evidence must not bypass the RPM gate');
+assert(app.includes('autoCooldownUntil=verifiedAt+(target===cfg.Boost||!pulseEnabled?1200:180)'),
+       'new pulse evidence must not bypass cooldown or verified switch');
+assert.equal(typeof ctx.accelPulseReopenDiagnostic,'function');
+assert(ctx.accelPulseReopenDiagnostic({Rpm:2500,Tps:10,Rise:7,High:60,Dwell:400},
+                                    1240,30,3000,1180,reOpen,0).includes('xung TPS +30'));
+assert(ctx.accelPulseReopenDiagnostic({Rpm:2500,Tps:10,Rise:7,High:60,Dwell:400},
+                                    1100,30,3000,1180,reOpen,0).includes('khóa tái kích hoạt'));
 assert(app.includes('id="accS3PulseDiag"'), 'live return-gate diagnostic should be visible');
 assert(app.includes('CHẨN ĐOÁN TRẢ MAP:'), 'explain why MAP2 is held');
 assert.equal(typeof ctx.accelPulseDiagnostic,'function');
@@ -47,4 +78,4 @@ assert(ctx.accelPulseDiagnostic(pulseCfg,800,30,3200,100,0,rpmStable).includes('
 const fw=fs.readFileSync('firmware/BLINK_FW22_S3_ACCEL_LAB.ino','utf8');
 assert(fw.includes(' " ACCS3R4"'), 'no experimental R5 firmware deployed with web');
 assert(!fw.includes(' " ACCS3R5"'), 'R5 firmware must remain on lab PR');
-console.log('PASS: PB3.79.185 diagnostic + explicit opt-in, legacy unchanged, simulation cases, ECU 0x5A guard, firmware R4 retained');
+console.log('PASS: PB3.79.186 second TPS pulse correction + diagnostics, explicit opt-in, legacy unchanged, simulation cases, ECU 0x5A guard, firmware R4 retained');
