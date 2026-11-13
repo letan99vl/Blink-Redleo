@@ -5,7 +5,7 @@
 const $=id=>document.getElementById(id);
 const host=$('settingsScreen');
 if(!host)return;
-const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4)?$/i;
+const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R2|R3|R4|R5)?$/i;
 // Existing Blink CSS forces .settings display:block!important; explicitly
 // restore hidden semantics for firmware without the ACCS3 capability.
 const style=document.createElement('style');
@@ -44,9 +44,9 @@ const fields=specs.map(([id,label,range,val],ix)=>'<div class="field"><label for
 panel.innerHTML=[
 '<summary>AUTO ACCEL MAP · ESP32-S3</summary>',
 '<div class="tuneSettingsGroup"><h3 class="tuneSettingsGroupHeading">TỰ CHUYỂN MAP KHI TĂNG GA</h3>',
-'<div class="tuneSettingHelp">S3 R3/R4: Blink tự chuyển MAP theo TPS/RPM khi BLE kết nối nếu bật công tắc cho phép; phải xác minh ECU 0x5A rồi mới đổi MAP hiển thị. R4 cho phép RPM=0 để test máy dừng. Ngắt Blink thì ESP32 tự xử lý. Chỉ REDLEO 9.1x/9.2x; MAP phun/lửa phải an toàn.</div>',
+'<div class="tuneSettingHelp">S3 R3/R4/R5: Blink tự chuyển MAP theo TPS/RPM khi BLE kết nối nếu bật công tắc cho phép; phải xác minh ECU 0x5A rồi mới đổi MAP hiển thị. R4 cho phép RPM=0 để test máy dừng. Ngắt Blink thì ESP32 tự xử lý. Chỉ REDLEO 9.1x/9.2x; MAP phun/lửa phải an toàn.</div>',
 '<div class="settingsGrid tuneSettingsGrid">'+fields+'</div>',
-'<div class="tuneSettingHelp" style="color:#ffc37c">RPM = 0 chỉ để TEST khi máy dừng, khóa điện bật. Thử xong đặt lại ngưỡng RPM an toàn trước khi chạy xe. Chế độ xung ga thử nghiệm: MAP tăng tốc có thể trả MAP thường sau thời gian GIỮ nếu TPS dưới 40% và RPM gần ổn định; nhả hết ga có thể trả sớm trong khoảng 250ms. MAP thường phải được hiệu chỉnh an toàn cho tải ổn định trước khi thử với ECU.</div>',
+'<div class="tuneSettingHelp" style="color:#ffc37c">RPM = 0 chỉ để TEST khi máy dừng, khóa điện bật. Thử xong đặt lại ngưỡng RPM an toàn trước khi chạy xe. Chế độ xung ga thử nghiệm: MAP tăng tốc có thể trả MAP thường sau thời gian GIỮ nếu TPS dưới 40% và RPM gần ổn định; nhả hết ga có thể trả sớm trong khoảng 250ms. MAP thường phải được hiệu chỉnh an toàn cho tải ổn định trước khi thử với ECU; khi ngắt BLE cần firmware ACCS3R5 để có cùng logic.</div>',
 '<div class="toolrow" style="margin-top:8px">',
 '<button type="button" id="accS3UseTps">LẤY TPS ĐÃ HỌC</button>',
 '<button type="button" id="accS3Read" class="primary">ĐỌC TỪ ESP32</button>',
@@ -59,7 +59,7 @@ panel.innerHTML=[
 '<label class="toggleItem" style="margin:10px 0;display:flex;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3Safety"><span>Đã kiểm tra MAP thường/tăng tốc, đánh lửa, giới hạn tua và động cơ đang dừng khi bật.</span></label>',
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
-'<label class="toggleItem" id="accS3LiveControlRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3DriveLive"><span><b>CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI</b> · Chỉ S3 R3/R4. Cần bật thủ công mỗi phiên và xác nhận an toàn.</span></label>',
+'<label class="toggleItem" id="accS3LiveControlRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3DriveLive"><span><b>CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI</b> · Chỉ S3 R3/R4/R5. Cần bật thủ công mỗi phiên và xác nhận an toàn.</span></label>',
 '<div class="tuneSettingHelp" id="accS3ControlHint" style="display:none;color:#ffc37c"></div>',
 '<div class="tuneSettingHelp" id="accS3LiveWatch" role="status" aria-live="off">ECU LIVE 0xA1: chờ TPS và RPM hợp lệ...</div>',
 '<div class="tuneSettingHelp" id="accS3LiveProof" role="status">MAP ECU: chờ xác minh · chưa tự chuyển qua Blink.</div>',
@@ -80,8 +80,8 @@ const ids=specs.map(x=>x[0]);
 let available=false,attached=null,lastSnap=null,hasRead=false,busy=false;
 let ack=null,readPromise=null,parts=new Map(),padField=null,lastTry=0;
 let lastFault=null;const events=[];
-const capR3=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4)$/i;
-const capR4=/^PONG\s+FW2\.2\s+ACCS3R4$/i;
+const capR3=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4|R5)$/i;
+const capR4=/^PONG\s+FW2\.2\s+ACCS3(?:R4|R5)$/i;
 let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
 let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
 let autoLastMap=0,lastWatchMs=0;
@@ -144,7 +144,7 @@ function syncLiveControllerAvailability(){
  if(hint){
    hint.style.display=available&&!canDrive?'block':'none';
    if(available&&!canDrive)hint.textContent='Firmware '+String(w.blinkBridgeFirmwareStatus||'').replace('PONG ','')+
-     ' không cho Blink tự đổi MAP khi đang kết nối BLE. ESP32 chỉ tự chuyển sau khi ngắt Blink và đã ARMED. Muốn đổi MAP trên điện thoại cần S3 R3/R4; RPM=0 cần R4.';
+     ' không cho Blink tự đổi MAP khi đang kết nối BLE. ESP32 chỉ tự chuyển sau khi ngắt Blink và đã ARMED. Muốn đổi MAP trên điện thoại cần S3 R3/R4/R5; RPM=0 cần R4/R5.';
  }
  if(!canDrive&&$('accS3DriveLive').checked){
    $('accS3DriveLive').checked=false;resetAutoTrend();
@@ -455,7 +455,7 @@ function getValues(){
    o[k]=n;
  }
  if(o.Rpm===0&&!capR4.test(String(w.blinkBridgeFirmwareStatus||'')))
-   throw new Error('RPM = 0 cần firmware ESP32-S3 ACCS3R4. R3 trở xuống chỉ nhận RPM từ 1000.');
+   throw new Error('RPM = 0 cần firmware ESP32-S3 ACCS3R4/R5. R3 trở xuống chỉ nhận RPM từ 1000.');
  if(o.Base===o.Boost)throw new Error('Hai MAP phải khác nhau.');
  if(o.Back>=o.Tps)throw new Error('TPS trả về phải thấp hơn TPS kích hoạt.');
  if(o.High<o.Tps)throw new Error('TPS cao phải lớn hơn hoặc bằng TPS kích hoạt.');
@@ -564,7 +564,7 @@ $('accS3DriveLive').onchange=()=>{
  if($('accS3DriveLive').checked&&(!$('accS3Safety').checked||
     !capR3.test(String(w.blinkBridgeFirmwareStatus||'')))){
    $('accS3DriveLive').checked=false;
-   liveProof('Phải có FW ACCS3R3/R4 và đã xác nhận MAP an toàn ở trên.',true);return;
+   liveProof('Phải có FW ACCS3R3/R4/R5 và đã xác nhận MAP an toàn ở trên.',true);return;
  }
  liveProof($('accS3DriveLive').checked?
    'BLINK TỰ CHUYỂN ĐÃ CHỌN · Chờ AUTO ARMED, RPM/TPS hợp lệ.':
