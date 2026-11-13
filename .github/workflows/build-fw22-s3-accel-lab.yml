@@ -46,7 +46,7 @@ jobs:
           assert 'if(linked)return;' in s
           assert 'accHostVerified=true;' in s
           assert 'ACC:AUTH_FIRST' in s
-          assert ' " ACCS3R4"' in s
+          assert ' " ACCS3R5"' in s
           assert '{"ACC RPM ",0,15000,0}' in s
           assert 'if(acc.minRpm==0 && rpm>10)' in s
           assert "if(deviceConnected && (!accHostVerified || !accIdentityValid))" in s
