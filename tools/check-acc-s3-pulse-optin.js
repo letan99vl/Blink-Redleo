@@ -30,7 +30,7 @@ assert(app.includes('if(!canDrive&&$(\'accS3PulseMode\').checked)'));
 assert(app.includes('if(pulseEnabled){'));
 assert(app.includes("}else if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back)"));
 assert(app.includes("autoCooldownUntil=verifiedAt+(target===cfg.Boost||!pulseEnabled?1200:180)"));
-assert(app.includes('else if(pulseEnabled){\n     // Seed verified BASE'));
+assert(app.includes('else if(pulseEnabled){\n     // The prior TPS value came from a real 0xA1 sample'));
 assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
