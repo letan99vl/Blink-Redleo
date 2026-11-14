@@ -66,7 +66,7 @@ assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
 assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.188'"));
-assert(html.includes('S3ACC-VERIFIED-REARM-20261113'));
+assert(html.includes('S3ACC-PULSE-PREFERENCE-R5-CAP-20261114'));
 assert.equal(typeof ctx.accelLowestTpsReference,'function');
 // Regression: fast reopen from 0% to 30% happens within 40ms. The newest
 // 200-400ms historical sample is already 30% (false negative in PB3.79.185),
