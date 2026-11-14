@@ -6861,13 +6861,9 @@ function processAfrPacket(p){
     const userMin=Number(state.cal.afrVoltMin);
     const vMin=Number.isFinite(userMin)?clamp(userMin,0,Math.max(0,vMax-0.01)):0;
     const x=clamp((state.live.afrV-vMin)/(vMax-vMin),0,1);
-    // Preserve Blink's established two-slope sensor curve, but scale both axes
-    // from the user's current voltage/AFR endpoints. No median/EMA/floor.
-    const knee=1.271/2.66;
-    const kneeAfr=afrMin+(afrMax-afrMin)*(3.1/9);
-    state.live.afr=x<=knee
-      ?afrMin+(x/knee)*(kneeAfr-afrMin)
-      :kneeAfr+((x-knee)/(1-knee))*(afrMax-kneeAfr);
+    // SLC Free 2 analog output is linear: map calibrated IO4 MIN/MAX to AFR 10..20.
+    // Do not apply the legacy two-slope curve; it under-reads AFR in midrange.
+    state.live.afr=afrMin+x*(afrMax-afrMin);
     ok=true;
   }else if(Number.isFinite(+p.afr)){
     state.live.afr=+p.afr;ok=true;
