@@ -175,6 +175,12 @@ function syncLiveControllerAvailability(){
  if(!canDrive&&$('accS3PulseMode').checked){
    $('accS3PulseMode').checked=false;resetAutoTrend();
  }
+ if(canDrive&&pulsePreference&&!$('accS3PulseMode').checked){
+   // PONG can reach the status hook before index.html updates firmware status.
+   // Restore only the passive preference after firmware capability is known.
+   // Live ECU MAP switching still requires an explicit per-session opt-in.
+   $('accS3PulseMode').checked=true;resetAutoTrend();
+ }
 }
 function support(on){
  if(available===!!on){syncLiveControllerAvailability();return;}
