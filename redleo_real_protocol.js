@@ -1658,14 +1658,15 @@ async function liveOnce(){
     confirmUserActiveMapSelection(mapNo,liveEpoch,rx);
   }catch(e){if(!/bận/.test(String(e.message||e)))console.warn(TAG,'live',e);}
 }
-// ACCS3R3 ONLY: Blink is the active MAP controller while BLE is attached.
+// ACCS3 R3/R4/R5: Blink is the active MAP controller while BLE is attached.
 // Existing firmware 2.2 and S3 R1/R2 never execute this path. A 0x69/A1 ACK
 // does NOT prove the bank; only a fresh full 0x5A + matching ECU identity does.
 let blinkS3AutoSwitchBusy=false;
 async function switchS3AutoMapVerified(requested){
-  const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4)$/i;
+  const cap=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4|R5)$/i;
   if(!cap.test(String(window.blinkBridgeFirmwareStatus||'')))
-    throw new Error('Chỉ ESP32-S3 ACCS3R3 được tự chuyển MAP khi Blink kết nối.');
+    throw new Error('Tự chuyển MAP khi Blink kết nối cần ESP32-S3 ACCS3R3/R4/R5. Firmware đang báo: '+
+      String(window.blinkBridgeFirmwareStatus||'chưa xác định').slice(0,70));
   const target=Number(requested),from=Number(blinkWireMapBank);
   if(!Number.isInteger(target)||target<1||target>4)
     throw new Error('MAP đích không hợp lệ.');
