@@ -19,13 +19,15 @@
   const blinkSmartIOS=/iPhone|iPad|iPod/i.test(blinkSmartUA)||
     (/Macintosh/i.test(blinkSmartUA)&&Number(navigator.maxTouchPoints)>1);
   const blinkSmartBluefy=blinkSmartIOS&&/Bluefy/i.test(blinkSmartUA);
+  // Native iOS Blink wrapper uses CoreBluetooth and the same SMART engine as Android.
+  const blinkSmartNativeIOS=window.__BLINK_IOS_NATIVE_APP__===true;
   const blinkSmartAndroid=/Android|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
   const blinkSmartChromePC=window.BLINK_WINDOWS_WEB_AFR&&/Chrome\/\d+/i.test(blinkSmartUA)&&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
-  window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
+  window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy||blinkSmartNativeIOS);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
-  // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.188' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.188' : '3.79.188'); // 2026-11-14 PB3.79.188 remembers pulse checkbox only; R3/R4/R5 controller gate aligned; ECU firmware unchanged
+  // Classic Safari/older IPA stay on legacy mode; the new native iOS wrapper opts in explicitly.
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent) && !blinkSmartNativeIOS) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.188' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.188' : '3.79.188'); // 2026-11-14 PB3.79.188 remembers pulse checkbox only; R3/R4/R5 controller gate aligned; ECU firmware unchanged
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -9736,6 +9738,10 @@ async function bkExportFile(name,snapshot,crc){
     window.AndroidBLE.exportBackupJson(filename,text);
     return 'requested-native';
   }
+  if(typeof window.BlinkIOS?.exportBackupJson==='function'){
+    window.BlinkIOS.exportBackupJson(filename,text);
+    return 'requested-native-ios';
+  }
   // Native share sheet is preferable for iOS/Android WebViews. Fall back to
   // standard Blob download (some old IPA wrappers lack an onDownload handler).
   if(typeof File==='function'&&navigator.share&&navigator.canShare){
@@ -10598,15 +10604,16 @@ updateMapControls();
     const src='redleo_real_protocol.js?v='+encodeURIComponent(v)+'&ig='+encodeURIComponent(window.BLINK_ULTRA_PRO1_IGN_REVISION)+'&ig92='+encodeURIComponent(window.BLINK_V92_IGN_REVISION)+'&igpc='+encodeURIComponent(window.BLINK_ORIGINAL_IGN_REVISION)+'&v91comp='+encodeURIComponent(window.BLINK_V91_COMP_REVISION)+'&v9optign='+encodeURIComponent(window.BLINK_V9_OPTION_IGN_EXPECTED_REVISION)+'&optA2='+encodeURIComponent(window.BLINK_OPTIONS_A2_REVISION)+'&optFam='+encodeURIComponent(window.BLINK_OPTIONS_FAMILY_REVISION)+'&autoc='+encodeURIComponent(window.BLINK_AUTOCLUTCH_RELEASE_REVISION)+'&tpsEcu='+encodeURIComponent(window.BLINK_TPS_ECU_REVISION)+'&cb='+Date.now();
     // PB3.79.109: no extra learned-response script. Native correctedFrom is the sole active calculator.
     document.write('<script src="'+src+'"><\/script>');
-    // PB3.79.131: Bluefy web BLE browser opts into calculator; native iOS IPA keeps original behavior.
+    // Bluefy and the new native iOS CoreBluetooth wrapper both load the shared calculators.
     const isiOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
     const isBluefy=/Bluefy/i.test(navigator.userAgent);
-    if(!isiOS||isBluefy)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'&fuelui=FIVE-INPUTS-AFR12-15000RPM-25BAR-20261107"><\/script>');
-    // Load SMART only on supported Chrome PC, Android browser/APK and iOS Bluefy.
+    const isNativeBlinkIOS=window.__BLINK_IOS_NATIVE_APP__===true;
+    if(!isiOS||isBluefy||isNativeBlinkIOS)document.write('<script src="fuel_map_calculator.js?v='+encodeURIComponent(v)+'&fuelui=FIVE-INPUTS-AFR12-15000RPM-25BAR-20261107"><\/script>');
+    // Load SMART on Chrome PC, Android, Bluefy and the opted-in native iOS IPA.
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
     // ACC setup is invisible unless the S3 bridge advertises ACCS3, ACCS3R2 or ACCS3R3.
     // No extra commands or interface changes on legacy firmware.
-    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-PULSE-RECONNECT-CACHE-20261114"><\/script>');
+    if(!isiOS||isBluefy||isNativeBlinkIOS)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-PULSE-RECONNECT-CACHE-20261114"><\/script>');
   })();
 </script>
 </body>
