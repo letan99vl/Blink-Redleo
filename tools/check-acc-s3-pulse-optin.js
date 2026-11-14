@@ -1,6 +1,6 @@
 'use strict';
-// Browser-only feature flag regression: legacy behavior stays default.
-// Lab-only acceleration release logic MUST be explicitly selected each session.
+// Browser preference regression: remember the experimental algorithm choice,
+// never silently resume live ECU map control after reconnect.
 const fs=require('fs'),assert=require('assert').strict,vm=require('vm');
 const app=fs.readFileSync('blink_accel_map_settings.js','utf8');
 const html=fs.readFileSync('index.html','utf8');
@@ -25,7 +25,38 @@ assert.equal(accelReturnReason(cfg,770,0,3000,400,500,p),'TPS ĐÓNG GA / TRẢ 
 assert.equal(accelReturnReason(cfg,1500,9,3000,400,900,p),'');
 assert.equal(accelReturnReason(cfg,1800,9,3000,400,900,p),'TPS GIẢM / TRẢ MAP');
 assert(app.includes('id="accS3PulseMode"'));
-assert(app.includes("$('accS3PulseMode').checked=false; // experimental pulse mode is NEVER restored automatically"));
+// A saved experimental choice may reappear after reconnect / browser restart,
+// but the MAP-control checkbox remains OFF until explicit human action.
+const prefStart=app.indexOf('const ACC_PULSE_PREF_KEY=');
+const prefEnd=app.indexOf('let autoSamples=',prefStart);
+assert(prefStart>=0&&prefEnd>prefStart,'must define isolated persistence helpers');
+function prefSession(localStorage){
+ const scope={w:{localStorage}};
+ vm.runInNewContext(app.slice(prefStart,prefEnd)+
+   '\nthis.getChoice=()=>pulsePreference;this.saveChoice=savePulsePreference;this.loadChoice=readPulsePreference;',scope);
+ return scope;
+}
+const store=new Map();
+const browserStore={
+ getItem:key=>store.has(key)?store.get(key):null,
+ setItem:(key,value)=>store.set(key,String(value))
+};
+const first=prefSession(browserStore);
+assert.equal(first.getChoice(),false,'new browser defaults OFF');
+assert.equal(first.saveChoice(true),true,'user ON persists successfully');
+assert.equal(prefSession(browserStore).getChoice(),true,'choice survives page restart');
+assert.equal(prefSession(browserStore).saveChoice(false),true,'user OFF persists');
+assert.equal(prefSession(browserStore).getChoice(),false,'OFF survives page restart');
+const blocked=prefSession({getItem(){throw Error('private mode')},setItem(){throw Error('private mode')}});
+assert.equal(blocked.getChoice(),false,'storage-blocked browsers fail closed');
+assert.equal(blocked.saveChoice(true),false,'must not claim persistence when storage fails');
+const supportBlock=app.slice(app.indexOf('function support(on)'),app.indexOf('function onStatus(s)'));
+assert(supportBlock.includes("$('accS3DriveLive').checked=false"),'live MAP controller must be OFF per session');
+assert(supportBlock.includes("&&pulsePreference"),'restore saved checkbox for compatible S3 only');
+assert(!supportBlock.includes('savePulsePreference('),'connection state changes must not overwrite saved choice');
+assert(app.includes("savePulsePreference($('accS3PulseMode').checked)"),'user toggle writes preference');
+assert(protocol.includes('ACCS3(?:R3|R4|R5)'), 'protocol R5 capability must match UI');
+assert(protocol.includes("ecuProfile?.key!=='MODERN_V9'"), 'do not bypass unknown ECU profile');
 assert(app.includes('if(!canDrive&&$(\'accS3PulseMode\').checked)'));
 assert(app.includes('if(pulseEnabled){'));
 assert(app.includes("}else if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back)"));
@@ -34,8 +65,8 @@ assert(app.includes('else if(pulseEnabled){\n     // The prior TPS value came fr
 assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.187'"));
-assert(html.includes('S3ACC-VERIFIED-REARM-20261113'));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.188'"));
+assert(html.includes('S3ACC-PULSE-PREFERENCE-R5-CAP-20261114'));
 assert.equal(typeof ctx.accelLowestTpsReference,'function');
 // Regression: fast reopen from 0% to 30% happens within 40ms. The newest
 // 200-400ms historical sample is already 30% (false negative in PB3.79.185),
@@ -111,4 +142,4 @@ assert(protocol.includes("scheduleLiveResume(ctx?.accelVerifiedResume===true?0:3
   'ordinary/manual operations retain original 380ms resume delay');
 assert(protocol.includes("if(!sameId||info.short||Number(info.activeMap)!==target)"),
   'ECU 0x5A identity and MAP must remain verified');
-console.log('PASS: PB3.79.187 real low TPS, bounded post-5A rearm, opt-in guard, 0x5A authority, firmware R4 unchanged');
+console.log('PASS: PB3.79.188 pulse preference survives reconnect, MAP control manual, R5 capability, ECU 0x5A guards');

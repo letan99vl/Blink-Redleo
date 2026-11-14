@@ -25,7 +25,7 @@
   window.BLINK_SMART_TUNE=!!(blinkSmartChromePC||blinkSmartAndroid||blinkSmartBluefy);
   window.BLINK_PC_SMART_TUNE=window.BLINK_SMART_TUNE; // legacy internal bridge alias
   // Native iOS IPA, Windows Edge/Opera, Electron and unrelated browsers stay unchanged.
-  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.187' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.187' : '3.79.187'); // 2026-11-13 PB3.79.187 verified-map handoff rearm; experimental mode OFF by default, S3 firmware unchanged
+  window.BLINK_PB_VERSION = ((/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&Number(navigator.maxTouchPoints)>1)) && !/Bluefy/i.test(navigator.userAgent)) ? '3.79.129' : (window.BLINK_PC_SMART_TUNE ? '3.79.188' : window.BLINK_WINDOWS_WEB_AFR ? '3.79.188' : '3.79.188'); // 2026-11-14 PB3.79.188 remembers pulse checkbox only; R3/R4/R5 controller gate aligned; ECU firmware unchanged
 window.BLINK_AUTO_IDLE_SAVE_REVISION = 'TPS-BELOW-1-2SEC-LIVE-RESUME-20261025';
 window.BLINK_FUEL_WRITE_ISOLATION = 'NORMAL-INJ-VE-VS-AUTO-TUNE-20261025';
 window.BLINK_MANUAL_FUEL_SAVE_REVISION = 'MANUAL-ACK-FAST-AUTO-420-VERIFY-20261025';
@@ -10610,7 +10610,7 @@ updateMapControls();
     if(window.BLINK_PC_SMART_TUNE)document.write('<script src="smart_auto_tuner_pc.js?v='+encodeURIComponent(v)+'&cb='+Date.now()+'"><\/script>');
     // ACC setup is invisible unless the S3 bridge advertises ACCS3, ACCS3R2 or ACCS3R3.
     // No extra commands or interface changes on legacy firmware.
-    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-VERIFIED-REARM-20261113"><\/script>');
+    if(!isiOS||isBluefy)document.write('<script src="blink_accel_map_settings.js?v='+encodeURIComponent(v)+'&accs3=S3ACC-PULSE-PREFERENCE-R5-CAP-20261114"><\/script>');
   })();
 </script>
 </body>

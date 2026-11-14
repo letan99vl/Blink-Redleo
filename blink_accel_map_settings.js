@@ -60,7 +60,7 @@ panel.innerHTML=[
 '<div class="toolrow"><button type="button" id="accS3On" class="good">BẬT AUTO ACCEL</button><button type="button" id="accS3Off" class="danger">TẮT AUTO ACCEL</button></div>',
 '<div class="tuneSettingHelp" id="accS3State" role="status">Đang nhận diện firmware ESP32.</div>',
 '<label class="toggleItem" id="accS3LiveControlRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3DriveLive"><span><b>CHO BLINK TỰ CHUYỂN MAP KHI KẾT NỐI</b> · Chỉ S3 R3/R4/R5. Cần bật thủ công mỗi phiên và xác nhận an toàn.</span></label>',
-'<label class="toggleItem" id="accS3PulseModeRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3PulseMode"><span><b>THỬ NGHIỆM: TRẢ MAP KHI GA ỔN ĐỊNH / NHẢ GA NHANH</b> · TẮT mặc định, chỉ có tác dụng khi Blink kết nối và được phép tự chuyển MAP. TPS/RPM ổn định KHÔNG chứng minh tải động cơ nhẹ. Chỉ thử trên bàn ECU với cả hai MAP đã kiểm chứng an toàn. Ngắt BLE cần firmware S3 R5 để có cùng thuật toán.</span></label>',
+'<label class="toggleItem" id="accS3PulseModeRow" style="margin:10px 0;display:none;align-items:flex-start;gap:8px"><input type="checkbox" id="accS3PulseMode"><span><b>THỬ NGHIỆM: TRẢ MAP KHI GA ỔN ĐỊNH / NHẢ GA NHANH</b> · Blink ghi nhớ dấu tích trên trình duyệt này sau khi tắt khóa/đóng app. Đây chỉ là lựa chọn thuật toán, KHÔNG tự cấp quyền chuyển MAP: mỗi lần kết nối phải bật riêng CHO BLINK TỰ CHUYỂN MAP và xác nhận an toàn. Với S3 R4, khi ngắt BLE thuật toán mới chưa chạy độc lập. TPS/RPM ổn định KHÔNG chứng minh tải động cơ nhẹ; chỉ thử trên bàn ECU.</span></label>',
 '<div class="tuneSettingHelp" id="accS3ControlHint" style="display:none;color:#ffc37c"></div>',
 '<div class="tuneSettingHelp" id="accS3LiveWatch" role="status" aria-live="off">ECU LIVE 0xA1: chờ TPS và RPM hợp lệ...</div>',
 '<div class="tuneSettingHelp" id="accS3PulseDiag" role="status" aria-live="off">CHẨN ĐOÁN TRẢ MAP: Chế độ thử nghiệm mặc định TẮT. Khi thử, xem dòng này để biết điều kiện chưa đạt.</div>',
@@ -84,6 +84,23 @@ let ack=null,readPromise=null,parts=new Map(),padField=null,lastTry=0;
 let lastFault=null;const events=[];
 const capR3=/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4|R5)$/i;
 const capR4=/^PONG\s+FW2\.2\s+ACCS3(?:R4|R5)$/i;
+// Persist the user's algorithm CHOICE only. Never persist or auto-arm the
+// connected BLE MAP-control permission. One browser's preference is not an
+// ESP32 firmware setting and cannot activate autonomous R4 switching.
+const ACC_PULSE_PREF_KEY='blinkAccS3PulseChoiceV1';
+function readPulsePreference(){
+ try{return w.localStorage?.getItem(ACC_PULSE_PREF_KEY)==='1';}
+ catch(_e){return false;}
+}
+let pulsePreference=readPulsePreference();
+function savePulsePreference(on){
+ pulsePreference=!!on;
+ try{
+   const next=pulsePreference?'1':'0';
+   w.localStorage?.setItem(ACC_PULSE_PREF_KEY,next);
+   return w.localStorage?.getItem(ACC_PULSE_PREF_KEY)===next;
+ }catch(_e){return false;}
+}
 let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
 let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
 let autoLastMap=0,lastWatchMs=0;
@@ -163,8 +180,11 @@ function support(on){
  if(available===!!on){syncLiveControllerAvailability();return;}
  available=!!on;panel.hidden=!available;hasRead=false;lastSnap=null;
  resetAutoTrend();autoManualHold=false;
- $('accS3DriveLive').checked=false; // explicit opt-in each BLE session
- $('accS3PulseMode').checked=false; // experimental pulse mode is NEVER restored automatically
+ $('accS3DriveLive').checked=false; // real ECU MAP control still requires explicit consent each BLE session
+ // A remembered algorithm choice is inert until the user separately enables
+ // connected auto-map control and the ECU is ARMED / identity verified.
+ $('accS3PulseMode').checked=available&&
+   capR3.test(String(w.blinkBridgeFirmwareStatus||''))&&pulsePreference;
  syncLiveControllerAvailability();
  if(!available){
    lastFault=null;const el=$('accS3LastFault');if(el)el.style.display='none';
@@ -704,9 +724,13 @@ $('accS3PulseMode').onchange=()=>{
    liveProof('Chỉ được thử xung ga với S3 R3/R4/R5 và khi đã xác nhận an toàn.',true);
    return;
  }
+ const preferenceSaved=savePulsePreference($('accS3PulseMode').checked);
  liveProof($('accS3PulseMode').checked?
-   'CHẾ ĐỘ XUNG GA THỬ NGHIỆM ĐÃ CHỌN: chờ ECU 0x5A xác minh và AUTO ARMED. Không thử trên đường.':
-   'CHẾ ĐỘ XUNG GA THỬ NGHIỆM ĐÃ TẮT: dùng điều kiện trả MAP cũ.');
+   (preferenceSaved?
+     'ĐÃ GHI NHỚ DẤU TÍCH THỬ NGHIỆM · khi kết nối lại vẫn phải bật riêng quyền Blink tự chuyển MAP.':
+     'ĐÃ BẬT THỬ NGHIỆM nhưng trình duyệt không lưu được lựa chọn, có thể mất khi đóng app.'):
+   (preferenceSaved?'ĐÃ LƯU LỰA CHỌN TẮT THỬ NGHIỆM.':
+     'ĐÃ TẮT THỬ NGHIỆM trong phiên này; trình duyệt không lưu được lựa chọn.'));
  if(lastSnap)paint(lastSnap);
 };
 $('accS3ClearLog').onclick=()=>{

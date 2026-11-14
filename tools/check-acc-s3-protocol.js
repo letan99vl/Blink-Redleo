@@ -68,7 +68,14 @@ assert(protocol.includes('window.BlinkAccelSettings?.onVerifiedLive'), 'TPS/RPM 
 assert(app.includes('onVerifiedLive(sample)')&&app.includes('onManualMapSelection(bank)'), 'client-side autonomous detector with manual override');
 assert(app.includes('id="accS3PulseMode"'), 'experimental UI toggle');
 assert(app.includes("&&(!$('accS3Safety').checked"), 'safety check remains required');
-assert(app.includes("$('accS3PulseMode').checked=false; // experimental pulse mode is NEVER restored automatically"), 'pulse mode default off');
+assert(app.includes("const ACC_PULSE_PREF_KEY='blinkAccS3PulseChoiceV1'"), 'remember pulse checkbox only');
+assert(app.includes("capR3.test(String(w.blinkBridgeFirmwareStatus||''))&&pulsePreference"),
+       'restore remembered pulse choice only on supported active BLE sessions');
+assert(app.includes("$('accS3DriveLive').checked=false; // real ECU MAP control still requires explicit consent each BLE session"),
+       'never restore active ECU control from browser preference');
+assert(protocol.includes('ACCS3(?:R3|R4|R5)'), 'verified map controller accepts compatible S3 R5 LAB');
+assert(!protocol.includes('Chỉ ESP32-S3 ACCS3R3 được tự chuyển MAP'), 'wrong R3-only error removed');
+assert(protocol.includes("ecuProfile?.key!=='MODERN_V9'"), 'ECU compatibility gate remains explicit');
 assert(app.includes('if(pulseEnabled){')&&app.includes("}else if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back)"), 'legacy release path preserved');
 assert(app.includes('accelReturnReason(cfg,now,rounded,rpm'), 'pulse return helper available');
 assert(app.includes('target===cfg.Boost||!pulseEnabled?1200:180'), 'rapid rearm requires experimental opt-in');
@@ -80,7 +87,7 @@ assert(f.includes('{"ACC RPM ",0,15000,0}'), 'RPM 0 serial command accepted by S
 assert(f.includes('acc.minRpm<=15000&&'), 'RPM 0 saved value valid at boot');
 assert(f.includes('if(acc.minRpm==0 && rpm>10)'), 'RPM 0 bench only: cannot auto-select running motor');
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'), 'same stationary guard in Blink');
-assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.187'"));
+assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.188'"));
 assert(html.includes("if(text.startsWith('ACC:'))return;"));
 assert(!html.includes('if(text.startsWith("ACC:"))throw'));
 if(fs.existsSync(root+'/firmware/2.2.ino')){
