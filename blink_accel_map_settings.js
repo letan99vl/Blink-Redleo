@@ -95,8 +95,11 @@ function readPulsePreference(){
 let pulsePreference=readPulsePreference();
 function savePulsePreference(on){
  pulsePreference=!!on;
- try{w.localStorage?.setItem(ACC_PULSE_PREF_KEY,pulsePreference?'1':'0');}
- catch(_e){}
+ try{
+   const next=pulsePreference?'1':'0';
+   w.localStorage?.setItem(ACC_PULSE_PREF_KEY,next);
+   return w.localStorage?.getItem(ACC_PULSE_PREF_KEY)===next;
+ }catch(_e){return false;}
 }
 let autoSamples=[],autoHighSince=0,autoBackSince=0,autoBoostSince=0;
 let autoLastSampleAt=0,autoCooldownUntil=0,autoTransitionBusy=false,autoManualHold=false;
@@ -721,10 +724,13 @@ $('accS3PulseMode').onchange=()=>{
    liveProof('Chỉ được thử xung ga với S3 R3/R4/R5 và khi đã xác nhận an toàn.',true);
    return;
  }
- savePulsePreference($('accS3PulseMode').checked);
+ const preferenceSaved=savePulsePreference($('accS3PulseMode').checked);
  liveProof($('accS3PulseMode').checked?
-   'ĐÃ LƯU DẤU TÍCH THỬ NGHIỆM TRÊN TRÌNH DUYỆT · chờ bật riêng quyền Blink tự chuyển MAP và xác minh ECU. Không thử trên đường.':
-   'CHẾ ĐỘ XUNG GA THỬ NGHIỆM ĐÃ TẮT: dùng điều kiện trả MAP cũ.');
+   (preferenceSaved?
+     'ĐÃ GHI NHỚ DẤU TÍCH THỬ NGHIỆM · khi kết nối lại vẫn phải bật riêng quyền Blink tự chuyển MAP.':
+     'ĐÃ BẬT THỬ NGHIỆM nhưng trình duyệt không lưu được lựa chọn, có thể mất khi đóng app.'):
+   (preferenceSaved?'ĐÃ LƯU LỰA CHỌN TẮT THỬ NGHIỆM.':
+     'ĐÃ TẮT THỬ NGHIỆM trong phiên này; trình duyệt không lưu được lựa chọn.'));
  if(lastSnap)paint(lastSnap);
 };
 $('accS3ClearLog').onclick=()=>{
