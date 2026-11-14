@@ -33,7 +33,7 @@ assert(prefStart>=0&&prefEnd>prefStart,'must define isolated persistence helpers
 function prefSession(localStorage){
  const scope={w:{localStorage}};
  vm.runInNewContext(app.slice(prefStart,prefEnd)+
-   '\\nthis.getChoice=()=>pulsePreference;this.saveChoice=savePulsePreference;this.loadChoice=readPulsePreference;',scope);
+   '\nthis.getChoice=()=>pulsePreference;this.saveChoice=savePulsePreference;this.loadChoice=readPulsePreference;',scope);
  return scope;
 }
 const store=new Map();
