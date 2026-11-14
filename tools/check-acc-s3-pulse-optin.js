@@ -58,6 +58,40 @@ assert(app.includes("savePulsePreference($('accS3PulseMode').checked)"),'user to
 assert(protocol.includes('ACCS3(?:R3|R4|R5)'), 'protocol R5 capability must match UI');
 assert(protocol.includes("ecuProfile?.key!=='MODERN_V9'"), 'do not bypass unknown ECU profile');
 assert(app.includes('if(!canDrive&&$(\'accS3PulseMode\').checked)'));
+assert(app.includes("if(canDrive&&pulsePreference&&!$('accS3PulseMode').checked)"),
+  'late firmware PONG must restore remembered pulse choice without live MAP opt-in');
+assert(app.includes("$('accS3PulseMode').checked=true;resetAutoTrend();"),
+  'restoring the passive choice should clear stale auto samples');
+// Simulate the late-PONG reconnect: saved passive choice is restored only
+// after firmware is identified, while live ECU MAP control stays disabled.
+const availabilityStart=app.indexOf('function syncLiveControllerAvailability(){');
+const availabilityEnd=app.indexOf('function support(on){',availabilityStart);
+assert(availabilityStart>=0&&availabilityEnd>availabilityStart);
+const pulseCheck={checked:false},liveControl={checked:false};
+const pulseRow={style:{}},liveRow={style:{}},hint={style:{},textContent:''};
+const availabilityCtx={
+  available:true,
+  capR3:/^PONG\s+FW2\.2\s+ACCS3(?:R3|R4|R5)$/i,
+  pulsePreference:true,
+  w:{blinkBridgeFirmwareStatus:''},
+  $:id=>({accS3PulseMode:pulseCheck,accS3DriveLive:liveControl,
+    accS3PulseModeRow:pulseRow,accS3LiveControlRow:liveRow,
+    accS3ControlHint:hint})[id],
+  resetAutoTrend:()=>{}
+};
+vm.runInNewContext(app.slice(availabilityStart,availabilityEnd),availabilityCtx);
+availabilityCtx.syncLiveControllerAvailability();
+assert.equal(pulseCheck.checked,false,'unknown firmware cannot restore pulse');
+availabilityCtx.w.blinkBridgeFirmwareStatus='PONG FW2.2 ACCS3R4';
+availabilityCtx.syncLiveControllerAvailability();
+assert.equal(pulseCheck.checked,true,'late R4 PONG restores stored pulse choice');
+assert.equal(liveControl.checked,false,'late PONG must never rearm MAP control');
+availabilityCtx.w.blinkBridgeFirmwareStatus='PONG FW2.2';
+availabilityCtx.syncLiveControllerAvailability();
+assert.equal(pulseCheck.checked,false,'unsupported firmware shows pulse OFF');
+availabilityCtx.w.blinkBridgeFirmwareStatus='PONG FW2.2 ACCS3R4';
+availabilityCtx.syncLiveControllerAvailability();
+assert.equal(pulseCheck.checked,true,'supported reconnect restores saved choice again');
 assert(app.includes('if(pulseEnabled){'));
 assert(app.includes("}else if(now-autoBoostSince>=cfg.Hold&&rounded<=cfg.Back)"));
 assert(app.includes("autoCooldownUntil=verifiedAt+(target===cfg.Boost||!pulseEnabled?1200:180)"));
@@ -66,7 +100,7 @@ assert(app.includes('switchS3AutoMapVerified(target)'));
 assert(app.includes('if(cfg.Rpm===0 && rpm>10)'));
 assert(app.includes("!$('accS3Safety').checked"));
 assert(html.includes("window.BLINK_PC_SMART_TUNE ? '3.79.188'"));
-assert(html.includes('S3ACC-PULSE-PREFERENCE-R5-CAP-20261114'));
+assert(html.includes('S3ACC-PULSE-RECONNECT-CACHE-20261114'));
 assert.equal(typeof ctx.accelLowestTpsReference,'function');
 // Regression: fast reopen from 0% to 30% happens within 40ms. The newest
 // 200-400ms historical sample is already 30% (false negative in PB3.79.185),
