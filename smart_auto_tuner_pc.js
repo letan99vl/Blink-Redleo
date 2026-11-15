@@ -1,4 +1,4 @@
-/* Blink TL PB3.79.164 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy.
+/* Blink TL PB3.79.164 | SMART AUTO TUNER | Chrome PC + Android + iOS Bluefy + native iOS IPA.
    Explicit recording and ECU-write actions; no automatic write or firmware changes. */
 (function(root){
 'use strict';
@@ -9,7 +9,8 @@ const bluefy=ios&&/Bluefy/i.test(ua);
 const android=/Android|BLINK-REDLEO-ANDROID/i.test(ua);
 const pc=/Windows NT|Win64|Win32/i.test(ua)&&/Chrome\/\d+/i.test(ua)&&
   !/Edg\/|Edge\/|OPR\/|Opera\/|Electron|BLINK-REDLEO-ANDROID|Bluefy|Mobile|Android|iPhone|iPad/i.test(ua);
-const supported=pc||android||bluefy;
+const nativeIOS=ios&&root.__BLINK_IOS_NATIVE_APP__===true;
+const supported=pc||android||bluefy||nativeIOS;
 const bridge=root.blinkPcSmartBridge,doc=root.document;
 if(!supported||root.BLINK_PC_SMART_TUNE!==true||!bridge||!doc?.getElementById('autoTuneQuickBar'))return;
 const CFG=Object.freeze({traceMs:12000,minLiveSpan:1100,maxGap:650,tpsSpread:0.85,rpmSpread:160,
@@ -129,7 +130,7 @@ const emptyDiagnostics=()=>({afrInvalid:0,afrSpike:0,afrUnstable:0,traceMissing:
 let diagnostics=emptyDiagnostics();
 const note=key=>{if(Object.prototype.hasOwnProperty.call(diagnostics,key))diagnostics[key]++;};
 const readyAnchors=()=>run?Array.from(run.anchors.values()).filter(a=>a.n>=2).length:0;
-let reason='Chưa bật SMART MAP · Chrome PC / Android / Bluefy';
+let reason='Chưa bật SMART MAP · Chrome PC / Android / Bluefy / iOS IPA';
 const clone=m=>m.map(row=>row.slice());
 const fuelSettingsSignature=()=>{
   // A different injector/engine/AFR-scale setting invalidates ALL old VE
