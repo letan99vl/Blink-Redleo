@@ -5,7 +5,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
 <script>
   // BLINK PB VERSION — edit only this value for the next release.
   // Windows desktop browser: the previously blank fourth INJ VE toolbar slot shows a large AFR LIVE reading.
@@ -22,6 +22,9 @@
   // Native iOS Blink wrapper uses CoreBluetooth and the same SMART engine as Android.
   const blinkSmartNativeIOS=window.__BLINK_IOS_NATIVE_APP__===true;
   document.documentElement.classList.toggle('blinkNativeIOSFullscreen',blinkSmartNativeIOS);
+  // Keep old Safari/Bluefy layout unchanged; only native IPA opts in to edge-to-edge viewport.
+  if(blinkSmartNativeIOS)document.querySelector('meta[name="viewport"]')?.setAttribute(
+    'content','width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover');
   const blinkSmartAndroid=/Android|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
   const blinkSmartChromePC=window.BLINK_WINDOWS_WEB_AFR&&/Chrome\/\d+/i.test(blinkSmartUA)&&
     !/Edg\/|Edge\/|OPR\/|Opera\/|Mobile|Android|Electron|BLINK-REDLEO-ANDROID/i.test(blinkSmartUA);
